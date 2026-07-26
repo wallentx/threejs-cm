@@ -21,35 +21,57 @@ function aperture(id, center, size, initiallyOpen = true) {
   return { id, center, size, initiallyOpen };
 }
 
-function frontWallParts(prefix, y, doorOpeningId = null) {
+function frontWallParts(prefix, y, halfH, doorOpeningId = null) {
+  const wallBottom = y - halfH;
+  const wallTop = y + halfH;
+  const lintelHeight = wallTop - (wallBottom + 2.2);
+  const lintelCenterY = wallBottom + 2.2 + lintelHeight * 0.5;
+  const lintelHalfH = lintelHeight * 0.5;
+
+  const doorLintelHeight = wallTop - (wallBottom + 2.1);
+  const doorLintelCenterY = wallBottom + 2.1 + doorLintelHeight * 0.5;
+  const doorLintelHalfH = doorLintelHeight * 0.5;
+
   const result = [
-    part(`${prefix}-left-end`, [-5.1, y, 4.5], [0.9, 1.5, HALF_WALL]),
-    part(`${prefix}-left-inner`, [-1.45, y, 4.5], [0.75, 1.5, HALF_WALL]),
-    part(`${prefix}-right-inner`, [1.45, y, 4.5], [0.75, 1.5, HALF_WALL]),
-    part(`${prefix}-right-end`, [5.1, y, 4.5], [0.9, 1.5, HALF_WALL]),
-    part(`${prefix}-left-window`, [-3.2, y, 4.5], [1, 1.5, HALF_WALL], {
+    // End pieces extend to X = ±6.18 to seal wall corners with side walls
+    part(`${prefix}-left-end`, [-5.19, y, 4.5], [0.99, halfH, HALF_WALL]),
+    part(`${prefix}-left-inner`, [-1.45, y, 4.5], [0.75, halfH, HALF_WALL]),
+    part(`${prefix}-right-inner`, [1.45, y, 4.5], [0.75, halfH, HALF_WALL]),
+    part(`${prefix}-right-end`, [5.19, y, 4.5], [0.99, halfH, HALF_WALL]),
+
+    // Left Window: Wall apron below (0.7m), wall lintel above to storey top, window opening in middle (1.5m)
+    part(`${prefix}-left-window-apron`, [-3.2, wallBottom + 0.35, 4.5], [1, 0.35, HALF_WALL]),
+    part(`${prefix}-left-window-lintel`, [-3.2, lintelCenterY, 4.5], [1, lintelHalfH, HALF_WALL]),
+    part(`${prefix}-left-window`, [-3.2, wallBottom + 1.45, 4.5], [1, 0.75, HALF_WALL], {
       openingId: `${prefix}-window-left-aperture`
     }),
-    part(`${prefix}-right-window`, [3.2, y, 4.5], [1, 1.5, HALF_WALL], {
+
+    // Right Window: Wall apron below (0.7m), wall lintel above to storey top, window opening in middle (1.5m)
+    part(`${prefix}-right-window-apron`, [3.2, wallBottom + 0.35, 4.5], [1, 0.35, HALF_WALL]),
+    part(`${prefix}-right-window-lintel`, [3.2, lintelCenterY, 4.5], [1, lintelHalfH, HALF_WALL]),
+    part(`${prefix}-right-window`, [3.2, wallBottom + 1.45, 4.5], [1, 0.75, HALF_WALL], {
       openingId: `${prefix}-window-right-aperture`
     })
   ];
+
   if (doorOpeningId) {
+    // Door: Wall lintel above door to storey top, door opening below (2.1m)
     result.push(
-      part(`${prefix}-door`, [0, y, 4.5], [0.7, 1.5, HALF_WALL], { openingId: doorOpeningId })
+      part(`${prefix}-door-lintel`, [0, doorLintelCenterY, 4.5], [0.7, doorLintelHalfH, HALF_WALL]),
+      part(`${prefix}-door`, [0, wallBottom + 1.05, 4.5], [0.7, 1.05, HALF_WALL], { openingId: doorOpeningId })
     );
   } else {
-    result.push(part(`${prefix}-center`, [0, y, 4.5], [2.2, 1.5, HALF_WALL]));
+    result.push(part(`${prefix}-center`, [0, y, 4.5], [2.2, halfH, HALF_WALL]));
   }
   return result;
 }
 
-function shellParts(prefix, y, doorOpeningId = null, blocks = null) {
+function shellParts(prefix, y, halfH, doorOpeningId = null, blocks = null) {
   const parts = [
-    ...frontWallParts(prefix, y, doorOpeningId),
-    part(`${prefix}-back`, [0, y, -4.5], [6, 1.5, HALF_WALL]),
-    part(`${prefix}-left`, [-6, y, 0], [4.5, 1.5, HALF_WALL], { rotationY: Math.PI / 2 }),
-    part(`${prefix}-right`, [6, y, 0], [4.5, 1.5, HALF_WALL], { rotationY: Math.PI / 2 })
+    ...frontWallParts(prefix, y, halfH, doorOpeningId),
+    part(`${prefix}-back`, [0, y, -4.5], [6.18, halfH, HALF_WALL]),
+    part(`${prefix}-left`, [-6, y, 0], [4.68, halfH, HALF_WALL], { rotationY: Math.PI / 2 }),
+    part(`${prefix}-right`, [6, y, 0], [4.68, halfH, HALF_WALL], { rotationY: Math.PI / 2 })
   ];
   return blocks ? parts.map(record => ({ ...record, blocks: [...blocks] })) : parts;
 }
@@ -198,7 +220,7 @@ export const FR_HOUSE_12X9_2F = {
       maxHealth: 980,
       resistanceMm: 320,
       supports: ['upper-floor-structure'],
-      colliderParts: shellParts('ground', 1.5, 'front-door-aperture'),
+      colliderParts: shellParts('ground', 1.55, 1.55, 'front-door-aperture'),
       visualStages: stages,
       supportThreshold: 0.6,
       breachHealthFraction: 0.55
@@ -224,7 +246,7 @@ export const FR_HOUSE_12X9_2F = {
       maxHealth: 820,
       resistanceMm: 280,
       supports: ['roof'],
-      colliderParts: shellParts('upper', FLOOR_HEIGHT + 1.5, null, ['projectile']),
+      colliderParts: shellParts('upper', FLOOR_HEIGHT + 1.5, 1.5, null, ['projectile']),
       visualStages: stages,
       supportThreshold: 0.6,
       breachHealthFraction: 0.55

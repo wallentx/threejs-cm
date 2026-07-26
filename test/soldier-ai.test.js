@@ -171,7 +171,7 @@ test('each infantryman owns autonomous movement, health, and attack state', () =
     agent.fireCooldown = 0;
     agent.state = 'OBSERVING';
   });
-  attacker.updateIndividualCombat(1, {
+  attacker.updateIndividualCombat(0.1, {
     opposingUnits: [target],
     spotting,
     combat,
@@ -236,4 +236,85 @@ test('SOMUA S35 cast hull end caps face outward', () => {
 test('right-side camera button strip is absent', async () => {
   const markup = await readFile(new URL('../index.html', import.meta.url), 'utf8');
   assert.doesNotMatch(markup, /mobile-cam-controls|m-cam-in|m-cam-rot-r/);
+});
+
+test('pixeltruppen recover from pinned state across morale tiers out of fire', () => {
+  const squad = new Unit({
+    id: 'recovery_squad',
+    faction: 'french',
+    type: 'infantry_squad',
+    position: new THREE.Vector3(0, 0, 0)
+  });
+  const agent = squad.soldierAI.agents[0];
+  agent.suppression = 85;
+  agent.record.lastSuppression = 85;
+  agent.record.incomingFireTimer = 0;
+
+  // Initial update: PINNED
+  squad.soldierAI.update(0.1, flatTerrain);
+  assert.equal(agent.moraleTier, 'PINNED');
+  assert.equal(agent.state, 'PINNED');
+  assert.equal(agent.stance, 'PRONE');
+
+  // Step 1: Recover to TAKING_COVER (suppression 55 - 75)
+  for (let i = 0; i < 6; i++) squad.soldierAI.update(0.1, flatTerrain);
+  assert.equal(agent.moraleTier, 'TAKING_COVER');
+  assert.equal(agent.stance, 'PRONE');
+
+  // Step 2: Recover to DUCKING (suppression 35 - 55)
+  for (let i = 0; i < 7; i++) squad.soldierAI.update(0.1, flatTerrain);
+  assert.equal(agent.moraleTier, 'DUCKING');
+
+  // Step 3: Recover to CAUTIOUS (suppression 15 - 35)
+  for (let i = 0; i < 8; i++) squad.soldierAI.update(0.1, flatTerrain);
+  assert.equal(agent.moraleTier, 'CAUTIOUS');
+  assert.equal(agent.stance, 'KNEELING');
+
+  // Step 4: Full recovery to READY (suppression < 15)
+  for (let i = 0; i < 10; i++) squad.soldierAI.update(0.1, flatTerrain);
+  assert.equal(agent.moraleTier, 'READY');
+  assert.equal(agent.suppression, 0);
+});
+
+test('morale tiers grant distinct postures and automated reactions', () => {
+  const squad = new Unit({
+    id: 'tier_squad',
+    faction: 'german',
+    type: 'infantry_squad',
+    position: new THREE.Vector3(0, 0, 0)
+  });
+  const agent = squad.soldierAI.agents[0];
+
+  // Tier 1: READY
+  agent.suppression = 5;
+  squad.soldierAI.update(0.1, flatTerrain);
+  assert.equal(agent.moraleTier, 'READY');
+
+  // Tier 2: CAUTIOUS
+  agent.suppression = 25;
+  squad.soldierAI.update(0.1, flatTerrain);
+  assert.equal(agent.moraleTier, 'CAUTIOUS');
+  assert.equal(agent.stance, 'KNEELING');
+
+  // Tier 3: DUCKING
+  agent.suppression = 45;
+  squad.soldierAI.update(0.1, flatTerrain);
+  assert.equal(agent.moraleTier, 'DUCKING');
+
+  // Tier 4: TAKING_COVER
+  agent.suppression = 65;
+  squad.soldierAI.update(0.1, flatTerrain);
+  assert.equal(agent.moraleTier, 'TAKING_COVER');
+
+  // Tier 5: PINNED
+  agent.suppression = 80;
+  squad.soldierAI.update(0.1, flatTerrain);
+  assert.equal(agent.moraleTier, 'PINNED');
+  assert.equal(agent.stance, 'PRONE');
+
+  // Tier 6: ROUTED
+  agent.suppression = 95;
+  squad.soldierAI.update(0.1, flatTerrain);
+  assert.equal(agent.moraleTier, 'ROUTED');
+  assert.equal(agent.state, 'FLEEING');
 });

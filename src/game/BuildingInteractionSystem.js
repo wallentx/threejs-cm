@@ -356,8 +356,28 @@ export class BuildingInteractionSystem {
       return { accepted: false, reason: 'no_available_soldiers', assigned: [] };
     }
 
+    const room = descriptor.rooms.find(r => r.floorId === resolvedFloorId);
+    const roomSlots = room?.slots ?? [];
+    const finalSlots = [];
+    for (let i = 0; i < agents.length; i++) {
+      if (i < roomSlots.length) {
+        finalSlots.push(roomSlots[i]);
+      } else {
+        const offset = (i - roomSlots.length + 1) * 0.4;
+        const angle = (i * 1.5) % (Math.PI * 2);
+        const floorY = roomSlots[0]?.localPosition[1] ?? 0.15;
+        finalSlots.push({
+          id: `${room?.id ?? 'room'}-interior-${i}`,
+          localPosition: [
+            Math.sin(angle) * offset,
+            floorY,
+            Math.cos(angle) * offset
+          ],
+          capacity: 1
+        });
+      }
+    }
     const entrySlots = slotsOnFloor(descriptor, lowerFloorId(descriptor));
-    const finalSlots = slotsOnFloor(descriptor, resolvedFloorId);
     const count = Math.min(agents.length, entrySlots.length, finalSlots.length);
     const sequence = ++this.orderSequence;
     const requests = [];

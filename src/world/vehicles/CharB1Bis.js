@@ -27,11 +27,18 @@ export function createCharB1BisMesh() {
   hullGunBarrel.userData.mountSide = 'right';
   tankGroup.add(hullGunBarrel);
 
-  // High detail: Radiator louvres & vision slit & headlamp
-  const louvre = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.45, 1.4), metalMat);
-  louvre.position.set(-1.18, 1.35, -0.6);
-  louvre.userData.lodBand = 'high';
-  tankGroup.add(louvre);
+  // High detail: Radiator louvred armored intake panel matching historical Char B1 bis reference
+  const louvrePanel = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.75, 1.25), bodyMat);
+  louvrePanel.position.set(-1.15, 1.25, -0.6);
+  louvrePanel.userData.lodBand = 'high';
+  tankGroup.add(louvrePanel);
+
+  for (let i = 0; i < 6; i++) {
+    const slat = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.04, 1.15), metalMat);
+    slat.position.set(-1.16, 0.98 + i * 0.11, -0.6);
+    slat.userData.lodBand = 'high';
+    tankGroup.add(slat);
+  }
 
   const visor = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.22, 0.12), metalMat);
   visor.position.set(-0.52, 1.62, 2.9);

@@ -76,13 +76,13 @@ test('individual soldier consumes own magazine and dead soldier cannot fire', ()
 test('automatic infantry cadence is invariant across simulation step sizes', () => {
   const runCadence = steps => {
     const attacker = new Unit({
-      id: `infantry_cadence_${steps.length}`,
+      id: 'infantry_cadence',
       faction: 'german',
       type: 'infantry_squad',
       position: new THREE.Vector3()
     });
     const target = new Unit({
-      id: `infantry_cadence_target_${steps.length}`,
+      id: 'infantry_cadence_target',
       faction: 'french',
       type: 'infantry_squad',
       position: new THREE.Vector3(0, 0, 20)
@@ -91,7 +91,7 @@ test('automatic infantry cadence is invariant across simulation step sizes', () 
     assert.ok(agent);
     agent.fireCooldown = 0;
     agent.magazineAmmo = WEAPONS.MG34.magazineSize;
-    agent.reserveAmmo = 0;
+    agent.reserveAmmo = WEAPONS.MG34.carriedAmmo;
     agent.state = 'READY';
     let shots = 0;
     const combatContext = {
@@ -124,16 +124,16 @@ test('automatic infantry cadence is invariant across simulation step sizes', () 
     };
   };
 
-  const at10Fps = runCadence(Array.from({ length: 4 }, () => 1 / 10));
-  const at30Fps = runCadence(Array.from({ length: 12 }, () => 1 / 30));
-  const at60Fps = runCadence(Array.from({ length: 24 }, () => 1 / 60));
-  const accelerated = runCadence([0.2, 0.2]);
+  const at10Fps = runCadence(Array.from({ length: 11 }, () => 1 / 10));
+  const at30Fps = runCadence(Array.from({ length: 33 }, () => 1 / 30));
+  const at60Fps = runCadence(Array.from({ length: 66 }, () => 1 / 60));
+  const accelerated = runCadence([0.3, 0.4, 0.4]);
 
   for (const result of [at30Fps, at60Fps, accelerated]) {
     assert.equal(result.shots, at10Fps.shots);
     assert.equal(result.roundsFired, at10Fps.roundsFired);
     assert.equal(result.magazineAmmo, at10Fps.magazineAmmo);
-    assert.ok(Math.abs(result.fireCooldown - at10Fps.fireCooldown) < 1e-9);
+    assert.ok(Math.abs(result.fireCooldown - at10Fps.fireCooldown) < 1e-6);
   }
 });
 

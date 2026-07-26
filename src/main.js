@@ -633,9 +633,13 @@ class Game {
 
       const visibility = this.spotting.getVisibilityProjection('french', this.units);
       this.visibilityProjection = visibility;
-      const visibleUnitIds = new Set(visibility.visibleUnitIds);
+      if (!this.visibleUnitIdSet) this.visibleUnitIdSet = new Set();
+      else this.visibleUnitIdSet.clear();
+      for (let i = 0; i < visibility.visibleUnitIds.length; i++) {
+        this.visibleUnitIdSet.add(visibility.visibleUnitIds[i]);
+      }
       for (const unit of this.units) {
-        if (unit.mesh) unit.mesh.visible = visibleUnitIds.has(unit.id);
+        if (unit.mesh) unit.mesh.visible = this.visibleUnitIdSet.has(unit.id);
       }
       this.cameraManager.update(delta);
       const lodCounts = { high: 0, medium: 0, low: 0 };

@@ -480,6 +480,61 @@ canvas {
   font-weight: 700;
 }
 
+.building-floor-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(20, 24, 28, 0.94);
+  border: 1px solid #4a5d6e;
+  border-radius: 8px;
+  padding: 16px 24px;
+  z-index: 1000;
+  color: #e6ebf0;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  font-family: inherit;
+}
+
+.floor-modal-title {
+  font-weight: 700;
+  font-size: 15px;
+  margin-bottom: 12px;
+  text-align: center;
+  color: #ffd700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.floor-modal-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.btn-floor {
+  background: #2a3644;
+  border: 1px solid #5a6e82;
+  color: #fff;
+  padding: 8px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+  transition: background 0.15s ease;
+}
+
+.btn-floor:hover {
+  background: #3a4a5c;
+}
+
+.btn-floor.btn-cancel {
+  background: #3d2222;
+  border-color: #6e3a3a;
+}
+
+.btn-floor.btn-cancel:hover {
+  background: #542d2d;
+}
+
 .timeline-container {
   display: flex;
   align-items: center;
@@ -490,11 +545,13 @@ canvas {
   font-size: 10px;
 }
 
-#timeline-slider {
-  flex: 1;
-  accent-color: var(--accent-gold);
-  height: 16px;
-  touch-action: manipulation;
+/* Real-Time Mode Control Visibility */
+body[data-play-mode="realtime"] .timeline-container,
+body[data-play-mode="realtime"] #vcr-rewind,
+body[data-play-mode="realtime"] #vcr-back,
+body[data-play-mode="realtime"] #vcr-next,
+body[data-play-mode="realtime"] #btn-go {
+  display: none !important;
 }
 
 .view-toggles {

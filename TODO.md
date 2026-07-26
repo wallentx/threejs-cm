@@ -46,6 +46,7 @@ Status:
 - [ ] Replace provisional new-vehicle ammunition splits, penetration values, and movement rates with cited archival firing tables and vehicle manuals.
 - [ ] Improve infantry tactical AI: cover selection, bounds, spacing, danger areas, fire-and-movement, withdrawal, and casualty response.
   - [x] First environmental-reaction pass: per-soldier incoming-fire source/impact/intensity memory, deterministic shielding-cover scoring, spacing correction, casualty response, inspectable decisions, and rewind-safe state.
+  - [x] Automated 5-tier morale and suppression recovery: READY (normal), CAUTIOUS (crouched scanning, 0.75x pace), DUCKING (low profile, 0.45x pace), TAKING_COVER (reroute to hard cover), PINNED / COWERING (prone head-covered hold), and ROUTED / FLEEING (sprint away from threat origin vector). Base 18 pts/sec out-of-fire recovery with cover (+8 pts/sec) and leadership (+6 pts/sec) bonuses.
   - [ ] Add terrain danger maps, concealment/LOS-aware movement, buddy bounds, fire-and-movement, withdrawal, surrender, and persistent memory of observed threats.
 - [ ] Improve vehicle AI: hull-down positioning, turret-first observation, threat facing, reverse movement, and damaged-vehicle behavior.
 - [ ] Add deterministic movement collision and tactical navigation.

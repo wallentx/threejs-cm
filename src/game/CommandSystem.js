@@ -80,6 +80,22 @@ export class CommandSystem {
       return false;
     } else if (this.activeMode && this.activeMode.startsWith('MOVE_')) {
       const orderType = this.activeMode.replace('MOVE_', '');
+      const buildingId = context.buildingId ?? this.buildingInteraction?.findBuildingAt?.(pointVec3) ?? null;
+      if (!this.isSetupPhase() && this.activeUnit.type === 'infantry_squad') {
+        if (buildingId && this.onBuildingMoveClick) {
+          const handled = this.onBuildingMoveClick(this.activeUnit, pointVec3, buildingId, orderType);
+          if (handled) {
+            this.renderOverlays();
+            return true;
+          }
+        } else if (targetUnit && targetUnit.type === 'vehicle' && targetUnit.capacity > 0 && this.onVehicleMountClick) {
+          const handled = this.onVehicleMountClick(this.activeUnit, targetUnit);
+          if (handled) {
+            this.renderOverlays();
+            return true;
+          }
+        }
+      }
       if (this.isSetupPhase()) {
         const destination = pointVec3.clone();
         destination.y = this.terrain?.getHeightAt(destination.x, destination.z) ?? destination.y;

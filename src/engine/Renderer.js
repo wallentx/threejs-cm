@@ -22,8 +22,10 @@ export class Renderer {
     );
     this.camera.position.set(0, 50, 120);
 
-    // 3. WebGPU renderer with Three.js' built-in WebGL 2 fallback.
+    // 3. WebGPU renderer with WebGL 2 fallback capability.
+    const hasWebGPU = typeof navigator !== 'undefined' && Boolean(navigator.gpu);
     this.graphicsRenderer = new THREE.WebGPURenderer({
+      forceWebGL: !hasWebGPU,
       antialias: true,
       powerPreference: 'high-performance',
       alpha: false
@@ -58,7 +60,28 @@ export class Renderer {
   }
 
   async initialize() {
-    await this.graphicsRenderer.init();
+    try {
+      await this.graphicsRenderer.init();
+    } catch (err) {
+      console.warn('[WARN] WebGPU initialization failed, switching to WebGL2 backend:', err);
+      if (!this.graphicsRenderer.backend?.isWebGLBackend) {
+        this.graphicsRenderer.dispose();
+        const maxPixelRatio = this.qualityTier === 'low' ? 1.25 : 2;
+        this.graphicsRenderer = new THREE.WebGPURenderer({
+          forceWebGL: true,
+          antialias: true,
+          powerPreference: 'high-performance',
+          alpha: false
+        });
+        this.graphicsRenderer.setSize(window.innerWidth, window.innerHeight);
+        this.graphicsRenderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPixelRatio));
+        this.graphicsRenderer.outputColorSpace = THREE.SRGBColorSpace;
+        this.graphicsRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+        this.graphicsRenderer.toneMappingExposure = 0.72;
+        this.container.replaceChildren(this.graphicsRenderer.domElement);
+        await this.graphicsRenderer.init();
+      }
+    }
     // The game owns its animation loop. Preserve the completed frame's metrics
     // until the next game render instead of letting the renderer's internal
     // animation helper clear them between diagnostics samples.

@@ -10,7 +10,12 @@ const DAMAGE_COLORS = Object.freeze({
 function material(color, roughness = 0.9) {
   // House visuals never borrow global material-library entries. Runtime damage
   // and occupied-building fade are therefore local to this one house instance.
-  const result = new THREE.MeshStandardMaterial({ color, roughness, metalness: 0 });
+  const result = new THREE.MeshStandardMaterial({
+    color,
+    roughness,
+    metalness: 0,
+    side: THREE.DoubleSide
+  });
   result.userData.houseVisualMaterial = true;
   return result;
 }
@@ -53,7 +58,7 @@ function applyInteriorFade(object, active) {
   const base = object.userData.baseTransform;
   object.material.opacity = active ? Math.min(base.opacity, 0.26) : base.opacity;
   object.material.transparent = active || base.transparent;
-  // Opaque soldiers must remain visible through a faded shell.  Keeping this
+  // Opaque soldiers must remain visible through a faded shell. Keeping this
   // false also avoids a wall depth-write obscuring an interior firing pose.
   object.material.depthWrite = active ? false : base.depthWrite;
   object.renderOrder = active ? 2 : base.renderOrder;
@@ -101,10 +106,23 @@ function gabledRoof(width, depth, height, overhang = 0.42) {
   const hw = width * 0.5 + overhang;
   const hd = depth * 0.5 + overhang;
   const positions = new Float32Array([
-    -hw, 0, hd, 0, height, hd, 0, height, -hd, -hw, 0, -hd,
-    hw, 0, -hd, 0, height, -hd, 0, height, hd, hw, 0, hd,
-    -hw, 0, hd, hw, 0, hd, 0, height, hd,
-    hw, 0, -hd, -hw, 0, -hd, 0, height, -hd
+    // Left Pitch (2 triangles)
+    -hw, 0, hd,   0, height, hd,   0, height, -hd,
+    -hw, 0, hd,   0, height, -hd, -hw, 0, -hd,
+
+    // Right Pitch (2 triangles)
+    0, height, hd,  hw, 0, hd,   hw, 0, -hd,
+    0, height, hd,  hw, 0, -hd,  0, height, -hd,
+
+    // Front Gable (1 triangle)
+    -hw, 0, hd,  hw, 0, hd,  0, height, hd,
+
+    // Back Gable (1 triangle)
+    hw, 0, -hd,  -hw, 0, -hd,  0, height, -hd,
+
+    // Bottom Eave Cap (2 triangles)
+    -hw, 0, -hd,  hw, 0, -hd,  hw, 0, hd,
+    -hw, 0, -hd,  hw, 0, hd,  -hw, 0, hd
   ]);
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -119,14 +137,23 @@ function houseRoofProfile(descriptor) {
   const bounds = descriptor.bounds;
   const width = bounds.max[0] - bounds.min[0];
   const depth = bounds.max[2] - bounds.min[2];
-  const height = Math.max(1.1, (bounds.max[1] - bounds.min[1]) * 0.34);
+  let wallTopY = 0;
+  for (const section of descriptor.sections) {
+    if (section.kind === 'roof') continue;
+    for (const part of section.colliderParts) {
+      const topY = part.center[1] + part.halfExtents[1];
+      if (topY > wallTopY) wallTopY = topY;
+    }
+  }
+  if (wallTopY === 0) wallTopY = bounds.max[1] * 0.7;
+  const height = Math.max(1.8, Math.min(3.2, (bounds.max[1] - bounds.min[1]) * 0.35));
   return {
     width,
     depth,
     height,
     overhang: 0.42,
     centerX: (bounds.min[0] + bounds.max[0]) * 0.5,
-    centerY: bounds.max[1] - height,
+    centerY: wallTopY,
     centerZ: (bounds.min[2] + bounds.max[2]) * 0.5
   };
 }
@@ -186,11 +213,23 @@ function addOpeningDetail(group, aperture, normal, kind) {
   const [width, height] = aperture.size;
   const alongX = Math.abs(normal?.[0] ?? 0) > Math.abs(normal?.[2] ?? 0);
   const depth = 0.07;
-  const darkness = meshBox(`HouseOpening:${aperture.id}`, alongX ? depth : width, height, alongX ? width : depth, '#16130f');
-  darkness.position.set(x, y, z);
-  darkness.userData = { semantic: 'opening', openingId: aperture.id, kind };
-  group.add(darkness);
-  const frameColor = kind === 'door' ? '#4f3422' : '#ece2c7';
+
+  // Door leaf panel (visible only when door is closed) vs Open window pass-through
+  if (kind === 'door') {
+    const doorLeaf = meshBox(
+      `HouseOpening:${aperture.id}`,
+      alongX ? depth * 0.8 : width * 0.94,
+      height * 0.98,
+      alongX ? width * 0.94 : depth * 0.8,
+      '#4a3220'
+    );
+    doorLeaf.position.set(x, y, z);
+    doorLeaf.userData = { semantic: 'opening', openingId: aperture.id, kind };
+    group.add(doorLeaf);
+  }
+
+  // 3D Frame casing trim around open aperture
+  const frameColor = kind === 'door' ? '#3d281a' : '#d8cbb5';
   const frame = new THREE.Group();
   frame.name = `HouseFrame:${aperture.id}`;
   const rail = (label, w, h, d, dx, dy, dz) => {
@@ -200,13 +239,16 @@ function addOpeningDetail(group, aperture, normal, kind) {
   };
   const half = width * 0.5;
   if (alongX) {
-    rail('OpeningFrameLeft', depth * 2, height + 0.16, depth * 2, 0, 0, -half);
-    rail('OpeningFrameRight', depth * 2, height + 0.16, depth * 2, 0, 0, half);
-    rail('OpeningFrameTop', depth * 2, 0.12, width + 0.16, 0, height * 0.5, 0);
+    rail('OpeningFrameLeft', depth * 2, height + 0.12, depth * 2, 0, 0, -half);
+    rail('OpeningFrameRight', depth * 2, height + 0.12, depth * 2, 0, 0, half);
+    rail('OpeningFrameTop', depth * 2, 0.1, width + 0.12, 0, height * 0.5, 0);
   } else {
-    rail('OpeningFrameLeft', depth * 2, height + 0.16, depth * 2, -half, 0, 0);
-    rail('OpeningFrameRight', depth * 2, height + 0.16, depth * 2, half, 0, 0);
-    rail('OpeningFrameTop', width + 0.16, 0.12, depth * 2, 0, height * 0.5, 0);
+    rail('OpeningFrameLeft', depth * 2, height + 0.12, depth * 2, -half, 0, 0);
+    rail('OpeningFrameRight', depth * 2, height + 0.12, depth * 2, half, 0, 0);
+    rail('OpeningFrameTop', width + 0.12, 0.1, depth * 2, 0, height * 0.5, 0);
+    if (kind === 'window') {
+      rail('OpeningFrameSill', width + 0.2, 0.08, depth * 2.8, 0, -height * 0.5, 0);
+    }
   }
   frame.userData = { semantic: 'opening-frame', openingId: aperture.id, kind };
   group.add(frame);
@@ -332,6 +374,38 @@ function buildCheapShell(descriptor, level, runtime) {
     group.add(sectionGroup);
     sections.set(section.id, sectionGroup);
   }
+  const addCheapOpening = (aperture, normal, kind) => {
+    const [x, y, z] = aperture.center;
+    const [width, height] = aperture.size;
+    const alongX = Math.abs(normal?.[0] ?? 0) > Math.abs(normal?.[2] ?? 0);
+    const color = kind === 'door' ? '#4a3220' : '#1f1c18';
+    // Offset slightly outward from wall face (wall surface is at z = 4.50 or x = 6.00)
+    const offsetX = alongX ? (x > 0 ? 0.01 : -0.01) : 0;
+    const offsetZ = alongX ? 0 : (z > 0 ? 0.01 : -0.01);
+    const panel = meshBox(
+      `HouseCheapOpening:${level}:${aperture.id}`,
+      alongX ? 0.02 : width * 0.94,
+      height * 0.94,
+      alongX ? width * 0.94 : 0.02,
+      color
+    );
+    panel.position.set(x + offsetX, y, z + offsetZ);
+    panel.userData = {
+      semantic: 'opening',
+      openingId: aperture.id,
+      kind,
+      lod: level
+    };
+    group.add(panel);
+  };
+
+  for (const portal of descriptor.portals) {
+    if (portal.aperture) addCheapOpening(portal.aperture, portal.localNormal, portal.kind);
+  }
+  for (const firePort of descriptor.firePorts) {
+    addCheapOpening(firePort.aperture, firePort.localNormal, 'window');
+  }
+
   const roofProfile = houseRoofProfile(descriptor);
   const roof = new THREE.Mesh(
     gabledRoof(roofProfile.width, roofProfile.depth, roofProfile.height, roofProfile.overhang),
@@ -401,8 +475,10 @@ export function createFrenchHouseVisual({ descriptor, runtime, centerX, centerZ,
   root.rotation.y = runtime?.transform?.rotationY ?? 0;
   const width = descriptor.bounds.max[0] - descriptor.bounds.min[0];
   const depth = descriptor.bounds.max[2] - descriptor.bounds.min[2];
+  const foundationWidth = width + 0.36;
+  const foundationDepth = depth + 0.36;
   const foundation = new THREE.Mesh(
-    terrainFoundation({ centerX, centerZ, width, depth, topY: foundationTopY, getHeightAt }),
+    terrainFoundation({ centerX, centerZ, width: foundationWidth, depth: foundationDepth, topY: foundationTopY, getHeightAt }),
     material('#777164')
   );
   foundation.name = 'HouseFoundation';

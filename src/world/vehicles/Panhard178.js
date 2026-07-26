@@ -7,18 +7,18 @@ export function createPanhard178Mesh() {
 
   const bodyMat = setVehicleMaterialSlot(new THREE.MeshStandardMaterial({ color: '#445638', roughness: 0.76, metalness: 0.1 }), 'paint');
   const turretMat = setVehicleMaterialSlot(new THREE.MeshStandardMaterial({ color: '#4c613e', roughness: 0.74, metalness: 0.1 }), 'paint');
-  const rubberMat = setVehicleMaterialSlot(new THREE.MeshStandardMaterial({ color: '#1c1f1b', roughness: 0.95 }), 'rubber');
-  const metalMat = setVehicleMaterialSlot(new THREE.MeshStandardMaterial({ color: '#111512', metalness: 0.85, roughness: 0.35 }), 'metal');
+  const rubberMat = setVehicleMaterialSlot(new THREE.MeshStandardMaterial({ color: '#2a2e28', roughness: 0.85, metalness: 0.05 }), 'rubber');
+  const metalMat = setVehicleMaterialSlot(new THREE.MeshStandardMaterial({ color: '#2b332a', metalness: 0.65, roughness: 0.4 }), 'metal');
 
-  // 1. Core Armored Hull
-  const lowerHull = new THREE.Mesh(new THREE.BoxGeometry(1.85, 0.72, 4.6), bodyMat);
-  lowerHull.position.y = 0.95;
+  // 1. Core Armored Hull (continuous, sealed Y span from 0.45 to 1.84)
+  const lowerHull = new THREE.Mesh(new THREE.BoxGeometry(1.85, 0.88, 4.6), bodyMat);
+  lowerHull.position.y = 0.89;
   lowerHull.castShadow = true;
   lowerHull.userData.lodBand = 'core';
   carGroup.add(lowerHull);
 
-  const upperHull = new THREE.Mesh(new THREE.BoxGeometry(1.72, 0.58, 3.2), bodyMat);
-  upperHull.position.set(0, 1.55, -0.1);
+  const upperHull = new THREE.Mesh(new THREE.BoxGeometry(1.72, 0.64, 4.2), bodyMat);
+  upperHull.position.set(0, 1.48, 0.0);
   upperHull.castShadow = true;
   upperHull.userData.lodBand = 'core';
   carGroup.add(upperHull);
@@ -62,10 +62,10 @@ export function createPanhard178Mesh() {
   // 3. Core Turret & 25mm SA 35 Cannon
   const turretGroup = new THREE.Group();
   turretGroup.name = 'Turret';
-  turretGroup.position.set(0, 1.84, 0.1);
+  turretGroup.position.set(0, 1.76, 0.1);
 
-  const turret = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.75, 0.62, 8), turretMat);
-  turret.position.y = 0.31;
+  const turret = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.75, 0.56, 8), turretMat);
+  turret.position.y = 0.28;
   turret.castShadow = true;
   turret.userData.lodBand = 'core';
   turretGroup.add(turret);

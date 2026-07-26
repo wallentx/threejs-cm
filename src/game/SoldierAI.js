@@ -290,8 +290,8 @@ export class SoldierAI {
         ? 'incoming-fire'
         : soldier.casualtyResponseTimer > 0
           ? 'casualty-response'
-          : null;
-      const threatPosition = soldier.incomingFireTimer > 0
+          : (agent.suppression >= 35 ? 'suppression-reaction' : null);
+      const threatPosition = (soldier.incomingFireTimer > 0 || agent.suppression >= 35)
         ? (
             readPosition(soldier.incomingThreatPosition, scratchThreat)
             ?? fallbackThreatPosition
@@ -350,13 +350,26 @@ export class SoldierAI {
       decision.goal = goalArray;
       soldier.tacticalDecision = decision;
 
+      const threatDir = threatPosition?.isVector3
+        ? new THREE.Vector3().subVectors(threatPosition, agent.position)
+        : null;
+
+      const hasLeaderNearby = this.agents.some(other =>
+        other.isAlive && (other.role === 'LEADER' || other.index === 0)
+        && other.position.distanceTo(agent.position) <= 25
+      );
+
       agent.updateMovement(delta, terrain, {
         anchorMoving: anchorMoving || reactingToEnvironment,
         orderType,
         goal,
         neighbors: this.agents,
         squadPinned: this.unit.morale === 'Pinned' || this.unit.morale === 'Broken',
-        waypointIndex: this.unit.currentWaypointIndex
+        waypointIndex: this.unit.currentWaypointIndex,
+        threatDirection: threatDir,
+        cover,
+        isShielded: cover?.shielded ?? false,
+        hasLeaderNearby
       });
       soldier.lastSuppression = agent.suppression;
       soldier.knownLivingCount = livingCount;

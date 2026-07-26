@@ -3,6 +3,9 @@ import { Minimap } from './Minimap.js';
 import { getWeapon } from '../game/WeaponCatalog.js';
 import { buildVehicleStatusView } from './VehicleStatusPresenter.js';
 
+const scratchPos = new THREE.Vector3();
+const iconOffset = new THREE.Vector3(0, 3.5, 0);
+
 export class UIManager {
   constructor(game) {
     this.game = game;
@@ -20,9 +23,19 @@ export class UIManager {
     this.showHUD = true;
     this.lastHudUpdate = 0;
     this.lastImpactId = null;
+    this.iconPool = new Map();
 
     this.initDOM();
     this.initHotkeys();
+
+    if (this.game.commands) {
+      this.game.commands.onBuildingMoveClick = (unit, pointVec3, buildingId, orderType) => {
+        return this.showFloorSelectorModal(unit, pointVec3, buildingId, orderType);
+      };
+      this.game.commands.onVehicleMountClick = (unit, targetVehicle) => {
+        return this.showVehicleMountModal(unit, targetVehicle);
+      };
+    }
   }
 
   bindClick(id, fn) {
@@ -198,12 +211,8 @@ export class UIManager {
       special: [
         { label: 'HIDE', action: 'HIDE', key: 'H' },
         { label: 'DEPLOY', action: 'DEPLOY', key: 'D' },
-        ...(this.game.selectedUnit?.type === 'infantry_squad'
-          ? [
-              { label: 'ENTER GROUND', mode: 'ENTER_GROUND', key: 'G' },
-              { label: 'ENTER UPPER', mode: 'ENTER_UPPER', key: 'U' },
-              { label: 'EXIT BUILDING', action: 'EXIT_BUILDING', key: 'E' }
-            ]
+        ...(this.game.selectedUnit?.buildingLocation || this.game.selectedUnit?.vehicleLocation
+          ? [{ label: 'DISMOUNT / EXIT', action: 'EXIT_BUILDING', key: 'E' }]
           : [])
       ],
       admin: [
@@ -568,12 +577,18 @@ export class UIManager {
       identity.className = 'shot-record-title';
       identity.textContent = `#${record.id} ${record.shooterId ?? 'unknown'} -> ${record.targetId ?? record.kind}`;
 
+      const range = Number.isFinite(record.rangeMeters) ? record.rangeMeters.toFixed(1) : '0.0';
+      const speed = Number.isFinite(record.impactSpeed) ? record.impactSpeed.toFixed(0) : '0';
+      const flightTime = Number.isFinite(record.flightTime) ? record.flightTime.toFixed(3) : '0.000';
+
       const flight = document.createElement('div');
-      flight.textContent = `${record.weaponId}/${record.ammoId} | ${record.rangeMeters.toFixed(1)} m | ${record.impactSpeed.toFixed(0)} m/s | ${record.flightTime.toFixed(3)} s`;
+      flight.textContent = `${record.weaponId || 'gun'}/${record.ammoId || 'ap'} | ${range} m | ${speed} m/s | ${flightTime} s`;
 
       const vectors = document.createElement('div');
       vectors.className = 'shot-record-vectors';
-      vectors.textContent = `muzzle [${record.muzzlePosition.map(value => value.toFixed(1)).join(', ')}] | impact [${record.impactPosition.map(value => value.toFixed(1)).join(', ')}]`;
+      const mPos = Array.isArray(record.muzzlePosition) ? record.muzzlePosition.map(v => Number.isFinite(v) ? v.toFixed(1) : '0.0').join(', ') : '0, 0, 0';
+      const iPos = Array.isArray(record.impactPosition) ? record.impactPosition.map(v => Number.isFinite(v) ? v.toFixed(1) : '0.0').join(', ') : '0, 0, 0';
+      vectors.textContent = `muzzle [${mPos}] | impact [${iPos}]`;
 
       entry.append(identity, flight, vectors);
 
@@ -581,7 +596,11 @@ export class UIManager {
         const armor = document.createElement('div');
         const outcome = record.penetrated ? 'PENETRATED' : 'STOPPED';
         armor.className = `shot-outcome ${record.penetrated ? 'penetrated' : 'stopped'}`;
-        armor.textContent = `${record.zone} | armor ${record.nominalArmorMm?.toFixed(1)} -> ${record.effectiveArmorMm?.toFixed(1)} mm | pen ${record.penetrationMm?.toFixed(1)} mm | cos ${record.impactCosine?.toFixed(3)} | ${outcome}`;
+        const nominal = Number.isFinite(record.nominalArmorMm) ? record.nominalArmorMm.toFixed(1) : '0.0';
+        const effective = Number.isFinite(record.effectiveArmorMm) ? record.effectiveArmorMm.toFixed(1) : '0.0';
+        const pen = Number.isFinite(record.penetrationMm) ? record.penetrationMm.toFixed(1) : '0.0';
+        const cos = Number.isFinite(record.impactCosine) ? record.impactCosine.toFixed(3) : '1.000';
+        armor.textContent = `${record.zone || 'hull'} | armor ${nominal} -> ${effective} mm | pen ${pen} mm | cos ${cos} | ${outcome}`;
         entry.appendChild(armor);
 
         const crew = document.createElement('div');
@@ -618,27 +637,40 @@ export class UIManager {
     if (!overlay) return;
 
     if (!this.showIcons) {
-      overlay.innerHTML = '';
+      this.iconPool.forEach(el => { el.style.display = 'none'; });
       return;
     }
 
-    overlay.innerHTML = '';
+    const activeIds = new Set();
 
     units.forEach(u => {
       if (u.mesh && !u.mesh.visible) return;
 
-      const pos = u.position.clone().add(new THREE.Vector3(0, 3.5, 0));
-      pos.project(cameraManager.camera);
+      scratchPos.copy(u.position).add(iconOffset);
+      scratchPos.project(cameraManager.camera);
 
-      if (pos.z > 1) return;
+      if (scratchPos.z > 1) return;
 
-      const screenX = (pos.x * 0.5 + 0.5) * window.innerWidth;
-      const screenY = (-(pos.y * 0.5) + 0.5) * window.innerHeight;
+      const screenX = (scratchPos.x * 0.5 + 0.5) * window.innerWidth;
+      const screenY = (-(scratchPos.y * 0.5) + 0.5) * window.innerHeight;
 
-      const iconDiv = document.createElement('div');
-      iconDiv.className = 'unit-floating-icon';
+      activeIds.add(u.id);
+
+      let iconDiv = this.iconPool.get(u.id);
+      if (!iconDiv) {
+        iconDiv = document.createElement('div');
+        iconDiv.className = 'unit-floating-icon';
+        iconDiv.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.game.selectUnit(u);
+        });
+        this.iconPool.set(u.id, iconDiv);
+        overlay.appendChild(iconDiv);
+      }
+
       iconDiv.style.left = `${screenX}px`;
       iconDiv.style.top = `${screenY}px`;
+      iconDiv.style.display = 'block';
 
       const isSelected = this.game.selectedUnit && this.game.selectedUnit.id === u.id;
       const isFrench = u.faction === 'french';
@@ -648,26 +680,29 @@ export class UIManager {
         .map(component => `${component.label}:${component.status}`)
         .join(' · ');
 
-      iconDiv.innerHTML = `
-        <div class="icon-badge ${isFrench ? 'french' : 'german'} ${isSelected ? 'selected' : ''}">
-          ${u.vehicleSpec ? '🛡️' : '⚔️'}
-        </div>
-        <div class="icon-label">${u.name}</div>
-        ${vehicleStatus ? `
-          <div class="vehicle-floating-health ${vehicleStatus.burning ? 'burning' : ''}">
-            <span style="width:${vehicleStatus.health}%"></span>
-            <strong>${vehicleStatus.destroyed ? 'KNOCKED OUT' : `${vehicleStatus.health}%`}</strong>
+      const contentKey = `${isFrench}:${isSelected}:${u.name}:${vehicleStatus ? vehicleStatus.health : 'none'}:${damagedLabels || ''}`;
+      if (iconDiv.dataset.contentKey !== contentKey) {
+        iconDiv.dataset.contentKey = contentKey;
+        iconDiv.innerHTML = `
+          <div class="icon-badge ${isFrench ? 'french' : 'german'} ${isSelected ? 'selected' : ''}">
+            ${u.vehicleSpec ? '🛡️' : '⚔️'}
           </div>
-          ${damagedLabels ? `<div class="vehicle-floating-damage">${damagedLabels}</div>` : ''}
-        ` : ''}
-      `;
+          <div class="icon-label">${u.name}</div>
+          ${vehicleStatus ? `
+            <div class="vehicle-floating-health ${vehicleStatus.burning ? 'burning' : ''}">
+              <span style="width:${vehicleStatus.health}%"></span>
+              <strong>${vehicleStatus.destroyed ? 'KNOCKED OUT' : `${vehicleStatus.health}%`}</strong>
+            </div>
+            ${damagedLabels ? `<div class="vehicle-floating-damage">${damagedLabels}</div>` : ''}
+          ` : ''}
+        `;
+      }
+    });
 
-      iconDiv.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.game.selectUnit(u);
-      });
-
-      overlay.appendChild(iconDiv);
+    this.iconPool.forEach((el, id) => {
+      if (!activeIds.has(id)) {
+        el.style.display = 'none';
+      }
     });
   }
 
@@ -682,6 +717,68 @@ export class UIManager {
     setTimeout(() => {
       toast.remove();
     }, 3500);
+  }
+
+  showFloorSelectorModal(unit, pointVec3, buildingId, orderType = 'MOVE') {
+    const existing = document.getElementById('building-floor-modal');
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'building-floor-modal';
+    modal.className = 'building-floor-modal';
+    modal.innerHTML = `
+      <div class="floor-modal-content">
+        <div class="floor-modal-title">Select Target Floor</div>
+        <div class="floor-modal-buttons">
+          <button id="btn-floor-ground" class="btn-floor">Ground Floor</button>
+          <button id="btn-floor-upper" class="btn-floor">Upper Floor</button>
+          <button id="btn-floor-cancel" class="btn-floor btn-cancel">Cancel</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    const close = () => modal.remove();
+    modal.querySelector('#btn-floor-ground')?.addEventListener('click', () => {
+      close();
+      this.game.commands.onBuildingOrder?.(unit, 'ENTER_GROUND', pointVec3, buildingId);
+      this.showToast('Ordered to Ground Floor', 'info');
+    });
+    modal.querySelector('#btn-floor-upper')?.addEventListener('click', () => {
+      close();
+      this.game.commands.onBuildingOrder?.(unit, 'ENTER_UPPER', pointVec3, buildingId);
+      this.showToast('Ordered to Upper Floor', 'info');
+    });
+    modal.querySelector('#btn-floor-cancel')?.addEventListener('click', close);
+    return true;
+  }
+
+  showVehicleMountModal(unit, targetVehicle) {
+    const existing = document.getElementById('vehicle-mount-modal');
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'vehicle-mount-modal';
+    modal.className = 'building-floor-modal';
+    modal.innerHTML = `
+      <div class="floor-modal-content">
+        <div class="floor-modal-title">Mount Transport</div>
+        <div class="floor-modal-buttons">
+          <button id="btn-mount-confirm" class="btn-floor">Mount ${targetVehicle.name || 'Vehicle'}</button>
+          <button id="btn-mount-cancel" class="btn-floor btn-cancel">Cancel</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    const close = () => modal.remove();
+    modal.querySelector('#btn-mount-confirm')?.addEventListener('click', () => {
+      close();
+      unit.addWaypoint(targetVehicle.position.clone(), 'MOVE');
+      this.showToast(`Mounting ${targetVehicle.name || 'Vehicle'}`, 'info');
+    });
+    modal.querySelector('#btn-mount-cancel')?.addEventListener('click', close);
+    return true;
   }
 
   render(units, cameraManager) {

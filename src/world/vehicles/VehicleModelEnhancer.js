@@ -529,7 +529,7 @@ export function enhanceVehicleModel(root) {
   const primaryHull = findPrimaryHull(root);
   if (!primaryHull) return root;
 
-  if (profile.kind !== 'truck') {
+  if (profile.kind !== 'truck' && !primaryHull.userData.authoredHull && !root.userData.authoredHull) {
     const size = getGeometrySize(primaryHull);
     primaryHull.geometry.dispose();
     primaryHull.geometry = createSectionedHullGeometry(size.z, size.x, size.y, profile.hull);

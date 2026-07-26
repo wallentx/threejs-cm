@@ -247,3 +247,31 @@ test('portrait mobile retains a stable 2 by 2 HUD including the tactical map', a
   assert.match(css, /#panel-team-roster\s+\.vehicle-status\s*\{[^}]*flex:\s*1/s);
   assert.match(css, /\.hud-box\.is-selection-empty\s*>\s*\*\s*\{[^}]*visibility:\s*hidden/s);
 });
+
+test('realtime mode hides WEGO time sliders, step buttons, and GO execution button', async () => {
+  const css = await readFile(new URL('../src/styles/main.css', import.meta.url), 'utf8');
+  assert.match(css, /body\[data-play-mode="realtime"\]\s*\.timeline-container/);
+  assert.match(css, /body\[data-play-mode="realtime"\]\s*#vcr-rewind/);
+  assert.match(css, /body\[data-play-mode="realtime"\]\s*#vcr-back/);
+  assert.match(css, /body\[data-play-mode="realtime"\]\s*#vcr-next/);
+  assert.match(css, /body\[data-play-mode="realtime"\]\s*#btn-go/);
+  assert.match(css, /display:\s*none\s*!important/);
+
+  const dataset = {};
+  const previousDocument = globalThis.document;
+  globalThis.document = {
+    body: { dataset },
+    querySelectorAll: () => [],
+    querySelector: () => null,
+    getElementById: () => null
+  };
+  try {
+    const ui = Object.create(UIManager.prototype);
+    ui.game = { wego: { isPlaying: true } };
+    ui.updatePlayModeDisplay('realtime');
+    assert.equal(dataset.playMode, 'realtime');
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  }
+});
