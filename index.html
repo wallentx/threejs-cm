@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Combat Mission: Battle of France 1940 - WebGL PoC</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&family=Roboto+Mono:ital,wght@0,400;0,700;1,400&family=Cinzel:wght@700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./src/styles/main.css">
+</head>
+<body>
+  <div id="app">
+    <!-- On-Screen Debug & Error Console Overlay -->
+    <div id="debug-log" class="debug-log hidden">
+      <div class="debug-header">
+        <span>LOG CONSOLE</span>
+        <button id="btn-clear-log" style="background:none;border:none;color:#aaa;font-size:10px;cursor:pointer;">Clear</button>
+      </div>
+      <div id="debug-content"></div>
+    </div>
+
+    <!-- 3D Canvas Container -->
+    <div id="canvas-container"></div>
+
+    <!-- Top Status Bar -->
+    <header id="top-bar">
+      <div class="brand">
+        <span class="game-logo">COMBAT MISSION</span>
+        <span class="sub-title">BATTLE OF FRANCE 1940</span>
+        <span class="badge-poc">1940 PoC</span>
+      </div>
+      <div class="phase-container">
+        <div id="phase-badge" class="phase-badge command-phase">COMMAND PHASE</div>
+        <div id="turn-timer" class="turn-timer">TURN 1 [00:60]</div>
+      </div>
+      <div class="top-controls">
+        <button id="btn-fullscreen" class="btn-top highlight" title="Toggle Fullscreen">
+          <span class="icon">⛶</span> <span class="hide-mobile">FULLSCREEN</span>
+        </button>
+        <button id="btn-hud-toggle" class="btn-top" title="Toggle UI HUD">
+          <span class="icon">📺</span> <span class="hide-mobile">HUD</span>
+        </button>
+        <button id="btn-debug-toggle" class="btn-top" title="Toggle Log Console">
+          <span class="icon">🐛</span> <span class="hide-mobile">LOGS</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Overlay Layer for 3D Floating Tactical Icons -->
+    <div id="icon-overlay"></div>
+
+    <!-- Toast Notifications -->
+    <div id="toast-container"></div>
+
+    <!-- Main Game User Interface (Bottom Bar) -->
+    <main id="ui-container">
+      <!-- WEGO Playback & Control Bar -->
+      <div id="wego-bar">
+        <div class="wego-left">
+          <button id="btn-go" class="btn-go" title="Execute Turn (Space)">
+            <span class="go-text">GO!</span>
+          </button>
+          <div class="mode-selector" role="radiogroup" aria-label="Simulation mode">
+            <label><input type="radio" name="playmode" value="wego" checked> WEGO</label>
+            <label><input type="radio" name="playmode" value="realtime"> Real-Time</label>
+          </div>
+        </div>
+
+        <div class="vcr-controls">
+          <button id="vcr-rewind" class="vcr-btn" title="Rewind">⏮</button>
+          <button id="vcr-back" class="vcr-btn" title="Step Back 5s">⏪</button>
+          <button id="vcr-play" class="vcr-btn" title="Play/Pause">⏯</button>
+          <button id="vcr-next" class="vcr-btn" title="Step Forward 5s">⏩</button>
+          <button id="vcr-speed" class="vcr-btn" title="Playback Speed">1x</button>
+        </div>
+
+        <div class="timeline-container">
+          <span id="time-display" class="hide-mobile">00:00 / 00:60</span>
+          <input type="range" id="timeline-slider" min="0" max="60" value="0" step="0.1">
+        </div>
+
+        <div class="view-toggles">
+          <button id="toggle-icons" class="toggle-btn active" title="Toggle Icons">Icons</button>
+          <button id="toggle-paths" class="toggle-btn active" title="Toggle Paths">Paths</button>
+        </div>
+      </div>
+
+      <!-- Main HUD Panel Grid -->
+      <div id="hud-panel">
+        <!-- 1. Unit Info Panel (Left) -->
+        <div id="panel-unit-info" class="hud-box">
+          <div class="box-header">UNIT SOFT FACTORS</div>
+          <div class="unit-card">
+            <div class="unit-flag" id="unit-flag">🇫🇷</div>
+            <div class="unit-text">
+              <div id="unit-name" class="unit-title">French 3e DLM HQ</div>
+              <div id="unit-sub" class="unit-subtitle">Lt. de Saint-Germain • Veteran</div>
+            </div>
+          </div>
+          <div class="status-grid">
+            <div class="status-item">
+              <span class="label">MORALE</span>
+              <div class="meter-bar"><div id="meter-morale" class="meter-fill morale-ok" style="width: 100%;"></div></div>
+              <span id="txt-morale" class="status-val">OK</span>
+            </div>
+            <div class="status-item">
+              <span class="label">SUPPRESSION</span>
+              <div class="meter-bar"><div id="meter-suppression" class="meter-fill suppression-none" style="width: 0%;"></div></div>
+              <span id="txt-suppression" class="status-val">NONE</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. Squad Roster Panel (Center Left) -->
+        <div id="panel-team-roster" class="hud-box">
+          <div class="box-header">SQUAD ROSTER & WEAPONS</div>
+          <div id="roster-grid" class="roster-grid"></div>
+          <div class="ammo-inventory">
+            <span class="ammo-tag">AMMO:</span>
+            <span id="ammo-rifle" class="ammo-count">MAS-36: 750</span>
+            <span id="ammo-bar" class="ammo-count">FM 24/29: 450</span>
+          </div>
+        </div>
+
+        <!-- 3. Command Panel (Right) -->
+        <div id="panel-commands" class="hud-box">
+          <div class="command-tabs">
+            <button id="tab-move" class="cmd-tab active" data-tab="move">MOVE</button>
+            <button id="tab-combat" class="cmd-tab" data-tab="combat">COMBAT</button>
+            <button id="tab-special" class="cmd-tab" data-tab="special">SPECIAL</button>
+            <button id="tab-admin" class="cmd-tab" data-tab="admin">ADMIN</button>
+          </div>
+          <div id="command-grid" class="command-grid"></div>
+        </div>
+
+        <!-- 4. Mini-map Container -->
+        <div id="panel-minimap" class="hud-box minimap-box hide-mobile">
+          <div class="box-header">TACTICAL MAP</div>
+          <canvas id="minimap-canvas" width="180" height="150"></canvas>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

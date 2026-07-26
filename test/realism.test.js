@@ -1,0 +1,285 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import * as THREE from 'three';
+import { Unit } from '../src/game/Unit.js';
+import { WEAPONS } from '../src/game/WeaponCatalog.js';
+import { VEHICLES } from '../src/game/VehicleCatalog.js';
+import { BallisticsSystem, resolveArmorPenetration } from '../src/game/BallisticsSystem.js';
+import { CombatSystem } from '../src/game/CombatSystem.js';
+
+const flatTerrain = { getHeightAt: () => 0 };
+const sound = {
+  playGunshot() {},
+  playCannon() {},
+  playExplosion() {}
+};
+
+test('weapon catalog owns real cadence, caliber, magazine, reload, and carried ammunition', () => {
+  assert.deepEqual(
+    {
+      cartridge: WEAPONS.MAS36.cartridge,
+      caliber: WEAPONS.MAS36.caliberMm,
+      magazine: WEAPONS.MAS36.magazineSize,
+      rpm: WEAPONS.MAS36.practicalRPM,
+      carried: WEAPONS.MAS36.carriedAmmo
+    },
+    {
+      cartridge: '7.5x54mm French',
+      caliber: 7.5,
+      magazine: 5,
+      rpm: 15,
+      carried: 60
+    }
+  );
+  assert.equal(WEAPONS.FM2429.cyclicRPM, 450);
+  assert.equal(WEAPONS.MG34.magazineSize, 50);
+  assert.equal(WEAPONS.SA35_AP.muzzleVelocity, 660);
+});
+
+test('individual soldier consumes own magazine and dead soldier cannot fire', () => {
+  const attacker = new Unit({
+    id: 'individual_fire',
+    faction: 'french',
+    type: 'infantry_squad',
+    position: new THREE.Vector3(0, 0, 0)
+  });
+  const target = new Unit({
+    id: 'individual_target',
+    faction: 'german',
+    type: 'infantry_squad',
+    position: new THREE.Vector3(0, 0, 20)
+  });
+  const agent = attacker.soldierAI.agents[0];
+  agent.state = 'READY';
+  agent.fireCooldown = 0;
+  agent.magazineAmmo = 2;
+  agent.reserveAmmo = 0;
+  let shots = 0;
+  const context = {
+    opposingUnits: [target],
+    spotting: { checkLOS: (from, to) => ({ clear: true, dist: from.distanceTo(to) }) },
+    combat: { fireWeapon: () => { shots++; return true; } },
+    random: () => 0.34
+  };
+
+  assert.equal(agent.updateCombat(0.1, context), true);
+  assert.equal(agent.magazineAmmo, 1);
+  assert.equal(agent.roundsFired, 1);
+  assert.equal(shots, 1);
+
+  agent.applyDamage(200);
+  agent.fireCooldown = 0;
+  assert.equal(agent.updateCombat(1, context), false);
+  assert.equal(shots, 1);
+});
+
+test('soldier reload time transfers only carried reserve ammunition', () => {
+  const unit = new Unit({
+    id: 'reload_test',
+    faction: 'german',
+    type: 'infantry_squad',
+    position: new THREE.Vector3()
+  });
+  const agent = unit.soldierAI.agents[0];
+  agent.magazineAmmo = 0;
+  agent.reserveAmmo = 3;
+  assert.equal(agent.startReload(), true);
+  assert.equal(agent.reloadTimer, WEAPONS.KAR98K.reloadSeconds);
+  agent.reloadTimer = 0.05;
+  agent.updateMovement(0.1, flatTerrain, {
+    goal: agent.position.clone(),
+    neighbors: unit.soldierAI.agents,
+    anchorMoving: false,
+    orderType: 'QUICK',
+    squadPinned: false,
+    waypointIndex: 0
+  });
+  assert.equal(agent.magazineAmmo, 3);
+  assert.equal(agent.reserveAmmo, 0);
+  assert.equal(agent.reloadTimer, 0);
+});
+
+test('ballistics applies gravity and armor slope instead of magic hit damage', () => {
+  const ballistics = new BallisticsSystem();
+  const projectile = {
+    previousPosition: new THREE.Vector3(),
+    position: new THREE.Vector3(0, 10, 0),
+    velocity: new THREE.Vector3(100, 0, 0),
+    weapon: { dragPerSecond: 0 },
+    distanceTravelled: 0,
+    lifetime: 0
+  };
+  ballistics.integrate(projectile, 1);
+  assert.ok(projectile.position.y < 1);
+  assert.equal(resolveArmorPenetration(WEAPONS.KAR98K, 760, 14.5, 1).penetrated, false);
+  assert.equal(resolveArmorPenetration(WEAPONS.SA35_AP, 660, 30, 1).penetrated, true);
+  assert.equal(resolveArmorPenetration(WEAPONS.SA35_AP, 660, 30, 0.5).penetrated, false);
+});
+
+test('vehicle crew layout controls gun, reload, and movement roles', () => {
+  const somua = new Unit({
+    id: 'crew_s35',
+    faction: 'french',
+    type: 'tank',
+    position: new THREE.Vector3()
+  });
+  const panzer = new Unit({
+    id: 'crew_pz3',
+    faction: 'german',
+    type: 'tank',
+    position: new THREE.Vector3()
+  });
+  assert.equal(somua.roster.length, VEHICLES.SOMUA_S35.crew.length);
+  assert.equal(panzer.roster.length, VEHICLES.PANZER_III_D.crew.length);
+  assert.equal(somua.roster.length, 3);
+  assert.equal(panzer.roster.length, 5);
+
+  const somuaGunner = somua.roster.find(crewman => crewman.role === 'COMMANDER_GUNNER');
+  somuaGunner.health = 0;
+  somuaGunner.status = 'KIA';
+  assert.equal(somua.canVehicleFire(), false);
+  assert.equal(somua.beginVehicleReload('ap'), false);
+
+  const panzerLoader = panzer.roster.find(crewman => crewman.role === 'LOADER');
+  panzerLoader.health = 0;
+  panzerLoader.status = 'KIA';
+  assert.equal(panzer.canVehicleFire(), true);
+  panzer.vehicleWeapon.loadedType = null;
+  assert.equal(panzer.beginVehicleReload('ap'), false);
+
+  const driver = panzer.roster.find(crewman => crewman.role === 'DRIVER');
+  driver.health = 0;
+  driver.status = 'KIA';
+  panzer.addWaypoint(new THREE.Vector3(0, 0, 20), 'FAST');
+  const before = panzer.position.clone();
+  panzer.update(1, flatTerrain);
+  assert.ok(panzer.position.equals(before));
+});
+
+test('vehicle main gun fires loaded round from modeled muzzle then begins crewed reload', () => {
+  const somua = new Unit({
+    id: 'vehicle_fire_s35',
+    faction: 'french',
+    type: 'tank',
+    position: new THREE.Vector3(0, 0, 0)
+  });
+  const panzer = new Unit({
+    id: 'vehicle_target_pz3',
+    faction: 'german',
+    type: 'tank',
+    position: new THREE.Vector3(0, 0, 100)
+  });
+  let shot = null;
+  const fired = somua.updateVehicleCombat(0.1, {
+    target: panzer,
+    combat: {
+      fireWeapon(attacker, target, position, options) {
+        shot = { attacker, target, position, options };
+        return true;
+      }
+    }
+  });
+  assert.equal(fired, true);
+  assert.equal(shot.options.weapon.id, 'SA35_AP');
+  assert.ok(shot.options.muzzlePosition.distanceTo(somua.getMuzzleWorldPosition()) < 1e-9);
+  assert.equal(somua.vehicleWeapon.loadedType, null);
+  assert.equal(somua.vehicleWeapon.roundsFired, 1);
+  assert.equal(somua.vehicleWeapon.reloadTimer, WEAPONS.SA35_AP.reloadSeconds);
+});
+
+test('penetrating turret hit can remove gunner and disable vehicle gun', () => {
+  const panzer = new Unit({
+    id: 'penetration_pz3',
+    faction: 'german',
+    type: 'tank',
+    position: new THREE.Vector3()
+  });
+  const result = panzer.applyArmorHit({
+    penetrated: true,
+    zone: 'turret_front',
+    residualRatio: 2,
+    weapon: WEAPONS.SA35_AP,
+    random: () => 0.34
+  });
+  assert.equal(result.casualty.role, 'GUNNER');
+  assert.equal(result.casualty.status, 'KIA');
+  assert.equal(panzer.canVehicleFire(), false);
+});
+
+test('projectile starts at visible soldier muzzle and resolves swept hit', () => {
+  const attacker = new Unit({
+    id: 'muzzle_attacker',
+    faction: 'french',
+    type: 'infantry_squad',
+    position: new THREE.Vector3(0, 0, 0)
+  });
+  const target = new Unit({
+    id: 'muzzle_target',
+    faction: 'german',
+    type: 'infantry_squad',
+    position: new THREE.Vector3(0, 0, 18)
+  });
+  const shooter = attacker.soldierAI.agents[0];
+  const victim = target.soldierAI.agents[0];
+  const scene = new THREE.Scene();
+  scene.add(attacker.mesh, target.mesh);
+  const combat = new CombatSystem(scene, sound, () => 0, {
+    getUnits: () => [attacker, target]
+  });
+  const muzzle = shooter.getMuzzleWorldPosition();
+  assert.equal(combat.fireWeapon(attacker, target, victim.position, {
+    shooter,
+    targetSoldier: victim,
+    weapon: WEAPONS.MAS36,
+    muzzlePosition: muzzle,
+    dispersionScale: 0
+  }), true);
+  assert.ok(combat.projectiles[0].position.distanceTo(muzzle) < 1e-9);
+  for (let step = 0; step < 30 && combat.projectiles.length > 0; step++) combat.update(1 / 60);
+  assert.ok(victim.health < 100);
+  assert.equal(combat.telemetry.infantryHits, 1);
+});
+
+test('distance LOD switches between authored geometry and low proxy', () => {
+  const unit = new Unit({
+    id: 'lod_s35',
+    faction: 'french',
+    type: 'tank',
+    position: new THREE.Vector3()
+  });
+  unit.updateLOD(new THREE.Vector3(0, 5, 300), 'high');
+  let proxyVisible = false;
+  let coreVisible = false;
+  unit.mesh.traverse(object => {
+    if (object.userData.lodBand === 'proxy' && object.visible) proxyVisible = true;
+    if (object.userData.lodBand === 'core' && object.visible) coreVisible = true;
+  });
+  assert.equal(proxyVisible, true);
+  assert.equal(coreVisible, false);
+
+  unit.updateLOD(new THREE.Vector3(0, 5, 10), 'high');
+  proxyVisible = false;
+  coreVisible = false;
+  unit.mesh.traverse(object => {
+    if (object.userData.lodBand === 'proxy' && object.visible) proxyVisible = true;
+    if (object.userData.lodBand === 'core' && object.visible) coreVisible = true;
+  });
+  assert.equal(proxyVisible, false);
+  assert.equal(coreVisible, true);
+});
+
+test('new move after completed path starts a clean order queue', () => {
+  const unit = new Unit({
+    id: 'turn_two_orders',
+    faction: 'french',
+    type: 'infantry_squad',
+    position: new THREE.Vector3()
+  });
+  unit.addWaypoint(new THREE.Vector3(5, 0, 0), 'QUICK');
+  unit.currentWaypointIndex = 1;
+  unit.addWaypoint(new THREE.Vector3(10, 0, 0), 'HUNT');
+  assert.equal(unit.currentWaypointIndex, 0);
+  assert.equal(unit.waypoints.length, 1);
+  assert.equal(unit.waypoints[0].orderType, 'HUNT');
+  assert.deepEqual(unit.waypoints[0].position.toArray(), [10, 0, 0]);
+});
