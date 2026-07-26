@@ -17,6 +17,7 @@ import {
   canRelayByVoice,
   unitProfile
 } from '../simulation/observation/CommunicationNetwork.js';
+import { intersectSegmentOrientedBox3D } from '../simulation/geometry/OrientedBox.js';
 
 const EXPERIENCE_RANGE_M = Object.freeze({
   Green: 140,
@@ -163,6 +164,9 @@ export class SpottingSystem {
     // Authoritative observation state never reads or mutates it.
     this.scene = scene ?? null;
     this.terrain = terrainBuilder ?? null;
+    this.buildingSystem = options.buildingSystem ?? null;
+    this.buildingColliders = [];
+    this.buildingCollidersDirty = true;
     this.settings = { ...DEFAULT_SETTINGS, ...(options.settings ?? {}) };
     this.time = 0;
     this.observations = new Map();
@@ -228,7 +232,20 @@ export class SpottingSystem {
     );
     const dist = distance3d(origin, target);
 
+    if (this.buildingCollidersDirty) this.refreshBuildingColliders();
+    for (const collider of this.buildingColliders) {
+      if (!intersectSegmentOrientedBox3D(origin, target, collider)) continue;
+      return {
+        clear: false,
+        coverType: collider.sectionId === 'rubble' ? 'Building rubble' : 'Building',
+        buildingId: collider.buildingId,
+        sectionId: collider.sectionId,
+        dist
+      };
+    }
+
     for (const obstacle of this.terrain?.bocageObstacles ?? []) {
+      if (obstacle.buildingId) continue;
       if (this.segmentIntersectsBox(origin, target, obstacle)) {
         return { clear: false, coverType: obstacle.type ?? 'Obstacle', dist };
       }
@@ -417,6 +434,7 @@ export class SpottingSystem {
 
   advance(allUnits, deltaSeconds) {
     const delta = Math.max(0, finite(deltaSeconds));
+    this.refreshBuildingColliders();
     this.time += delta;
     const units = sortedUnits(allUnits ?? []);
     const liveObserverKeys = new Set();
@@ -508,6 +526,28 @@ export class SpottingSystem {
     this.unitContacts = nextContacts;
     this.spottingMap = this.unitContacts;
     return this;
+  }
+
+  invalidateBuildingColliders() {
+    this.buildingCollidersDirty = true;
+  }
+
+  refreshBuildingColliders() {
+    if (!this.buildingSystem) {
+      this.buildingColliders = [];
+      this.buildingCollidersDirty = false;
+      return this.buildingColliders;
+    }
+    const buildingIds = this.buildingSystem.getBuildingIds?.()
+      ?? (this.buildingSystem.captureState?.().buildings ?? [])
+        .map(building => String(building.id))
+        .sort();
+    this.buildingColliders = buildingIds
+      .flatMap(buildingId => this.buildingSystem.getCollisionSnapshot(buildingId).records)
+      .filter(record => record.blocks?.includes('projectile'))
+      .sort((left, right) => String(left.id).localeCompare(String(right.id)));
+    this.buildingCollidersDirty = false;
+    return this.buildingColliders;
   }
 
   // Compatibility facade for existing callers. Unlike the legacy method this

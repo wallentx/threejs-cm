@@ -44,13 +44,14 @@ function frontWallParts(prefix, y, doorOpeningId = null) {
   return result;
 }
 
-function shellParts(prefix, y, doorOpeningId = null) {
-  return [
+function shellParts(prefix, y, doorOpeningId = null, blocks = null) {
+  const parts = [
     ...frontWallParts(prefix, y, doorOpeningId),
     part(`${prefix}-back`, [0, y, -4.5], [6, 1.5, HALF_WALL]),
     part(`${prefix}-left`, [-6, y, 0], [4.5, 1.5, HALF_WALL], { rotationY: Math.PI / 2 }),
     part(`${prefix}-right`, [6, y, 0], [4.5, 1.5, HALF_WALL], { rotationY: Math.PI / 2 })
   ];
+  return blocks ? parts.map(record => ({ ...record, blocks: [...blocks] })) : parts;
 }
 
 /**
@@ -171,7 +172,7 @@ export const FR_HOUSE_12X9_2F = {
       resistanceMm: 650,
       supports: ['ground-floor-structure'],
       colliderParts: [
-        part('foundation-slab', [0, -0.2, 0], [6, 0.2, 4.5])
+        part('foundation-slab', [0, -0.2, 0], [6, 0.2, 4.5], { blocks: ['projectile'] })
       ],
       visualStages: stages,
       supportThreshold: 0.5
@@ -185,7 +186,7 @@ export const FR_HOUSE_12X9_2F = {
       supports: ['ground-shell'],
       affectedFloorIds: ['ground-floor'],
       colliderParts: [
-        part('ground-floor-slab', [0, 0, 0], [5.8, 0.12, 4.3])
+        part('ground-floor-slab', [0, 0, 0], [5.8, 0.12, 4.3], { blocks: ['projectile'] })
       ],
       visualStages: stages,
       supportThreshold: 0.6
@@ -211,7 +212,7 @@ export const FR_HOUSE_12X9_2F = {
       supports: ['upper-shell'],
       affectedFloorIds: ['upper-floor'],
       colliderParts: [
-        part('upper-floor-slab', [0, FLOOR_HEIGHT, 0], [5.8, 0.12, 4.3])
+        part('upper-floor-slab', [0, FLOOR_HEIGHT, 0], [5.8, 0.12, 4.3], { blocks: ['projectile'] })
       ],
       visualStages: stages,
       supportThreshold: 0.6
@@ -223,7 +224,7 @@ export const FR_HOUSE_12X9_2F = {
       maxHealth: 820,
       resistanceMm: 280,
       supports: ['roof'],
-      colliderParts: shellParts('upper', FLOOR_HEIGHT + 1.5),
+      colliderParts: shellParts('upper', FLOOR_HEIGHT + 1.5, null, ['projectile']),
       visualStages: stages,
       supportThreshold: 0.6,
       breachHealthFraction: 0.55
@@ -237,7 +238,7 @@ export const FR_HOUSE_12X9_2F = {
       supports: [],
       affectedFloorIds: ['upper-floor'],
       colliderParts: [
-        part('roof-main', [0, 6.45, 0], [6.15, 0.45, 4.65])
+        part('roof-main', [0, 6.45, 0], [6.15, 0.45, 4.65], { blocks: ['projectile'] })
       ],
       visualStages: stages,
       supportThreshold: 0.6

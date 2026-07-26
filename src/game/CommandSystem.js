@@ -6,15 +6,17 @@ export class CommandSystem {
     deploymentZones = {},
     terrain = null,
     isSetupPhase = () => false,
-    onInvalidDeployment = null
+    onInvalidDeployment = null,
+    onBuildingOrder = null
   } = {}) {
     this.scene = scene;
     this.deploymentZones = deploymentZones;
     this.terrain = terrain;
     this.isSetupPhase = isSetupPhase;
     this.onInvalidDeployment = onInvalidDeployment;
+    this.onBuildingOrder = onBuildingOrder;
     this.activeUnit = null;
-    this.activeMode = null; // 'MOVE_FAST', 'MOVE_QUICK', 'MOVE_HUNT', 'TARGET', 'TARGET_LIGHT', 'FACE', 'TARGET_ARC'
+    this.activeMode = null;
 
     // Visual overlay objects
     this.pathLinesGroup = new THREE.Group();
@@ -60,10 +62,23 @@ export class CommandSystem {
     this.renderOverlays();
   }
 
-  handleMapClick(pointVec3, targetUnit = null) {
+  handleMapClick(pointVec3, targetUnit = null, context = {}) {
     if (!this.activeUnit) return;
 
-    if (this.activeMode && this.activeMode.startsWith('MOVE_')) {
+    if (this.activeMode === 'ENTER_GROUND' || this.activeMode === 'ENTER_UPPER') {
+      const result = this.onBuildingOrder?.(
+        this.activeUnit,
+        this.activeMode,
+        pointVec3,
+        context.buildingId ?? null
+      );
+      if (result?.accepted) {
+        this.activeMode = null;
+        this.renderOverlays();
+        return true;
+      }
+      return false;
+    } else if (this.activeMode && this.activeMode.startsWith('MOVE_')) {
       const orderType = this.activeMode.replace('MOVE_', '');
       if (this.isSetupPhase()) {
         const destination = pointVec3.clone();

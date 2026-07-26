@@ -6,6 +6,7 @@ import {
   createGroundConformingWallGeometry
 } from '../src/world/TerrainBuilder.js';
 import { TERRAIN_SCALE } from '../src/world/TerrainScale.js';
+import { FR_HOUSE_12X9_2F } from '../src/maps/france/FranceHouse12x9_2F.js';
 
 const EPSILON = 1e-5;
 
@@ -239,7 +240,7 @@ test('bridge and house meshes expose calibrated metre dimensions', () => {
   assert.deepEqual(house.userData.dimensionsMeters, {
     width: TERRAIN_SCALE.house.width,
     depth: TERRAIN_SCALE.house.depth,
-    height: TERRAIN_SCALE.house.eavesHeight + TERRAIN_SCALE.house.roofHeight
+    height: FR_HOUSE_12X9_2F.bounds.max[1] - FR_HOUSE_12X9_2F.bounds.min[1]
   });
   const roof = house.getObjectByName('HouseGabledRoof');
   assert.ok(roof, 'house must use a dimensioned gabled roof');
@@ -264,27 +265,12 @@ test('bridge and house meshes expose calibrated metre dimensions', () => {
     'house superstructure must sit on level foundation top'
   );
 
-  const buildingObstacle = terrain.bocageObstacles.find(
+  const buildingObstacles = terrain.bocageObstacles.filter(
     obstacle => obstacle.type === 'building'
   );
-  assert.equal(
-    buildingObstacle.maxX - buildingObstacle.minX,
-    TERRAIN_SCALE.house.width
-  );
-  assert.equal(
-    buildingObstacle.maxZ - buildingObstacle.minZ,
-    TERRAIN_SCALE.house.depth
-  );
-  assertNear(
-    buildingObstacle.minY,
-    Math.min(...foundationCorners.map(([, y]) => y)),
-    'building collision bottom'
-  );
-  assertNear(
-    buildingObstacle.maxY,
-    house.position.y + TERRAIN_SCALE.house.eavesHeight + TERRAIN_SCALE.house.roofHeight,
-    'building collision top'
-  );
+  assert.ok(buildingObstacles.length > 4, 'house collision follows wall sections, not a solid box');
+  assert.ok(buildingObstacles.every(obstacle => obstacle.sectionId === 'ground-shell'));
+  assert.ok(buildingObstacles.every(obstacle => obstacle.minY >= Math.min(...foundationCorners.map(([, y]) => y))));
 
   const parapet = bridge.getObjectByName('BridgeParapet');
   const parapetUvs = parapet.geometry.attributes.uv;

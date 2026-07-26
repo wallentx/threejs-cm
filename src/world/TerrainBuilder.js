@@ -1,6 +1,11 @@
 import * as THREE from 'three';
 import { TERRAIN_SCALE } from './TerrainScale.js';
 import { StaticCollisionWorld } from '../simulation/collision/StaticCollisionWorld.js';
+import { FR_HOUSE_12X9_2F } from '../maps/france/FranceHouse12x9_2F.js';
+import {
+  applyFrenchHouseVisualState,
+  createFrenchHouseVisual
+} from './buildings/FrenchHouse.js';
 
 const QUAD_UVS = [
   0, 0,
@@ -219,7 +224,7 @@ function createTerrainConformingFoundationGeometry({
 }
 
 export class TerrainBuilder {
-  constructor(scene, { deploymentZones = {} } = {}) {
+  constructor(scene, { deploymentZones = {}, buildingSystem = null } = {}) {
     this.scene = scene;
     this.deploymentZoneDefinitions = deploymentZones;
     this.width = 240;
@@ -233,6 +238,7 @@ export class TerrainBuilder {
     this.navigationRecords = [];
     this.collisionWorld = new StaticCollisionWorld();
     this.bridgeSurface = null;
+    this.buildingSystem = buildingSystem;
   }
 
   buildScenarioMap() {
@@ -570,9 +576,12 @@ export class TerrainBuilder {
     const mapHalfWidth = this.width * 0.5;
     const openingHalfWidth = parapetInnerHalfWidth;
     const exclusionHalfWidth = (mapHalfWidth - openingHalfWidth) * 0.5;
+    const riverExclusionIds = [];
     for (const side of [-1, 1]) {
+      const exclusionId = `river:exclusion:${side < 0 ? 'west' : 'east'}`;
+      riverExclusionIds.push(exclusionId);
       this.addColliderRecord({
-        id: `river:exclusion:${side < 0 ? 'west' : 'east'}`,
+        id: exclusionId,
         type: 'river_exclusion',
         centerX: side * (openingHalfWidth + exclusionHalfWidth),
         centerZ: river.centerZ,
@@ -589,6 +598,7 @@ export class TerrainBuilder {
       minZ: river.centerZ - halfSpan,
       maxZ: river.centerZ + halfSpan,
       halfOpeningWidth: openingHalfWidth,
+      barrierColliderIds: riverExclusionIds,
       blocks: ['vehicle', 'infantry']
     });
   }
@@ -670,12 +680,87 @@ export class TerrainBuilder {
     createWallRun(5, -40, 75, -40, 'south_east');
   }
 
+  replaceBuildingCollisionRecords(buildingId, sourceRecords, minimumGroundY, foundationTopY) {
+    const previousIds = this.colliderRecords
+      .filter(record => record.buildingId === buildingId)
+      .map(record => record.id);
+    for (const id of previousIds) this.collisionWorld.removeCollider(id);
+    this.colliderRecords = this.colliderRecords
+      .filter(record => record.buildingId !== buildingId);
+    this.bocageObstacles = this.bocageObstacles
+      .filter(record => record.buildingId !== buildingId);
+
+    const movementRecords = sourceRecords
+      .filter(record => (record.sectionId === 'ground-shell' || record.sectionId === 'rubble')
+        && (record.blocks ?? []).some(block => block === 'vehicle' || block === 'infantry'))
+      .sort((a, b) => a.id.localeCompare(b.id));
+    for (const sourceRecord of movementRecords) {
+      const record = {
+        ...sourceRecord,
+        halfX: sourceRecord.halfX ?? sourceRecord.halfWidth,
+        halfZ: sourceRecord.halfZ ?? sourceRecord.halfDepth
+      };
+      this.addColliderRecord(record);
+      const cosine = Math.abs(Math.cos(record.rotation ?? 0));
+      const sine = Math.abs(Math.sin(record.rotation ?? 0));
+      const extentX = cosine * record.halfX + sine * record.halfZ;
+      const extentZ = sine * record.halfX + cosine * record.halfZ;
+      this.bocageObstacles.push({
+        id: record.id,
+        buildingId,
+        minX: record.centerX - extentX,
+        maxX: record.centerX + extentX,
+        minZ: record.centerZ - extentZ,
+        maxZ: record.centerZ + extentZ,
+        minY: record.minY ?? minimumGroundY,
+        maxY: record.maxY ?? foundationTopY,
+        height: (record.maxY ?? foundationTopY) - (record.minY ?? minimumGroundY),
+        type: record.sectionId === 'rubble' ? 'rubble' : 'building',
+        sectionId: record.sectionId
+      });
+    }
+    return {
+      removedColliderIds: previousIds.sort(),
+      colliderIds: movementRecords.map(record => record.id),
+      obstacleIds: this.bocageObstacles
+        .filter(record => record.buildingId === buildingId)
+        .map(record => record.id)
+        .sort()
+    };
+  }
+
+  syncBuildingRuntime(buildingId) {
+    if (!this.buildingSystem) return null;
+    const building = this.buildings.find(record => record.id === buildingId);
+    if (!building) return null;
+    const runtime = this.buildingSystem.getBuildingSnapshot(buildingId);
+    const descriptor = this.buildingSystem.getDescriptorForBuilding(buildingId);
+    applyFrenchHouseVisualState(building.object, descriptor, runtime);
+    const footprintCorners = building.object.userData?.foundation?.footprintCorners ?? [];
+    const minimumGroundY = footprintCorners.length > 0
+      ? Math.min(...footprintCorners.map(([, y]) => y))
+      : building.object.position.y;
+    const foundationTopY = building.object.userData?.foundation?.topY
+      ?? building.object.position.y;
+    const collision = this.replaceBuildingCollisionRecords(
+      buildingId,
+      this.buildingSystem.getCollisionSnapshot(buildingId).records,
+      minimumGroundY,
+      foundationTopY
+    );
+    building.runtimeEventVersion = runtime.eventVersion ?? 0;
+    building.runtimeCollisionVersion = runtime.collisionVersion ?? 0;
+    return { buildingId, runtime, collision };
+  }
+
   buildFrenchVillage() {
-    const house = TERRAIN_SCALE.house;
+    const descriptor = FR_HOUSE_12X9_2F;
     const hx = 45;
     const hz = 60;
-    const halfWidth = house.width * 0.5;
-    const halfDepth = house.depth * 0.5;
+    const width = descriptor.bounds.max[0] - descriptor.bounds.min[0];
+    const depth = descriptor.bounds.max[2] - descriptor.bounds.min[2];
+    const halfWidth = width * 0.5;
+    const halfDepth = depth * 0.5;
     const groundCorners = [
       [hx - halfWidth, hz + halfDepth],
       [hx + halfWidth, hz + halfDepth],
@@ -684,84 +769,71 @@ export class TerrainBuilder {
     ].map(([x, z]) => [x, this.getHeightAt(x, z), z]);
     const minimumGroundY = Math.min(...groundCorners.map(([, y]) => y));
     const foundationTopY = Math.max(...groundCorners.map(([, y]) => y)) + 0.12;
-    const wallMat = new THREE.MeshStandardMaterial({
-      color: '#ddd8c9',
-      roughness: 0.96,
-      metalness: 0
-    });
-    const roofMat = new THREE.MeshStandardMaterial({
-      color: '#8f3128',
-      roughness: 0.9,
-      metalness: 0
-    });
-
-    const houseGroup = new THREE.Group();
-    houseGroup.name = 'FrenchVillageHouse';
-    const foundation = new THREE.Mesh(
-      createTerrainConformingFoundationGeometry({
-        centerX: hx,
-        centerZ: hz,
-        width: house.width,
-        depth: house.depth,
-        topY: foundationTopY,
-        getHeightAt: (x, z) => this.getHeightAt(x, z)
-      }),
-      this.createMasonryMaterial()
-    );
-    foundation.name = 'HouseFoundation';
-    foundation.castShadow = true;
-    foundation.receiveShadow = true;
-    houseGroup.add(foundation);
-
-    const walls = new THREE.Mesh(
-      new THREE.BoxGeometry(house.width, house.eavesHeight, house.depth),
-      wallMat
-    );
-    walls.position.y = house.eavesHeight * 0.5;
-    walls.castShadow = true;
-    walls.receiveShadow = true;
-    houseGroup.add(walls);
-
-    const roof = new THREE.Mesh(
-      createGabledRoofGeometry(house.width, house.depth, house.roofHeight),
-      roofMat
-    );
-    roof.name = 'HouseGabledRoof';
-    roof.position.y = house.eavesHeight;
-    roof.castShadow = true;
-    houseGroup.add(roof);
-
-    houseGroup.position.set(hx, foundationTopY, hz);
-    houseGroup.userData.dimensionsMeters = {
-      width: house.width,
-      depth: house.depth,
-      height: house.eavesHeight + house.roofHeight
-    };
-    houseGroup.userData.foundation = {
-      topY: foundationTopY,
-      footprintCorners: groundCorners
-    };
-    this.scene.add(houseGroup);
-
-    const buildingTopY = foundationTopY + house.eavesHeight + house.roofHeight;
-    this.bocageObstacles.push({
-      minX: hx - house.width * 0.5, maxX: hx + house.width * 0.5,
-      minZ: hz - house.depth * 0.5, maxZ: hz + house.depth * 0.5,
-      minY: minimumGroundY,
-      maxY: buildingTopY,
-      height: buildingTopY - minimumGroundY,
-      type: 'building'
-    });
-    this.addColliderRecord({
-      id: 'building:french_village_house',
-      type: 'building',
+    const buildingId = 'french_village_house';
+    let runtime = null;
+    if (this.buildingSystem) {
+      try {
+        runtime = this.buildingSystem.getBuildingSnapshot(buildingId);
+      } catch {
+        runtime = this.buildingSystem.addBuilding({
+          id: buildingId,
+          descriptor,
+          transform: { position: [hx, foundationTopY, hz], rotationY: 0 }
+        });
+      }
+    }
+    const houseGroup = createFrenchHouseVisual({
+      descriptor,
+      runtime,
       centerX: hx,
       centerZ: hz,
-      halfX: house.width * 0.5,
-      halfZ: house.depth * 0.5,
-      rotation: 0,
-      blocks: ['vehicle', 'infantry']
+      foundationTopY,
+      getHeightAt: (x, z) => this.getHeightAt(x, z)
     });
+    this.scene.add(houseGroup);
+    this.buildings.push({
+      id: buildingId,
+      descriptorId: descriptor.id,
+      object: houseGroup,
+      runtimeEventVersion: runtime?.eventVersion ?? 0,
+      runtimeCollisionVersion: runtime?.collisionVersion ?? 0
+    });
+
+    const openingStates = runtime?.openings ?? Object.fromEntries(
+      descriptor.portals.concat(descriptor.firePorts)
+        .filter(record => record.aperture)
+        .map(record => [record.aperture.id, { open: record.aperture.initiallyOpen ?? false }])
+    );
+    // StaticCollisionWorld is intentionally X/Z-only. Publishing upper-storey
+    // walls here would turn them into a ground-level invisible blocker. Full
+    // 3D projectile/spotting queries consume the complete BuildingSystem
+    // snapshot; ground movement consumes only the ground shell.
+    const records = runtime && this.buildingSystem
+      ? this.buildingSystem.getCollisionSnapshot(buildingId).records
+      : descriptor.sections
+        .filter(section => section.kind === 'wall')
+        .flatMap(section => section.colliderParts
+          .filter(part => !part.openingId || !openingStates[part.openingId]?.open)
+          .map(part => ({
+            id: `building:${buildingId}:${section.id}:${part.id}`,
+            type: 'building',
+            buildingId,
+            sectionId: section.id,
+            centerX: hx + part.center[0],
+            centerZ: hz + part.center[2],
+            minY: foundationTopY + part.center[1] - part.halfExtents[1],
+            maxY: foundationTopY + part.center[1] + part.halfExtents[1],
+            halfX: part.halfExtents[0],
+            halfZ: part.halfExtents[2],
+            rotation: part.rotationY ?? 0,
+            blocks: ['vehicle', 'infantry', 'projectile']
+          })));
+    this.replaceBuildingCollisionRecords(
+      buildingId,
+      records,
+      minimumGroundY,
+      foundationTopY
+    );
   }
 
   buildFoliage() {

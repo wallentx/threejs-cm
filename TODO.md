@@ -47,7 +47,15 @@ Status:
 - [ ] Improve vehicle AI: hull-down positioning, turret-first observation, threat facing, reverse movement, and damaged-vehicle behavior.
 - [ ] Add deterministic movement collision and tactical navigation.
   - [x] First static-world slice: renderer-neutral oriented collider records for terrain-conforming walls, the village building, bridge parapets and abutments, river exclusion, and bunker/rubble; swept vehicle capsules and soldier circles prevent tunneling, retain stand-off, stop-and-slide, route cross-river orders through the bridge, use bridge deck height, and survive WEGO capture/restore without a physics dependency.
+  - [x] Harden static movement: collide the infantry squad anchor, wait for living soldiers to finish their individual routes, bind split teams, route near-bank destinations from actual river exclusions, and run live/seek simulation through the same fixed 30 Hz steps.
   - [ ] Add unit-to-unit separation, richer obstacle graphs around buildings and wall ends, reverse-aware vehicle maneuvers, and deterministic wreck settling.
+- [ ] Add enterable multi-floor buildings.
+  - [x] Add a renderer-neutral two-floor French house descriptor with a door, stair route, four individual slots per floor, window firing ports, deterministic slot reservations, timed transit, casualty release, and deep capture/restore.
+  - [x] Replace the solid house box with a terrain-grounded, segmented door/window/floor/stair/roof model and high/medium/core/proxy LOD tiers; publish passable apertures instead of one solid movement blocker.
+  - [ ] Wire infantry ENTER GROUND, ENTER UPPER, and EXIT orders; individual approach/transit/occupancy; window spotting/firing arcs; and HUD state.
+- [ ] Add destructible buildings with persistent tactical consequences.
+  - [x] Add section health/resistance, projectile breaches, aperture state, support-loss collapse, rubble colliders, deterministic occupant damage/ejection, collision deltas, and rollback-safe events.
+  - [ ] Wire live projectile/blast hits, combat telemetry/VFX, occupant casualties, dynamic movement/LOS collider refresh, and visibly damaged/collapsed LOD states.
 - [ ] Add terrain and structure collision to projectile sweeps.
   - [x] First structure slice: targetable German MG34 bunker with authoritative reinforced-concrete health, penetrative/direct and blast damage, firing shutdown, visible rubble state, and WEGO capture/restore.
 - [ ] Improve procedural infantry firing, reload, transition, casualty, and movement animations.

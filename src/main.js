@@ -6,6 +6,7 @@ import { TerrainBuilder } from './world/TerrainBuilder.js';
 import { VehicleDamageEffects } from './world/VehicleDamageEffects.js';
 import { Unit } from './game/Unit.js';
 import { CommandSystem } from './game/CommandSystem.js';
+import { BuildingInteractionSystem } from './game/BuildingInteractionSystem.js';
 import { SpottingSystem } from './game/SpottingSystem.js';
 import { CombatSystem } from './game/CombatSystem.js';
 import { getWeapon } from './game/WeaponCatalog.js';
@@ -15,6 +16,9 @@ import { UIManager } from './ui/UIManager.js';
 import { MapEditor } from './editor/MapEditor.js';
 import { loadScenario } from './scenario/ScenarioRuntime.js';
 import { STONNE_1940_SCENARIO } from './scenarios/france1940/stonne1940.js';
+import { FixedStepAccumulator } from './simulation/FixedStepAccumulator.js';
+import { BuildingSystem } from './simulation/buildings/index.js';
+import { FR_HOUSE_12X9_2F } from './maps/france/FranceHouse12x9_2F.js';
 
 // Deduplicated Logger to prevent 60 FPS console flooding
 let lastLoggedMsg = '';
@@ -84,6 +88,7 @@ class Game {
         ? params.get('camera')
         : 'design';
       this.lastDiagnosticsUpdate = 0;
+      this.simulationStepper = new FixedStepAccumulator(1 / 30);
 
       // 1. Renderer
       log('Creating WebGL Renderer...', 'info');
@@ -101,8 +106,11 @@ class Game {
 
       // 3. Terrain Builder
       log('Building Ardennes 1940 Terrain Map...', 'info');
+      this.buildingSystem = new BuildingSystem();
+      this.buildingSystem.registerDescriptor(FR_HOUSE_12X9_2F);
       this.terrain = new TerrainBuilder(this.scene, {
-        deploymentZones: this.scenario.deploymentZones
+        deploymentZones: this.scenario.deploymentZones,
+        buildingSystem: this.buildingSystem
       });
       this.terrain.buildScenarioMap();
 
@@ -110,6 +118,10 @@ class Game {
       this.units = [];
       this.selectedUnit = null;
       this.matchStarted = false;
+      this.buildingInteraction = new BuildingInteractionSystem({
+        buildingSystem: this.buildingSystem,
+        getUnits: () => this.units
+      });
 
       log('Setting up Command & Combat Systems...', 'info');
       this.commands = new CommandSystem(this.scene, {
@@ -119,14 +131,24 @@ class Game {
         onInvalidDeployment: () => this.ui?.showToast(
           'Entire unit footprint must stay inside its setup area',
           'warn'
-        )
+        ),
+        onBuildingOrder: (unit, action, point, buildingId) =>
+          this.issueBuildingOrder(unit, action, point, buildingId)
       });
       this.spotting = new SpottingSystem(this.scene, this.terrain, {
-        unitProfiles: this.scenario.units
+        unitProfiles: this.scenario.units,
+        buildingSystem: this.buildingSystem
       });
       this.combat = new CombatSystem(this.scene, this.sound, () => this.random(), {
         terrain: this.terrain,
-        getUnits: () => this.units
+        getUnits: () => this.units,
+        buildingSystem: this.buildingSystem,
+        onOccupantConsequences: consequences =>
+          this.buildingInteraction.handleOccupantConsequences(consequences),
+        onBuildingChanged: ({ buildingId }) => {
+          this.terrain.syncBuildingRuntime(buildingId);
+          this.spotting.invalidateBuildingColliders();
+        }
       });
       this.vehicleDamageEffects = new VehicleDamageEffects();
       this.support = new SupportSystem(this.scene, this.combat, () => this.random());
@@ -191,6 +213,44 @@ class Game {
     document.body.dataset.deploymentStatus = 'closed';
   }
 
+  issueBuildingOrder(unit, action, point, explicitBuildingId = null) {
+    if (!this.matchStarted) {
+      this.ui?.showToast('Building orders unlock when the battle starts', 'warn');
+      return { accepted: false, reason: 'match_not_started' };
+    }
+    const buildingId = explicitBuildingId
+      ?? this.buildingInteraction.findBuildingAt(point);
+    if (!buildingId) {
+      this.ui?.showToast('Tap an enterable building', 'warn');
+      return { accepted: false, reason: 'no_building' };
+    }
+    const floorId = action === 'ENTER_UPPER' ? 'upper-floor' : 'ground-floor';
+    const result = this.buildingInteraction.issueEnter(unit, buildingId, floorId);
+    if (!result.accepted) {
+      this.ui?.showToast(`Cannot enter: ${result.reason.replaceAll('_', ' ')}`, 'warn');
+      return result;
+    }
+    unit.clearWaypoints();
+    unit.addWaypoint(new THREE.Vector3(...result.approachPosition), 'QUICK');
+    this.commands.renderOverlays();
+    this.ui?.showToast(
+      `${result.assigned.length} soldiers entering ${floorId === 'upper-floor' ? 'upper' : 'ground'} floor`,
+      'success'
+    );
+    return result;
+  }
+
+  issueBuildingExit(unit = this.selectedUnit) {
+    const result = this.buildingInteraction.issueExit(unit);
+    this.ui?.showToast(
+      result.accepted
+        ? `${result.assigned.length} soldiers exiting building`
+        : `Cannot exit: ${result.reason.replaceAll('_', ' ')}`,
+      result.accepted ? 'success' : 'warn'
+    );
+    return result;
+  }
+
   selectUnit(unit) {
     for (const candidate of this.units) {
       const disc = candidate.mesh?.userData.selectionDisc;
@@ -244,6 +304,7 @@ class Game {
     splitUnit.replaceRoster(splitRoster);
     splitUnit.mesh.position.copy(splitUnit.position);
     splitUnit.setAgentDebug(this.visualDebugMode === 'agents');
+    splitUnit.bindCollisionWorld(this.terrain.collisionWorld);
 
     for (const ammoType of Object.keys(unit.ammo)) {
       const transferred = Math.floor(unit.ammo[ammoType] / 2);
@@ -271,6 +332,8 @@ class Game {
     return {
       randomState: this.randomState,
       units: this.units.map(unit => unit.captureState()),
+      buildings: this.buildingSystem.captureState(),
+      buildingInteractions: this.buildingInteraction.captureState(),
       spotting: this.spotting.captureState(),
       combat: this.combat.captureState(),
       supportMissions: this.support.captureState(),
@@ -280,11 +343,18 @@ class Game {
   }
 
   restoreSimulationState(state) {
+    this.simulationStepper.reset();
     this.randomState = state.randomState >>> 0;
+    this.buildingSystem.restoreState(state.buildings);
     const unitMap = new Map(this.units.map(unit => [unit.id, unit]));
     for (const unitState of state.units) {
       unitMap.get(unitState.id)?.restoreState(unitState, unitMap);
     }
+    this.buildingInteraction.restoreState(state.buildingInteractions);
+    for (const buildingId of this.buildingSystem.getBuildingIds()) {
+      this.terrain.syncBuildingRuntime(buildingId);
+    }
+    this.spotting.invalidateBuildingColliders();
     this.spotting.restoreState(state.spotting);
     this.combat.restoreState(state.combat, unitMap);
     this.vehicleDamageEffects.resetTransient();
@@ -323,6 +393,7 @@ class Game {
       const huntStopped = waypoint?.orderType === 'HUNT' && this.hasContact(unit, opposingUnits);
       unit.update(delta, this.terrain, { haltMovement: huntStopped });
     });
+    this.buildingInteraction.advance(delta);
     // Observation is authoritative simulation state. Advance it exactly once,
     // after movement/collision and before any weapon may select a target.
     this.spotting.advance(this.units, delta);
@@ -335,6 +406,7 @@ class Game {
           opposingUnits,
           spotting: this.spotting,
           combat: this.combat,
+          buildingInteraction: this.buildingInteraction,
           random: () => this.random()
         });
         return;
@@ -374,11 +446,10 @@ class Game {
   }
 
   simulateToTime(targetTime) {
-    const fixedStep = 1 / 30;
-    while (this.wego.currentTurnTime + 1e-6 < targetTime) {
-      const delta = Math.min(fixedStep, targetTime - this.wego.currentTurnTime);
-      this.simulateStep(delta);
-      this.wego.completeSimulationStep(delta, {
+    const fixedStep = this.simulationStepper.stepSeconds;
+    while (this.wego.currentTurnTime + fixedStep <= targetTime + 1e-9) {
+      this.simulateStep(fixedStep);
+      this.wego.completeSimulationStep(fixedStep, {
         recordSnapshot: false,
         updateUI: false
       });
@@ -432,6 +503,26 @@ class Game {
         }
       }
 
+      if (this.commands.activeMode?.startsWith('ENTER_')) {
+        const buildingObjects = this.terrain.buildings
+          .map(building => building.object)
+          .filter(Boolean);
+        const buildingIntersects = this.raycaster.intersectObjects(buildingObjects, true);
+        if (buildingIntersects.length > 0) {
+          const hit = buildingIntersects[0];
+          const building = this.terrain.buildings.find(
+            candidate => candidate.object === hit.object
+              || candidate.object?.getObjectById?.(hit.object.id)
+          );
+          if (building) {
+            this.commands.handleMapClick(hit.point, null, { buildingId: building.id });
+            this.ui.renderCommandGrid();
+            this.sound.playUIClick();
+            return;
+          }
+        }
+      }
+
       if (this.terrain.terrainMesh) {
         const terrainIntersects = this.raycaster.intersectObject(this.terrain.terrainMesh);
         if (terrainIntersects.length > 0) {
@@ -472,8 +563,11 @@ class Game {
 
     const simulationDelta = this.wego.getSimulationDelta(delta);
     if (simulationDelta > 0) {
-      this.simulateStep(simulationDelta);
-      this.wego.completeSimulationStep(simulationDelta);
+      this.simulationStepper.advance(simulationDelta, fixedStep => {
+        this.simulateStep(fixedStep);
+        this.wego.completeSimulationStep(fixedStep);
+      });
+      if (this.wego.phase !== 'ACTION_PHASE') this.simulationStepper.reset();
     }
 
     const visibility = this.spotting.getVisibilityProjection('french', this.units);
@@ -501,7 +595,7 @@ class Game {
       const diagnostics = this.renderer.getDiagnostics();
       document.body.dataset.renderStats = `${diagnostics.drawCalls}:${diagnostics.triangles}:${diagnostics.geometries}:${diagnostics.textures}`;
       document.body.dataset.lodStats = `${lodCounts.high}:${lodCounts.medium}:${lodCounts.low}`;
-      document.body.dataset.ballisticsStats = `${this.combat.telemetry.shotsFired}:${this.combat.telemetry.infantryHits}:${this.combat.telemetry.vehicleHits}:${this.combat.telemetry.penetrations}`;
+      document.body.dataset.ballisticsStats = `${this.combat.telemetry.shotsFired}:${this.combat.telemetry.infantryHits}:${this.combat.telemetry.vehicleHits}:${this.combat.telemetry.buildingHits}:${this.combat.telemetry.penetrations}`;
       this.lastDiagnosticsUpdate = now;
     }
   }

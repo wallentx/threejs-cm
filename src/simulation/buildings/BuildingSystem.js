@@ -7,6 +7,15 @@ import {
 } from './BuildingState.js';
 import { createPortalGraph, findPortalPath } from './BuildingPortalGraph.js';
 import { localToWorldPoint, transformColliderPart } from './BuildingTransforms.js';
+import { calculateSectionDamage, distanceToSection } from './BuildingDamage.js';
+import {
+  buildingSoldierKey,
+  compareBuildingId,
+  compareReservationRequests,
+  createRoomSlotIndex,
+  normalizeReservationRequest,
+  roomForBuildingNode
+} from './BuildingOccupancy.js';
 
 const EVENT_LIMIT = 64;
 const COLLISION_CHANGE_LIMIT = 64;
@@ -14,35 +23,6 @@ const EPSILON = 1e-9;
 
 function clone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
-}
-
-function compareText(a, b) {
-  return String(a).localeCompare(String(b));
-}
-
-function compareReservation(a, b) {
-  return (a.orderSequence - b.orderSequence)
-    || compareText(a.unitId, b.unitId)
-    || compareText(a.soldierId, b.soldierId)
-    || compareText(a.nodeId, b.nodeId);
-}
-
-function soldierKey(request) {
-  return String(request.soldierKey ?? `${request.unitId}:${request.soldierId}`);
-}
-
-function normalizeReservation(request) {
-  if (!Number.isFinite(request.orderSequence)) throw new Error('Reservation orderSequence must be finite');
-  if (request.unitId == null || request.soldierId == null) {
-    throw new Error('Reservation unitId and soldierId are required');
-  }
-  return {
-    nodeId: String(request.nodeId),
-    soldierKey: soldierKey(request),
-    orderSequence: request.orderSequence,
-    unitId: String(request.unitId),
-    soldierId: String(request.soldierId)
-  };
 }
 
 function setDifference(left, right) {
@@ -64,17 +44,7 @@ function sectionColliderIds(state, descriptor) {
   if (state.rubbleActive) {
     for (const part of descriptor.rubble.colliderParts) ids.push(`${state.id}:rubble:${part.id}`);
   }
-  return ids.sort(compareText);
-}
-
-function roomSlotIndex(descriptor) {
-  const index = new Map();
-  for (const room of descriptor.rooms) {
-    for (const slot of room.slots) {
-      index.set(slot.id, { ...slot, roomId: room.id, floorId: room.floorId });
-    }
-  }
-  return index;
+  return ids.sort(compareBuildingId);
 }
 
 function roomById(descriptor) {
@@ -91,11 +61,6 @@ function portalById(descriptor) {
 
 function sectionById(descriptor) {
   return new Map(descriptor.sections.map(section => [section.id, section]));
-}
-
-function nodeRoom(nodeId, slots) {
-  if (nodeId === 'outside') return 'outside';
-  return slots.get(nodeId)?.roomId ?? nodeId;
 }
 
 function isPortalDirectionValid(portal, fromRoom, toRoom) {
@@ -138,6 +103,10 @@ export class BuildingSystem {
     return captureBuildingState(this.#state(id));
   }
 
+  getBuildingIds() {
+    return [...this.buildings.keys()].sort(compareBuildingId);
+  }
+
   getDescriptorForBuilding(id) {
     const state = this.#state(id);
     return this.descriptors.get(state.descriptorId);
@@ -146,7 +115,7 @@ export class BuildingSystem {
   captureState() {
     return {
       buildings: [...this.buildings.values()]
-        .sort((a, b) => compareText(a.id, b.id))
+        .sort((a, b) => compareBuildingId(a.id, b.id))
         .map(captureBuildingState)
     };
   }
@@ -165,9 +134,9 @@ export class BuildingSystem {
   resolveReservations(id, requests) {
     const state = this.#state(id);
     const descriptor = this.#descriptor(state);
-    const slots = roomSlotIndex(descriptor);
+    const slots = createRoomSlotIndex(descriptor);
     const invalidSlots = new Set(state.invalidSlots);
-    const normalized = requests.map(normalizeReservation).sort(compareReservation);
+    const normalized = requests.map(normalizeReservationRequest).sort(compareReservationRequests);
     const seenSoldiers = new Set();
     const results = [];
 
@@ -213,8 +182,8 @@ export class BuildingSystem {
     }
     return {
       soldierKey: normalizedKey,
-      releasedSlots: releasedSlots.sort(compareText),
-      releasedReservations: releasedReservations.sort(compareText)
+      releasedSlots: releasedSlots.sort(compareBuildingId),
+      releasedReservations: releasedReservations.sort(compareBuildingId)
     };
   }
 
@@ -231,9 +200,9 @@ export class BuildingSystem {
   occupySlot(id, request) {
     const state = this.#state(id);
     const descriptor = this.#descriptor(state);
-    const slots = roomSlotIndex(descriptor);
-    const slotId = String(request.slotId);
-    const key = soldierKey(request);
+    const slots = createRoomSlotIndex(descriptor);
+    const slotId = String(request.slotId ?? request.nodeId);
+    const key = buildingSoldierKey(request);
     if (!slots.has(slotId)) return { accepted: false, reason: 'unknown_slot' };
     if (state.invalidSlots.includes(slotId)) return { accepted: false, reason: 'invalid_slot' };
     if (state.occupancy[slotId]?.soldierKey !== key && state.occupancy[slotId]) {
@@ -253,17 +222,17 @@ export class BuildingSystem {
   startTransit(id, request) {
     const state = this.#state(id);
     const descriptor = this.#descriptor(state);
-    const slots = roomSlotIndex(descriptor);
+    const slots = createRoomSlotIndex(descriptor);
     const portals = portalById(descriptor);
     const portal = portals.get(String(request.portalId));
-    const key = soldierKey(request);
+    const key = buildingSoldierKey(request);
     const fromNodeId = String(request.fromNodeId);
     const toNodeId = String(request.toNodeId);
     if (!portal || state.invalidPortals.includes(portal.id)) {
       return { accepted: false, reason: 'invalid_portal' };
     }
-    const fromRoom = nodeRoom(fromNodeId, slots);
-    const toRoom = nodeRoom(toNodeId, slots);
+    const fromRoom = roomForBuildingNode(fromNodeId, slots);
+    const toRoom = roomForBuildingNode(toNodeId, slots);
     if (!isPortalDirectionValid(portal, fromRoom, toRoom)) {
       return { accepted: false, reason: 'portal_does_not_connect_nodes' };
     }
@@ -358,11 +327,11 @@ export class BuildingSystem {
   getPortalPath(id, fromNodeId, toNodeId) {
     const state = this.#state(id);
     const descriptor = this.#descriptor(state);
-    const slots = roomSlotIndex(descriptor);
+    const slots = createRoomSlotIndex(descriptor);
     return findPortalPath(
       createPortalGraph(descriptor, state.invalidPortals),
-      nodeRoom(String(fromNodeId), slots),
-      nodeRoom(String(toNodeId), slots)
+      roomForBuildingNode(String(fromNodeId), slots),
+      roomForBuildingNode(String(toNodeId), slots)
     );
   }
 
@@ -388,11 +357,11 @@ export class BuildingSystem {
     const damages = input.sectionDamages
       ? input.sectionDamages.map(record => ({ ...record }))
       : descriptor.sections.map(section => {
-          const distance = this.#distanceToSection(input.centerLocal, section);
+          const distance = distanceToSection(input.centerLocal, section);
           const falloff = Math.max(0, 1 - distance / Math.max(EPSILON, input.radius));
           return { sectionId: section.id, amount: Math.max(0, input.amount) * falloff };
         });
-    damages.sort((a, b) => compareText(a.sectionId, b.sectionId));
+    damages.sort((a, b) => compareBuildingId(a.sectionId, b.sectionId));
     const results = [];
     return this.#withCollisionChange(state, 'blast_damage', () => {
       for (const damage of damages) {
@@ -444,7 +413,7 @@ export class BuildingSystem {
         }));
       }
     }
-    records.sort((a, b) => compareText(a.id, b.id));
+    records.sort((a, b) => compareBuildingId(a.id, b.id));
     return {
       buildingId: state.id,
       version: state.collisionVersion,
@@ -459,7 +428,7 @@ export class BuildingSystem {
     const state = this.#state(id);
     const descriptor = this.#descriptor(state);
     const invalid = new Set(state.invalidFirePorts);
-    const slots = roomSlotIndex(descriptor);
+    const slots = createRoomSlotIndex(descriptor);
     return descriptor.firePorts
       .map(port => {
         const opening = state.openings[port.aperture.id];
@@ -479,7 +448,7 @@ export class BuildingSystem {
           floorId: slots.get(port.approachSlotId)?.floorId ?? null
         };
       })
-      .sort((a, b) => compareText(a.id, b.id));
+      .sort((a, b) => compareBuildingId(a.id, b.id));
   }
 
   #applyDamage(id, input) {
@@ -498,12 +467,7 @@ export class BuildingSystem {
     if (runtime.collapsed || input.amount <= 0) {
       return { sectionId: section.id, applied: 0, penetrated: false, collapsed: runtime.collapsed };
     }
-    const penetrationMm = Number.isFinite(input.penetrationMm) ? Math.max(0, input.penetrationMm) : 0;
-    const penetrated = input.kind === 'blast' || penetrationMm + EPSILON >= section.resistanceMm;
-    const resistanceScale = section.resistanceMm <= EPSILON
-      ? 1
-      : Math.min(0.35, penetrationMm / section.resistanceMm * 0.35);
-    const requested = Math.max(0, input.amount) * (penetrated ? 1 : resistanceScale);
+    const { penetrated, requested } = calculateSectionDamage(section, input);
     const applied = Math.min(runtime.health, requested);
     runtime.health = Math.max(0, runtime.health - requested);
     runtime.stage = sectionStage(section, runtime.health);
@@ -518,7 +482,7 @@ export class BuildingSystem {
       const partKey = `${section.id}:${part.id}`;
       if (!state.breachedColliderPartIds.includes(partKey)) {
         state.breachedColliderPartIds.push(partKey);
-        state.breachedColliderPartIds.sort(compareText);
+        state.breachedColliderPartIds.sort(compareBuildingId);
         state.openings[`breach:${partKey}`] = {
           id: `breach:${partKey}`,
           kind: 'breach',
@@ -576,16 +540,16 @@ export class BuildingSystem {
     for (const slotId of this.#slotsInvalidatedBySection(descriptor, section)) {
       if (!state.invalidSlots.includes(slotId)) state.invalidSlots.push(slotId);
     }
-    state.invalidSlots.sort(compareText);
-    state.invalidPortals.sort(compareText);
-    state.invalidFirePorts.sort(compareText);
+    state.invalidSlots.sort(compareBuildingId);
+    state.invalidPortals.sort(compareBuildingId);
+    state.invalidFirePorts.sort(compareBuildingId);
     if (section.kind === 'foundation' || section.kind === 'floor' || section.kind === 'roof') {
       state.rubbleActive = true;
     }
     for (const supportedId of section.supports) {
       if (!state.collapseQueue.includes(supportedId)) state.collapseQueue.push(supportedId);
     }
-    state.collapseQueue.sort(compareText);
+    state.collapseQueue.sort(compareBuildingId);
     this.#event(state, { type: 'section_collapsed', sectionId, reason });
     return true;
   }
@@ -596,10 +560,10 @@ export class BuildingSystem {
     for (const section of descriptor.sections) {
       for (const supportedId of section.supports) supporters.get(supportedId).push(section.id);
     }
-    for (const ids of supporters.values()) ids.sort(compareText);
+    for (const ids of supporters.values()) ids.sort(compareBuildingId);
     const collapsed = [];
     while (state.collapseQueue.length > 0) {
-      state.collapseQueue.sort(compareText);
+      state.collapseQueue.sort(compareBuildingId);
       const sectionId = state.collapseQueue.shift();
       const runtime = state.sections[sectionId];
       if (!runtime || runtime.collapsed) continue;
@@ -641,17 +605,17 @@ export class BuildingSystem {
         if (affected) invalid.push(slot.id);
       }
     }
-    return invalid.sort(compareText);
+    return invalid.sort(compareBuildingId);
   }
 
   #resolveInvalidOccupants(state, descriptor) {
     const invalid = new Set(state.invalidSlots);
-    const slots = roomSlotIndex(descriptor);
+    const slots = createRoomSlotIndex(descriptor);
     const floorMap = floorById(descriptor);
     const consequences = [];
     const entries = Object.entries(state.occupancy)
       .filter(([slotId]) => invalid.has(slotId))
-      .sort((a, b) => compareText(a[1].soldierKey, b[1].soldierKey));
+      .sort((a, b) => compareBuildingId(a[1].soldierKey, b[1].soldierKey));
     for (const [slotId, occupant] of entries) {
       delete state.occupancy[slotId];
       const source = slots.get(slotId);
@@ -665,7 +629,7 @@ export class BuildingSystem {
             + (a.localPosition[2] - source.localPosition[2]) ** 2;
           const db = (b.localPosition[0] - source.localPosition[0]) ** 2
             + (b.localPosition[2] - source.localPosition[2]) ** 2;
-          return da - db || compareText(a.id, b.id);
+          return da - db || compareBuildingId(a.id, b.id);
         });
       const destination = candidates[0] ?? null;
       if (destination) {
@@ -714,18 +678,6 @@ export class BuildingSystem {
       if (state.collisionChanges.length > COLLISION_CHANGE_LIMIT) state.collisionChanges.shift();
     }
     return result;
-  }
-
-  #distanceToSection(point, section) {
-    if (!Array.isArray(point)) return 0;
-    let closest = Number.POSITIVE_INFINITY;
-    for (const part of section.colliderParts) {
-      const dx = Math.max(0, Math.abs(point[0] - part.center[0]) - part.halfExtents[0]);
-      const dy = Math.max(0, Math.abs(point[1] - part.center[1]) - part.halfExtents[1]);
-      const dz = Math.max(0, Math.abs(point[2] - part.center[2]) - part.halfExtents[2]);
-      closest = Math.min(closest, Math.hypot(dx, dy, dz));
-    }
-    return Number.isFinite(closest) ? closest : Number.POSITIVE_INFINITY;
   }
 
   #event(state, event) {

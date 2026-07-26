@@ -50,6 +50,8 @@ export function worldToLocalPoint(point, transform = {}) {
 export function transformColliderPart(part, transform, identity = {}) {
   const center = localToWorldPoint(part.center, transform);
   const halfExtents = part.halfExtents;
+  const halfX = halfExtents[0];
+  const halfZ = halfExtents[2];
   const normalized = normalizeBuildingTransform(transform);
   return {
     id: identity.id ?? String(part.id),
@@ -57,12 +59,15 @@ export function transformColliderPart(part, transform, identity = {}) {
     sectionId: identity.sectionId ?? null,
     partId: String(part.id),
     kind: identity.kind ?? 'building',
+    type: identity.kind ?? 'building',
     centerX: center[0],
     centerY: center[1],
     centerZ: center[2],
-    halfWidth: halfExtents[0],
+    halfX,
+    halfZ,
+    halfWidth: halfX,
     halfHeight: halfExtents[1],
-    halfDepth: halfExtents[2],
+    halfDepth: halfZ,
     minY: center[1] - halfExtents[1],
     maxY: center[1] + halfExtents[1],
     rotation: normalized.rotationY + finite(part.rotationY),

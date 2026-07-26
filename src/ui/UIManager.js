@@ -197,7 +197,14 @@ export class UIManager {
       ],
       special: [
         { label: 'HIDE', action: 'HIDE', key: 'H' },
-        { label: 'DEPLOY', action: 'DEPLOY', key: 'D' }
+        { label: 'DEPLOY', action: 'DEPLOY', key: 'D' },
+        ...(this.game.selectedUnit?.type === 'infantry_squad'
+          ? [
+              { label: 'ENTER GROUND', mode: 'ENTER_GROUND', key: 'G' },
+              { label: 'ENTER UPPER', mode: 'ENTER_UPPER', key: 'U' },
+              { label: 'EXIT BUILDING', action: 'EXIT_BUILDING', key: 'E' }
+            ]
+          : [])
       ],
       admin: [
         { label: 'SPLIT SQUAD', action: 'SPLIT', key: 'S' }
@@ -288,6 +295,9 @@ export class UIManager {
       case 'SPLIT':
         this.game.splitUnit(unit);
         break;
+      case 'EXIT_BUILDING':
+        this.game.issueBuildingExit(unit);
+        break;
     }
   }
 
@@ -362,9 +372,12 @@ export class UIManager {
         const ammoText = weapon
           ? `${s.magazineAmmo ?? 0}/${s.reserveAmmo ?? 0}${s.reloadTimer > 0 ? ` · reload ${s.reloadTimer.toFixed(1)}s` : ''}`
           : '';
-        slot.title = `${s.role} | ${s.state ?? s.status} | Health ${Math.round(s.health ?? 0)} | Suppression ${Math.round(s.suppression ?? 0)}${ammoText ? ` | Ammo ${ammoText}` : ''}`;
+        const buildingText = s.buildingLocation
+          ? ` · ${s.buildingLocation.phase.toUpperCase()} ${s.buildingLocation.nodeId ?? ''}`
+          : '';
+        slot.title = `${s.role} | ${s.state ?? s.status}${buildingText} | Health ${Math.round(s.health ?? 0)} | Suppression ${Math.round(s.suppression ?? 0)}${ammoText ? ` | Ammo ${ammoText}` : ''}`;
         slot.innerHTML = `
-          <span>${s.name}<em>${s.role ?? ''} · HP ${Math.round(s.health ?? 0)} · ${s.state ?? s.status}</em></span>
+          <span>${s.name}<em>${s.role ?? ''} · HP ${Math.round(s.health ?? 0)} · ${s.state ?? s.status}${buildingText}</em></span>
           <strong>${s.weapon ?? 'Unarmed'}${ammoText ? ` · ${ammoText}` : ''}</strong>
         `;
         rosterGrid.appendChild(slot);
@@ -581,6 +594,19 @@ export class UIManager {
           ? `crew ${casualty.role ?? casualty.name}: ${casualty.status} (${Math.round(casualty.health)} HP)`
           : `crew none${damagedModules.length ? ` | ${damagedModules.join(', ')}` : ''}`;
         entry.appendChild(crew);
+      }
+
+      if (record.kind === 'building') {
+        const section = record.buildingResult?.result ?? {};
+        const outcome = section.collapsed
+          ? 'COLLAPSED'
+          : (section.breached
+              ? 'BREACHED'
+              : (record.penetrated ? 'PENETRATED' : 'CHIPPED'));
+        const structure = document.createElement('div');
+        structure.className = `shot-outcome ${record.penetrated ? 'penetrated' : 'stopped'}`;
+        structure.textContent = `${record.sectionId}/${record.colliderPartId} | resistance ${record.nominalArmorMm?.toFixed(0) ?? '--'} mm | pen ${record.penetrationMm?.toFixed(1) ?? '--'} mm | ${outcome}${section.stage ? ` | ${section.stage}` : ''}`;
+        entry.appendChild(structure);
       }
 
       list.appendChild(entry);

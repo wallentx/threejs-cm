@@ -43,7 +43,7 @@ export class Unit {
     const vehicleDimensions = this.vehicleSpec?.dimensionsMeters;
     this.collisionRadius = vehicleDimensions
       ? vehicleDimensions.width * 0.5 + 0.08
-      : 0;
+      : this.type === 'infantry_squad' ? 0.32 : 0;
     this.collisionOffsets = vehicleDimensions
       ? createCapsuleOffsets(vehicleDimensions.length, this.collisionRadius)
       : [];
@@ -1039,6 +1039,24 @@ export class Unit {
     this.soldierAI?.applySquadStance();
   }
 
+  areLivingInfantryAtFormation(orderType, tolerance = 0.75) {
+    if (!this.soldierAI) return true;
+    const cosine = Math.cos(this.rotation);
+    const sine = Math.sin(this.rotation);
+    const toleranceSquared = tolerance * tolerance;
+    for (const agent of this.soldierAI.getLivingAgents()) {
+      if (agent.buildingLocation
+          && !['outside', 'approaching'].includes(agent.buildingLocation.phase)) continue;
+      const offset = this.soldierAI.getFormationOffset(agent.index, orderType);
+      const goalX = this.position.x + cosine * offset.x + sine * offset.z;
+      const goalZ = this.position.z - sine * offset.x + cosine * offset.z;
+      const dx = agent.position.x - goalX;
+      const dz = agent.position.z - goalZ;
+      if (dx * dx + dz * dz > toleranceSquared) return false;
+    }
+    return true;
+  }
+
   update(delta, terrain, options = {}) {
     const { haltMovement = false } = options;
     if (this.suppression > 0) {
@@ -1053,6 +1071,7 @@ export class Unit {
 
     let anchorMoving = false;
     let activeOrderType = 'QUICK';
+    let infantryAwaitingArrival = null;
     if (this.waypoints.length > 0 && this.currentWaypointIndex < this.waypoints.length) {
       const targetWp = this.waypoints[this.currentWaypointIndex];
       activeOrderType = targetWp.orderType;
@@ -1073,7 +1092,13 @@ export class Unit {
           this.position,
           targetWp.position,
           this.collisionRadius,
-          this.vehicleSpec ? 'vehicle' : 'infantry'
+          this.vehicleSpec ? 'vehicle' : 'infantry',
+          this.vehicleSpec
+            ? this.collisionRadius + Math.max(
+                0,
+                ...this.collisionOffsets.map(offset => Math.abs(offset.z))
+              )
+            : this.collisionRadius
         ) ?? targetWp.position;
         const dir = new THREE.Vector3(
           routeTarget.x - this.position.x,
@@ -1088,7 +1113,12 @@ export class Unit {
         );
 
         if (waypointDistance < 0.8) {
-          if (targetWp.remainingPause > 0) {
+          if (this.soldierAI) {
+            // Keep the command active while individual soldiers finish their
+            // own collision-safe routes into the formation.
+            anchorMoving = true;
+            infantryAwaitingArrival = targetWp;
+          } else if (targetWp.remainingPause > 0) {
             targetWp.remainingPause = Math.max(0, targetWp.remainingPause - delta);
           } else {
             targetWp.reached = true;
@@ -1102,13 +1132,20 @@ export class Unit {
             z: dir.z * intendedDistance
           };
           const desiredRotation = Math.atan2(dir.x, dir.z);
-          const resolved = this.vehicleSpec && this.collisionWorld
-            ? this.collisionWorld.resolveFootprintMotion(this.position, displacement, {
+          const resolved = this.collisionWorld
+            ? this.vehicleSpec
+              ? this.collisionWorld.resolveFootprintMotion(this.position, displacement, {
                 moverType: 'vehicle',
                 radius: this.collisionRadius,
                 offsets: this.collisionOffsets,
                 rotation: desiredRotation
               })
+              : this.collisionWorld.resolveCircleMotion(
+                this.position,
+                displacement,
+                this.collisionRadius,
+                { moverType: 'infantry' }
+              )
             : {
                 x: this.position.x + displacement.x,
                 z: this.position.z + displacement.z,
@@ -1117,8 +1154,12 @@ export class Unit {
               };
           this.position.x = resolved.x;
           this.position.z = resolved.z;
-          anchorMoving = Math.hypot(resolved.movedX, resolved.movedZ) > 1e-5;
-          if (anchorMoving) this.rotation = desiredRotation;
+          const anchorDisplaced = Math.hypot(resolved.movedX, resolved.movedZ) > 1e-5;
+          // A blocked infantry anchor still represents an active order.
+          // Soldiers must continue resolving their individual routes instead
+          // of freezing because the invisible squad center touched a wall.
+          anchorMoving = this.soldierAI ? true : anchorDisplaced;
+          if (anchorDisplaced) this.rotation = desiredRotation;
 
           this.position.y = terrain.getMovementHeightAt
             ? terrain.getMovementHeightAt(this.position.x, this.position.z)
@@ -1131,6 +1172,18 @@ export class Unit {
     }
 
     this.soldierAI?.update(delta, terrain, { anchorMoving, orderType: activeOrderType });
+    if (infantryAwaitingArrival
+        && this.areLivingInfantryAtFormation(activeOrderType)) {
+      if (infantryAwaitingArrival.remainingPause > 0) {
+        infantryAwaitingArrival.remainingPause = Math.max(
+          0,
+          infantryAwaitingArrival.remainingPause - delta
+        );
+      } else {
+        infantryAwaitingArrival.reached = true;
+        this.currentWaypointIndex++;
+      }
+    }
     if (!this.soldierAI) this.updateStanceVisuals();
   }
 }

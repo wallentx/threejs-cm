@@ -12,11 +12,17 @@ function normalizeRecord(record) {
   const centerZ = finite(record.centerZ, (finite(record.minZ) + finite(record.maxZ)) * 0.5);
   const halfX = Math.max(
     0,
-    finite(record.halfX, Math.abs(finite(record.maxX) - finite(record.minX)) * 0.5)
+    finite(
+      record.halfX,
+      finite(record.halfWidth, Math.abs(finite(record.maxX) - finite(record.minX)) * 0.5)
+    )
   );
   const halfZ = Math.max(
     0,
-    finite(record.halfZ, Math.abs(finite(record.maxZ) - finite(record.minZ)) * 0.5)
+    finite(
+      record.halfZ,
+      finite(record.halfDepth, Math.abs(finite(record.maxZ) - finite(record.minZ)) * 0.5)
+    )
   );
   return {
     ...record,
@@ -191,19 +197,87 @@ export class StaticCollisionWorld {
       .map(record => ({ ...record, blocks: [...record.blocks] }));
   }
 
-  getNavigationTarget(start, goal, radius = 0, moverType = 'vehicle') {
+  getNavigationTarget(
+    start,
+    goal,
+    radius = 0,
+    moverType = 'vehicle',
+    longitudinalClearance = radius
+  ) {
     for (const crossing of this.navigationRecords) {
       if (crossing.type !== 'bridge_crossing'
           || !(crossing.blocks ?? ['vehicle', 'infantry']).includes(moverType)) continue;
       const southEdge = Math.min(crossing.minZ, crossing.maxZ);
       const northEdge = Math.max(crossing.minZ, crossing.maxZ);
-      const margin = Math.max(0.25, radius + 0.2);
-      const southToNorth = start.z < southEdge && goal.z > northEdge;
-      const northToSouth = start.z > northEdge && goal.z < southEdge;
-      const continuingNorth = start.z >= southEdge && start.z <= northEdge + margin
-        && goal.z > northEdge;
-      const continuingSouth = start.z <= northEdge && start.z >= southEdge - margin
-        && goal.z < southEdge;
+      const barrierRecords = (crossing.barrierColliderIds ?? [])
+        .map(id => this.colliders.get(String(id)))
+        .filter(record => record && blocksMover(record, moverType));
+      const barrierSouthEdge = barrierRecords.length > 0
+        ? Math.min(...barrierRecords.map(record => record.centerZ - record.halfZ))
+        : southEdge;
+      const barrierNorthEdge = barrierRecords.length > 0
+        ? Math.max(...barrierRecords.map(record => record.centerZ + record.halfZ))
+        : northEdge;
+      const margin = Math.max(0.25, longitudinalClearance + 0.2);
+      const northExitZ = northEdge + margin;
+      const southExitZ = southEdge - margin;
+      const lateralClearance = crossing.halfOpeningWidth + longitudinalClearance;
+      // Route decisions use the actual blocking band, not the bridge's longer
+      // visual span. A legal near-bank destination can sit between those two
+      // extents and still requires passage through the bridge opening.
+      const southToNorth = start.z < barrierSouthEdge && goal.z > barrierNorthEdge;
+      const northToSouth = start.z > barrierNorthEdge && goal.z < barrierSouthEdge;
+      const continuingNorth = start.z >= southEdge - margin
+        && start.z <= barrierNorthEdge + CONTACT_EPSILON
+        && goal.z > barrierNorthEdge;
+      const continuingSouth = start.z <= northEdge + margin
+        && start.z >= barrierSouthEdge - CONTACT_EPSILON
+        && goal.z < barrierSouthEdge;
+      const northBankTrip = start.z > barrierNorthEdge && goal.z > barrierNorthEdge;
+      const southBankTrip = start.z < barrierSouthEdge && goal.z < barrierSouthEdge;
+
+      // A mover whose destination lies on the near bank must first clear the
+      // bridge longitudinally, then clear its abutment laterally. This
+      // stateless dog-leg prevents immediately steering a long vehicle back
+      // into the crossing and oscillating at the exit.
+      if (northBankTrip
+          && Math.abs(start.x - crossing.centerX) < lateralClearance - CONTACT_EPSILON) {
+        if (start.z < northExitZ - CONTACT_EPSILON) {
+          return {
+            x: crossing.centerX,
+            z: northExitZ,
+            routed: true,
+            crossingId: crossing.id
+          };
+        }
+        if (Math.abs(goal.x - crossing.centerX) >= lateralClearance) {
+          return {
+            x: goal.x,
+            z: northExitZ,
+            routed: true,
+            crossingId: crossing.id
+          };
+        }
+      }
+      if (southBankTrip
+          && Math.abs(start.x - crossing.centerX) < lateralClearance - CONTACT_EPSILON) {
+        if (start.z > southExitZ + CONTACT_EPSILON) {
+          return {
+            x: crossing.centerX,
+            z: southExitZ,
+            routed: true,
+            crossingId: crossing.id
+          };
+        }
+        if (Math.abs(goal.x - crossing.centerX) >= lateralClearance) {
+          return {
+            x: goal.x,
+            z: southExitZ,
+            routed: true,
+            crossingId: crossing.id
+          };
+        }
+      }
 
       if (southToNorth) {
         const entryZ = southEdge - margin;
@@ -214,7 +288,7 @@ export class StaticCollisionWorld {
         }
         return {
           x: crossing.centerX,
-          z: northEdge + margin,
+          z: northExitZ,
           routed: true,
           crossingId: crossing.id
         };
@@ -228,20 +302,20 @@ export class StaticCollisionWorld {
         }
         return {
           x: crossing.centerX,
-          z: southEdge - margin,
+          z: southExitZ,
           routed: true,
           crossingId: crossing.id
         };
       }
       if (continuingNorth) {
-        const exitZ = northEdge + margin;
+        const exitZ = northExitZ;
         if (start.z < exitZ - CONTACT_EPSILON) {
           return { x: crossing.centerX, z: exitZ, routed: true, crossingId: crossing.id };
         }
         return { x: goal.x, z: goal.z, routed: false, crossingId: null };
       }
       if (continuingSouth) {
-        const exitZ = southEdge - margin;
+        const exitZ = southExitZ;
         if (start.z > exitZ + CONTACT_EPSILON) {
           return { x: crossing.centerX, z: exitZ, routed: true, crossingId: crossing.id };
         }

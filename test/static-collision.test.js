@@ -58,6 +58,28 @@ test('large accelerated movement and bounded frame steps resolve to the same wal
   assert.ok(oneStep.z < 0);
 });
 
+test('building collision snapshots accept halfWidth and halfDepth aliases', () => {
+  const world = new StaticCollisionWorld([{
+    id: 'building:alias',
+    type: 'building',
+    centerX: 4,
+    centerZ: -3,
+    halfWidth: 2.5,
+    halfDepth: 1.75,
+    blocks: ['infantry', 'vehicle']
+  }]);
+  const record = world.getCollider('building:alias');
+
+  assert.equal(record.halfX, 2.5);
+  assert.equal(record.halfZ, 1.75);
+  assert.equal(world.resolveCircleMotion(
+    { x: 4, z: -8 },
+    { x: 0, z: 10 },
+    0.32,
+    { moverType: 'infantry' }
+  ).blocked, true);
+});
+
 test('terrain publishes bridge, abutment, river exclusion, wall, and building records', () => {
   const terrain = new TerrainBuilder(new THREE.Scene());
   terrain.buildRiverAndBridge();
@@ -134,6 +156,41 @@ test('vehicle orders deterministically route through the bridge opening', () => 
   assert.ok(unit.position.distanceTo(new THREE.Vector3(18, unit.position.y, 40)) < 1);
 });
 
+test('near-bank destinations route from actual river exclusion edges', () => {
+  const terrain = new TerrainBuilder(new THREE.Scene());
+  terrain.buildRiverAndBridge();
+  const river = TERRAIN_SCALE.river;
+  const goal = new THREE.Vector3(
+    18,
+    0,
+    river.centerZ + river.cutWidth * 0.5 + 1.5
+  );
+  const navigationTarget = terrain.collisionWorld.getNavigationTarget(
+    { x: 18, z: river.centerZ - river.cutWidth * 0.5 - 8 },
+    goal,
+    1,
+    'vehicle'
+  );
+
+  assert.equal(navigationTarget.routed, true);
+  assert.equal(navigationTarget.x, terrain.bridgeSurface.centerX);
+
+  const unit = new Unit({
+    id: 'near_bank_vehicle',
+    faction: 'french',
+    type: 'tank',
+    position: new THREE.Vector3(18, 0, river.centerZ - river.cutWidth * 0.5 - 8)
+  });
+  terrain.registerUnitColliders([unit]);
+  unit.addWaypoint(goal, 'FAST');
+  for (let step = 0; step < 800 && unit.currentWaypointIndex === 0; step++) {
+    unit.update(1 / 30, terrain);
+  }
+
+  assert.equal(unit.currentWaypointIndex, 1);
+  assert.ok(Math.hypot(unit.position.x - goal.x, unit.position.z - goal.z) < 1);
+});
+
 test('soldier stages at wall stand-off and uses tangential space without clipping', () => {
   const terrain = new TerrainBuilder(new THREE.Scene());
   terrain.addColliderRecord(WALL);
@@ -162,6 +219,53 @@ test('soldier stages at wall stand-off and uses tangential space without clippin
 
   assert.ok(agent.position.z <= -0.62, 'soldier center must retain wall stand-off');
   assert.ok(agent.position.x > 1.5, 'soldier should slide into useful space along the wall');
+});
+
+test('infantry anchor cannot complete through a wall', () => {
+  const terrain = new TerrainBuilder(new THREE.Scene());
+  terrain.addColliderRecord({
+    ...WALL,
+    id: 'wall:impassable',
+    halfX: 100
+  });
+  const unit = new Unit({
+    id: 'blocked_squad',
+    faction: 'german',
+    type: 'infantry_squad',
+    position: new THREE.Vector3(0, 0, -4)
+  });
+  terrain.registerUnitColliders([unit]);
+  unit.addWaypoint(new THREE.Vector3(0, 0, 4), 'QUICK');
+
+  for (let step = 0; step < 240; step++) unit.update(1 / 30, terrain);
+
+  assert.ok(unit.position.z <= -(WALL.halfZ + unit.collisionRadius));
+  assert.equal(unit.currentWaypointIndex, 0);
+  assert.equal(unit.waypoints[0].reached, false);
+});
+
+test('infantry waypoint completion waits for every living soldier to arrive', () => {
+  const terrain = new TerrainBuilder(new THREE.Scene());
+  const unit = new Unit({
+    id: 'catchup_squad',
+    faction: 'french',
+    type: 'infantry_squad',
+    position: new THREE.Vector3(0, 0, 0)
+  });
+  terrain.registerUnitColliders([unit]);
+  const delayedAgent = unit.soldierAI.getLivingAgents()[0];
+  delayedAgent.position.set(0, 0, -10);
+  delayedAgent.reactionDelay = 0;
+  unit.addWaypoint(unit.position.clone(), 'QUICK');
+
+  unit.update(1 / 30, terrain);
+  assert.equal(unit.currentWaypointIndex, 0);
+  assert.equal(unit.waypoints[0].reached, false);
+
+  for (let step = 0; step < 300 && unit.currentWaypointIndex === 0; step++) {
+    unit.update(1 / 30, terrain);
+  }
+  assert.equal(unit.currentWaypointIndex, 1);
 });
 
 test('collision continuation is identical after unit capture and restore', () => {

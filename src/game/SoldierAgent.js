@@ -50,6 +50,9 @@ export class SoldierAgent {
     this.status = record.status ?? 'OK';
     this.targetUnitId = record.targetUnitId ?? null;
     this.targetSoldierId = record.targetSoldierId ?? null;
+    this.buildingLocation = record.buildingLocation
+      ? JSON.parse(JSON.stringify(record.buildingLocation))
+      : null;
     this.commandWaypoint = record.commandWaypoint ?? -1;
     this.syncRecord();
   }
@@ -84,6 +87,9 @@ export class SoldierAgent {
       recoilTime: this.recoilTime,
       targetUnitId: this.targetUnitId,
       targetSoldierId: this.targetSoldierId,
+      buildingLocation: this.buildingLocation
+        ? JSON.parse(JSON.stringify(this.buildingLocation))
+        : null,
       commandWaypoint: this.commandWaypoint
     });
   }
@@ -104,6 +110,14 @@ export class SoldierAgent {
     if (!this.isAlive) {
       this.state = 'CASUALTY';
       this.stance = 'PRONE';
+      this.velocity.set(0, 0, 0);
+      this.syncRecord();
+      return;
+    }
+
+    if (this.buildingLocation
+        && ['transit', 'exiting', 'exit-waiting', 'occupied']
+          .includes(this.buildingLocation.phase)) {
       this.velocity.set(0, 0, 0);
       this.syncRecord();
       return;
@@ -249,26 +263,33 @@ export class SoldierAgent {
       ? [this.unit.targetUnit]
       : context.opposingUnits;
     for (const enemyUnit of candidateUnits) {
+      const precisionGate = context.spotting.canPrecisionTarget;
       if (!enemyUnit.isCombatEffective()
-          || !context.spotting.canPrecisionTarget(this.unit, enemyUnit)) continue;
+          || (typeof precisionGate === 'function'
+            && !precisionGate.call(context.spotting, this.unit, enemyUnit))) continue;
       const enemyAgents = enemyUnit.soldierAI?.getLivingAgents() ?? [];
       if (enemyAgents.length === 0) {
         const los = context.spotting.checkLOS(this.position, enemyUnit.position);
-        if (los.clear && los.dist <= weapon.maxRange && (!best || los.dist < best.distance)) {
+        if (los.clear && los.dist <= weapon.maxRange
+            && context.buildingInteraction?.canFireAt?.(this, enemyUnit.position) !== false
+            && (!best || los.dist < best.distance)) {
           best = { unit: enemyUnit, agent: null, position: enemyUnit.position, distance: los.dist };
         }
         continue;
       }
       for (const enemy of enemyAgents) {
         const los = context.spotting.checkLOS(this.position, enemy.position);
-        if (los.clear && los.dist <= weapon.maxRange && (!best || los.dist < best.distance)) {
+        if (los.clear && los.dist <= weapon.maxRange
+            && context.buildingInteraction?.canFireAt?.(this, enemy.position) !== false
+            && (!best || los.dist < best.distance)) {
           best = { unit: enemyUnit, agent: enemy, position: enemy.position, distance: los.dist };
         }
       }
     }
     if (!best && this.unit.targetPos) {
       const los = context.spotting.checkLOS(this.position, this.unit.targetPos);
-      if (los.clear && los.dist <= weapon.maxRange) {
+      if (los.clear && los.dist <= weapon.maxRange
+          && context.buildingInteraction?.canFireAt?.(this, this.unit.targetPos) !== false) {
         best = { unit: null, agent: null, position: this.unit.targetPos, distance: los.dist };
       }
     }
@@ -390,6 +411,9 @@ export class SoldierAgent {
     this.status = state.status;
     this.targetUnitId = state.targetUnitId;
     this.targetSoldierId = state.targetSoldierId;
+    this.buildingLocation = state.buildingLocation
+      ? JSON.parse(JSON.stringify(state.buildingLocation))
+      : null;
     this.commandWaypoint = state.commandWaypoint;
     this.syncRecord();
   }

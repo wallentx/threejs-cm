@@ -1,16 +1,41 @@
 import * as THREE from 'three';
 import { BallisticsSystem } from './BallisticsSystem.js';
 import { getWeapon } from './WeaponCatalog.js';
+import { worldToLocalPoint } from '../simulation/buildings/BuildingTransforms.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const scratchAim = new THREE.Vector3();
 const scratchDirection = new THREE.Vector3();
+
+export function calculateBuildingBlastDamage(weapon) {
+  const woundDamage = Math.max(0, Number(weapon?.woundDamage) || 0);
+  const explosiveRadius = Math.max(0, Number(weapon?.explosiveRadius) || 0);
+  const caliber = Math.max(0, Number(weapon?.caliberMm) || 0);
+  if (explosiveRadius <= 0) return 0;
+  return THREE.MathUtils.clamp(
+    woundDamage * 1.4 + explosiveRadius * 24 + caliber * 2,
+    1,
+    650
+  );
+}
+
+function buildingDamageChanged(result) {
+  return Boolean(
+    result?.results?.some(record => record.applied > 0 || record.collapsed || record.breached)
+    || result?.result?.applied > 0
+    || result?.result?.collapsed
+    || result?.result?.breached
+    || result?.collapsedSections?.length
+    || result?.occupantConsequences?.length
+  );
+}
 
 function createTelemetry() {
   return {
     shotsFired: 0,
     infantryHits: 0,
     vehicleHits: 0,
+    buildingHits: 0,
     penetrations: 0,
     ricochets: 0,
     impacts: []
@@ -45,7 +70,10 @@ function snapshotImpact(record) {
     ...record,
     muzzlePosition: [...record.muzzlePosition],
     impactPosition: [...record.impactPosition],
-    crewResult: snapshotCrewResult(record.crewResult)
+    crewResult: snapshotCrewResult(record.crewResult),
+    buildingResult: record.buildingResult
+      ? JSON.parse(JSON.stringify(record.buildingResult))
+      : null
   };
 }
 
@@ -54,6 +82,7 @@ function snapshotTelemetry(telemetry) {
     shotsFired: telemetry.shotsFired,
     infantryHits: telemetry.infantryHits,
     vehicleHits: telemetry.vehicleHits,
+    buildingHits: telemetry.buildingHits ?? 0,
     penetrations: telemetry.penetrations,
     ricochets: telemetry.ricochets,
     impacts: telemetry.impacts.map(snapshotImpact)
@@ -104,10 +133,16 @@ export class CombatSystem {
     this.effectCaps = { impact: 48, explosion: 12 };
     this.shotSequence = 0;
     this.telemetry = createTelemetry();
+    this.buildingSystem = options.buildingSystem ?? null;
+    this.onBuildingChanged = options.onBuildingChanged ?? null;
+    this.onOccupantConsequences = options.onOccupantConsequences ?? null;
+    this.onOccupantConsequence = options.onOccupantConsequence ?? null;
     this.ballistics = new BallisticsSystem({
       terrain: options.terrain ?? null,
       getUnits: options.getUnits ?? (() => []),
-      random
+      random,
+      buildingSystem: this.buildingSystem,
+      getBuildingColliders: options.getBuildingColliders ?? null
     });
   }
 
@@ -257,7 +292,7 @@ export class CombatSystem {
       id: projectile.id,
       shooterId: projectile.shooterId,
       mountId: projectile.mountId,
-      targetId: impact.unit?.id ?? null,
+      targetId: impact.unit?.id ?? impact.buildingId ?? null,
       targetSoldierId: impact.agent?.id ?? projectile.targetSoldierId ?? null,
       weaponId: projectile.weapon.id,
       ammoId: projectile.ammoId,
@@ -274,7 +309,13 @@ export class CombatSystem {
       effectiveArmorMm: result?.effectiveArmorMm ?? null,
       penetrationMm: result?.penetrationMm ?? null,
       penetrated: result?.penetrated ?? null,
-      crewResult: snapshotCrewResult(result?.crewResult)
+      crewResult: snapshotCrewResult(result?.crewResult),
+      buildingId: impact.buildingId ?? null,
+      sectionId: impact.sectionId ?? result?.sectionId ?? null,
+      colliderPartId: impact.colliderPartId ?? result?.colliderPartId ?? null,
+      buildingResult: result?.buildingResult
+        ? JSON.parse(JSON.stringify(result.buildingResult))
+        : null
     };
 
     this.telemetry.impacts.push(record);
@@ -287,6 +328,7 @@ export class CombatSystem {
           shotsFired: this.telemetry.shotsFired,
           infantryHits: this.telemetry.infantryHits,
           vehicleHits: this.telemetry.vehicleHits,
+          buildingHits: this.telemetry.buildingHits,
           penetrations: this.telemetry.penetrations,
           latestImpact: record
         }));
@@ -364,6 +406,27 @@ export class CombatSystem {
       return;
     }
 
+    if (impact.kind === 'building') {
+      const result = this.ballistics.resolveBuildingImpact(projectile, impact);
+      this.telemetry.buildingHits++;
+      if (result.penetrated) this.telemetry.penetrations++;
+      else this.telemetry.ricochets++;
+      this.recordImpact(projectile, impact, result);
+      this.processBuildingDamageResult(
+        impact.buildingId,
+        result.buildingResult,
+        'projectile',
+        impact.point
+      );
+      if (weapon.explosiveRadius > 0) {
+        this.applyBlast(impact.point, weapon, projectile.attacker);
+        this.createExplosionEffect(impact.point, 0.65);
+      } else {
+        this.createImpactEffect(impact.point, result.penetrated ? 0xff7b46 : 0xd6b36a);
+      }
+      return;
+    }
+
     this.recordImpact(projectile, impact);
     if (weapon.explosiveRadius > 0) {
       this.applyBlast(impact.point, weapon, projectile.attacker);
@@ -376,10 +439,18 @@ export class CombatSystem {
   applyBlast(position, weapon, attacker) {
     const radius = weapon.explosiveRadius;
     if (radius <= 0) return;
+    const protectedOccupants = new Set();
+    for (const buildingId of this.buildingSystem?.getBuildingIds?.() ?? []) {
+      const building = this.buildingSystem.getBuildingSnapshot(buildingId);
+      for (const occupant of Object.values(building.occupancy ?? {})) {
+        protectedOccupants.add(`${occupant.unitId}:${occupant.soldierId}`);
+      }
+    }
     for (const unit of this.ballistics.getUnits()) {
       if (!unit?.isCombatEffective?.() || unit === attacker) continue;
       if (unit.type === 'infantry_squad') {
         for (const agent of unit.soldierAI?.getLivingAgents() ?? []) {
+          if (protectedOccupants.has(`${unit.id}:${agent.id}`)) continue;
           const distance = agent.position.distanceTo(position);
           if (distance > radius) continue;
           const falloff = 1 - distance / radius;
@@ -391,6 +462,47 @@ export class CombatSystem {
         unit.applySuppression(22);
       }
     }
+
+    if (!this.buildingSystem) return;
+    const amount = calculateBuildingBlastDamage(weapon);
+    const buildingIds = this.buildingSystem.getBuildingIds?.()
+      ?? (this.buildingSystem.captureState?.().buildings ?? [])
+        .map(building => String(building.id))
+        .sort((a, b) => a.localeCompare(b));
+    for (const buildingId of buildingIds) {
+      const snapshot = this.buildingSystem.getBuildingSnapshot(buildingId);
+      const result = this.buildingSystem.applyBlastDamage(buildingId, {
+        centerLocal: worldToLocalPoint(position.toArray(), snapshot.transform),
+        radius,
+        amount
+      });
+      if (!buildingDamageChanged(result)) continue;
+      this.processBuildingDamageResult(buildingId, result, 'blast', position);
+    }
+  }
+
+  processBuildingDamageResult(buildingId, damageResult, reason, position) {
+    if (!damageResult) return;
+    const consequences = [...(damageResult.occupantConsequences ?? [])]
+      .sort((a, b) => String(a.soldierKey).localeCompare(String(b.soldierKey)))
+      .map(consequence => ({
+        buildingId,
+        ...consequence,
+        reason
+      }));
+    if (consequences.length > 0) {
+      this.onOccupantConsequences?.(consequences);
+      if (!this.onOccupantConsequences) {
+        for (const consequence of consequences) this.onOccupantConsequence?.(consequence);
+      }
+    }
+    this.onBuildingChanged?.({
+      buildingId,
+      reason,
+      position: position?.toArray?.() ?? null,
+      damageResult: JSON.parse(JSON.stringify(damageResult)),
+      collisionSnapshot: this.buildingSystem?.getCollisionSnapshot?.(buildingId) ?? null
+    });
   }
 
   acquireEffect(kind) {
