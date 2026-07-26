@@ -176,6 +176,7 @@ class Game {
       agentDebug: this.visualDebugMode === 'agents'
     });
     this.units = loaded.units;
+    this.terrain.registerUnitColliders(this.units);
     if (this.startWithoutSelection || !loaded.initialSelection) this.deselectUnit();
     else this.selectUnit(loaded.initialSelection);
     if (loaded.cameraTarget) this.cameraManager.setFocusTarget(loaded.cameraTarget.position);

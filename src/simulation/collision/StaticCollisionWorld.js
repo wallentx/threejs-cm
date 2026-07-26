@@ -206,16 +206,42 @@ export class StaticCollisionWorld {
         && goal.z < southEdge;
 
       if (southToNorth) {
-        return { x: crossing.centerX, z: southEdge - margin, routed: true, crossingId: crossing.id };
+        const entryZ = southEdge - margin;
+        if (Math.hypot(start.x - crossing.centerX, start.z - entryZ) > 0.35) {
+          return { x: crossing.centerX, z: entryZ, routed: true, crossingId: crossing.id };
+        }
+        return {
+          x: crossing.centerX,
+          z: northEdge + margin,
+          routed: true,
+          crossingId: crossing.id
+        };
       }
       if (northToSouth) {
-        return { x: crossing.centerX, z: northEdge + margin, routed: true, crossingId: crossing.id };
+        const entryZ = northEdge + margin;
+        if (Math.hypot(start.x - crossing.centerX, start.z - entryZ) > 0.35) {
+          return { x: crossing.centerX, z: entryZ, routed: true, crossingId: crossing.id };
+        }
+        return {
+          x: crossing.centerX,
+          z: southEdge - margin,
+          routed: true,
+          crossingId: crossing.id
+        };
       }
       if (continuingNorth) {
-        return { x: crossing.centerX, z: northEdge + margin, routed: true, crossingId: crossing.id };
+        const exitZ = northEdge + margin;
+        if (Math.hypot(start.x - crossing.centerX, start.z - exitZ) > 0.35) {
+          return { x: crossing.centerX, z: exitZ, routed: true, crossingId: crossing.id };
+        }
+        return { x: goal.x, z: goal.z, routed: false, crossingId: null };
       }
       if (continuingSouth) {
-        return { x: crossing.centerX, z: southEdge - margin, routed: true, crossingId: crossing.id };
+        const exitZ = southEdge - margin;
+        if (Math.hypot(start.x - crossing.centerX, start.z - exitZ) > 0.35) {
+          return { x: crossing.centerX, z: exitZ, routed: true, crossingId: crossing.id };
+        }
+        return { x: goal.x, z: goal.z, routed: false, crossingId: null };
       }
     }
     return { x: goal.x, z: goal.z, routed: false, crossingId: null };

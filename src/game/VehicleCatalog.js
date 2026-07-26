@@ -26,6 +26,7 @@ function freezeVehicle(vehicle) {
     mainGun: vehicle.mainGun ? Object.freeze({ ...vehicle.mainGun }) : null,
     ammunition: Object.freeze({ ap: 0, he: 0, ...vehicle.ammunition }),
     movementMps: Object.freeze({ ...vehicle.movementMps }),
+    dimensionsMeters: Object.freeze({ ...vehicle.dimensionsMeters }),
     armorMm: Object.freeze({ ...vehicle.armorMm }),
     zoneCrew: freezeZones(vehicle.zoneCrew),
     weaponMounts: freezeMounts(vehicle.weaponMounts ?? VEHICLE_MACHINE_GUN_MOUNTS[vehicle.id] ?? []),
@@ -146,6 +147,7 @@ export const VEHICLES = Object.freeze({
     id: 'SOMUA_S35',
     modelId: 'fr_somua',
     name: 'SOMUA S35',
+    dimensionsMeters: { length: 5.38, width: 2.12, height: 2.62 },
     crew: [
       crewman('COMMANDER_GUNNER', 'Commander / Gunner'),
       crewman('DRIVER', 'Driver'),
@@ -178,6 +180,7 @@ export const VEHICLES = Object.freeze({
     id: 'RENAULT_R35',
     modelId: 'fr_renault_r35',
     name: 'Renault R35',
+    dimensionsMeters: { length: 4.02, width: 1.87, height: 2.13 },
     crew: [
       crewman('COMMANDER_GUNNER', 'Commander / Gunner / Loader'),
       crewman('DRIVER', 'Driver')
@@ -209,6 +212,7 @@ export const VEHICLES = Object.freeze({
     id: 'HOTCHKISS_H39',
     modelId: 'fr_hotchkiss_h39',
     name: 'Hotchkiss H39',
+    dimensionsMeters: { length: 4.22, width: 1.85, height: 2.15 },
     crew: [
       crewman('COMMANDER_GUNNER', 'Commander / Gunner / Loader'),
       crewman('DRIVER', 'Driver')
@@ -240,6 +244,7 @@ export const VEHICLES = Object.freeze({
     id: 'AMC_35',
     modelId: 'fr_amc35',
     name: 'AMC 35 (ACG-1)',
+    dimensionsMeters: { length: 4.55, width: 2.24, height: 2.30 },
     crew: [
       crewman('COMMANDER', 'Commander'),
       crewman('GUNNER_LOADER', 'Gunner / Loader'),
@@ -272,6 +277,7 @@ export const VEHICLES = Object.freeze({
     id: 'PANHARD_178',
     modelId: 'fr_panhard178',
     name: 'Panhard 178 (AMD 35)',
+    dimensionsMeters: { length: 4.79, width: 2.01, height: 2.31 },
     crew: [
       crewman('COMMANDER', 'Commander'),
       crewman('GUNNER', 'Gunner'),
@@ -304,6 +310,7 @@ export const VEHICLES = Object.freeze({
     id: 'LAFFLY_V15T',
     modelId: 'fr_laffly_v15t',
     name: 'Laffly V15T',
+    dimensionsMeters: { length: 4.35, width: 1.80, height: 1.52 },
     crew: [
       crewman('DRIVER', 'Driver'),
       crewman('PASSENGER', 'Vehicle Commander')
@@ -334,6 +341,7 @@ export const VEHICLES = Object.freeze({
     id: 'CHAR_B1_BIS',
     modelId: 'fr_char_b1bis',
     name: 'Char B1 bis',
+    dimensionsMeters: { length: 6.37, width: 2.46, height: 2.79 },
     crew: [
       crewman('COMMANDER_GUNNER', 'Commander / 47mm Gunner / Loader'),
       crewman('DRIVER_HULL_GUNNER', 'Driver / 75mm Gunner'),
@@ -368,6 +376,7 @@ export const VEHICLES = Object.freeze({
     id: 'PANZER_III_D',
     modelId: 'ger_panzer3',
     name: 'Panzer III Ausf. D',
+    dimensionsMeters: { length: 5.38, width: 2.91, height: 2.50 },
     crew: [
       crewman('COMMANDER', 'Commander'),
       crewman('GUNNER', 'Gunner'),
@@ -401,6 +410,7 @@ export const VEHICLES = Object.freeze({
     id: 'PANZER_II_C',
     modelId: 'ger_panzer2',
     name: 'Panzer II Ausf. C',
+    dimensionsMeters: { length: 4.81, width: 2.22, height: 1.99 },
     crew: [
       crewman('COMMANDER_GUNNER', 'Commander / Gunner'),
       crewman('LOADER_RADIO', 'Loader / Radio Operator'),
@@ -432,6 +442,7 @@ export const VEHICLES = Object.freeze({
     id: 'PANZER_35T',
     modelId: 'ger_panzer35t',
     name: 'Panzer 35(t)',
+    dimensionsMeters: { length: 4.90, width: 2.06, height: 2.37 },
     crew: [
       crewman('COMMANDER_GUNNER', 'Commander / Gunner'),
       crewman('LOADER', 'Loader'),
@@ -464,6 +475,7 @@ export const VEHICLES = Object.freeze({
     id: 'PANZER_38T',
     modelId: 'ger_panzer38t',
     name: 'Panzer 38(t)',
+    dimensionsMeters: { length: 4.61, width: 2.14, height: 2.25 },
     crew: [
       crewman('COMMANDER_GUNNER', 'Commander / Gunner'),
       crewman('LOADER', 'Loader'),
@@ -496,6 +508,7 @@ export const VEHICLES = Object.freeze({
     id: 'SDKFZ_231',
     modelId: 'ger_sdkfz231',
     name: 'Sd.Kfz. 231 (8-Rad)',
+    dimensionsMeters: { length: 5.85, width: 2.20, height: 2.35 },
     crew: [
       crewman('COMMANDER', 'Commander'),
       crewman('GUNNER', 'Gunner'),
@@ -528,6 +541,7 @@ export const VEHICLES = Object.freeze({
     id: 'OPEL_BLITZ',
     modelId: 'ger_opel_blitz',
     name: 'Opel Blitz 3.6-36S',
+    dimensionsMeters: { length: 6.10, width: 2.26, height: 2.56 },
     crew: [
       crewman('DRIVER', 'Driver'),
       crewman('PASSENGER', 'Vehicle Commander')
@@ -558,6 +572,7 @@ export const VEHICLES = Object.freeze({
     id: 'PANZER_IV_D',
     modelId: 'ger_panzer4',
     name: 'Panzer IV Ausf. D',
+    dimensionsMeters: { length: 5.92, width: 2.84, height: 2.68 },
     crew: [
       crewman('COMMANDER', 'Commander'),
       crewman('GUNNER', 'Gunner'),

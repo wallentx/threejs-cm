@@ -4,6 +4,7 @@ import { getWeapon, weaponIdFromName } from './WeaponCatalog.js';
 const UP = new THREE.Vector3(0, 1, 0);
 const MAX_INFANTRY_ROUNDS_PER_STEP = 64;
 const INFANTRY_CADENCE_EPSILON = 1e-9;
+const INFANTRY_COLLISION_RADIUS = 0.32;
 
 function hash01(value) {
   let hash = 2166136261;
@@ -114,7 +115,17 @@ export class SoldierAgent {
       this.reactionDelay = hash01(`${this.unit.id}:${this.id}:${this.commandWaypoint}`) * 0.7;
     }
 
-    const direction = new THREE.Vector3().subVectors(context.goal, this.position);
+    const navigationGoal = terrain.collisionWorld?.getNavigationTarget(
+      this.position,
+      context.goal,
+      INFANTRY_COLLISION_RADIUS,
+      'infantry'
+    ) ?? context.goal;
+    const direction = new THREE.Vector3(
+      navigationGoal.x - this.position.x,
+      0,
+      navigationGoal.z - this.position.z
+    );
     direction.y = 0;
     const distance = direction.length();
     const pinned = this.suppression >= 58 || context.squadPinned;
@@ -158,9 +169,37 @@ export class SoldierAgent {
       this.stance = this.unit.stance;
     }
 
-    this.position.addScaledVector(this.velocity, dt);
-    this.position.y = terrain.getHeightAt(this.position.x, this.position.z);
-    this.stridePhase += this.velocity.length() * dt * 5.4;
+    const intendedMovement = {
+      x: this.velocity.x * dt,
+      z: this.velocity.z * dt
+    };
+    const resolvedMovement = terrain.collisionWorld?.resolveCircleMotion(
+      this.position,
+      intendedMovement,
+      INFANTRY_COLLISION_RADIUS,
+      { moverType: 'infantry' }
+    );
+    if (resolvedMovement) {
+      this.position.x = resolvedMovement.x;
+      this.position.z = resolvedMovement.z;
+      for (const contact of resolvedMovement.contacts) {
+        const inward = this.velocity.x * contact.normalX + this.velocity.z * contact.normalZ;
+        if (inward < 0) {
+          this.velocity.x -= contact.normalX * inward;
+          this.velocity.z -= contact.normalZ * inward;
+        }
+      }
+    } else {
+      this.position.x += intendedMovement.x;
+      this.position.z += intendedMovement.z;
+    }
+    this.position.y = terrain.getMovementHeightAt
+      ? terrain.getMovementHeightAt(this.position.x, this.position.z)
+      : terrain.getHeightAt(this.position.x, this.position.z);
+    this.stridePhase += Math.hypot(
+      resolvedMovement?.movedX ?? intendedMovement.x,
+      resolvedMovement?.movedZ ?? intendedMovement.z
+    ) * 5.4;
     this.syncRecord();
   }
 

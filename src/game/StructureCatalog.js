@@ -6,7 +6,17 @@ const freezeStructure = (structure) => Object.freeze({
   height: 2.6,
   health: 420,
   armorMm: 38,
-  ...structure
+  ...structure,
+  dimensionsMeters: Object.freeze({
+    width: 6.5,
+    depth: 5.5,
+    ...(structure.dimensionsMeters ?? {})
+  }),
+  destroyedFootprintMeters: Object.freeze({
+    width: 5.6,
+    depth: 4.8,
+    ...(structure.destroyedFootprintMeters ?? {})
+  })
 });
 
 export const STRUCTURES = Object.freeze({

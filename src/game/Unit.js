@@ -19,6 +19,7 @@ import {
   setVehicleComponentHealth,
   vehicleDamageReport
 } from './VehicleSystems.js';
+import { createCapsuleOffsets } from '../simulation/collision/StaticCollisionWorld.js';
 
 function wrapAngle(angle) {
   return Math.atan2(Math.sin(angle), Math.cos(angle));
@@ -38,6 +39,14 @@ export class Unit {
     this.vehicleSpec = getVehicle(this.vehicleId);
     this.structureSpec = getStructure(config.structureId)
       ?? (this.type === 'bunker' ? getStructure('GERMAN_MG34_BUNKER') : null);
+    this.collisionWorld = null;
+    const vehicleDimensions = this.vehicleSpec?.dimensionsMeters;
+    this.collisionRadius = vehicleDimensions
+      ? vehicleDimensions.width * 0.5 + 0.08
+      : 0;
+    this.collisionOffsets = vehicleDimensions
+      ? createCapsuleOffsets(vehicleDimensions.length, this.collisionRadius)
+      : [];
 
     // Position & Transform
     this.position = new THREE.Vector3().copy(config.position || new THREE.Vector3());
@@ -424,6 +433,32 @@ export class Unit {
     for (const material of parts.materials ?? []) {
       material.color.setRGB(0.16 + ratio * 0.12, 0.13 + ratio * 0.18, 0.1 + ratio * 0.23);
     }
+    this.syncStructureCollision();
+  }
+
+  bindCollisionWorld(collisionWorld) {
+    this.collisionWorld = collisionWorld ?? null;
+    this.syncStructureCollision();
+  }
+
+  syncStructureCollision() {
+    if (!this.collisionWorld || !this.structureSpec) return;
+    const destroyed = Boolean(this.structureState?.destroyed);
+    const dimensions = destroyed
+      ? this.structureSpec.destroyedFootprintMeters
+      : this.structureSpec.dimensionsMeters;
+    this.collisionWorld.upsertCollider({
+      id: `structure:${this.id}`,
+      type: destroyed ? 'structure_rubble' : 'structure',
+      centerX: this.position.x,
+      centerZ: this.position.z,
+      halfX: dimensions.width * 0.5,
+      halfZ: dimensions.depth * 0.5,
+      rotation: this.rotation,
+      // Collapsed concrete remains impassable to vehicles, while infantry can
+      // enter the rendered rubble and use it as fighting cover.
+      blocks: destroyed ? ['vehicle'] : ['vehicle', 'infantry']
+    });
   }
 
   getVehicleMountMuzzleWorldPosition(mountId) {
@@ -996,6 +1031,7 @@ export class Unit {
     this.updateStanceVisuals();
     this.syncLegacyVehicleDamage();
     this.syncStructureVisuals();
+    this.syncStructureCollision();
     this.refreshAmmoSummary();
   }
 
@@ -1013,6 +1049,7 @@ export class Unit {
       }
     }
     this.updateVehicleSystems(delta);
+    if (this.structureSpec) this.syncStructureCollision();
 
     let anchorMoving = false;
     let activeOrderType = 'QUICK';
@@ -1032,11 +1069,25 @@ export class Unit {
         }
 
         speed *= movementFactor;
-        const dir = new THREE.Vector3().subVectors(targetWp.position, this.position);
+        const routeTarget = this.collisionWorld?.getNavigationTarget(
+          this.position,
+          targetWp.position,
+          this.collisionRadius,
+          this.vehicleSpec ? 'vehicle' : 'infantry'
+        ) ?? targetWp.position;
+        const dir = new THREE.Vector3(
+          routeTarget.x - this.position.x,
+          0,
+          routeTarget.z - this.position.z
+        );
         dir.y = 0;
         const dist = dir.length();
+        const waypointDistance = Math.hypot(
+          targetWp.position.x - this.position.x,
+          targetWp.position.z - this.position.z
+        );
 
-        if (dist < 0.8) {
+        if (waypointDistance < 0.8) {
           if (targetWp.remainingPause > 0) {
             targetWp.remainingPause = Math.max(0, targetWp.remainingPause - delta);
           } else {
@@ -1044,12 +1095,34 @@ export class Unit {
             this.currentWaypointIndex++;
           }
         } else {
-          anchorMoving = true;
           dir.normalize();
-          this.position.addScaledVector(dir, speed * delta);
-          this.rotation = Math.atan2(dir.x, dir.z);
+          const intendedDistance = Math.min(dist, speed * Math.max(0, delta));
+          const displacement = {
+            x: dir.x * intendedDistance,
+            z: dir.z * intendedDistance
+          };
+          const desiredRotation = Math.atan2(dir.x, dir.z);
+          const resolved = this.vehicleSpec && this.collisionWorld
+            ? this.collisionWorld.resolveFootprintMotion(this.position, displacement, {
+                moverType: 'vehicle',
+                radius: this.collisionRadius,
+                offsets: this.collisionOffsets,
+                rotation: desiredRotation
+              })
+            : {
+                x: this.position.x + displacement.x,
+                z: this.position.z + displacement.z,
+                movedX: displacement.x,
+                movedZ: displacement.z
+              };
+          this.position.x = resolved.x;
+          this.position.z = resolved.z;
+          anchorMoving = Math.hypot(resolved.movedX, resolved.movedZ) > 1e-5;
+          if (anchorMoving) this.rotation = desiredRotation;
 
-          this.position.y = terrain.getHeightAt(this.position.x, this.position.z);
+          const getMovementHeightAt = terrain.getMovementHeightAt?.bind(terrain)
+            ?? terrain.getHeightAt.bind(terrain);
+          this.position.y = getMovementHeightAt(this.position.x, this.position.z);
 
           this.mesh.position.copy(this.position);
           this.mesh.rotation.y = this.rotation;
