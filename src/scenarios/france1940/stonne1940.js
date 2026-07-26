@@ -2,7 +2,23 @@
 const freezeUnit = unit => Object.freeze({
   experience: 'Regular',
   ...unit,
-  position: Object.freeze([...unit.position])
+  position: Object.freeze([...unit.position]),
+  communications: Object.freeze({
+    commandNetId: `${unit.faction}-stonne`,
+    ...(unit.communications ?? {}),
+    radioOperatorRoles: Object.freeze([
+      ...(unit.communications?.radioOperatorRoles ?? [])
+    ]),
+    radioOperatorSoldierIds: Object.freeze([
+      ...(unit.communications?.radioOperatorSoldierIds ?? [])
+    ])
+  }),
+  soldierEquipment: Object.freeze(Object.fromEntries(
+    Object.entries(unit.soldierEquipment ?? {}).map(([soldierId, equipment]) => [
+      soldierId,
+      Object.freeze([...equipment])
+    ])
+  ))
 });
 
 export const STONNE_1940_SCENARIO = Object.freeze({
@@ -11,6 +27,18 @@ export const STONNE_1940_SCENARIO = Object.freeze({
   title: 'Battle of Stonne, 1940',
   defaultSeed: 19400516,
   mapId: 'stonne-1940',
+  communicationNets: Object.freeze([
+    Object.freeze({
+      id: 'french-stonne',
+      faction: 'french',
+      dataQuality: 'scenario command-net grouping is a gameplay approximation'
+    }),
+    Object.freeze({
+      id: 'german-stonne',
+      faction: 'german',
+      dataQuality: 'scenario command-net grouping is a gameplay approximation'
+    })
+  ]),
   deploymentZones: Object.freeze({
     french: Object.freeze({
       minX: -80,
@@ -38,7 +66,15 @@ export const STONNE_1940_SCENARIO = Object.freeze({
       position: [-18, 0, 70],
       rotation: Math.PI,
       experience: 'Veteran',
-      leadership: 1
+      leadership: 1,
+      communications: {
+        radioInstalled: true,
+        radioOperatorSoldierIds: [5]
+      },
+      soldierEquipment: {
+        0: ['BINOCULARS'],
+        5: ['RADIO']
+      }
     }),
     freezeUnit({
       id: 'fr_sq1',
@@ -46,7 +82,8 @@ export const STONNE_1940_SCENARIO = Object.freeze({
       faction: 'french',
       type: 'infantry_squad',
       position: [-42, 0, 70],
-      rotation: Math.PI
+      rotation: Math.PI,
+      soldierEquipment: { 0: ['BINOCULARS'] }
     }),
     freezeUnit({
       id: 'fr_tank',
@@ -64,7 +101,8 @@ export const STONNE_1940_SCENARIO = Object.freeze({
       type: 'infantry_squad',
       position: [42, 0, -70],
       experience: 'Veteran',
-      rotation: 0
+      rotation: 0,
+      soldierEquipment: { 0: ['BINOCULARS'] }
     }),
     freezeUnit({
       id: 'ger_tank',

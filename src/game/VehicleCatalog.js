@@ -30,6 +30,19 @@ function freezeVehicle(vehicle) {
     armorMm: Object.freeze({ ...vehicle.armorMm }),
     zoneCrew: freezeZones(vehicle.zoneCrew),
     weaponMounts: freezeMounts(vehicle.weaponMounts ?? VEHICLE_MACHINE_GUN_MOUNTS[vehicle.id] ?? []),
+    communications: Object.freeze({
+      radioInstalled: false,
+      operatorRoles: Object.freeze([]),
+      dataQuality: 'explicitly not installed in the represented vehicle',
+      ...(vehicle.communications ?? {}),
+      operatorRoles: Object.freeze([...(vehicle.communications?.operatorRoles ?? [])])
+    }),
+    observationEquipment: Object.freeze({
+      binocularRoles: Object.freeze([]),
+      dataQuality: 'gameplay approximation',
+      ...(vehicle.observationEquipment ?? {}),
+      binocularRoles: Object.freeze([...(vehicle.observationEquipment?.binocularRoles ?? [])])
+    }),
     dataQuality: Object.freeze({ ...vehicle.dataQuality })
   });
 }
@@ -65,6 +78,15 @@ const armor = (hullFront, hullSide, hullRear, turretFront, turretSide, turretRea
   turret_rear: turretRear
 });
 const movement = (move, quick, fast, hunt) => ({ MOVE: move, QUICK: quick, FAST: fast, HUNT: hunt });
+const communications = (radioInstalled, operatorRoles, dataQuality) => ({
+  radioInstalled,
+  operatorRoles,
+  dataQuality
+});
+const observationEquipment = binocularRoles => ({
+  binocularRoles,
+  dataQuality: 'role-based gameplay approximation; no optical precision is asserted'
+});
 
 const FRENCH_ARMAMENT_REFERENCE = 'https://www.chars-francais.net/index.php?catid=13&id=2026%3A1935-somua-s-35&view=article';
 const GERMAN_ARMAMENT_REFERENCE = 'https://tankmuseum.org/article/live-round-panzer-iii';
@@ -153,6 +175,9 @@ export const VEHICLES = Object.freeze({
       crewman('DRIVER', 'Driver'),
       crewman('RADIO_OPERATOR', 'Radio Operator')
     ],
+    communications: communications(true, ['RADIO_OPERATOR'],
+      'historical radio/operator configuration; command-net membership is scenario data'),
+    observationEquipment: observationEquipment(['COMMANDER_GUNNER']),
     gunnerRoles: ['COMMANDER_GUNNER'],
     loaderRoles: ['COMMANDER_GUNNER'],
     mainGun: { ap: 'SA35_AP', he: 'SA35_HE' },
@@ -185,6 +210,9 @@ export const VEHICLES = Object.freeze({
       crewman('COMMANDER_GUNNER', 'Commander / Gunner / Loader'),
       crewman('DRIVER', 'Driver')
     ],
+    communications: communications(false, [],
+      'represented as a non-command tank without a radio; command variants require a scenario override'),
+    observationEquipment: observationEquipment(['COMMANDER_GUNNER']),
     gunnerRoles: ['COMMANDER_GUNNER'],
     loaderRoles: ['COMMANDER_GUNNER'],
     mainGun: { ap: 'SA18_AP', he: 'SA18_HE' },
@@ -217,6 +245,9 @@ export const VEHICLES = Object.freeze({
       crewman('COMMANDER_GUNNER', 'Commander / Gunner / Loader'),
       crewman('DRIVER', 'Driver')
     ],
+    communications: communications(false, [],
+      'represented as a non-command tank without a radio; command variants require a scenario override'),
+    observationEquipment: observationEquipment(['COMMANDER_GUNNER']),
     gunnerRoles: ['COMMANDER_GUNNER'],
     loaderRoles: ['COMMANDER_GUNNER'],
     mainGun: { ap: 'SA38_AP', he: 'SA38_HE' },
@@ -250,6 +281,9 @@ export const VEHICLES = Object.freeze({
       crewman('GUNNER_LOADER', 'Gunner / Loader'),
       crewman('DRIVER', 'Driver')
     ],
+    communications: communications(false, [],
+      'radio fit is not asserted for this represented vehicle; a scenario may explicitly override it'),
+    observationEquipment: observationEquipment(['COMMANDER']),
     gunnerRoles: ['GUNNER_LOADER'],
     loaderRoles: ['GUNNER_LOADER'],
     mainGun: { ap: 'SA35_AP', he: 'SA35_HE' },
@@ -284,6 +318,9 @@ export const VEHICLES = Object.freeze({
       crewman('DRIVER', 'Forward Driver'),
       crewman('REAR_DRIVER_RADIO', 'Rear Driver / Radio Operator')
     ],
+    communications: communications(true, ['REAR_DRIVER_RADIO'],
+      'historical radio/operator configuration; command-net membership is scenario data'),
+    observationEquipment: observationEquipment(['COMMANDER']),
     gunnerRoles: ['GUNNER'],
     loaderRoles: ['COMMANDER'],
     mainGun: { ap: 'SA35_25_AP' },
@@ -315,6 +352,9 @@ export const VEHICLES = Object.freeze({
       crewman('DRIVER', 'Driver'),
       crewman('PASSENGER', 'Vehicle Commander')
     ],
+    communications: communications(false, [],
+      'radio is not assumed for the represented artillery tractor'),
+    observationEquipment: observationEquipment([]),
     gunnerRoles: [],
     loaderRoles: [],
     mainGun: null,
@@ -348,6 +388,9 @@ export const VEHICLES = Object.freeze({
       crewman('HULL_LOADER', '75mm Loader'),
       crewman('RADIO_OPERATOR', 'Radio Operator')
     ],
+    communications: communications(true, ['RADIO_OPERATOR'],
+      'historical radio/operator configuration; command-net membership is scenario data'),
+    observationEquipment: observationEquipment(['COMMANDER_GUNNER']),
     driverRoles: ['DRIVER_HULL_GUNNER'],
     gunnerRoles: ['COMMANDER_GUNNER'],
     loaderRoles: ['COMMANDER_GUNNER'],
@@ -384,6 +427,9 @@ export const VEHICLES = Object.freeze({
       crewman('DRIVER', 'Driver'),
       crewman('RADIO_OPERATOR', 'Radio Operator')
     ],
+    communications: communications(true, ['RADIO_OPERATOR'],
+      'historical radio/operator configuration; command-net membership is scenario data'),
+    observationEquipment: observationEquipment(['COMMANDER']),
     gunnerRoles: ['GUNNER'],
     loaderRoles: ['LOADER'],
     mainGun: { ap: 'KWK36_AP', he: 'KWK36_HE' },
@@ -416,6 +462,9 @@ export const VEHICLES = Object.freeze({
       crewman('LOADER_RADIO', 'Loader / Radio Operator'),
       crewman('DRIVER', 'Driver')
     ],
+    communications: communications(true, ['LOADER_RADIO'],
+      'historical radio/operator configuration; command-net membership is scenario data'),
+    observationEquipment: observationEquipment(['COMMANDER_GUNNER']),
     gunnerRoles: ['COMMANDER_GUNNER'],
     loaderRoles: ['LOADER_RADIO'],
     mainGun: { ap: 'KWK30_AP', he: 'KWK30_HE' },
@@ -449,6 +498,9 @@ export const VEHICLES = Object.freeze({
       crewman('DRIVER', 'Driver'),
       crewman('RADIO_OPERATOR', 'Radio Operator')
     ],
+    communications: communications(true, ['RADIO_OPERATOR'],
+      'historical radio/operator configuration; command-net membership is scenario data'),
+    observationEquipment: observationEquipment(['COMMANDER_GUNNER']),
     gunnerRoles: ['COMMANDER_GUNNER'],
     loaderRoles: ['LOADER'],
     mainGun: { ap: 'KWK34T_AP', he: 'KWK34T_HE' },
@@ -482,6 +534,9 @@ export const VEHICLES = Object.freeze({
       crewman('DRIVER', 'Driver'),
       crewman('RADIO_OPERATOR', 'Radio Operator')
     ],
+    communications: communications(true, ['RADIO_OPERATOR'],
+      'historical radio/operator configuration; command-net membership is scenario data'),
+    observationEquipment: observationEquipment(['COMMANDER_GUNNER']),
     gunnerRoles: ['COMMANDER_GUNNER'],
     loaderRoles: ['LOADER'],
     mainGun: { ap: 'KWK38T_AP', he: 'KWK38T_HE' },
@@ -515,6 +570,9 @@ export const VEHICLES = Object.freeze({
       crewman('DRIVER', 'Forward Driver'),
       crewman('REAR_DRIVER_RADIO', 'Rear Driver / Radio Operator')
     ],
+    communications: communications(true, ['REAR_DRIVER_RADIO'],
+      'historical radio/operator configuration; command-net membership is scenario data'),
+    observationEquipment: observationEquipment(['COMMANDER']),
     gunnerRoles: ['GUNNER'],
     loaderRoles: ['COMMANDER'],
     mainGun: { ap: 'KWK30_AP', he: 'KWK30_HE' },
@@ -546,6 +604,9 @@ export const VEHICLES = Object.freeze({
       crewman('DRIVER', 'Driver'),
       crewman('PASSENGER', 'Vehicle Commander')
     ],
+    communications: communications(false, [],
+      'radio is not assumed for the represented general-service truck'),
+    observationEquipment: observationEquipment([]),
     gunnerRoles: [],
     loaderRoles: [],
     mainGun: null,
@@ -580,6 +641,9 @@ export const VEHICLES = Object.freeze({
       crewman('DRIVER', 'Driver'),
       crewman('RADIO_OPERATOR', 'Radio Operator')
     ],
+    communications: communications(true, ['RADIO_OPERATOR'],
+      'historical radio/operator configuration; command-net membership is scenario data'),
+    observationEquipment: observationEquipment(['COMMANDER']),
     gunnerRoles: ['GUNNER'],
     loaderRoles: ['LOADER'],
     mainGun: { ap: 'KWK37_AP', he: 'KWK37_HE' },

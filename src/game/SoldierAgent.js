@@ -249,7 +249,8 @@ export class SoldierAgent {
       ? [this.unit.targetUnit]
       : context.opposingUnits;
     for (const enemyUnit of candidateUnits) {
-      if (!enemyUnit.isCombatEffective() || enemyUnit.mesh?.visible === false) continue;
+      if (!enemyUnit.isCombatEffective()
+          || !context.spotting.canPrecisionTarget(this.unit, enemyUnit)) continue;
       const enemyAgents = enemyUnit.soldierAI?.getLivingAgents() ?? [];
       if (enemyAgents.length === 0) {
         const los = context.spotting.checkLOS(this.position, enemyUnit.position);

@@ -81,6 +81,14 @@ The first boundary slice now exists:
 - `src/game/VehicleSystems.js` owns canonical vehicle component, damage-event,
   and auxiliary-mount state. `Unit` owns each vehicle instance and exposes a
   plain `getVehicleDamageReport()` snapshot.
+- `src/simulation/observation/` owns renderer-neutral equipment, command-net,
+  relay, and immutable contact helpers. `SpottingSystem` temporarily adapts
+  legacy live units into that state without mutating meshes.
+- `src/simulation/collision/StaticCollisionWorld.js` owns deterministic static
+  X/Z collision queries and bridge-routing records. `TerrainBuilder` publishes
+  plain oriented footprints from authored walls, structures, bridge parts, and
+  river exclusions; rendered meshes are never queried as authoritative
+  collision state.
 - `src/world/VehicleDamageEffects.js` reads resolved damage and impact telemetry
   to render bounded fire, smoke, sparks, blast, scorch, and disabled-gun cues.
   It never decides damage.
@@ -98,11 +106,13 @@ These seams are usable now, before the staged directory migration is complete:
 | Weapon and vehicle definitions | `WeaponCatalog`, `VehicleCatalog` | Unit initialization, HUD labels |
 | Individual infantry state and choices | `SoldierAgent`, `SoldierAI` | Infantry pose renderer, roster HUD |
 | Vehicle crew, components, mounts, ammo, damage events | `Unit`, `VehicleSystems` | Combat telemetry, damage report |
+| Static movement collision and bridge routing | `StaticCollisionWorld`, plain terrain collider records | `Unit`, `SoldierAgent`, terrain height adapter |
 | Projectile and armor resolution | `CombatSystem`, `BallisticsSystem` | Telemetry, VFX, shot inspector |
 | Infantry meshes, weapons, grip/muzzle markers | `UnitFactory`, `world/infantry/*` | Soldier pose animation |
 | Vehicle meshes, articulated markers, LOD | `UnitFactory`, `world/vehicles/*` | Unit animation, damage VFX |
 | Vehicle damage presentation | `VehicleDamageEffects` | Three.js scene only |
 | Vehicle status projection | `VehicleStatusPresenter` | `UIManager` only |
+| Individual observations and relayed contacts | `SpottingSystem`, `simulation/observation/*` | Targeting cues, visibility/contact presentation |
 
 State flows one way:
 
@@ -126,6 +136,17 @@ UIManager
 Rendering helpers may expose named markers and consume state. They must not
 write combat outcomes back into simulation objects. UI presenters may summarize
 state. They must not issue hidden state mutations.
+
+Static-world movement collision intentionally uses bounded deterministic math
+instead of a rigid-body dependency. Vehicles sweep a catalog-sized capsule
+(a fixed-orientation chain of circles); soldiers sweep individual circles.
+Both stop at the earliest stable-ID-sorted contact and project remaining motion
+onto the contact tangent. This prevents wall and bridge tunneling even for a
+large simulation delta while preserving useful movement along cover. Bridge
+navigation is a plain crossing record, and bridge deck height is sampled
+through the terrain movement-height adapter. Dynamic suspension, wreck
+settling, and ragdolls remain separate bounded candidates for a future physics
+evaluation.
 
 ## Responsibilities
 

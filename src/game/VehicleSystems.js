@@ -61,9 +61,9 @@ export function createVehicleComponents(vehicleSpec, saved = null) {
     'transmission',
     'tracks',
     'fuel',
-    'optics',
-    'radio'
+    'optics'
   ]);
+  if (vehicleSpec.communications?.radioInstalled) installed.add('radio');
   if (carriesMainGunAmmo || carriesMountedAmmo) installed.add('ammunition');
   if (vehicleSpec.mainGun) {
     installed.add('main_gun');

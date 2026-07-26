@@ -63,12 +63,31 @@ export function positionDistance2d(left, right) {
   return Math.hypot(dx, dz);
 }
 
+function personPosition(unit, person) {
+  const explicit = person?.worldPosition;
+  if (Array.isArray(explicit)) return { x: explicit[0], z: explicit[2] };
+  if (explicit) return explicit;
+  return unit?.getSoldierWorldPosition?.(person?.id) ?? unit?.position;
+}
+
+function closestLivingDistance2d(sender, receiver) {
+  let closest = Infinity;
+  for (const senderPerson of livingPeople(sender)) {
+    const senderPosition = { position: personPosition(sender, senderPerson) };
+    for (const receiverPerson of livingPeople(receiver)) {
+      const receiverPosition = { position: personPosition(receiver, receiverPerson) };
+      closest = Math.min(closest, positionDistance2d(senderPosition, receiverPosition));
+    }
+  }
+  return closest;
+}
+
 export function canRelayByVoice(sender, receiver, senderProfile = null, receiverProfile = null) {
   if (sender === receiver || sender?.faction !== receiver?.faction) return false;
   if (!hasLivingVoiceEndpoint(sender) || !hasLivingVoiceEndpoint(receiver)) return false;
   const senderRange = resolveCommunication(sender, senderProfile).voiceRangeM;
   const receiverRange = resolveCommunication(receiver, receiverProfile).voiceRangeM;
-  return positionDistance2d(sender, receiver) <= Math.min(senderRange, receiverRange);
+  return closestLivingDistance2d(sender, receiver) <= Math.min(senderRange, receiverRange);
 }
 
 export function canRelayByRadio(sender, receiver, senderProfile = null, receiverProfile = null) {

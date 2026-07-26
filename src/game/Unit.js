@@ -1120,9 +1120,9 @@ export class Unit {
           anchorMoving = Math.hypot(resolved.movedX, resolved.movedZ) > 1e-5;
           if (anchorMoving) this.rotation = desiredRotation;
 
-          const getMovementHeightAt = terrain.getMovementHeightAt?.bind(terrain)
-            ?? terrain.getHeightAt.bind(terrain);
-          this.position.y = getMovementHeightAt(this.position.x, this.position.z);
+          this.position.y = terrain.getMovementHeightAt
+            ? terrain.getMovementHeightAt(this.position.x, this.position.z)
+            : terrain.getHeightAt(this.position.x, this.position.z);
 
           this.mesh.position.copy(this.position);
           this.mesh.rotation.y = this.rotation;

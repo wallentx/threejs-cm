@@ -207,7 +207,9 @@ export class StaticCollisionWorld {
 
       if (southToNorth) {
         const entryZ = southEdge - margin;
-        if (Math.hypot(start.x - crossing.centerX, start.z - entryZ) > 0.35) {
+        const centered = Math.abs(start.x - crossing.centerX)
+          <= Math.max(0.2, crossing.halfOpeningWidth - radius);
+        if (!centered || start.z < entryZ - CONTACT_EPSILON) {
           return { x: crossing.centerX, z: entryZ, routed: true, crossingId: crossing.id };
         }
         return {
@@ -219,7 +221,9 @@ export class StaticCollisionWorld {
       }
       if (northToSouth) {
         const entryZ = northEdge + margin;
-        if (Math.hypot(start.x - crossing.centerX, start.z - entryZ) > 0.35) {
+        const centered = Math.abs(start.x - crossing.centerX)
+          <= Math.max(0.2, crossing.halfOpeningWidth - radius);
+        if (!centered || start.z > entryZ + CONTACT_EPSILON) {
           return { x: crossing.centerX, z: entryZ, routed: true, crossingId: crossing.id };
         }
         return {
@@ -231,14 +235,14 @@ export class StaticCollisionWorld {
       }
       if (continuingNorth) {
         const exitZ = northEdge + margin;
-        if (Math.hypot(start.x - crossing.centerX, start.z - exitZ) > 0.35) {
+        if (start.z < exitZ - CONTACT_EPSILON) {
           return { x: crossing.centerX, z: exitZ, routed: true, crossingId: crossing.id };
         }
         return { x: goal.x, z: goal.z, routed: false, crossingId: null };
       }
       if (continuingSouth) {
         const exitZ = southEdge - margin;
-        if (Math.hypot(start.x - crossing.centerX, start.z - exitZ) > 0.35) {
+        if (start.z > exitZ + CONTACT_EPSILON) {
           return { x: crossing.centerX, z: exitZ, routed: true, crossingId: crossing.id };
         }
         return { x: goal.x, z: goal.z, routed: false, crossingId: null };

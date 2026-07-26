@@ -121,7 +121,9 @@ class Game {
           'warn'
         )
       });
-      this.spotting = new SpottingSystem(this.scene, this.terrain);
+      this.spotting = new SpottingSystem(this.scene, this.terrain, {
+        unitProfiles: this.scenario.units
+      });
       this.combat = new CombatSystem(this.scene, this.sound, () => this.random(), {
         terrain: this.terrain,
         getUnits: () => this.units
@@ -269,6 +271,7 @@ class Game {
     return {
       randomState: this.randomState,
       units: this.units.map(unit => unit.captureState()),
+      spotting: this.spotting.captureState(),
       combat: this.combat.captureState(),
       supportMissions: this.support.captureState(),
       selectedUnitId: this.selectedUnit?.id ?? null,
@@ -282,6 +285,7 @@ class Game {
     for (const unitState of state.units) {
       unitMap.get(unitState.id)?.restoreState(unitState, unitMap);
     }
+    this.spotting.restoreState(state.spotting);
     this.combat.restoreState(state.combat, unitMap);
     this.vehicleDamageEffects.resetTransient();
     this.support.restoreState(state.supportMissions, unitMap);
@@ -292,11 +296,13 @@ class Game {
   }
 
   chooseTarget(attacker, opposingUnits) {
-    if (attacker.targetUnit?.isCombatEffective() && attacker.targetUnit.mesh?.visible !== false) {
+    if (attacker.targetUnit?.isCombatEffective()
+        && this.spotting.canPrecisionTarget(attacker, attacker.targetUnit)) {
       return attacker.targetUnit;
     }
     const visibleTargets = opposingUnits.filter(target => {
       if (!target.isCombatEffective()) return false;
+      if (!this.spotting.canPrecisionTarget(attacker, target)) return false;
       const los = this.spotting.checkLOS(attacker.position, target.position);
       return los.clear && los.dist <= (attacker.vehicleSpec ? 220 : 150);
     });
@@ -304,24 +310,22 @@ class Game {
     return visibleTargets[Math.floor(this.random() * visibleTargets.length)];
   }
 
-  hasContact(unit, opposingUnits, range = 135) {
-    return opposingUnits.some(target => {
-      const los = this.spotting.checkLOS(unit.position, target.position);
-      return los.clear && los.dist <= range;
-    });
+  hasContact(unit, opposingUnits) {
+    return opposingUnits.some(target => this.spotting.hasContact(unit, target));
   }
 
   simulateStep(delta) {
     const frenchUnits = this.units.filter(unit => unit.faction === 'french');
     const germanUnits = this.units.filter(unit => unit.faction === 'german');
-    this.spotting.updateSpotting(this.units);
     this.units.forEach(unit => {
       const waypoint = unit.waypoints[unit.currentWaypointIndex];
       const opposingUnits = unit.faction === 'french' ? germanUnits : frenchUnits;
       const huntStopped = waypoint?.orderType === 'HUNT' && this.hasContact(unit, opposingUnits);
       unit.update(delta, this.terrain, { haltMovement: huntStopped });
     });
-    this.spotting.updateSpotting(this.units);
+    // Observation is authoritative simulation state. Advance it exactly once,
+    // after movement/collision and before any weapon may select a target.
+    this.spotting.advance(this.units, delta);
 
     const attemptFire = (attacker, opposingUnits) => {
       if (!attacker.isCombatEffective()) return;
@@ -472,7 +476,12 @@ class Game {
       this.wego.completeSimulationStep(simulationDelta);
     }
 
-    this.spotting.updateSpotting(this.units);
+    const visibility = this.spotting.getVisibilityProjection('french', this.units);
+    this.visibilityProjection = visibility;
+    const visibleUnitIds = new Set(visibility.visibleUnitIds);
+    for (const unit of this.units) {
+      if (unit.mesh) unit.mesh.visible = visibleUnitIds.has(unit.id);
+    }
     this.cameraManager.update(delta);
     const lodCounts = { high: 0, medium: 0, low: 0 };
     for (const unit of this.units) {

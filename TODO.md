@@ -31,6 +31,10 @@ Status:
   - [ ] Replace abstract zone-weighted selection with model-local module volumes, penetration paths, spall interaction, localized crew exposure, and component repair/abandonment rules.
 - [ ] Add crew task reassignment, replacement-gunner delays, bailout decisions, and abandoned vehicles.
 - [ ] Add weapon sighting, target acquisition, aim time, range estimation, and fire-control delays.
+- [ ] Add per-soldier spotting, last-known contacts, and command-and-control relay.
+  - [x] Renderer-neutral first slice: living-observer acquisition with stance, motion, concealment, and range factors; explicit binocular equipment; frozen/decaying contacts; deterministic same-unit, voice, and operational same-net radio relay; vehicle radio damage; projection and deep capture/restore APIs.
+  - [x] Wire one authoritative post-movement spotting step, direct-only precision targeting, contact-based HUNT cueing, hidden live enemy meshes, frozen uncertainty markers on the tactical map, and WEGO capture/restore.
+  - [ ] Add richer terrain/foliage concealment, sound contacts, identification quality, false reports, and command-delay modeling.
 - [ ] Add ammunition bearers, ammunition transfer, shared LMG belts/magazines, and vehicle ammunition handling.
 - [ ] Add coaxial and hull machine guns with their real crew dependencies and ammunition stores.
   - [x] First functional pass across all 14 vehicles: cataloged mount identity, crew dependency, feed/reserve state, reload and cyclic cadence, exact rendered muzzle ownership, independent projectiles, component failure, telemetry, and WEGO capture/restore.
@@ -41,6 +45,9 @@ Status:
   - [x] First environmental-reaction pass: per-soldier incoming-fire source/impact/intensity memory, deterministic shielding-cover scoring, spacing correction, casualty response, inspectable decisions, and rewind-safe state.
   - [ ] Add terrain danger maps, concealment/LOS-aware movement, buddy bounds, fire-and-movement, withdrawal, surrender, and persistent memory of observed threats.
 - [ ] Improve vehicle AI: hull-down positioning, turret-first observation, threat facing, reverse movement, and damaged-vehicle behavior.
+- [ ] Add deterministic movement collision and tactical navigation.
+  - [x] First static-world slice: renderer-neutral oriented collider records for terrain-conforming walls, the village building, bridge parapets and abutments, river exclusion, and bunker/rubble; swept vehicle capsules and soldier circles prevent tunneling, retain stand-off, stop-and-slide, route cross-river orders through the bridge, use bridge deck height, and survive WEGO capture/restore without a physics dependency.
+  - [ ] Add unit-to-unit separation, richer obstacle graphs around buildings and wall ends, reverse-aware vehicle maneuvers, and deterministic wreck settling.
 - [ ] Add terrain and structure collision to projectile sweeps.
   - [x] First structure slice: targetable German MG34 bunker with authoritative reinforced-concrete health, penetrative/direct and blast damage, firing shutdown, visible rubble state, and WEGO capture/restore.
 - [ ] Improve procedural infantry firing, reload, transition, casualty, and movement animations.
