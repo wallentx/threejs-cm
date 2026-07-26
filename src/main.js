@@ -20,6 +20,11 @@ import { FixedStepAccumulator } from './simulation/FixedStepAccumulator.js';
 import { BuildingSystem } from './simulation/buildings/index.js';
 import { FR_HOUSE_12X9_2F } from './maps/france/FranceHouse12x9_2F.js';
 
+// Unit movement considers ordinary waypoints reached inside this radius. Route
+// corners add it to the live formation extent so advancing early cannot cut
+// the squad back through the obstacle the corner is intended to clear.
+const ENTER_ROUTE_WAYPOINT_TOLERANCE = 0.8;
+
 // Deduplicated Logger to prevent 60 FPS console flooding
 let lastLoggedMsg = '';
 let lastLogTime = 0;
@@ -231,7 +236,35 @@ class Game {
       return result;
     }
     unit.clearWaypoints();
-    unit.addWaypoint(new THREE.Vector3(...result.approachPosition), 'QUICK');
+    const formationClearance = Math.max(
+      0,
+      ...(unit.soldierAI?.getLivingAgents().map(agent =>
+        unit.soldierAI.getFormationOffset(agent.index, 'QUICK').length()
+      ) ?? [])
+    );
+    const targetBuildingColliderIds = unit.collisionWorld?.getRecords()
+      .filter(record => record.buildingId === buildingId)
+      .map(record => record.id) ?? [];
+    let routeStart = { x: unit.position.x, z: unit.position.z };
+    for (const routePoint of result.approachRoute ?? [result.approachPosition]) {
+      const plannedRoute = unit.collisionWorld?.getNavigationPath(
+        routeStart,
+        { x: routePoint[0], z: routePoint[2] },
+        unit.collisionRadius,
+        'infantry',
+        {
+          ignoreColliderIds: targetBuildingColliderIds,
+          waypointClearance: ENTER_ROUTE_WAYPOINT_TOLERANCE + formationClearance
+        }
+      ) ?? [{ x: routePoint[0], z: routePoint[2] }];
+      for (const plannedPoint of plannedRoute) {
+        unit.addWaypoint(
+          new THREE.Vector3(plannedPoint.x, routePoint[1], plannedPoint.z),
+          'QUICK'
+        );
+      }
+      routeStart = { x: routePoint[0], z: routePoint[2] };
+    }
     this.commands.renderOverlays();
     this.ui?.showToast(
       `${result.assigned.length} soldiers entering ${floorId === 'upper-floor' ? 'upper' : 'ground'} floor`,
@@ -249,6 +282,16 @@ class Game {
       result.accepted ? 'success' : 'warn'
     );
     return result;
+  }
+
+  syncBuildingInteriorPresentation() {
+    const presenceCounts = this.buildingInteraction.getInteriorPresenceCounts();
+    for (const buildingId of this.buildingSystem.getBuildingIds()) {
+      this.terrain.setBuildingInteriorPresence(
+        buildingId,
+        presenceCounts[buildingId] ?? 0
+      );
+    }
   }
 
   selectUnit(unit) {
@@ -351,6 +394,7 @@ class Game {
       unitMap.get(unitState.id)?.restoreState(unitState, unitMap);
     }
     this.buildingInteraction.restoreState(state.buildingInteractions);
+    this.syncBuildingInteriorPresentation();
     for (const buildingId of this.buildingSystem.getBuildingIds()) {
       this.terrain.syncBuildingRuntime(buildingId);
     }
@@ -394,6 +438,7 @@ class Game {
       unit.update(delta, this.terrain, { haltMovement: huntStopped });
     });
     this.buildingInteraction.advance(delta);
+    this.syncBuildingInteriorPresentation();
     // Observation is authoritative simulation state. Advance it exactly once,
     // after movement/collision and before any weapon may select a target.
     this.spotting.advance(this.units, delta);

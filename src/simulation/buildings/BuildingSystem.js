@@ -424,6 +424,84 @@ export class BuildingSystem {
     };
   }
 
+  /**
+   * Return the X/Z movement shell for a building.
+   *
+   * This is deliberately separate from getCollisionSnapshot().  Windows and
+   * open doors are apertures for projectile/LOS queries, but neither is a
+   * free movement route.  A door crossing is owned by BuildingInteractionSystem
+   * and its authoritative portal transit; ordinary unit pathing must collide
+   * with the facade instead of walking through an open visual aperture.
+   *
+   * A true damage breach remains a movement opening.  That distinction keeps
+   * destructible topology meaningful without making every fire port a door.
+   */
+  getMovementCollisionSnapshot(id, sinceVersion = 0) {
+    const state = this.#state(id);
+    const descriptor = this.#descriptor(state);
+    const breached = new Set(state.breachedColliderPartIds);
+    const doorApertures = new Set(
+      descriptor.portals
+        .filter(portal => portal.kind === 'door' && portal.aperture?.id)
+        .map(portal => portal.aperture.id)
+    );
+    const firePortApertures = new Set(
+      descriptor.firePorts
+        .map(port => port.aperture?.id)
+        .filter(Boolean)
+    );
+    const records = [];
+
+    for (const section of descriptor.sections) {
+      if (state.sections[section.id].collapsed) continue;
+      for (const part of section.colliderParts) {
+        const partKey = `${section.id}:${part.id}`;
+        if (breached.has(partKey)) continue;
+        const record = transformColliderPart(part, state.transform, {
+          id: `${state.id}:${section.id}:${part.id}`,
+          buildingId: state.id,
+          sectionId: section.id,
+          kind: 'building'
+        });
+        // Movement only needs physical ground blockers. TerrainBuilder selects
+        // the ground shell/rubble records, so leave 3D combat data untouched.
+        record.blocks = ['infantry', 'vehicle'];
+        if (doorApertures.has(part.openingId)) {
+          record.movementPolicy = 'portal_transit_required';
+        } else if (firePortApertures.has(part.openingId)) {
+          record.movementPolicy = 'fire_port_blocks_movement';
+        } else if (part.openingId) {
+          record.movementPolicy = 'aperture_blocks_movement';
+        } else {
+          record.movementPolicy = 'structural';
+        }
+        records.push(record);
+      }
+    }
+    if (state.rubbleActive) {
+      for (const part of descriptor.rubble.colliderParts) {
+        const record = transformColliderPart(part, state.transform, {
+          id: `${state.id}:rubble:${part.id}`,
+          buildingId: state.id,
+          sectionId: 'rubble',
+          kind: 'rubble'
+        });
+        record.blocks = ['infantry', 'vehicle'];
+        record.movementPolicy = 'rubble';
+        records.push(record);
+      }
+    }
+    records.sort((a, b) => compareBuildingId(a.id, b.id));
+    return {
+      buildingId: state.id,
+      version: state.collisionVersion,
+      records,
+      changes: state.collisionChanges
+        .filter(change => change.version > sinceVersion)
+        .map(clone)
+    };
+  }
+
   getFirePorts(id) {
     const state = this.#state(id);
     const descriptor = this.#descriptor(state);

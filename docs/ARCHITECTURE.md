@@ -89,6 +89,20 @@ The first boundary slice now exists:
   plain oriented footprints from authored walls, structures, bridge parts, and
   river exclusions; rendered meshes are never queried as authoritative
   collision state.
+- `src/simulation/buildings/` owns renderer-neutral building descriptors,
+  portal topology, occupancy, section damage, collapse, consequences, events,
+  collision snapshots, and deep capture/restore.
+- `src/game/BuildingInteractionSystem.js` adapts unit orders and individual
+  soldiers to the building topology. It owns approach, reservation, timed
+  door/stair transit, occupied firing slots, exit, and casualty cleanup.
+- `src/world/buildings/FrenchHouse.js` projects one descriptor and its runtime
+  damage state into high/medium/core/proxy meshes. `TerrainBuilder` replaces
+  only that building's movement records when state changes; spotting and
+  ballistics query the current 3D section snapshot directly.
+  Every LOD uses the same descriptor sections, openings, floor line, and roof
+  profile. `BuildingInteractionSystem` exposes a read-only interior-presence
+  count that `TerrainBuilder` projects as reversible material fade; this
+  presentation path never changes collision, LOS, occupancy, or transit.
 - `src/world/VehicleDamageEffects.js` reads resolved damage and impact telemetry
   to render bounded fire, smoke, sparks, blast, scorch, and disabled-gun cues.
   It never decides damage.
@@ -107,6 +121,9 @@ These seams are usable now, before the staged directory migration is complete:
 | Individual infantry state and choices | `SoldierAgent`, `SoldierAI` | Infantry pose renderer, roster HUD |
 | Vehicle crew, components, mounts, ammo, damage events | `Unit`, `VehicleSystems` | Combat telemetry, damage report |
 | Static movement collision and bridge routing | `StaticCollisionWorld`, plain terrain collider records | `Unit`, `SoldierAgent`, terrain height adapter |
+| Building topology, occupancy, damage, collapse, consequences | `simulation/buildings/*` | Building interaction, collision, spotting, ballistics, renderer |
+| Infantry building orders and portal transit | `BuildingInteractionSystem` | Unit movement, combat eligibility, roster HUD |
+| Authored building meshes and damage presentation | `world/buildings/*`, descriptor data | Three.js scene, LOD projection only |
 | Projectile and armor resolution | `CombatSystem`, `BallisticsSystem` | Telemetry, VFX, shot inspector |
 | Infantry meshes, weapons, grip/muzzle markers | `UnitFactory`, `world/infantry/*` | Soldier pose animation |
 | Vehicle meshes, articulated markers, LOD | `UnitFactory`, `world/vehicles/*` | Unit animation, damage VFX |
@@ -137,6 +154,28 @@ Rendering helpers may expose named markers and consume state. They must not
 write combat outcomes back into simulation objects. UI presenters may summarize
 state. They must not issue hidden state mutations.
 
+Building state follows the same one-way rule:
+
+```text
+map building descriptor
+          |
+          v
+BuildingSystem <--- CombatSystem / BallisticsSystem
+      |                         |
+      |                         `---> resolved hit telemetry
+      +---> BuildingInteractionSystem ---> SoldierAgent location
+      +---> current collision/LOS records
+      `---> FrenchHouse visual projection
+```
+
+One authoritative descriptor defines sections, portals, floors, slots, firing
+ports, and transforms. Ballistics, spotting, movement, occupancy, and rendering
+must consume current state derived from that descriptor; none may infer
+gameplay from rendered triangles. Ballistic/LOS openings and movement portals
+remain separate policies: a window can pass sight and fire but never ordinary
+movement, while a door crossing requires a reservation owned by
+`BuildingInteractionSystem`.
+
 Static-world movement collision intentionally uses bounded deterministic math
 instead of a rigid-body dependency. Vehicles sweep a catalog-sized capsule
 (a fixed-orientation chain of circles); soldiers sweep individual circles.
@@ -144,9 +183,13 @@ Both stop at the earliest stable-ID-sorted contact and project remaining motion
 onto the contact tangent. This prevents wall and bridge tunneling even for a
 large simulation delta while preserving useful movement along cover. Bridge
 navigation is a plain crossing record, and bridge deck height is sampled
-through the terrain movement-height adapter. Dynamic suspension, wreck
-settling, and ragdolls remain separate bounded candidates for a future physics
-evaluation.
+through the terrain movement-height adapter. `StaticCollisionWorld` also owns
+the renderer-neutral visibility graph used to detour an entry formation around
+intervening world obstacles. `BuildingInteractionSystem` separately owns the
+target building's local footprint, door approach, reservation, and portal
+route; composition may concatenate both routes but neither layer imports the
+other. Dynamic suspension, wreck settling, and ragdolls remain separate bounded
+candidates for a future physics evaluation.
 
 ## Responsibilities
 
@@ -211,6 +254,8 @@ Rules:
 | --- | --- | --- |
 | Engine/rendering | `src/engine/**` | `src/main.js`, global registration |
 | Tactical simulation | `src/simulation/**` and focused tests | Runtime wiring |
+| Building interaction adapter | `src/game/BuildingInteractionSystem.js`, interaction tests | `src/main.js`, command/UI wiring |
+| Building presentation | `src/world/buildings/**`, visual tests | Terrain registration and runtime sync |
 | Scenario runtime/loader | `src/scenario/**` | Concrete family registrations |
 | France 1940 content | `src/content/france1940/**` | Global registries |
 | Maps/scenarios | `src/maps/**`, `src/scenarios/**` | Runtime construction |

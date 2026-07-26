@@ -48,23 +48,30 @@ Status:
 - [ ] Add deterministic movement collision and tactical navigation.
   - [x] First static-world slice: renderer-neutral oriented collider records for terrain-conforming walls, the village building, bridge parapets and abutments, river exclusion, and bunker/rubble; swept vehicle capsules and soldier circles prevent tunneling, retain stand-off, stop-and-slide, route cross-river orders through the bridge, use bridge deck height, and survive WEGO capture/restore without a physics dependency.
   - [x] Harden static movement: collide the infantry squad anchor, wait for living soldiers to finish their individual routes, bind split teams, route near-bank destinations from actual river exclusions, and run live/seek simulation through the same fixed 30 Hz steps.
-  - [ ] Add unit-to-unit separation, richer obstacle graphs around buildings and wall ends, reverse-aware vehicle maneuvers, and deterministic wreck settling.
+  - [x] Add stable visibility-graph detours around intervening static walls for building-entry orders; preserve bridge stages, use individual and formation clearance at route corners, and keep target-building portal routing under the building interaction layer.
+  - [ ] Add unit-to-unit separation, generalize obstacle-graph routing beyond building-entry orders, add reverse-aware vehicle maneuvers, and add deterministic wreck settling.
 - [ ] Add enterable multi-floor buildings.
   - [x] Add a renderer-neutral two-floor French house descriptor with a door, stair route, four individual slots per floor, window firing ports, deterministic slot reservations, timed transit, casualty release, and deep capture/restore.
-  - [x] Replace the solid house box with a terrain-grounded, segmented door/window/floor/stair/roof model and high/medium/core/proxy LOD tiers; publish passable apertures instead of one solid movement blocker.
-  - [ ] Wire infantry ENTER GROUND, ENTER UPPER, and EXIT orders; individual approach/transit/occupancy; window spotting/firing arcs; and HUD state.
+  - [x] Replace the solid house box with a terrain-grounded, segmented door/window/floor/stair/roof model and high/medium/core/proxy LOD tiers; separate projectile/LOS apertures from a movement shell that blocks windows and reserves doors for authorized transit.
+  - [x] Wire infantry ENTER GROUND, ENTER UPPER, and EXIT orders; individual approach, door/stair transit, occupancy and casualty release; window firing arcs; roster state; realtime/WEGO simulation; and capture/restore.
+  - [x] Fade occupied/interior-transit buildings consistently across every LOD so individual troops and floor changes remain visible; restore opacity on final exit and rollback.
+  - [x] Keep authored footprint, facade openings, floor line, roof profile, damage state, and visual identity consistent across all building LOD tiers.
+  - [ ] Generalize the authored-house slice into reusable building/map records with more floor plans, entrances, interior routes, firing positions, capacity rules, and AI-selected occupation.
 - [ ] Add destructible buildings with persistent tactical consequences.
   - [x] Add section health/resistance, projectile breaches, aperture state, support-loss collapse, rubble colliders, deterministic occupant damage/ejection, collision deltas, and rollback-safe events.
-  - [ ] Wire live projectile/blast hits, combat telemetry/VFX, occupant casualties, dynamic movement/LOS collider refresh, and visibly damaged/collapsed LOD states.
+  - [x] Wire live projectile and blast hits, combat telemetry, occupant casualties, dynamic movement/LOS collider refresh, rollback-safe visual restoration, and visibly breached/collapsed/rubble states across every house LOD.
+  - [ ] Add material-specific debris VFX, persistent smoke/fire spread, partial-floor collapse animation, damaged-building sound, and scenario-authored destruction thresholds.
 - [ ] Add terrain and structure collision to projectile sweeps.
   - [x] First structure slice: targetable German MG34 bunker with authoritative reinforced-concrete health, penetrative/direct and blast damage, firing shutdown, visible rubble state, and WEGO capture/restore.
+  - [x] Add current 3D building-section sweeps with door/window/breach pass-through, earliest-hit ordering against units and vehicles, resistance/penetration, blast damage, and support collapse.
 - [ ] Improve procedural infantry firing, reload, transition, casualty, and movement animations.
   - [x] Rough pass: stable base pose reset, weapon recoil profiles (LMG, SMG, Rifle), top-fed LMG reload posture, and clear KIA casualty pose.
   - [x] Bind two-segment arms to exact trigger, support, and feed-specific reload grips; add deterministic breathing, head scanning, weapon sway, weight shift, and recognizable period-weapon defining parts.
   - [x] Preserve a visually right-handed stock/shoulder relationship through idle, aim, fire, and reload; put MAS 36/Kar98k actions and verified FM 24/29, MAS 38, and MG 34 charging handles on the right while retaining the MP 40's left-side handle.
   - [ ] Add blended state transitions, foot placement, turn-in-place, crawling, weapon deployment, wounded locomotion, varied casualty falls, and animation LOD.
-- [ ] Improve suspension, track movement, terrain grounding, and wreck physics; evaluate ammo.js specifically for rigid-body needs.
+- [ ] Improve suspension, track movement, terrain grounding, and wreck physics; evaluate deterministic Rapier specifically for bounded dynamic rigid-body needs.
   - [x] Replace opaque rectangular track slabs on all ten tracked vehicles with shared instanced closed-belt links, cleats, named wheels/sprockets/idlers, and open far-LOD belt-and-wheel silhouettes.
+  - [x] Keep authoritative static movement collision game-side and deterministic; reserve a direct Rapier evaluation for dynamic wrecks, suspension, and ragdolls instead of replacing ballistics, building topology, or rollback state.
   - [ ] Animate link travel and wheel rotation from actual distance, conform suspension to terrain, shed damaged tracks, and add deterministic wreck settling.
 - [ ] Expand visible vehicle damage into component-local damage variants, persistent wrecks, and layered audio.
   - [x] First presentation pass: resolved impact sparks/scorch, engine smoke, persistent fire, destruction/secondary-explosion bursts, disabled-gun droop, selected-vehicle health, component status, mount state, and ammunition HUD.

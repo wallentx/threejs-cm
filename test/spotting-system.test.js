@@ -327,6 +327,32 @@ test('last-known contact position freezes under occlusion, then confidence decay
   assert.equal(spotting.getContactForUnit(observer, target), null);
 });
 
+test('direct and relayed contacts retain the actually observed infantryman position', () => {
+  const observer = makeUnit({ id: 'observer', faction: 'blue', x: 0, z: 0 });
+  const receiver = makeUnit({ id: 'receiver', faction: 'blue', x: 12, z: 0 });
+  const target = makeUnit({ id: 'target', faction: 'red', x: 0, z: 80 });
+  target.roster = [
+    { id: 'far', role: 'RIFLEMAN', status: 'OK', health: 100, worldPosition: [0, 0, 105] },
+    { id: 'seen', role: 'RIFLEMAN', status: 'OK', health: 100, worldPosition: [0, 0, 35] }
+  ];
+  const spotting = makeSpotting(makeTerrain([{
+    minX: 6, maxX: 18, minZ: 1, maxZ: 60, height: 4, type: 'wall'
+  }]));
+  acquire(spotting, [target, receiver, observer], 4);
+
+  const direct = spotting.getContactForUnit(observer, target);
+  const relayed = spotting.getContactForUnit(receiver, target);
+  assert.deepEqual(direct.position, [0, 0, 35]);
+  assert.equal(direct.targetSoldierId, 'seen');
+  assert.deepEqual(relayed.position, direct.position);
+  assert.equal(relayed.targetSoldierId, 'seen');
+  assert.equal(relayed.channel, CONTACT_CHANNEL.VOICE);
+
+  const observation = spotting.getObservation('observer', 0, 'target');
+  assert.deepEqual(observation.lastSeenPosition, [0, 0, 35]);
+  assert.equal(observation.lastSeenTargetSoldierId, 'seen');
+});
+
 test('capture and restore deep-copy acquisition and contact state', () => {
   const observer = makeUnit({ id: 'observer', faction: 'blue', x: 0, z: 0 });
   const target = makeUnit({ id: 'target', faction: 'red', x: 0, z: 40 });

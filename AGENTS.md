@@ -62,6 +62,29 @@ Do not commit or push unless the user asks.
 - Rewinding and replaying from the same seed and orders must produce the same outcome.
 - Keep simulation frame-rate independent. Use fixed or bounded substeps for fast motion.
 
+### Buildings
+
+- Keep topology, floors, portals, slots, section health, breaches, collapse,
+  rubble, and occupant consequences renderer-neutral under
+  `src/simulation/buildings/`.
+- `BuildingInteractionSystem` owns individual reservations, approach,
+  door/stair transit, occupied firing positions, exit, and casualty cleanup.
+  Ordinary unit movement must not bypass those transitions.
+- Separate aperture policies by purpose. Windows may pass sight and fire but
+  never movement. Door movement requires an authorized building transition.
+- Building meshes consume authoritative state. They do not decide collision,
+  line of sight, penetration, collapse, or occupant damage.
+- Keep route ownership split: `StaticCollisionWorld` handles intervening world
+  obstacles, while `BuildingInteractionSystem` handles the target building's
+  local footprint, door/stair route, and reservations. Compose these paths at
+  the application boundary; do not make either domain import the other.
+- Ballistics, spotting, movement, and rendering must derive current building
+  state from the same descriptor and stable section/portal IDs.
+- Capture and restore building state, individual building locations,
+  reservations, transit progress, damage, breaches, collapse, and events.
+- Test damage followed by restore; intact meshes, collision, LOS, occupancy,
+  and portal state must all return.
+
 ## Historical data
 
 - Put weapon data in `src/game/WeaponCatalog.js`.
@@ -120,7 +143,12 @@ Do not commit or push unless the user asks.
 
 - Three.js renders; game modules own tactics, ballistics, armor, and damage.
 - ammo.js is not a weapon-ballistics system.
-- Consider ammo.js only for a bounded rigid-body need such as suspension, collision response, wrecks, or ragdolls.
+- "Raven SDK" means Rapier. Do not add a wrapper based only on a Three.js
+  example or addon.
+- Keep deterministic static-world collision game-side. Evaluate direct
+  deterministic Rapier only for a bounded dynamic need such as suspension,
+  wreck settling, or ragdolls, stepped by the authoritative fixed simulation
+  loop and covered by replay tests.
 - Do not add a dependency when a small deterministic game-side system is clearer and cheaper.
 - Explain and validate any new runtime dependency before marking its TODO item complete.
 

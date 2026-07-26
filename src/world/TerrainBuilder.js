@@ -735,7 +735,9 @@ export class TerrainBuilder {
     if (!building) return null;
     const runtime = this.buildingSystem.getBuildingSnapshot(buildingId);
     const descriptor = this.buildingSystem.getDescriptorForBuilding(buildingId);
-    applyFrenchHouseVisualState(building.object, descriptor, runtime);
+    applyFrenchHouseVisualState(building.object, descriptor, runtime, {
+      interiorPresence: building.interiorPresence ?? 0
+    });
     const footprintCorners = building.object.userData?.foundation?.footprintCorners ?? [];
     const minimumGroundY = footprintCorners.length > 0
       ? Math.min(...footprintCorners.map(([, y]) => y))
@@ -744,13 +746,37 @@ export class TerrainBuilder {
       ?? building.object.position.y;
     const collision = this.replaceBuildingCollisionRecords(
       buildingId,
-      this.buildingSystem.getCollisionSnapshot(buildingId).records,
+      this.buildingSystem.getMovementCollisionSnapshot(buildingId).records,
       minimumGroundY,
       foundationTopY
     );
     building.runtimeEventVersion = runtime.eventVersion ?? 0;
     building.runtimeCollisionVersion = runtime.collisionVersion ?? 0;
     return { buildingId, runtime, collision };
+  }
+
+  /**
+   * Presentation-only occupancy projection. BuildingInteractionSystem owns
+   * the individual transit state; this method deliberately does not touch
+   * collision, LOS, or authoritative building state.
+   */
+  setBuildingInteriorPresence(buildingId, presence) {
+    if (!this.buildingSystem) return null;
+    const building = this.buildings.find(record => record.id === buildingId);
+    if (!building) return null;
+    const nextPresence = Math.max(0, Number(presence) || 0);
+    if (building.interiorPresence === nextPresence) return {
+      buildingId,
+      interiorPresence: nextPresence,
+      changed: false
+    };
+    building.interiorPresence = nextPresence;
+    const runtime = this.buildingSystem.getBuildingSnapshot(buildingId);
+    const descriptor = this.buildingSystem.getDescriptorForBuilding(buildingId);
+    applyFrenchHouseVisualState(building.object, descriptor, runtime, {
+      interiorPresence: nextPresence
+    });
+    return { buildingId, interiorPresence: nextPresence, changed: true };
   }
 
   buildFrenchVillage() {
@@ -795,25 +821,20 @@ export class TerrainBuilder {
       id: buildingId,
       descriptorId: descriptor.id,
       object: houseGroup,
+      interiorPresence: 0,
       runtimeEventVersion: runtime?.eventVersion ?? 0,
       runtimeCollisionVersion: runtime?.collisionVersion ?? 0
     });
 
-    const openingStates = runtime?.openings ?? Object.fromEntries(
-      descriptor.portals.concat(descriptor.firePorts)
-        .filter(record => record.aperture)
-        .map(record => [record.aperture.id, { open: record.aperture.initiallyOpen ?? false }])
-    );
     // StaticCollisionWorld is intentionally X/Z-only. Publishing upper-storey
     // walls here would turn them into a ground-level invisible blocker. Full
     // 3D projectile/spotting queries consume the complete BuildingSystem
     // snapshot; ground movement consumes only the ground shell.
     const records = runtime && this.buildingSystem
-      ? this.buildingSystem.getCollisionSnapshot(buildingId).records
+      ? this.buildingSystem.getMovementCollisionSnapshot(buildingId).records
       : descriptor.sections
         .filter(section => section.kind === 'wall')
         .flatMap(section => section.colliderParts
-          .filter(part => !part.openingId || !openingStates[part.openingId]?.open)
           .map(part => ({
             id: `building:${buildingId}:${section.id}:${part.id}`,
             type: 'building',
@@ -826,7 +847,12 @@ export class TerrainBuilder {
             halfX: part.halfExtents[0],
             halfZ: part.halfExtents[2],
             rotation: part.rotationY ?? 0,
-            blocks: ['vehicle', 'infantry', 'projectile']
+            // All facade apertures remain physical movement blockers. Door
+            // transit is applied by BuildingInteractionSystem, never normal
+            // collision-based pathing. Projectiles/LOS use BuildingSystem's
+            // separate aperture-aware collision snapshot.
+            blocks: ['vehicle', 'infantry'],
+            movementPolicy: part.openingId ? 'portal_or_fire_port_required' : 'structural'
           })));
     this.replaceBuildingCollisionRecords(
       buildingId,

@@ -59,6 +59,21 @@ test('plain transforms and portal paths preserve the metre-authored coordinate c
   assert.equal(findPortalPath(createPortalGraph(FR_HOUSE_12X9_2F, ['main-stair']), 'outside', 'upper-room'), null);
 });
 
+test('movement shell blocks doors and windows while ballistic shell preserves apertures', () => {
+  const system = createSystem();
+  const ballistic = system.getCollisionSnapshot('house-1').records;
+  const movement = system.getMovementCollisionSnapshot('house-1').records;
+
+  assert.ok(!ballistic.some(record => record.partId === 'ground-door'));
+  assert.ok(!ballistic.some(record => record.partId === 'ground-left-window'));
+  const door = movement.find(record => record.partId === 'ground-door');
+  const window = movement.find(record => record.partId === 'ground-left-window');
+  assert.deepEqual(door.blocks, ['infantry', 'vehicle']);
+  assert.equal(door.movementPolicy, 'portal_transit_required');
+  assert.deepEqual(window.blocks, ['infantry', 'vehicle']);
+  assert.equal(window.movementPolicy, 'fire_port_blocks_movement');
+});
+
 test('reservation conflicts resolve by sequence, unit, and soldier independent of request order', () => {
   const contenders = [
     request('ground-front-left', 8, 'unit-b', 'soldier-1'),

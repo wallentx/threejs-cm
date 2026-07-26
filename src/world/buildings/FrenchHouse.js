@@ -8,7 +8,11 @@ const DAMAGE_COLORS = Object.freeze({
 });
 
 function material(color, roughness = 0.9) {
-  return new THREE.MeshStandardMaterial({ color, roughness, metalness: 0 });
+  // House visuals never borrow global material-library entries. Runtime damage
+  // and occupied-building fade are therefore local to this one house instance.
+  const result = new THREE.MeshStandardMaterial({ color, roughness, metalness: 0 });
+  result.userData.houseVisualMaterial = true;
+  return result;
 }
 
 function meshBox(name, width, height, depth, color) {
@@ -35,8 +39,25 @@ function cacheBaseTransform(object) {
     rotation: object.rotation.toArray(),
     scale: object.scale.toArray(),
     color: object.material?.color?.getHex?.() ?? null,
-    roughness: object.material?.roughness ?? null
+    roughness: object.material?.roughness ?? null,
+    opacity: object.material?.opacity ?? 1,
+    transparent: object.material?.transparent ?? false,
+    depthWrite: object.material?.depthWrite ?? true,
+    renderOrder: object.renderOrder ?? 0
   };
+}
+
+function applyInteriorFade(object, active) {
+  if (!object?.isMesh || !object.material) return;
+  cacheBaseTransform(object);
+  const base = object.userData.baseTransform;
+  object.material.opacity = active ? Math.min(base.opacity, 0.26) : base.opacity;
+  object.material.transparent = active || base.transparent;
+  // Opaque soldiers must remain visible through a faded shell.  Keeping this
+  // false also avoids a wall depth-write obscuring an interior firing pose.
+  object.material.depthWrite = active ? false : base.depthWrite;
+  object.renderOrder = active ? 2 : base.renderOrder;
+  object.material.needsUpdate = true;
 }
 
 function applyDamageVariant(group, stage) {
@@ -92,6 +113,24 @@ function gabledRoof(width, depth, height, overhang = 0.42) {
   return geometry;
 }
 
+// Shared across every LOD. Tier detail may change, but the roof pitch, eaves,
+// overhang and ridge cannot: those are the house's long-distance identity.
+function houseRoofProfile(descriptor) {
+  const bounds = descriptor.bounds;
+  const width = bounds.max[0] - bounds.min[0];
+  const depth = bounds.max[2] - bounds.min[2];
+  const height = Math.max(1.1, (bounds.max[1] - bounds.min[1]) * 0.34);
+  return {
+    width,
+    depth,
+    height,
+    overhang: 0.42,
+    centerX: (bounds.min[0] + bounds.max[0]) * 0.5,
+    centerY: bounds.max[1] - height,
+    centerZ: (bounds.min[2] + bounds.max[2]) * 0.5
+  };
+}
+
 function terrainFoundation({ centerX, centerZ, width, depth, topY, getHeightAt }) {
   const hw = width * 0.5;
   const hd = depth * 0.5;
@@ -126,6 +165,20 @@ function visualStage(section, runtime) {
     .sort((a, b) => b.minHealthFraction - a.minHealthFraction || a.id.localeCompare(b.id))
     .find(stage => fraction >= stage.minHealthFraction)?.id
     ?? section.visualStages.at(-1)?.id;
+}
+
+function isInitiallyOpen(descriptor, openingId) {
+  if (!openingId) return false;
+  return descriptor.portals.concat(descriptor.firePorts).some(record => (
+    record.aperture?.id === openingId && record.aperture.initiallyOpen
+  ));
+}
+
+function openingIsOpen(descriptor, runtime, openingId) {
+  if (!openingId) return false;
+  const opening = runtime?.openings?.[openingId];
+  if (!opening) return isInitiallyOpen(descriptor, openingId);
+  return opening.open || opening.breached || opening.enabled === false;
 }
 
 function addOpeningDetail(group, aperture, normal, kind) {
@@ -169,7 +222,10 @@ function buildDetailedShell(descriptor, runtime) {
     sectionGroup.userData = { semantic: 'building-section', sectionId: section.id, kind: section.kind };
     const sectionRuntime = runtime?.sections?.[section.id];
     const stage = visualStage(section, sectionRuntime);
-    for (const part of section.colliderParts) {
+    // The roof collision volume is a simulation primitive.  Rendering it as
+    // a rectangular lid beneath the gable made the close LOD disagree with
+    // the other tiers. The authored gable below owns that visible section.
+    for (const part of section.kind === 'roof' ? [] : section.colliderParts) {
       const [x, y, z] = part.center;
       const [hx, hy, hz] = part.halfExtents;
       const color = section.kind === 'roof' ? '#8c352b'
@@ -182,11 +238,7 @@ function buildDetailedShell(descriptor, runtime) {
         semantic: 'building-section-part', sectionId: section.id, partId: part.id,
         stage, openingId: part.openingId ?? null
       };
-      const opening = part.openingId ? runtime?.openings?.[part.openingId] : null;
-      piece.visible = !(opening?.open || opening?.breached || opening?.enabled === false
-        || (!opening && descriptor.portals.concat(descriptor.firePorts).some(record => (
-          record.aperture?.id === part.openingId && record.aperture?.initiallyOpen
-        ))));
+      piece.visible = !openingIsOpen(descriptor, runtime, part.openingId);
       sectionGroup.add(piece);
     }
     sectionGroup.userData.stage = stage;
@@ -200,26 +252,31 @@ function buildDetailedShell(descriptor, runtime) {
   }
   for (const firePort of descriptor.firePorts) addOpeningDetail(group, firePort.aperture, firePort.localNormal, 'window');
 
-  const bounds = descriptor.bounds;
-  const width = bounds.max[0] - bounds.min[0];
-  const depth = bounds.max[2] - bounds.min[2];
-  const roofHeight = Math.max(1.1, (bounds.max[1] - bounds.min[1]) * 0.34);
-  const roof = new THREE.Mesh(gabledRoof(width, depth, roofHeight), material('#8f3128'));
+  const roofProfile = houseRoofProfile(descriptor);
+  const roof = new THREE.Mesh(
+    gabledRoof(roofProfile.width, roofProfile.depth, roofProfile.height, roofProfile.overhang),
+    material('#8f3128')
+  );
   roof.name = 'HouseGabledRoof';
-  roof.position.set((bounds.min[0] + bounds.max[0]) * 0.5, bounds.max[1] - roofHeight, (bounds.min[2] + bounds.max[2]) * 0.5);
+  roof.position.set(roofProfile.centerX, roofProfile.centerY, roofProfile.centerZ);
   roof.castShadow = true;
   roof.receiveShadow = true;
-  roof.userData = { semantic: 'roof-silhouette', sectionId: descriptor.sections.find(section => section.kind === 'roof')?.id ?? null };
+  roof.userData = {
+    semantic: 'roof-silhouette',
+    sectionId: descriptor.sections.find(section => section.kind === 'roof')?.id ?? null
+  };
   group.add(roof);
 
   const stairs = new THREE.Group();
   stairs.name = 'HouseStairs';
+  stairs.userData = { semantic: 'stairs' };
   const stairPortal = descriptor.portals.find(portal => portal.kind === 'stair');
   if (stairPortal) {
     const [x, y, z] = stairPortal.aperture?.center ?? [0, 0.2, -1.15];
     const stairHeight = stairPortal.aperture?.size?.[1] ?? 3.1;
     for (let step = 0; step < 7; step++) {
       const stair = meshBox(`Stair:${step}`, 1.05, 0.17, 0.28, '#7c654b');
+      stair.userData = { semantic: 'stairs' };
       stair.position.set(x, y + 0.085 + step * (stairHeight / 7), z + 0.78 - step * 0.24);
       stairs.add(stair);
     }
@@ -228,24 +285,70 @@ function buildDetailedShell(descriptor, runtime) {
   return { group, sections };
 }
 
-function buildCheapShell(descriptor, level) {
+function buildCheapShell(descriptor, level, runtime) {
   const bounds = descriptor.bounds;
   const width = bounds.max[0] - bounds.min[0];
   const depth = bounds.max[2] - bounds.min[2];
-  const height = bounds.max[1] - bounds.min[1];
   const group = new THREE.Group();
   group.name = `FrenchHouse${level[0].toUpperCase()}${level.slice(1)}LOD`;
-  const shell = meshBox('HouseSilhouette', width, height * 0.68, depth, level === 'proxy' ? '#7e7768' : '#c9bea7');
-  shell.position.y = bounds.min[1] + height * 0.34;
-  shell.userData = { semantic: 'cheap-shell' };
-  group.add(shell);
-  const roof = new THREE.Mesh(gabledRoof(width, depth, Math.max(0.9, height * 0.32)), material('#81332d'));
-  roof.position.y = bounds.min[1] + height * 0.68;
+  const sections = new Map();
+  const palette = level === 'proxy'
+    ? { wall: '#887f70', floor: '#716350', foundation: '#716c63' }
+    : level === 'core'
+      ? { wall: '#c8bea7', floor: '#836e55', foundation: '#777164' }
+      : { wall: '#d0c5ae', floor: '#8a7359', foundation: '#7d776b' };
+  let shell = null;
+  for (const section of descriptor.sections) {
+    const sectionGroup = new THREE.Group();
+    sectionGroup.name = `BuildingSection:${level}:${section.id}`;
+    sectionGroup.userData = {
+      semantic: 'building-section', sectionId: section.id, kind: section.kind, lod: level
+    };
+    // Foundation has a terrain-conforming visual at the root. Roof uses the
+    // matching gable below. All wall and floor pieces retain the same
+    // descriptor footprint and apertures at every distance tier.
+    const visibleParts = ['foundation', 'roof'].includes(section.kind) ? [] : section.colliderParts;
+    for (const part of visibleParts) {
+      const [x, y, z] = part.center;
+      const [hx, hy, hz] = part.halfExtents;
+      const color = section.kind === 'floor' ? palette.floor : palette.wall;
+      const piece = meshBox(
+        `SectionPart:${level}:${section.id}:${part.id}`,
+        hx * 2,
+        hy * 2,
+        hz * 2,
+        color
+      );
+      piece.position.set(x, y, z);
+      piece.rotation.y = part.rotationY ?? 0;
+      piece.visible = !openingIsOpen(descriptor, runtime, part.openingId);
+      piece.userData = {
+        semantic: 'building-section-part', sectionId: section.id, partId: part.id,
+        openingId: part.openingId ?? null, lod: level
+      };
+      sectionGroup.add(piece);
+      if (section.kind === 'wall' && !shell) shell = piece;
+    }
+    group.add(sectionGroup);
+    sections.set(section.id, sectionGroup);
+  }
+  const roofProfile = houseRoofProfile(descriptor);
+  const roof = new THREE.Mesh(
+    gabledRoof(roofProfile.width, roofProfile.depth, roofProfile.height, roofProfile.overhang),
+    material('#81332d')
+  );
+  roof.position.set(roofProfile.centerX, roofProfile.centerY, roofProfile.centerZ);
   roof.name = 'HouseCheapRoof';
-  roof.userData = { semantic: 'cheap-roof' };
+  roof.castShadow = true;
+  roof.receiveShadow = true;
+  roof.userData = {
+    semantic: 'roof-silhouette',
+    sectionId: descriptor.sections.find(section => section.kind === 'roof')?.id ?? null,
+    lod: level
+  };
   group.add(roof);
-  group.userData = { semantic: 'building-lod', lod: level, shell, roof };
-  return group;
+  group.userData = { semantic: 'building-lod', lod: level, shell, roof, sections };
+  return { group, sections, roof, shell };
 }
 
 function buildRubble(descriptor) {
@@ -310,6 +413,7 @@ export function createFrenchHouseVisual({ descriptor, runtime, centerX, centerZ,
   const lod = new THREE.LOD();
   lod.name = 'FrenchHouseLOD';
   const detailed = buildDetailedShell(descriptor, runtime);
+  const lodTiers = [{ lod: 'high', group: detailed.group, sections: detailed.sections, roof: detailed.group.getObjectByName('HouseGabledRoof'), shell: null }];
   const cheapShells = [];
   lod.addLevel(detailed.group, LOD_DISTANCES.high);
   for (const [level, distance] of [
@@ -317,9 +421,10 @@ export function createFrenchHouseVisual({ descriptor, runtime, centerX, centerZ,
     ['core', LOD_DISTANCES.core],
     ['proxy', LOD_DISTANCES.proxy]
   ]) {
-    const cheap = buildCheapShell(descriptor, level);
-    cheapShells.push(cheap);
-    lod.addLevel(cheap, distance);
+    const cheap = buildCheapShell(descriptor, level, runtime);
+    cheapShells.push(cheap.group);
+    lodTiers.push({ lod: level, ...cheap });
+    lod.addLevel(cheap.group, distance);
   }
   root.add(lod);
   const rubble = buildRubble(descriptor);
@@ -331,6 +436,7 @@ export function createFrenchHouseVisual({ descriptor, runtime, centerX, centerZ,
     foundation: { topY: foundationTopY, footprintCorners: foundation.geometry.userData.worldFootprintCorners },
     lodDistances: { ...LOD_DISTANCES },
     buildingSections: detailed.sections,
+    lodTiers,
     cheapShells,
     detailedRoof: detailed.group.getObjectByName('HouseGabledRoof'),
     rubble
@@ -339,39 +445,37 @@ export function createFrenchHouseVisual({ descriptor, runtime, centerX, centerZ,
   return root;
 }
 
-export function applyFrenchHouseVisualState(root, descriptor, runtime) {
+export function applyFrenchHouseVisualState(root, descriptor, runtime, { interiorPresence = null } = {}) {
   if (!root || !descriptor || !runtime) return;
-  const sections = root.userData?.buildingSections;
-  for (const section of descriptor.sections) {
-    const group = sections?.get?.(section.id);
-    if (!group) continue;
-    const state = runtime.sections?.[section.id];
-    const stage = state?.collapsed ? 'collapsed' : visualStage(section, state);
-    applyDamageVariant(group, stage);
-    for (const piece of group.children) piece.userData.stage = stage;
+  for (const tier of root.userData?.lodTiers ?? []) {
+    for (const section of descriptor.sections) {
+      const group = tier.sections?.get?.(section.id);
+      if (!group) continue;
+      const state = runtime.sections?.[section.id];
+      const stage = state?.collapsed ? 'collapsed' : visualStage(section, state);
+      applyDamageVariant(group, stage);
+      for (const piece of group.children) {
+        piece.userData.stage = stage;
+        if (piece.userData?.semantic === 'building-section-part') {
+          // Re-establish the authored baseline before applying this runtime's
+          // apertures and breaches. A rewind may otherwise leave a part hidden
+          // by a later state even though the restored simulation says intact.
+          piece.visible = !openingIsOpen(descriptor, runtime, piece.userData.openingId);
+        }
+      }
+    }
   }
   const sectionStages = descriptor.sections.map(section => {
     const state = runtime.sections?.[section.id];
     return state?.collapsed ? 'collapsed' : visualStage(section, state);
   });
-  const shellStages = descriptor.sections
-    .filter(section => section.kind !== 'roof')
-    .map(section => {
-      const state = runtime.sections?.[section.id];
-      return state?.collapsed ? 'collapsed' : visualStage(section, state);
-    });
   const roofSection = descriptor.sections.find(section => section.kind === 'roof');
   const roofState = roofSection ? runtime.sections?.[roofSection.id] : null;
   const roofStage = roofState?.collapsed
     ? 'collapsed'
     : (roofSection ? visualStage(roofSection, roofState) : worstStage(sectionStages));
-  const shellStage = worstStage(shellStages);
-  const detailedRoof = root.userData?.detailedRoof;
-  if (detailedRoof) applyDamageVariant(detailedRoof, roofStage);
-  for (const cheap of root.userData?.cheapShells ?? []) {
-    applyDamageVariant(cheap.userData.shell, shellStage);
-    applyDamageVariant(cheap.userData.roof, roofStage);
-    cheap.visible = cheap.userData.shell.visible || cheap.userData.roof.visible;
+  for (const tier of root.userData?.lodTiers ?? []) {
+    if (tier.roof) applyDamageVariant(tier.roof, roofStage);
   }
   const breachedParts = new Set(runtime.breachedColliderPartIds ?? []);
   for (const [openingId, opening] of Object.entries(runtime.openings ?? {})) {
@@ -396,8 +500,32 @@ export function applyFrenchHouseVisualState(root, descriptor, runtime) {
     stairs.visible = !(runtime.invalidPortals ?? []).includes(stairPortal.id);
   }
   if (root.userData?.rubble) root.userData.rubble.visible = Boolean(runtime.rubbleActive);
+  const resolvedPresence = interiorPresence == null
+    ? Object.keys(runtime.occupancy ?? {}).length
+    : Math.max(0, Number(interiorPresence) || 0);
+  const interiorActive = resolvedPresence > 0 && !runtime.rubbleActive;
+  root.traverse(object => {
+    if (!object.isMesh) return;
+    const semantic = object.userData?.semantic ?? object.parent?.userData?.semantic;
+    if (!['building-section-part', 'roof-silhouette', 'opening', 'opening-frame', 'stairs'].includes(semantic)) return;
+    applyInteriorFade(object, interiorActive);
+  });
+  root.userData.interiorPresence = resolvedPresence;
+  root.userData.interiorFadeActive = interiorActive;
   root.userData.runtimeEventVersion = runtime.eventVersion ?? 0;
   root.userData.runtimeCollisionVersion = runtime.collisionVersion ?? 0;
+}
+
+/** Dispose only renderer-owned resources created by createFrenchHouseVisual(). */
+export function disposeFrenchHouseVisual(root) {
+  root?.traverse(object => {
+    if (!object.isMesh) return;
+    object.geometry?.dispose?.();
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    for (const candidate of materials) {
+      if (candidate?.userData?.houseVisualMaterial) candidate.dispose?.();
+    }
+  });
 }
 
 export { LOD_DISTANCES as FRENCH_HOUSE_LOD_DISTANCES };

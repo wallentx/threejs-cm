@@ -7,8 +7,19 @@ import { TerrainBuilder } from '../src/world/TerrainBuilder.js';
 import {
   applyFrenchHouseVisualState,
   createFrenchHouseVisual,
+  disposeFrenchHouseVisual,
   FRENCH_HOUSE_LOD_DISTANCES
 } from '../src/world/buildings/FrenchHouse.js';
+
+function roundedBounds(object) {
+  object.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(object);
+  return {
+    minX: Number(box.min.x.toFixed(3)), maxX: Number(box.max.x.toFixed(3)),
+    minZ: Number(box.min.z.toFixed(3)), maxZ: Number(box.max.z.toFixed(3)),
+    maxY: Number(box.max.y.toFixed(3))
+  };
+}
 
 test('French house renderer exposes semantic shell sections, openings, stairs, and all LOD tiers', () => {
   const house = createFrenchHouseVisual({
@@ -32,9 +43,83 @@ test('French house renderer exposes semantic shell sections, openings, stairs, a
   const lod = house.getObjectByName('FrenchHouseLOD');
   assert.equal(lod.levels.length, 4);
   assert.deepEqual(lod.levels.map(level => level.distance), Object.values(FRENCH_HOUSE_LOD_DISTANCES));
+  const tierBounds = house.userData.lodTiers.map(tier => roundedBounds(tier.group));
+  assert.ok(tierBounds.every(bounds => JSON.stringify(bounds) === JSON.stringify(tierBounds[0])),
+    'all LOD tiers retain the same exterior footprint and roof height');
+  const roofReference = house.userData.lodTiers[0].roof;
+  for (const tier of house.userData.lodTiers.slice(1)) {
+    assert.deepEqual(tier.roof.position.toArray(), roofReference.position.toArray(),
+      `${tier.lod} uses the same roof eaves and ridge origin`);
+    assert.deepEqual(
+      [...tier.roof.geometry.getAttribute('position').array],
+      [...roofReference.geometry.getAttribute('position').array],
+      `${tier.lod} uses the same roof pitch and overhang geometry`
+    );
+  }
+  for (const tier of house.userData.lodTiers) {
+    const partName = tier.lod === 'high'
+      ? 'SectionPart:ground-shell:ground-left-window'
+      : `SectionPart:${tier.lod}:ground-shell:ground-left-window`;
+    const leftWindow = tier.group.getObjectByName(
+      partName
+    );
+    assert.ok(leftWindow, `${tier.lod} retains the ground window opening segment`);
+    assert.equal(leftWindow.visible, false, `${tier.lod} does not replace openings with a solid proxy box`);
+  }
+  disposeFrenchHouseVisual(house);
 });
 
-test('terrain publishes segmented house wall colliders and leaves door/window apertures open', () => {
+test('occupied or transiting house fades every LOD shell and restores owned materials after exit', () => {
+  const buildings = new BuildingSystem();
+  buildings.registerDescriptor(FR_HOUSE_12X9_2F);
+  buildings.addBuilding({
+    id: 'house-occupied', descriptorId: FR_HOUSE_12X9_2F.id,
+    transform: { position: [0, 0, 0], rotationY: 0 }
+  });
+  const house = createFrenchHouseVisual({
+    descriptor: FR_HOUSE_12X9_2F,
+    runtime: buildings.getBuildingSnapshot('house-occupied'),
+    centerX: 0, centerZ: 0, foundationTopY: 0, getHeightAt: () => 0
+  });
+  const exteriorMeshes = [];
+  house.traverse(object => {
+    if (object.isMesh && object.userData?.semantic === 'building-section-part') exteriorMeshes.push(object);
+  });
+  const initialMaterials = exteriorMeshes.map(mesh => mesh.material);
+  const lod = house.getObjectByName('FrenchHouseLOD');
+  const camera = new THREE.PerspectiveCamera();
+  camera.position.set(0, 8, 24);
+  camera.updateMatrixWorld(true);
+  house.updateMatrixWorld(true);
+  lod.update(camera);
+  const activeLodBeforeFade = lod.levels.map(level => level.object.visible);
+  assert.equal(activeLodBeforeFade.filter(Boolean).length, 1);
+  applyFrenchHouseVisualState(house, FR_HOUSE_12X9_2F, buildings.getBuildingSnapshot('house-occupied'), {
+    interiorPresence: 1
+  });
+  assert.deepEqual(
+    lod.levels.map(level => level.object.visible),
+    activeLodBeforeFade,
+    'presentation updates leave level visibility under THREE.LOD ownership'
+  );
+  assert.equal(house.userData.interiorFadeActive, true);
+  assert.ok(exteriorMeshes.every(mesh => (
+    mesh.material.transparent && mesh.material.opacity <= 0.26 && mesh.material.depthWrite === false
+  )));
+  assert.ok(exteriorMeshes.every((mesh, index) => mesh.material === initialMaterials[index]),
+    'fade mutates only this house renderer material instances rather than swapping shared materials');
+
+  applyFrenchHouseVisualState(house, FR_HOUSE_12X9_2F, buildings.getBuildingSnapshot('house-occupied'), {
+    interiorPresence: 0
+  });
+  assert.equal(house.userData.interiorFadeActive, false);
+  assert.ok(exteriorMeshes.every(mesh => (
+    mesh.material.transparent === false && mesh.material.opacity === 1 && mesh.material.depthWrite === true
+  )));
+  disposeFrenchHouseVisual(house);
+});
+
+test('terrain publishes segmented movement shell; windows and doors require building interaction', () => {
   const terrain = new TerrainBuilder(new THREE.Scene());
   terrain.buildFrenchVillage();
   const records = terrain.colliderRecords.filter(record => record.buildingId === 'french_village_house');
@@ -42,13 +127,43 @@ test('terrain publishes segmented house wall colliders and leaves door/window ap
   assert.ok(records.every(record => record.sectionId === 'ground-shell' || record.sectionId === 'upper-shell'));
   assert.equal(terrain.collisionWorld.getCollider('building:french_village_house'), null);
   assert.ok(!records.some(record => record.halfX === 6 && record.halfZ === 4.5), 'no solid footprint blocker');
-  assert.ok(!records.some(record => record.id.endsWith(':ground-door')), 'open front door has no wall collider');
-  assert.ok(!records.some(record => record.id.endsWith(':ground-left-window')), 'open window has no wall collider');
+  assert.ok(records.some(record => record.id.endsWith(':ground-door')), 'door remains a movement blocker');
+  assert.ok(records.some(record => record.id.endsWith(':ground-left-window')), 'window remains a movement blocker');
 
   const throughDoor = terrain.collisionWorld.resolveCircleMotion(
     { x: 45, z: 69 }, { x: 0, z: -8 }, 0.25, { moverType: 'infantry' }
   );
-  assert.equal(throughDoor.blocked, false, 'infantry can cross the descriptor door aperture');
+  assert.equal(throughDoor.blocked, true, 'ordinary infantry cannot bypass portal transit through the door');
+
+  const throughWindow = terrain.collisionWorld.resolveCircleMotion(
+    { x: 41.8, z: 69 }, { x: 0, z: -8 }, 0.25, { moverType: 'infantry' }
+  );
+  assert.equal(throughWindow.blocked, true, 'windows remain movement blockers despite projectile/LOS apertures');
+});
+
+test('runtime building movement shell cannot bypass open door or window apertures', () => {
+  const buildings = new BuildingSystem();
+  buildings.registerDescriptor(FR_HOUSE_12X9_2F);
+  const terrain = new TerrainBuilder(new THREE.Scene(), { buildingSystem: buildings });
+  terrain.buildFrenchVillage();
+
+  const movementRecords = terrain.colliderRecords
+    .filter(record => record.buildingId === 'french_village_house');
+  assert.equal(
+    movementRecords.find(record => record.partId === 'ground-door')?.movementPolicy,
+    'portal_transit_required'
+  );
+  assert.equal(
+    movementRecords.find(record => record.partId === 'ground-left-window')?.movementPolicy,
+    'fire_port_blocks_movement'
+  );
+
+  for (const start of [{ x: 45, z: 69 }, { x: 41.8, z: 69 }]) {
+    const result = terrain.collisionWorld.resolveCircleMotion(
+      start, { x: 0, z: -8 }, 0.25, { moverType: 'infantry' }
+    );
+    assert.equal(result.blocked, true);
+  }
 });
 
 test('building damage changes authored geometry at every LOD and collapse reveals rubble', () => {
@@ -82,6 +197,10 @@ test('building damage changes authored geometry at every LOD and collapse reveal
     buildings.getBuildingSnapshot('house-damage')
   );
   assert.equal(house.getObjectByName('BuildingSection:ground-shell').userData.stage, 'breached');
+  for (const tier of house.userData.lodTiers) {
+    assert.equal(tier.sections.get('ground-shell').userData.stage, 'breached',
+      `${tier.lod} independently receives section damage state`);
+  }
   assert.equal(
     house.getObjectByName('SectionPart:ground-shell:ground-back').visible,
     false,
@@ -102,9 +221,95 @@ test('building damage changes authored geometry at every LOD and collapse reveal
   );
   assert.equal(house.getObjectByName('HouseGabledRoof').visible, false);
   assert.ok(cheapShells.every(group => group.userData.roof.visible === false));
+  for (const tier of house.userData.lodTiers) {
+    assert.equal(tier.roof.visible, false, `${tier.lod} independently collapses roof state`);
+  }
   const rubble = house.getObjectByName('HouseRubble');
   assert.equal(rubble.visible, true);
   assert.ok(rubble.children.length >= FR_HOUSE_12X9_2F.rubble.colliderParts.length * 6);
+});
+
+test('floor damage never leaks into an arbitrary cheap-LOD wall segment', () => {
+  const buildings = new BuildingSystem();
+  buildings.registerDescriptor(FR_HOUSE_12X9_2F);
+  buildings.addBuilding({
+    id: 'house-floor-damage',
+    descriptorId: FR_HOUSE_12X9_2F.id,
+    transform: { position: [0, 0, 0], rotationY: 0 }
+  });
+  const house = createFrenchHouseVisual({
+    descriptor: FR_HOUSE_12X9_2F,
+    runtime: buildings.getBuildingSnapshot('house-floor-damage'),
+    centerX: 0,
+    centerZ: 0,
+    foundationTopY: 0,
+    getHeightAt: () => 0
+  });
+  const wallPieces = house.userData.lodTiers.map(tier => ({
+    lod: tier.lod,
+    piece: tier.sections.get('ground-shell').children[0]
+  }));
+  const baselines = wallPieces.map(({ piece }) => ({
+    color: piece.material.color.getHex(),
+    rotation: piece.rotation.toArray(),
+    scale: piece.scale.toArray()
+  }));
+
+  buildings.applyBlastDamage('house-floor-damage', {
+    sectionDamages: [{ sectionId: 'ground-floor-structure', amount: 240 }]
+  });
+  applyFrenchHouseVisualState(
+    house,
+    FR_HOUSE_12X9_2F,
+    buildings.getBuildingSnapshot('house-floor-damage')
+  );
+
+  wallPieces.forEach(({ lod, piece }, index) => {
+    assert.equal(piece.userData.stage, 'intact', `${lod} wall retains its own section stage`);
+    assert.equal(piece.material.color.getHex(), baselines[index].color);
+    assert.deepEqual(piece.rotation.toArray(), baselines[index].rotation);
+    assert.deepEqual(piece.scale.toArray(), baselines[index].scale);
+  });
+  disposeFrenchHouseVisual(house);
+});
+
+test('restoring an intact building state rehydrates all authored visual parts after a breach', () => {
+  const buildings = new BuildingSystem();
+  buildings.registerDescriptor(FR_HOUSE_12X9_2F);
+  buildings.addBuilding({
+    id: 'house-rollback',
+    descriptorId: FR_HOUSE_12X9_2F.id,
+    transform: { position: [0, 0, 0], rotationY: 0 }
+  });
+  const intact = buildings.captureState();
+  const house = createFrenchHouseVisual({
+    descriptor: FR_HOUSE_12X9_2F,
+    runtime: buildings.getBuildingSnapshot('house-rollback'),
+    centerX: 0,
+    centerZ: 0,
+    foundationTopY: 0,
+    getHeightAt: () => 0
+  });
+
+  buildings.applyProjectileDamage('house-rollback', {
+    sectionId: 'ground-shell', colliderPartId: 'ground-back', amount: 650, penetrationMm: 400
+  });
+  applyFrenchHouseVisualState(house, FR_HOUSE_12X9_2F, buildings.getBuildingSnapshot('house-rollback'));
+  assert.equal(house.getObjectByName('SectionPart:ground-shell:ground-back').visible, false);
+
+  buildings.restoreState(intact);
+  applyFrenchHouseVisualState(house, FR_HOUSE_12X9_2F, buildings.getBuildingSnapshot('house-rollback'));
+  for (const section of FR_HOUSE_12X9_2F.sections) {
+    const group = house.getObjectByName(`BuildingSection:${section.id}`);
+    assert.equal(group.visible, true, `${section.id} group restores`);
+    for (const part of section.colliderParts) {
+      if (section.kind === 'roof') continue;
+      const piece = house.getObjectByName(`SectionPart:${section.id}:${part.id}`);
+      assert.equal(piece.visible, !part.openingId, `${section.id}:${part.id} restores authored baseline`);
+    }
+  }
+  assert.equal(house.getObjectByName('HouseGabledRoof').visible, true);
+  assert.ok(house.userData.cheapShells.every(group => group.visible && group.userData.shell.visible));
 });
 
 test('terrain runtime sync replaces only house movement colliders and LOS obstacles', () => {
@@ -160,4 +365,20 @@ test('terrain runtime sync replaces only house movement colliders and LOS obstac
     record.buildingId === buildingId && record.type === 'rubble'
   )));
   assert.equal(terrain.buildings[0].object.getObjectByName('HouseRubble').visible, true);
+});
+
+test('terrain projects interior presence without republishing collision records', () => {
+  const buildings = new BuildingSystem();
+  const terrain = new TerrainBuilder(new THREE.Scene(), { buildingSystem: buildings });
+  terrain.buildFrenchVillage();
+  const before = terrain.colliderRecords.map(record => record.id).sort();
+  const faded = terrain.setBuildingInteriorPresence('french_village_house', 2);
+  assert.deepEqual(faded, {
+    buildingId: 'french_village_house', interiorPresence: 2, changed: true
+  });
+  assert.equal(terrain.buildings[0].object.userData.interiorFadeActive, true);
+  assert.deepEqual(terrain.colliderRecords.map(record => record.id).sort(), before);
+  const restored = terrain.setBuildingInteriorPresence('french_village_house', 0);
+  assert.equal(restored.changed, true);
+  assert.equal(terrain.buildings[0].object.userData.interiorFadeActive, false);
 });

@@ -6,6 +6,8 @@ import {
   createCapsuleOffsets
 } from '../src/simulation/collision/StaticCollisionWorld.js';
 import { Unit } from '../src/game/Unit.js';
+import { BuildingInteractionSystem } from '../src/game/BuildingInteractionSystem.js';
+import { BuildingSystem } from '../src/simulation/buildings/index.js';
 import { TerrainBuilder } from '../src/world/TerrainBuilder.js';
 import { TERRAIN_SCALE } from '../src/world/TerrainScale.js';
 
@@ -78,6 +80,133 @@ test('building collision snapshots accept halfWidth and halfDepth aliases', () =
     0.32,
     { moverType: 'infantry' }
   ).blocked, true);
+});
+
+test('static navigation keeps an obstacle-free route direct', () => {
+  const world = new StaticCollisionWorld([WALL]);
+  const path = world.getNavigationPath(
+    { x: -10, z: -4 },
+    { x: 10, z: -4 },
+    0.32,
+    'infantry'
+  );
+
+  assert.deepEqual(path, [{ x: 10, z: -4 }]);
+});
+
+test('static navigation deterministically routes around a long wall', () => {
+  const world = new StaticCollisionWorld([{
+    ...WALL,
+    id: 'wall:long',
+    halfX: 20
+  }]);
+  const start = { x: 0, z: -8 };
+  const goal = { x: 0, z: 8 };
+  const first = world.getNavigationPath(start, goal, 0.5, 'infantry');
+  const second = world.getNavigationPath(start, goal, 0.5, 'infantry');
+
+  assert.deepEqual(second, first);
+  assert.equal(first.at(-1).x, goal.x);
+  assert.equal(first.at(-1).z, goal.z);
+  assert.ok(first.length >= 3, 'wall detour should include both expanded end corners');
+  assert.ok(
+    first.some(point => Math.abs(point.x) > 20.5),
+    'detour must clear an end of the mover-expanded wall'
+  );
+
+  let cursor = start;
+  for (const point of first) {
+    const resolved = world.resolveCircleMotion(
+      cursor,
+      { x: point.x - cursor.x, z: point.z - cursor.z },
+      0.5,
+      { moverType: 'infantry' }
+    );
+    assert.equal(resolved.blocked, false);
+    cursor = point;
+  }
+});
+
+test('authored wall-end route lets a live squad occupy the upper floor', () => {
+  const buildings = new BuildingSystem();
+  const terrain = new TerrainBuilder(new THREE.Scene(), { buildingSystem: buildings });
+  terrain.buildRiverAndBridge();
+  terrain.buildStoneWalls();
+  terrain.buildFrenchVillage();
+  const unit = new Unit({
+    id: 'authored_wall_route_squad',
+    faction: 'french',
+    type: 'infantry_squad',
+    position: new THREE.Vector3(45, 0, 48)
+  });
+  unit.position.y = terrain.getMovementHeightAt(unit.position.x, unit.position.z);
+  unit.mesh.position.copy(unit.position);
+  terrain.registerUnitColliders([unit]);
+  const interactions = new BuildingInteractionSystem({
+    buildingSystem: buildings,
+    getUnits: () => [unit]
+  });
+  const order = interactions.issueEnter(
+    unit,
+    'french_village_house',
+    'upper-floor'
+  );
+  assert.equal(order.accepted, true);
+  const formationClearance = Math.max(
+    ...unit.soldierAI.getLivingAgents().map(agent =>
+      unit.soldierAI.getFormationOffset(agent.index, 'QUICK').length()
+    )
+  );
+  const targetBuildingColliderIds = terrain.collisionWorld.getRecords()
+    .filter(record => record.buildingId === 'french_village_house')
+    .map(record => record.id);
+  const path = [];
+  let routeStart = { x: unit.position.x, z: unit.position.z };
+  for (const routePoint of order.approachRoute) {
+    const segment = terrain.collisionWorld.getNavigationPath(
+      routeStart,
+      { x: routePoint[0], z: routePoint[2] },
+      unit.collisionRadius,
+      'infantry',
+      {
+        ignoreColliderIds: targetBuildingColliderIds,
+        waypointClearance: 0.8 + formationClearance
+      }
+    );
+    path.push(...segment);
+    routeStart = { x: routePoint[0], z: routePoint[2] };
+  }
+  assert.ok(
+    path.some(point => point.x > 77),
+    'route corner must clear the wall end for early waypoint completion and formation width'
+  );
+  for (const point of path) {
+    unit.addWaypoint(new THREE.Vector3(
+      point.x,
+      terrain.getMovementHeightAt(point.x, point.z),
+      point.z
+    ), 'QUICK');
+  }
+  for (let step = 0;
+    step < 5000
+      && unit.soldierAI.getLivingAgents().slice(0, 4)
+        .some(agent => agent.buildingLocation?.phase !== 'occupied');
+    step++) {
+    unit.update(1 / 30, terrain);
+    interactions.advance(1 / 30);
+  }
+
+  const assigned = unit.soldierAI.getLivingAgents().slice(0, 4);
+  assert.deepEqual(
+    assigned.map(agent => agent.buildingLocation?.phase),
+    ['occupied', 'occupied', 'occupied', 'occupied'],
+    JSON.stringify(assigned.map(agent => ({
+      id: agent.id,
+      phase: agent.buildingLocation?.phase,
+      position: agent.position.toArray()
+    })))
+  );
+  assert.ok(assigned.every(agent => agent.buildingLocation?.nodeId.startsWith('upper-')));
 });
 
 test('terrain publishes bridge, abutment, river exclusion, wall, and building records', () => {
@@ -189,6 +318,37 @@ test('near-bank destinations route from actual river exclusion edges', () => {
 
   assert.equal(unit.currentWaypointIndex, 1);
   assert.ok(Math.hypot(unit.position.x - goal.x, unit.position.z - goal.z) < 1);
+});
+
+test('static navigation path preserves bridge crossing stages', () => {
+  const terrain = new TerrainBuilder(new THREE.Scene());
+  terrain.buildRiverAndBridge();
+  const river = TERRAIN_SCALE.river;
+  const start = { x: 18, z: river.centerZ - river.cutWidth * 0.5 - 8 };
+  const goal = { x: 18, z: river.centerZ + river.cutWidth * 0.5 + 8 };
+  const path = terrain.collisionWorld.getNavigationPath(
+    start,
+    goal,
+    0.5,
+    'infantry'
+  );
+
+  assert.ok(path.length >= 3);
+  assert.ok(
+    path.some(point =>
+      point.x === terrain.bridgeSurface.centerX
+      && point.z < river.centerZ
+    ),
+    'path should stage at the bridge entrance'
+  );
+  assert.ok(
+    path.some(point =>
+      point.x === terrain.bridgeSurface.centerX
+      && point.z > river.centerZ
+    ),
+    'path should remain centered through the bridge exit'
+  );
+  assert.deepEqual(path.at(-1), goal);
 });
 
 test('soldier stages at wall stand-off and uses tangential space without clipping', () => {

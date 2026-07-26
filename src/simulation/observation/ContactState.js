@@ -26,6 +26,7 @@ export function clonePosition(position) {
 
 export function createContact({
   targetUnitId,
+  targetSoldierId = null,
   position,
   observedAt,
   updatedAt,
@@ -39,6 +40,7 @@ export function createContact({
   const boundedUncertainty = Math.max(0, uncertaintyM);
   return {
     targetUnitId,
+    targetSoldierId,
     position: clonePosition(position),
     observedAt,
     updatedAt,

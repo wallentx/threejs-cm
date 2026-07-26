@@ -4,11 +4,32 @@ import {
 } from '../simulation/buildings/index.js';
 
 const APPROACH_DISTANCE_METERS = 3.25;
-const OUTSIDE_STANDOFF_METERS = 0.85;
+// Keep the entire four-man entry element outside the ground shell regardless
+// of its incoming formation rotation. Door transit then owns the intentional
+// crossing instead of ordinary formation movement steering one soldier into
+// a facade corner.
+const OUTSIDE_STANDOFF_METERS = 2.25;
 const EPSILON = 1e-9;
+const INTERIOR_PRESENCE_PHASES = new Set([
+  'transit',
+  'exiting',
+  'exit-waiting',
+  'occupied'
+]);
+const ESCAPE_OVERSHOOT_METERS = 0.82;
+const APPROACH_EXTRACTION_EPSILON = 1e-4;
 
 function compareId(left, right) {
   return String(left).localeCompare(String(right));
+}
+
+function stableLaneIndex(value) {
+  let hash = 2166136261;
+  for (const character of String(value)) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) % 5 - 2;
 }
 
 function clone(value) {
@@ -49,6 +70,151 @@ function lerpPosition(from, to, amount) {
     from[1] + (to[1] - from[1]) * t,
     from[2] + (to[2] - from[2]) * t
   ];
+}
+
+function distance2D(left, right) {
+  return Math.hypot(right[0] - left[0], right[1] - left[1]);
+}
+
+function segmentCrossesOpenBounds(start, end, bounds) {
+  const interior = {
+    minX: bounds.minX + EPSILON,
+    maxX: bounds.maxX - EPSILON,
+    minZ: bounds.minZ + EPSILON,
+    maxZ: bounds.maxZ - EPSILON
+  };
+  let near = 0;
+  let far = 1;
+  for (const [origin, delta, minimum, maximum] of [
+    [start[0], end[0] - start[0], interior.minX, interior.maxX],
+    [start[1], end[1] - start[1], interior.minZ, interior.maxZ]
+  ]) {
+    if (Math.abs(delta) <= EPSILON) {
+      if (origin <= minimum || origin >= maximum) return false;
+      continue;
+    }
+    const first = (minimum - origin) / delta;
+    const second = (maximum - origin) / delta;
+    near = Math.max(near, Math.min(first, second));
+    far = Math.min(far, Math.max(first, second));
+    if (near >= far - EPSILON) return false;
+  }
+  return far > EPSILON && near < 1 - EPSILON;
+}
+
+function shortestRouteAroundBounds(start, target, bounds) {
+  const nodes = [
+    { id: 'start', point: start },
+    { id: 'corner:left-front', point: [bounds.minX, bounds.maxZ] },
+    { id: 'corner:left-rear', point: [bounds.minX, bounds.minZ] },
+    { id: 'corner:right-front', point: [bounds.maxX, bounds.maxZ] },
+    { id: 'corner:right-rear', point: [bounds.maxX, bounds.minZ] },
+    { id: 'target', point: target }
+  ];
+  const startIndex = 0;
+  const targetIndex = nodes.length - 1;
+  const distances = Array(nodes.length).fill(Infinity);
+  const pathKeys = Array(nodes.length).fill(null);
+  const previous = Array(nodes.length).fill(-1);
+  const visited = new Set();
+  distances[startIndex] = 0;
+  pathKeys[startIndex] = 'start';
+
+  while (visited.size < nodes.length) {
+    let current = -1;
+    for (let index = 0; index < nodes.length; index++) {
+      if (visited.has(index) || !Number.isFinite(distances[index])) continue;
+      if (current < 0
+          || distances[index] < distances[current] - EPSILON
+          || (Math.abs(distances[index] - distances[current]) <= EPSILON
+            && pathKeys[index] < pathKeys[current])) current = index;
+    }
+    if (current < 0 || current === targetIndex) break;
+    visited.add(current);
+    const neighbors = nodes
+      .map((node, index) => ({ node, index }))
+      .filter(({ index }) => index !== current && !visited.has(index))
+      .sort((left, right) => compareId(left.node.id, right.node.id));
+    for (const neighbor of neighbors) {
+      if (segmentCrossesOpenBounds(
+        nodes[current].point,
+        neighbor.node.point,
+        bounds
+      )) continue;
+      const candidateDistance = distances[current]
+        + distance2D(nodes[current].point, neighbor.node.point);
+      const candidateKey = `${pathKeys[current]}>${neighbor.node.id}`;
+      if (candidateDistance < distances[neighbor.index] - EPSILON
+          || (Math.abs(candidateDistance - distances[neighbor.index]) <= EPSILON
+            && (pathKeys[neighbor.index] == null || candidateKey < pathKeys[neighbor.index]))) {
+        distances[neighbor.index] = candidateDistance;
+        pathKeys[neighbor.index] = candidateKey;
+        previous[neighbor.index] = current;
+      }
+    }
+  }
+
+  if (!Number.isFinite(distances[targetIndex])) return [target];
+  const route = [];
+  for (let index = targetIndex; index !== startIndex && index >= 0; index = previous[index]) {
+    route.push(nodes[index].point);
+  }
+  return route.reverse();
+}
+
+function pointInsideOpenBounds(point, bounds) {
+  return point[0] > bounds.minX + EPSILON
+    && point[0] < bounds.maxX - EPSILON
+    && point[1] > bounds.minZ + EPSILON
+    && point[1] < bounds.maxZ - EPSILON;
+}
+
+function nearestBoundsEscape(point, bounds) {
+  return [
+    {
+      id: 'escape:left',
+      distance: Math.abs(point[0] - bounds.minX),
+      point: [bounds.minX - ESCAPE_OVERSHOOT_METERS, point[1]]
+    },
+    {
+      id: 'escape:right',
+      distance: Math.abs(bounds.maxX - point[0]),
+      point: [bounds.maxX + ESCAPE_OVERSHOOT_METERS, point[1]]
+    },
+    {
+      id: 'escape:rear',
+      distance: Math.abs(point[1] - bounds.minZ),
+      point: [point[0], bounds.minZ - ESCAPE_OVERSHOOT_METERS]
+    },
+    {
+      id: 'escape:front',
+      distance: Math.abs(bounds.maxZ - point[1]),
+      point: [point[0], bounds.maxZ + ESCAPE_OVERSHOOT_METERS]
+    }
+  ].sort((left, right) =>
+    left.distance - right.distance || compareId(left.id, right.id))[0].point;
+}
+
+function nearestFootprintFace(point, descriptorBounds) {
+  return [
+    {
+      id: 'left',
+      distance: Math.abs(point[0] - descriptorBounds.min[0])
+    },
+    {
+      id: 'right',
+      distance: Math.abs(descriptorBounds.max[0] - point[0])
+    },
+    {
+      id: 'rear',
+      distance: Math.abs(point[1] - descriptorBounds.min[2])
+    },
+    {
+      id: 'front',
+      distance: Math.abs(descriptorBounds.max[2] - point[1])
+    }
+  ].sort((left, right) =>
+    left.distance - right.distance || compareId(left.id, right.id))[0].id;
 }
 
 function roomsOnFloor(descriptor, floorId) {
@@ -114,9 +280,7 @@ export class BuildingInteractionSystem {
     const point = Array.isArray(worldPosition)
       ? worldPosition
       : [worldPosition?.x ?? 0, worldPosition?.y ?? 0, worldPosition?.z ?? 0];
-    const ids = this.buildingSystem.captureState().buildings
-      .map(record => record.id)
-      .sort(compareId);
+    const ids = this.buildingSystem.getBuildingIds().sort(compareId);
     for (const id of ids) {
       const state = this.buildingSystem.getBuildingSnapshot(id);
       const descriptor = this.buildingSystem.getDescriptorForBuilding(id);
@@ -143,6 +307,37 @@ export class BuildingInteractionSystem {
       floorY + 0.15,
       z + z / length * OUTSIDE_STANDOFF_METERS
     ], state.transform);
+  }
+
+  getEntryApproachRoute(buildingId, worldStart) {
+    const state = this.buildingSystem.getBuildingSnapshot(buildingId);
+    const descriptor = this.buildingSystem.getDescriptorForBuilding(buildingId);
+    const startWorld = Array.isArray(worldStart)
+      ? worldStart
+      : [worldStart?.x ?? 0, worldStart?.y ?? 0, worldStart?.z ?? 0];
+    const targetWorld = this.getEntryApproachPosition(buildingId);
+    const startLocal = worldToLocalPoint(startWorld, state.transform);
+    const targetLocal = worldToLocalPoint(targetWorld, state.transform);
+    const bounds = {
+      minX: descriptor.bounds.min[0] - OUTSIDE_STANDOFF_METERS,
+      maxX: descriptor.bounds.max[0] + OUTSIDE_STANDOFF_METERS,
+      minZ: descriptor.bounds.min[2] - OUTSIDE_STANDOFF_METERS,
+      maxZ: descriptor.bounds.max[2] + OUTSIDE_STANDOFF_METERS
+    };
+    const start2D = [startLocal[0], startLocal[2]];
+    const routeStart = pointInsideOpenBounds(start2D, bounds)
+      ? nearestBoundsEscape(start2D, bounds)
+      : start2D;
+    const route = shortestRouteAroundBounds(
+      routeStart,
+      [targetLocal[0], targetLocal[2]],
+      bounds
+    );
+    if (routeStart !== start2D) route.unshift(routeStart);
+    return route.map(([x, z]) => localToWorldPoint(
+      [x, targetLocal[1], z],
+      state.transform
+    ));
   }
 
   issueEnter(unit, buildingId, floorId = null) {
@@ -215,12 +410,15 @@ export class BuildingInteractionSystem {
       sequence,
       assigned: [...assigned]
     });
+    const approachRoute = this.getEntryApproachRoute(buildingId, unit.position);
+    this.#recoverApproachOverlaps(unit, buildingId, assigned);
     return {
       accepted: true,
       reason: null,
       assigned,
       unassigned: agents.length - assigned.length,
       approachPosition: this.getEntryApproachPosition(buildingId),
+      approachRoute,
       stateVersion: state.eventVersion
     };
   }
@@ -245,13 +443,24 @@ export class BuildingInteractionSystem {
     // slots then become deterministic landing slots for upstairs occupants.
     for (const agent of agents) {
       const location = agent.buildingLocation;
+      if (location.phase === 'approaching') {
+        this.buildingSystem.releaseSoldier(buildingId, location.soldierKey);
+        agent.buildingLocation = null;
+        agent.state = 'OBSERVING';
+        agent.stance = 'STANDING';
+        syncAgent(agent);
+        assigned.push(soldierKey(unit.id, agent.id));
+        continue;
+      }
       const slot = slotIndex(descriptor).get(location.nodeId);
       const slotFloorId = descriptor.rooms.find(room => room.id === slot?.roomId)?.floorId;
       location.action = 'EXIT';
       location.targetFloorId = null;
       location.targetSlotId = null;
       if (!isUpperFloor(descriptor, slotFloorId)) {
-        this.#startDoorExit(agent, buildingId, descriptor);
+        if (!this.#startDoorExit(agent, buildingId, descriptor)) {
+          this.#ejectOutside(agent, buildingId, descriptor);
+        }
       } else {
         location.phase = 'exit-waiting';
         location.routeStage = 'stairs';
@@ -260,6 +469,10 @@ export class BuildingInteractionSystem {
       }
       assigned.push(soldierKey(unit.id, agent.id));
     }
+    // ENTER owns the approach path. EXIT supersedes that order as well as any
+    // portal/occupancy state, so a cancelled squad cannot keep walking into
+    // the now-blocking facade.
+    unit.clearWaypoints?.();
     this.orders.set(String(unit.id), {
       unitId: String(unit.id),
       buildingId,
@@ -331,6 +544,25 @@ export class BuildingInteractionSystem {
     return cosine + EPSILON >= Math.cos((port.horizontalArcDeg * Math.PI / 180) * 0.5);
   }
 
+  getInteriorPresenceCount(buildingId) {
+    return this.getInteriorPresenceCounts()[String(buildingId)] ?? 0;
+  }
+
+  getInteriorPresenceCounts() {
+    const counts = {};
+    const units = [...(this.getUnits() ?? [])]
+      .sort((left, right) => compareId(left.id, right.id));
+    for (const unit of units) {
+      for (const agent of livingAgents(unit)) {
+        const location = agent.buildingLocation;
+        if (!location?.buildingId || !INTERIOR_PRESENCE_PHASES.has(location.phase)) continue;
+        const buildingId = String(location.buildingId);
+        counts[buildingId] = (counts[buildingId] ?? 0) + 1;
+      }
+    }
+    return counts;
+  }
+
   handleOccupantConsequences(consequences) {
     const unitMap = new Map((this.getUnits() ?? []).map(unit => [String(unit.id), unit]));
     for (const consequence of [...(consequences ?? [])]
@@ -350,12 +582,23 @@ export class BuildingInteractionSystem {
         continue;
       }
       if (consequence.phase === 'occupied') {
-        const buildingId = agent.buildingLocation?.buildingId;
+        const buildingId = agent.buildingLocation?.buildingId ?? consequence.buildingId;
         const descriptor = this.buildingSystem.getDescriptorForBuilding(buildingId);
+        const state = this.buildingSystem.getBuildingSnapshot(buildingId);
+        const invalidSlots = new Set(state.invalidSlots);
+        const authoritativeNodeId = Object.entries(state.occupancy)
+          .filter(([nodeId, occupant]) => occupant.soldierKey === consequence.soldierKey
+            && !invalidSlots.has(nodeId))
+          .sort(([left], [right]) => compareId(left, right))[0]?.[0] ?? null;
+        if (!authoritativeNodeId) {
+          this.#ejectOutside(agent, buildingId, descriptor);
+          unit.soldierAI?.syncMeshes?.();
+          continue;
+        }
         agent.buildingLocation = {
           ...agent.buildingLocation,
           phase: 'occupied',
-          nodeId: consequence.toNodeId,
+          nodeId: authoritativeNodeId,
           fromNodeId: null,
           toNodeId: null,
           portalId: null,
@@ -366,20 +609,13 @@ export class BuildingInteractionSystem {
         setPosition(agent, this.#slotWorldPosition(
           buildingId,
           descriptor,
-          consequence.toNodeId
+          authoritativeNodeId
         ));
         this.#setOccupiedPose(agent);
       } else {
-        const buildingId = agent.buildingLocation?.buildingId;
-        const state = this.buildingSystem.getBuildingSnapshot(buildingId);
-        const offset = (String(agent.id).charCodeAt(0) % 3 - 1) * 0.7;
-        setPosition(agent, [
-          state.transform.position[0] + offset,
-          state.transform.position[1] + 0.2,
-          state.transform.position[2]
-        ]);
-        agent.buildingLocation = null;
-        syncAgent(agent);
+        const buildingId = agent.buildingLocation?.buildingId ?? consequence.buildingId;
+        const descriptor = this.buildingSystem.getDescriptorForBuilding(buildingId);
+        this.#ejectOutside(agent, buildingId, descriptor);
       }
       unit.soldierAI?.syncMeshes?.();
     }
@@ -417,7 +653,12 @@ export class BuildingInteractionSystem {
         fromNodeId: 'outside',
         toNodeId: location.entrySlotId
       });
-      if (!started.accepted) return;
+      if (!started.accepted) {
+        if (started.reason === 'invalid_portal' || started.reason === 'target_not_reserved') {
+          this.#ejectOutside(agent, buildingId, descriptor);
+        }
+        return;
+      }
       agent.buildingLocation = { ...started.location, ...this.#routeFields(location) };
       syncAgent(agent);
       return;
@@ -430,13 +671,12 @@ export class BuildingInteractionSystem {
       const before = clone(location);
       const result = this.buildingSystem.advanceTransit(buildingId, location, delta);
       agent.buildingLocation = { ...result.location, ...this.#routeFields(location) };
-      this.#positionDuringTransit(agent, buildingId, descriptor, before, result.location);
-      if (!result.complete) {
-        syncAgent(agent);
+      if (result.interrupted) {
+        this.#ejectOutside(agent, buildingId, descriptor);
         return;
       }
-      if (result.interrupted) {
-        agent.buildingLocation = null;
+      this.#positionDuringTransit(agent, buildingId, descriptor, before, result.location);
+      if (!result.complete) {
         syncAgent(agent);
         return;
       }
@@ -447,7 +687,9 @@ export class BuildingInteractionSystem {
         return;
       }
       if (location.action === 'EXIT' && location.routeStage === 'stairs') {
-        this.#startDoorExit(agent, buildingId, descriptor);
+        if (!this.#startDoorExit(agent, buildingId, descriptor)) {
+          this.#ejectOutside(agent, buildingId, descriptor);
+        }
         return;
       }
       if (result.location.phase === 'outside') {
@@ -461,6 +703,68 @@ export class BuildingInteractionSystem {
       return;
     }
     if (location.phase === 'occupied') this.#setOccupiedPose(agent);
+  }
+
+  #recoverApproachOverlaps(unit, buildingId, assignedSoldierKeys) {
+    const state = this.buildingSystem.getBuildingSnapshot(buildingId);
+    const descriptor = this.buildingSystem.getDescriptorForBuilding(buildingId);
+    const unitLocal = worldToLocalPoint(
+      [unit.position?.x ?? 0, unit.position?.y ?? 0, unit.position?.z ?? 0],
+      state.transform
+    );
+    const exteriorFace = nearestFootprintFace(
+      [unitLocal[0], unitLocal[2]],
+      descriptor.bounds
+    );
+    const entrySectionId = entryPortal(descriptor)?.sectionId;
+    const entrySection = descriptor.sections
+      .find(section => section.id === entrySectionId);
+    const wallHalfThickness = Math.max(
+      0,
+      ...(entrySection?.colliderParts ?? []).map(part => Math.min(
+        Math.abs(part.halfExtents?.[0] ?? 0),
+        Math.abs(part.halfExtents?.[2] ?? 0)
+      ))
+    );
+    const extractionClearance = wallHalfThickness
+      + Math.max(0, Number(unit.collisionRadius) || 0)
+      + APPROACH_EXTRACTION_EPSILON;
+    const expandedBounds = {
+      minX: descriptor.bounds.min[0] - extractionClearance,
+      maxX: descriptor.bounds.max[0] + extractionClearance,
+      minZ: descriptor.bounds.min[2] - extractionClearance,
+      maxZ: descriptor.bounds.max[2] + extractionClearance
+    };
+    const assigned = new Set(assignedSoldierKeys);
+    for (const agent of livingAgents(unit)) {
+      const key = soldierKey(unit.id, agent.id);
+      const location = agent.buildingLocation;
+      const assignedApproacher = assigned.has(key) && location?.phase === 'approaching';
+      const outsideFollower = !assigned.has(key)
+        && (!location || location.phase === 'outside');
+      if (!assignedApproacher && !outsideFollower) continue;
+      const local = worldToLocalPoint(
+        [agent.position?.x ?? 0, agent.position?.y ?? 0, agent.position?.z ?? 0],
+        state.transform
+      );
+      const overlapsFootprint = local[0] > expandedBounds.minX
+        && local[0] < expandedBounds.maxX
+        && local[2] > expandedBounds.minZ
+        && local[2] < expandedBounds.maxZ;
+      if (!overlapsFootprint) continue;
+      if (exteriorFace === 'left') {
+        local[0] = expandedBounds.minX;
+      } else if (exteriorFace === 'right') {
+        local[0] = expandedBounds.maxX;
+      } else if (exteriorFace === 'rear') {
+        local[2] = expandedBounds.minZ;
+      } else {
+        local[2] = expandedBounds.maxZ;
+      }
+      setPosition(agent, localToWorldPoint(local, state.transform));
+      agent.velocity?.set?.(0, 0, 0);
+      syncAgent(agent);
+    }
   }
 
   #startStairEntry(agent, buildingId, descriptor) {
@@ -500,6 +804,12 @@ export class BuildingInteractionSystem {
   #tryStartStairExit(agent, buildingId, descriptor) {
     const location = agent.buildingLocation;
     const stair = descriptor.portals.find(portal => portal.kind === 'stair');
+    const state = this.buildingSystem.getBuildingSnapshot(buildingId);
+    if (!stair || state.invalidPortals.includes(stair.id)
+        || state.invalidSlots.includes(location.nodeId)) {
+      this.#ejectOutside(agent, buildingId, descriptor);
+      return;
+    }
     for (const nodeId of location.exitGroundSlots ?? []) {
       const reservation = this.buildingSystem.resolveReservations(buildingId, [{
         nodeId,
@@ -517,7 +827,10 @@ export class BuildingInteractionSystem {
         fromNodeId: location.nodeId,
         toNodeId: nodeId
       });
-      if (!started.accepted) continue;
+      if (!started.accepted) {
+        this.#ejectOutside(agent, buildingId, descriptor);
+        return;
+      }
       agent.buildingLocation = {
         ...started.location,
         ...this.#routeFields(location),
@@ -568,6 +881,46 @@ export class BuildingInteractionSystem {
     agent.stance = port ? 'KNEELING' : 'CROUCHED';
     if (port) agent.facing = Math.atan2(port.worldNormal[0], port.worldNormal[2]);
     syncAgent(agent);
+  }
+
+  #ejectOutside(agent, buildingId, descriptor) {
+    const location = agent.buildingLocation;
+    if (location?.soldierKey) {
+      this.buildingSystem.releaseSoldier(buildingId, location.soldierKey);
+    }
+    setPosition(agent, this.#exteriorWorldPosition(
+      buildingId,
+      descriptor,
+      location?.soldierKey ?? agent.id
+    ));
+    agent.buildingLocation = null;
+    agent.velocity?.set?.(0, 0, 0);
+    if (agent.velocity && typeof agent.velocity.set !== 'function') {
+      agent.velocity.x = 0;
+      agent.velocity.y = 0;
+      agent.velocity.z = 0;
+    }
+    agent.state = 'OBSERVING';
+    agent.stance = 'STANDING';
+    syncAgent(agent);
+  }
+
+  #exteriorWorldPosition(buildingId, descriptor, key) {
+    const state = this.buildingSystem.getBuildingSnapshot(buildingId);
+    const portal = entryPortal(descriptor);
+    if (!portal?.aperture) return [...state.transform.position];
+    const [x, , z] = portal.aperture.center;
+    const length = Math.hypot(x, z) || 1;
+    const outwardX = x / length;
+    const outwardZ = z / length;
+    const laneOffset = stableLaneIndex(key) * 0.55;
+    const floorY = descriptor.floors
+      .find(floor => floor.id === lowerFloorId(descriptor))?.elevation ?? 0;
+    return localToWorldPoint([
+      x + outwardX * OUTSIDE_STANDOFF_METERS - outwardZ * laneOffset,
+      floorY + 0.15,
+      z + outwardZ * OUTSIDE_STANDOFF_METERS + outwardX * laneOffset
+    ], state.transform);
   }
 
   #positionDuringTransit(agent, buildingId, descriptor, before, after) {

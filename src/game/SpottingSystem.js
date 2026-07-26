@@ -125,11 +125,12 @@ function livingPeople(unit) {
 }
 
 function targetPoints(unit) {
-  const people = livingPeople(unit);
+  const people = sortedPeople(unit);
   if (unit?.type === 'infantry_squad' && people.length > 0) {
     return people.map(person => ({
       person,
-      position: personPosition(unit, person)
+      position: personPosition(unit, person),
+      targetSoldierId: person.id
     }));
   }
   return [{
@@ -336,7 +337,8 @@ export class SpottingSystem {
         best = {
           distance: los.dist,
           acquisitionSeconds,
-          targetPosition: target.position
+          targetPosition: target.position,
+          targetSoldierId: target.targetSoldierId ?? null
         };
       }
     }
@@ -357,6 +359,7 @@ export class SpottingSystem {
       acquisition: 0,
       visibleNow: false,
       lastSeenPosition: null,
+      lastSeenTargetSoldierId: null,
       lastSeenAt: null,
       confidence: 0
     };
@@ -381,7 +384,8 @@ export class SpottingSystem {
       );
       existing.visibleNow = existing.acquisition >= 1 - 1e-12;
       if (existing.visibleNow) {
-        existing.lastSeenPosition = clonePosition(targetUnit.position);
+        existing.lastSeenPosition = clonePosition(evaluation.targetPosition);
+        existing.lastSeenTargetSoldierId = evaluation.targetSoldierId;
         existing.lastSeenAt = this.time;
         existing.confidence = 1;
       }
@@ -412,6 +416,7 @@ export class SpottingSystem {
           if (!state.visibleNow) continue;
           const candidate = createContact({
             targetUnitId: state.targetUnitId,
+            targetSoldierId: state.lastSeenTargetSoldierId ?? null,
             position: state.lastSeenPosition,
             observedAt: state.lastSeenAt,
             updatedAt: this.time,

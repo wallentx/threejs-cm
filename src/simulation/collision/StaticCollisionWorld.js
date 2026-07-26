@@ -1,6 +1,8 @@
 const EPSILON = 1e-9;
 const CONTACT_EPSILON = 1e-5;
 const DEFAULT_ITERATIONS = 4;
+const DEFAULT_ROUTE_CLEARANCE = 0.08;
+const ROUTE_VERTEX_MARGIN = 1e-3;
 
 function finite(value, fallback = 0) {
   return Number.isFinite(value) ? value : fallback;
@@ -42,8 +44,8 @@ function blocksMover(record, moverType) {
 }
 
 function toLocal(record, x, z) {
-  const cosine = Math.cos(record.rotation);
-  const sine = Math.sin(record.rotation);
+  const cosine = record.routeCosine ?? Math.cos(record.rotation);
+  const sine = record.routeSine ?? Math.sin(record.rotation);
   const dx = x - record.centerX;
   const dz = z - record.centerZ;
   return {
@@ -53,8 +55,8 @@ function toLocal(record, x, z) {
 }
 
 function vectorToLocal(record, x, z) {
-  const cosine = Math.cos(record.rotation);
-  const sine = Math.sin(record.rotation);
+  const cosine = record.routeCosine ?? Math.cos(record.rotation);
+  const sine = record.routeSine ?? Math.sin(record.rotation);
   return {
     x: cosine * x - sine * z,
     z: sine * x + cosine * z
@@ -62,12 +64,79 @@ function vectorToLocal(record, x, z) {
 }
 
 function vectorToWorld(record, x, z) {
-  const cosine = Math.cos(record.rotation);
-  const sine = Math.sin(record.rotation);
+  const cosine = record.routeCosine ?? Math.cos(record.rotation);
+  const sine = record.routeSine ?? Math.sin(record.rotation);
   return {
     x: cosine * x + sine * z,
     z: -sine * x + cosine * z
   };
+}
+
+function pointInsideRecord(point, record, expansion = 0, epsilon = EPSILON) {
+  const local = toLocal(record, finite(point.x), finite(point.z));
+  return Math.abs(local.x) <= record.halfX + expansion + epsilon
+    && Math.abs(local.z) <= record.halfZ + expansion + epsilon;
+}
+
+function routeCorner(record, localX, localZ, expansion) {
+  const world = vectorToWorld(
+    record,
+    localX * (record.halfX + expansion + ROUTE_VERTEX_MARGIN),
+    localZ * (record.halfZ + expansion + ROUTE_VERTEX_MARGIN)
+  );
+  return {
+    x: record.centerX + world.x,
+    z: record.centerZ + world.z
+  };
+}
+
+function segmentIntersectsRecord(start, end, record, expansion = 0) {
+  if (record.routeBounds
+      && (Math.max(start.x, end.x) < record.routeBounds.minX
+        || Math.min(start.x, end.x) > record.routeBounds.maxX
+        || Math.max(start.z, end.z) < record.routeBounds.minZ
+        || Math.min(start.z, end.z) > record.routeBounds.maxZ)) {
+    return false;
+  }
+  const localStart = toLocal(record, finite(start.x), finite(start.z));
+  const localEnd = toLocal(record, finite(end.x), finite(end.z));
+  const delta = {
+    x: localEnd.x - localStart.x,
+    z: localEnd.z - localStart.z
+  };
+  let nearTime = 0;
+  let farTime = 1;
+
+  for (const axis of [
+    { origin: localStart.x, delta: delta.x, half: record.halfX + expansion },
+    { origin: localStart.z, delta: delta.z, half: record.halfZ + expansion }
+  ]) {
+    if (Math.abs(axis.delta) <= EPSILON) {
+      if (axis.origin < -axis.half || axis.origin > axis.half) return false;
+      continue;
+    }
+    const first = (-axis.half - axis.origin) / axis.delta;
+    const second = (axis.half - axis.origin) / axis.delta;
+    nearTime = Math.max(nearTime, Math.min(first, second));
+    farTime = Math.min(farTime, Math.max(first, second));
+    if (nearTime - farTime > EPSILON) return false;
+  }
+
+  return farTime >= -EPSILON && nearTime <= 1 + EPSILON;
+}
+
+function compareRouteNodes(a, b) {
+  if (a.key === b.key) return 0;
+  return a.key < b.key ? -1 : 1;
+}
+
+function appendDistinctPoint(points, point) {
+  const previous = points[points.length - 1];
+  if (previous
+      && Math.hypot(previous.x - point.x, previous.z - point.z) <= CONTACT_EPSILON) {
+    return;
+  }
+  points.push({ x: point.x, z: point.z });
 }
 
 function circlePenetration(position, radius, record) {
@@ -323,6 +392,184 @@ export class StaticCollisionWorld {
       }
     }
     return { x: goal.x, z: goal.z, routed: false, crossingId: null };
+  }
+
+  /**
+   * Returns an ordered X/Z path, including the goal and excluding the start.
+   *
+   * Bridge stages remain authoritative. Each stage is then routed around the
+   * stable static colliders with a deterministic visibility graph whose
+   * obstacle bounds are expanded by the mover radius and requested clearance.
+   */
+  getNavigationPath(start, goal, radius = 0, moverType = 'vehicle', options = {}) {
+    const routeStart = { x: finite(start?.x), z: finite(start?.z) };
+    const routeGoal = { x: finite(goal?.x), z: finite(goal?.z) };
+    const moverRadius = Math.max(0, finite(radius));
+    const clearance = Math.max(
+      0,
+      finite(options.clearance, DEFAULT_ROUTE_CLEARANCE)
+    );
+    const waypointClearance = Math.max(0, finite(options.waypointClearance));
+    const ignored = new Set((options.ignoreColliderIds ?? []).map(String));
+    const stages = [];
+    let stageStart = routeStart;
+
+    if (options.includeNavigation !== false) {
+      const maximumStages = Math.max(4, this.navigationRecords.length * 4 + 2);
+      for (let index = 0; index < maximumStages; index++) {
+        const target = this.getNavigationTarget(
+          stageStart,
+          routeGoal,
+          moverRadius,
+          moverType,
+          Math.max(
+            moverRadius,
+            finite(options.longitudinalClearance, moverRadius)
+          )
+        );
+        if (!target.routed) break;
+        if (Math.hypot(target.x - stageStart.x, target.z - stageStart.z) <= CONTACT_EPSILON) {
+          break;
+        }
+        appendDistinctPoint(stages, target);
+        stageStart = target;
+      }
+    }
+    appendDistinctPoint(stages, routeGoal);
+
+    const records = [...this.colliders.values()]
+      .filter(record => blocksMover(record, moverType) && !ignored.has(record.id))
+      .sort((a, b) => a.id.localeCompare(b.id));
+    const path = [];
+    let segmentStart = routeStart;
+    for (const stage of stages) {
+      const segmentPath = this.findStaticPath(
+        segmentStart,
+        stage,
+        moverRadius + clearance,
+        records,
+        waypointClearance
+      );
+      for (const point of segmentPath) appendDistinctPoint(path, point);
+      segmentStart = stage;
+    }
+    return path;
+  }
+
+  findStaticPath(start, goal, expansion, records, waypointClearance = 0) {
+    if (Math.hypot(goal.x - start.x, goal.z - start.z) <= CONTACT_EPSILON) {
+      return [];
+    }
+    const routeRecords = records.map(record => {
+      const routeCosine = Math.cos(record.rotation);
+      const routeSine = Math.sin(record.rotation);
+      const halfX = record.halfX + expansion;
+      const halfZ = record.halfZ + expansion;
+      const worldHalfX = Math.abs(routeCosine) * halfX + Math.abs(routeSine) * halfZ;
+      const worldHalfZ = Math.abs(routeSine) * halfX + Math.abs(routeCosine) * halfZ;
+      return {
+        ...record,
+        routeCosine,
+        routeSine,
+        routeBounds: {
+          minX: record.centerX - worldHalfX,
+          maxX: record.centerX + worldHalfX,
+          minZ: record.centerZ - worldHalfZ,
+          maxZ: record.centerZ + worldHalfZ
+        }
+      };
+    });
+    const visible = (from, to) => !routeRecords.some(record =>
+      segmentIntersectsRecord(from, to, record, expansion)
+    );
+    if (visible(start, goal)) return [{ x: goal.x, z: goal.z }];
+
+    const nodes = [
+      { key: '0:start', x: start.x, z: start.z },
+      { key: '1:goal', x: goal.x, z: goal.z }
+    ];
+    for (const record of routeRecords) {
+      for (const [cornerIndex, [localX, localZ]] of [
+        [-1, -1],
+        [-1, 1],
+        [1, -1],
+        [1, 1]
+      ].entries()) {
+        const corner = routeCorner(
+          record,
+          localX,
+          localZ,
+          expansion + waypointClearance
+        );
+        if (routeRecords.some(other =>
+          other.id !== record.id
+          && pointInsideRecord(
+            corner,
+            other,
+            expansion + waypointClearance,
+            ROUTE_VERTEX_MARGIN * 2
+          )
+        )) {
+          continue;
+        }
+        nodes.push({
+          key: `2:${record.id}:${cornerIndex}`,
+          x: corner.x,
+          z: corner.z
+        });
+      }
+    }
+    nodes.sort(compareRouteNodes);
+
+    const startIndex = nodes.findIndex(node => node.key === '0:start');
+    const goalIndex = nodes.findIndex(node => node.key === '1:goal');
+    const distances = new Array(nodes.length).fill(Infinity);
+    const previous = new Array(nodes.length).fill(-1);
+    const visited = new Array(nodes.length).fill(false);
+    distances[startIndex] = 0;
+
+    for (let pass = 0; pass < nodes.length; pass++) {
+      let current = -1;
+      for (let index = 0; index < nodes.length; index++) {
+        if (visited[index] || !Number.isFinite(distances[index])) continue;
+        if (current < 0
+            || distances[index] < distances[current] - EPSILON
+            || (Math.abs(distances[index] - distances[current]) <= EPSILON
+              && nodes[index].key < nodes[current].key)) {
+          current = index;
+        }
+      }
+      if (current < 0 || current === goalIndex) break;
+      visited[current] = true;
+
+      for (let next = 0; next < nodes.length; next++) {
+        if (next === current || visited[next] || !visible(nodes[current], nodes[next])) continue;
+        const edgeDistance = Math.hypot(
+          nodes[next].x - nodes[current].x,
+          nodes[next].z - nodes[current].z
+        );
+        const candidate = distances[current] + edgeDistance;
+        const previousKey = previous[next] >= 0 ? nodes[previous[next]].key : null;
+        if (candidate < distances[next] - EPSILON
+            || (Math.abs(candidate - distances[next]) <= EPSILON
+              && (previousKey == null || nodes[current].key < previousKey))) {
+          distances[next] = candidate;
+          previous[next] = current;
+        }
+      }
+    }
+
+    if (!Number.isFinite(distances[goalIndex])) {
+      // Retain collision-safe runtime behavior when no finite static route
+      // exists; callers may still stage at the closest reachable boundary.
+      return [{ x: goal.x, z: goal.z }];
+    }
+    const reversed = [];
+    for (let index = goalIndex; index !== startIndex; index = previous[index]) {
+      if (index < 0) return [{ x: goal.x, z: goal.z }];
+      reversed.push({ x: nodes[index].x, z: nodes[index].z });
+    }
+    return reversed.reverse();
   }
 
   resolveCircleMotion(position, displacement, radius, options = {}) {
