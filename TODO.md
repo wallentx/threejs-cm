@@ -11,6 +11,9 @@ Status:
 
 ## Current priorities
 
+- [ ] Complete the Three.js r185 WebGPU renderer migration.
+  - [x] Upgrade Three.js from r160 to r185; make `WebGPURenderer` primary with its direct WebGL 2 fallback; use explicit asynchronous initialization and pipeline warmup; replace deprecated `Clock` use with the visibility-aware `Timer`; retain opaque-background alpha behavior; and expose the active backend and current-frame diagnostics.
+  - [ ] Validate native WebGPU on representative desktop and mobile hardware, then establish TSL/node-material and WebGPU post-processing conventions before adding custom shader effects.
 - [ ] Complete engine, game-family, map, scenario, and asset-layer separation.
   - [x] Define ownership and one-way import rules in `docs/ARCHITECTURE.md` and `AGENTS.md`.
   - [x] Extract the Stonne roster, placements, setup zones, seed, initial selection, and camera target into a plain-data scenario descriptor.
@@ -97,6 +100,7 @@ Status:
 - [ ] Add deterministic visual capture coverage for high/medium/low LOD, ballistic impacts, and vehicle damage states.
 - [ ] Remove the remaining 500 kB production chunk warning.
   - [x] Split application code from the Three.js vendor chunk; the application bundle is about 250 kB, while the minified Three.js chunk remains about 501 kB.
+  - [ ] Reassess code splitting after the WebGPU renderer migration; the r185 WebGPU vendor chunk is about 806 kB minified and the application chunk is about 384 kB.
 
 ## Completed
 

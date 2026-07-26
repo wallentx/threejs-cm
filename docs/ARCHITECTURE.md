@@ -59,6 +59,11 @@ boundary; `assets/` is for external textures, models, audio, and their manifest.
 
 The first boundary slice now exists:
 
+- `src/engine/Renderer.js` owns the Three.js r185 `WebGPURenderer`, explicit
+  asynchronous backend initialization, pipeline warmup, active-backend
+  diagnostics, and automatic WebGL 2 fallback. Browser rendering imports
+  `three/webgpu` through one exact Vite alias so core classes and addons share
+  one Three.js instance. Simulation state and outcomes remain CPU-authoritative.
 - `src/scenario/ScenarioRuntime.js` validates and instantiates plain scenario
   records without knowing Stonne.
 - `src/scenario/DeploymentRules.js` validates complete unit footprints against
@@ -130,6 +135,7 @@ These seams are usable now, before the staged directory migration is complete:
 | Vehicle damage presentation | `VehicleDamageEffects` | Three.js scene only |
 | Vehicle status projection | `VehicleStatusPresenter` | `UIManager` only |
 | Individual observations and relayed contacts | `SpottingSystem`, `simulation/observation/*` | Targeting cues, visibility/contact presentation |
+| Rendering backend and frame diagnostics | `engine/Renderer` | Composition root and browser diagnostics |
 
 State flows one way:
 

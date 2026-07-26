@@ -142,6 +142,13 @@ Do not commit or push unless the user asks.
 ## Dependencies
 
 - Three.js renders; game modules own tactics, ballistics, armor, and damage.
+- Browser rendering uses Three.js r185 `WebGPURenderer` through the exact
+  `three` -> `three/webgpu` Vite alias, with its direct WebGL 2 fallback.
+  Initialize it explicitly before the game loop. Keep the active backend
+  visible in diagnostics.
+- New custom renderer effects must use TSL/node materials and current WebGPU
+  post-processing APIs. Do not add `ShaderMaterial`, `RawShaderMaterial`, or
+  `onBeforeCompile` paths that silently bind the game to WebGL.
 - ammo.js is not a weapon-ballistics system.
 - "Raven SDK" means Rapier. Do not add a wrapper based only on a Three.js
   example or addon.

@@ -56,7 +56,8 @@ window.addEventListener('unhandledrejection', function(e) {
 
 class Game {
   constructor() {
-    log('Initializing CMBN 1940 WebGL Game...', 'info');
+    log('Initializing CMBN 1940 WebGPU Game...', 'info');
+    document.body.dataset.gameStatus = 'loading';
 
     const dbgBtn = document.getElementById('btn-debug-toggle');
     if (dbgBtn) {
@@ -74,6 +75,10 @@ class Game {
       });
     }
 
+    this.ready = this.initialize();
+  }
+
+  async initialize() {
     try {
       this.container = document.getElementById('canvas-container');
       if (!this.container) throw new Error('#canvas-container element not found');
@@ -96,17 +101,24 @@ class Game {
       this.simulationStepper = new FixedStepAccumulator(1 / 30);
 
       // 1. Renderer
-      log('Creating WebGL Renderer...', 'info');
+      log('Creating WebGPU Renderer...', 'info');
       this.renderer = new Renderer(this.container, {
         qualityTier: this.qualityTier,
-        debugMode: this.visualDebugMode
+        debugMode: this.visualDebugMode,
+        onDeviceLost: info => {
+          const message = `${info.api} rendering device lost: ${info.message}`;
+          document.body.dataset.gameStatus = 'error';
+          document.body.dataset.gameError = message;
+          log(message, 'error');
+        }
       });
+      await this.renderer.initialize();
       this.scene = this.renderer.scene;
       this.camera = this.renderer.camera;
 
       // 2. Camera Manager
       log('Creating Camera Manager...', 'info');
-      this.cameraManager = new CameraManager(this.camera, this.renderer.webglRenderer.domElement);
+      this.cameraManager = new CameraManager(this.camera, this.renderer.domElement);
       this.sound = new SoundEngine();
 
       // 3. Terrain Builder
@@ -171,6 +183,7 @@ class Game {
       const cameraLevels = { near: 2, design: 4, far: 8 };
       this.cameraManager.setHeightPreset(cameraLevels[this.cameraBookmark]);
       this.renderer.configureSceneShadows();
+      await this.renderer.prepareScene();
       log(`Game Ready! Spawned ${this.units.length} Units.`, 'info');
       log(`Visuals: ${JSON.stringify(this.renderer.getDiagnostics())}`, 'info');
       log(`Capture manifest: seed=${this.seed}, camera=${this.cameraBookmark}, quality=${this.qualityTier}, debug=${this.visualDebugMode}`, 'info');
@@ -185,11 +198,13 @@ class Game {
       document.body.dataset.deploymentStatus = this.matchStarted ? 'closed' : 'valid';
       document.body.dataset.scenarioId = this.scenario.id;
       document.body.dataset.gameFamilyId = this.scenario.gameFamilyId;
+      document.body.dataset.rendererBackend = this.renderer.backendName;
       document.body.dataset.captureManifest = `${this.seed}:${this.cameraBookmark}:${this.qualityTier}:${this.visualDebugMode}:${this.wego.playMode}`;
 
       // 8. Start Game Loop
-      this.clock = new THREE.Clock();
-      this.animate();
+      this.timer = new THREE.Timer();
+      this.timer.connect(document);
+      requestAnimationFrame(timestamp => this.animate(timestamp));
 
     } catch (err) {
       document.body.dataset.gameStatus = 'error';
@@ -502,7 +517,7 @@ class Game {
   }
 
   initInteraction() {
-    const dom = this.renderer.webglRenderer.domElement;
+    const dom = this.renderer.domElement;
 
     const onPointerDown = (e) => {
       const x = e.clientX ?? e.touches?.[0]?.clientX;
@@ -601,47 +616,54 @@ class Game {
     dom.addEventListener('contextmenu', onContextMenu);
   }
 
-  animate() {
-    requestAnimationFrame(() => this.animate());
+  animate(timestamp) {
+    try {
+      if (this.renderer.deviceLost) return;
+      this.timer.update(timestamp);
+      const delta = Math.min(this.timer.getDelta(), 0.1);
 
-    const delta = Math.min(this.clock.getDelta(), 0.1);
+      const simulationDelta = this.wego.getSimulationDelta(delta);
+      if (simulationDelta > 0) {
+        this.simulationStepper.advance(simulationDelta, fixedStep => {
+          this.simulateStep(fixedStep);
+          this.wego.completeSimulationStep(fixedStep);
+        });
+        if (this.wego.phase !== 'ACTION_PHASE') this.simulationStepper.reset();
+      }
 
-    const simulationDelta = this.wego.getSimulationDelta(delta);
-    if (simulationDelta > 0) {
-      this.simulationStepper.advance(simulationDelta, fixedStep => {
-        this.simulateStep(fixedStep);
-        this.wego.completeSimulationStep(fixedStep);
-      });
-      if (this.wego.phase !== 'ACTION_PHASE') this.simulationStepper.reset();
-    }
+      const visibility = this.spotting.getVisibilityProjection('french', this.units);
+      this.visibilityProjection = visibility;
+      const visibleUnitIds = new Set(visibility.visibleUnitIds);
+      for (const unit of this.units) {
+        if (unit.mesh) unit.mesh.visible = visibleUnitIds.has(unit.id);
+      }
+      this.cameraManager.update(delta);
+      const lodCounts = { high: 0, medium: 0, low: 0 };
+      for (const unit of this.units) {
+        const lod = unit.updateLOD(this.camera.position, this.qualityTier);
+        lodCounts[lod]++;
+      }
+      this.vehicleDamageEffects.update(
+        delta,
+        this.units,
+        this.combat.telemetry.impacts
+      );
+      this.ui.render(this.units, this.cameraManager);
+      this.renderer.render();
 
-    const visibility = this.spotting.getVisibilityProjection('french', this.units);
-    this.visibilityProjection = visibility;
-    const visibleUnitIds = new Set(visibility.visibleUnitIds);
-    for (const unit of this.units) {
-      if (unit.mesh) unit.mesh.visible = visibleUnitIds.has(unit.id);
-    }
-    this.cameraManager.update(delta);
-    const lodCounts = { high: 0, medium: 0, low: 0 };
-    for (const unit of this.units) {
-      const lod = unit.updateLOD(this.camera.position, this.qualityTier);
-      lodCounts[lod]++;
-    }
-    this.vehicleDamageEffects.update(
-      delta,
-      this.units,
-      this.combat.telemetry.impacts
-    );
-    this.ui.render(this.units, this.cameraManager);
-    this.renderer.render();
-
-    const now = performance.now();
-    if (now - this.lastDiagnosticsUpdate >= 1000) {
-      const diagnostics = this.renderer.getDiagnostics();
-      document.body.dataset.renderStats = `${diagnostics.drawCalls}:${diagnostics.triangles}:${diagnostics.geometries}:${diagnostics.textures}`;
-      document.body.dataset.lodStats = `${lodCounts.high}:${lodCounts.medium}:${lodCounts.low}`;
-      document.body.dataset.ballisticsStats = `${this.combat.telemetry.shotsFired}:${this.combat.telemetry.infantryHits}:${this.combat.telemetry.vehicleHits}:${this.combat.telemetry.buildingHits}:${this.combat.telemetry.penetrations}`;
-      this.lastDiagnosticsUpdate = now;
+      const now = performance.now();
+      if (now - this.lastDiagnosticsUpdate >= 1000) {
+        const diagnostics = this.renderer.getDiagnostics();
+        document.body.dataset.renderStats = `${diagnostics.drawCalls}:${diagnostics.triangles}:${diagnostics.geometries}:${diagnostics.textures}`;
+        document.body.dataset.lodStats = `${lodCounts.high}:${lodCounts.medium}:${lodCounts.low}`;
+        document.body.dataset.ballisticsStats = `${this.combat.telemetry.shotsFired}:${this.combat.telemetry.infantryHits}:${this.combat.telemetry.vehicleHits}:${this.combat.telemetry.buildingHits}:${this.combat.telemetry.penetrations}`;
+        this.lastDiagnosticsUpdate = now;
+      }
+      requestAnimationFrame(nextTimestamp => this.animate(nextTimestamp));
+    } catch (err) {
+      document.body.dataset.gameStatus = 'error';
+      document.body.dataset.gameError = err.message;
+      log(`FATAL RENDER ERROR: ${err.message}`, 'error');
     }
   }
 }
