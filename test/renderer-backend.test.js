@@ -22,7 +22,9 @@ test('browser build uses Three r185 WebGPURenderer with explicit initialization 
   assert.match(rendererSource, /await this\.graphicsRenderer\.init\(\)/);
   assert.match(rendererSource, /await this\.graphicsRenderer\.compileAsync\(/);
   assert.match(rendererSource, /'webgl2-fallback'/);
-  assert.match(rendererSource, /this\.graphicsRenderer\.onDeviceLost = info =>/);
+  assert.match(rendererSource, /graphicsRenderer\.onDeviceLost = info =>/);
+  assert.match(rendererSource, /graphicsRenderer\.shadowMap\.enabled = this\.qualityTier !== 'low'/);
+  assert.match(rendererSource, /this\.graphicsRenderer\.backend\?\.isWebGLBackend\) throw err/);
   assert.match(mainSource, /await this\.renderer\.initialize\(\)/);
   assert.match(mainSource, /dataset\.rendererBackend = this\.renderer\.backendName/);
   assert.match(mainSource, /new THREE\.Timer\(\)/);

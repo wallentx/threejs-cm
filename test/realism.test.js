@@ -73,6 +73,88 @@ test('individual soldier consumes own magazine and dead soldier cannot fire', ()
   assert.equal(shots, 1);
 });
 
+test('individual fire requires a stationary shooter, LOS, range, aperture permission, and an accepted projectile', () => {
+  const attacker = new Unit({
+    id: 'guarded_fire',
+    faction: 'french',
+    type: 'infantry_squad',
+    position: new THREE.Vector3()
+  });
+  const target = new Unit({
+    id: 'guarded_target',
+    faction: 'german',
+    type: 'infantry_squad',
+    position: new THREE.Vector3(0, 0, 20)
+  });
+  const agent = attacker.soldierAI.agents[0];
+  agent.magazineAmmo = 2;
+  agent.reserveAmmo = 0;
+  let losClear = true;
+  let apertureClear = true;
+  let acceptsShot = true;
+  let calls = 0;
+  const context = {
+    opposingUnits: [target],
+    spotting: {
+      checkLOS(from, to) {
+        return { clear: losClear, dist: from.distanceTo(to) };
+      }
+    },
+    buildingInteraction: { canFireAt: () => apertureClear },
+    combat: {
+      fireWeapon() {
+        calls++;
+        return acceptsShot;
+      }
+    }
+  };
+
+  agent.state = 'MOVING';
+  agent.fireCooldown = 0;
+  assert.equal(agent.updateCombat(0.1, context), false);
+
+  agent.state = 'READY';
+  agent.fireCooldown = 0;
+  losClear = false;
+  assert.equal(agent.updateCombat(0.1, context), false);
+
+  losClear = true;
+  target.soldierAI.agents.forEach(enemy => enemy.position.z = WEAPONS.MAS36.maxRange + 10);
+  assert.equal(agent.updateCombat(0.1, context), false);
+
+  target.soldierAI.agents.forEach(enemy => enemy.position.z = 20);
+  apertureClear = false;
+  assert.equal(agent.updateCombat(0.1, context), false);
+
+  apertureClear = true;
+  acceptsShot = false;
+  const ammoBefore = agent.magazineAmmo;
+  const roundsBefore = agent.roundsFired;
+  assert.equal(agent.updateCombat(0.1, context), false);
+  assert.equal(calls, 1);
+  assert.equal(agent.magazineAmmo, ammoBefore);
+  assert.equal(agent.roundsFired, roundsBefore);
+});
+
+test('legacy soldier snapshots restore catalog ammunition defaults', () => {
+  const unit = new Unit({
+    id: 'legacy_ammo_restore',
+    faction: 'french',
+    type: 'infantry_squad',
+    position: new THREE.Vector3()
+  });
+  const agent = unit.soldierAI.agents[0];
+  const snapshot = agent.capture();
+  delete snapshot.magazineAmmo;
+  delete snapshot.reserveAmmo;
+  agent.magazineAmmo = 0;
+  agent.reserveAmmo = 0;
+  agent.restore(snapshot);
+  const weapon = WEAPONS[agent.weaponId];
+  assert.equal(agent.magazineAmmo, weapon.magazineSize);
+  assert.equal(agent.reserveAmmo, weapon.carriedAmmo - weapon.magazineSize);
+});
+
 test('automatic infantry cadence is invariant across simulation step sizes', () => {
   const runCadence = steps => {
     const attacker = new Unit({

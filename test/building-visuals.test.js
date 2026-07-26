@@ -119,6 +119,41 @@ test('occupied or transiting house fades every LOD shell and restores owned mate
   disposeFrenchHouseVisual(house);
 });
 
+test('door leaves hide when open and appear when closed at every LOD', () => {
+  const buildings = new BuildingSystem();
+  buildings.registerDescriptor(FR_HOUSE_12X9_2F);
+  buildings.addBuilding({
+    id: 'house-door',
+    descriptorId: FR_HOUSE_12X9_2F.id,
+    transform: { position: [0, 0, 0], rotationY: 0 }
+  });
+  const house = createFrenchHouseVisual({
+    descriptor: FR_HOUSE_12X9_2F,
+    runtime: buildings.getBuildingSnapshot('house-door'),
+    centerX: 0,
+    centerZ: 0,
+    foundationTopY: 0,
+    getHeightAt: () => 0
+  });
+  const doorLeaves = [
+    house.getObjectByName('HouseOpening:front-door-aperture'),
+    ...['medium', 'core', 'proxy'].map(level =>
+      house.getObjectByName(`HouseCheapOpening:${level}:front-door-aperture`)
+    )
+  ];
+  assert.ok(doorLeaves.every(Boolean));
+  assert.ok(doorLeaves.every(leaf => leaf.visible === false));
+
+  buildings.setOpening('house-door', 'front-door-aperture', false);
+  applyFrenchHouseVisualState(
+    house,
+    FR_HOUSE_12X9_2F,
+    buildings.getBuildingSnapshot('house-door')
+  );
+  assert.ok(doorLeaves.every(leaf => leaf.visible === true));
+  disposeFrenchHouseVisual(house);
+});
+
 test('terrain publishes segmented movement shell; windows and doors require building interaction', () => {
   const terrain = new TerrainBuilder(new THREE.Scene());
   terrain.buildFrenchVillage();

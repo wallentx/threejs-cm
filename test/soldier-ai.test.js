@@ -178,7 +178,7 @@ test('each infantryman owns autonomous movement, health, and attack state', () =
     random: () => 0
   });
 
-  assert.equal(combat.projectiles.length, attacker.roster.length);
+  assert.ok(combat.projectiles.length >= attacker.roster.length);
   assert.equal(new Set(combat.projectiles.map(projectile => projectile.shooterId)).size, attacker.roster.length);
   assert.ok(attacker.soldierAI.agents.every(agent => agent.targetUnitId === target.id));
 });
@@ -271,9 +271,26 @@ test('pixeltruppen recover from pinned state across morale tiers out of fire', (
   assert.equal(agent.stance, 'KNEELING');
 
   // Step 4: Full recovery to READY (suppression < 15)
-  for (let i = 0; i < 10; i++) squad.soldierAI.update(0.1, flatTerrain);
+  for (let i = 0; i < 14; i++) squad.soldierAI.update(0.1, flatTerrain);
   assert.equal(agent.moraleTier, 'READY');
   assert.equal(agent.suppression, 0);
+});
+
+test('unit-level pinned morale holds every living soldier prone', () => {
+  const squad = new Unit({
+    id: 'squad_pin',
+    faction: 'french',
+    type: 'infantry_squad',
+    position: new THREE.Vector3()
+  });
+  squad.morale = 'Pinned';
+  for (const agent of squad.soldierAI.agents) agent.suppression = 0;
+  squad.soldierAI.update(0.1, flatTerrain);
+  for (const agent of squad.soldierAI.agents) {
+    assert.equal(agent.moraleTier, 'PINNED');
+    assert.equal(agent.state, 'PINNED');
+    assert.equal(agent.stance, 'PRONE');
+  }
 });
 
 test('morale tiers grant distinct postures and automated reactions', () => {

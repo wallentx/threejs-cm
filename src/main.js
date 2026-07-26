@@ -144,6 +144,7 @@ class Game {
       this.commands = new CommandSystem(this.scene, {
         deploymentZones: this.scenario.deploymentZones,
         terrain: this.terrain,
+        buildingInteraction: this.buildingInteraction,
         isSetupPhase: () => this.wego?.isSetupPhase() ?? false,
         onInvalidDeployment: () => this.ui?.showToast(
           'Entire unit footprint must stay inside its setup area',
@@ -563,7 +564,9 @@ class Game {
         }
       }
 
-      if (this.commands.activeMode?.startsWith('ENTER_')) {
+      if (this.commands.activeMode?.startsWith('ENTER_')
+          || (this.commands.activeMode?.startsWith('MOVE_')
+            && this.commands.activeUnit?.type === 'infantry_squad')) {
         const buildingObjects = this.terrain.buildings
           .map(building => building.object)
           .filter(Boolean);

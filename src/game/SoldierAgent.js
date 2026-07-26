@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { getWeapon, weaponIdFromName } from './WeaponCatalog.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
+const MAX_INFANTRY_ROUNDS_PER_STEP = 64;
 const INFANTRY_CADENCE_EPSILON = 1e-9;
 const INFANTRY_COLLISION_RADIUS = 0.32;
 
@@ -65,21 +66,32 @@ export class SoldierAgent {
 
   applyDamage(damage, suppression = 0) {
     if (!this.isAlive) return;
-    this.health = Math.max(0, this.health - damage);
-    this.suppression = Math.min(100, this.suppression + suppression);
+    this.health = Math.max(0, this.health - Math.max(0, damage));
+    this.suppression = Math.min(100, this.suppression + Math.max(0, suppression));
     if (this.health === 0) {
       this.status = 'KIA';
       this.state = 'CASUALTY';
       this.stance = 'PRONE';
+      this.velocity.set(0, 0, 0);
     } else if (this.health < 70) {
       this.status = 'WOUNDED';
+      this.state = 'PINNED';
+      this.stance = 'PRONE';
     }
     this.syncRecord();
   }
 
   capture() {
     this.syncRecord();
-    return { ...this.record };
+    return {
+      ...this.record,
+      worldPosition: [...this.record.worldPosition],
+      velocity: [...this.record.velocity],
+      slotOffset: [...this.record.slotOffset],
+      buildingLocation: this.record.buildingLocation
+        ? JSON.parse(JSON.stringify(this.record.buildingLocation))
+        : null
+    };
   }
 
   restore(record) {
@@ -94,9 +106,15 @@ export class SoldierAgent {
     if (record.velocity) this.velocity.fromArray(record.velocity);
     if (record.slotOffset) this.slotOffset.fromArray(record.slotOffset);
     this.facing = record.facing ?? this.facing;
-    this.weaponId = record.weaponId ?? this.weaponId;
-    this.magazineAmmo = record.magazineAmmo ?? record.magazineAmmo;
-    this.reserveAmmo = record.reserveAmmo ?? record.reserveAmmo;
+    this.pace = record.pace ?? this.pace;
+    this.reactionDelay = record.reactionDelay ?? this.reactionDelay;
+    this.stridePhase = record.stridePhase ?? this.stridePhase;
+    this.fireCooldown = record.fireCooldown ?? this.fireCooldown;
+    this.weaponId = record.weaponId ?? weaponIdFromName(record.weapon) ?? this.weaponId;
+    const weapon = getWeapon(this.weaponId);
+    this.magazineAmmo = record.magazineAmmo ?? weapon?.magazineSize ?? 0;
+    this.reserveAmmo = record.reserveAmmo
+      ?? Math.max(0, (weapon?.carriedAmmo ?? 0) - this.magazineAmmo);
     this.reloadTimer = record.reloadTimer ?? 0;
     this.burstRemaining = record.burstRemaining ?? 0;
     this.roundsFired = record.roundsFired ?? 0;
@@ -170,9 +188,9 @@ export class SoldierAgent {
     // Dynamic Morale Recovery Loop
     const underDirectFire = (this.record.incomingFireTimer ?? 0) > 0;
     const isShielded = context.isShielded || Boolean(this.buildingLocation) || Boolean(context.cover?.shielded);
-    const hasLeaderNearby = context.hasLeaderNearby ?? true;
+    const hasLeaderNearby = context.hasLeaderNearby ?? false;
 
-    let recoveryRate = underDirectFire ? 4 : 22;
+    let recoveryRate = underDirectFire ? 4 : 18;
     if (isShielded) recoveryRate += 8;
     if (hasLeaderNearby) recoveryRate += 6;
 
@@ -191,6 +209,7 @@ export class SoldierAgent {
     } else if (this.suppression >= 15) {
       moraleTier = 'CAUTIOUS';
     }
+    if (context.squadPinned && moraleTier !== 'ROUTED') moraleTier = 'PINNED';
     this.moraleTier = moraleTier;
 
     if (this.commandWaypoint !== context.waypointIndex) {
@@ -369,7 +388,9 @@ export class SoldierAgent {
     if (!weapon || !this.isAlive) return false;
 
     this.fireCooldown = Math.max(-elapsed, this.fireCooldown - elapsed);
-    if (this.reloadTimer > 0) return false;
+    if (this.reloadTimer > 0 || this.fireCooldown > INFANTRY_CADENCE_EPSILON) return false;
+    if (this.state === 'MOVING' || this.state === 'REACTING' || this.state === 'ADVANCING'
+        || this.state === 'TAKING_COVER' || this.state === 'FLEEING') return false;
 
     if (this.magazineAmmo <= 0) {
       this.startReload();
@@ -384,58 +405,106 @@ export class SoldierAgent {
 
     if (suppressionAccuracyFactor <= 0) return false;
 
-    let targetUnit = context.opposingUnits.find(unit => unit.id === this.targetUnitId);
-    if (!targetUnit || !targetUnit.isCombatEffective() || (context.spotting?.canPrecisionTarget && !context.spotting.canPrecisionTarget(this.unit, targetUnit))) {
-      const candidates = context.opposingUnits.filter(unit =>
-        unit.isCombatEffective() && (!context.spotting?.canPrecisionTarget || context.spotting.canPrecisionTarget(this.unit, unit))
-      );
-      if (candidates.length === 0) {
-        this.targetUnitId = null;
-        this.targetSoldierId = null;
-        return false;
+    const checkLOS = context.spotting?.checkLOS;
+    if (typeof checkLOS !== 'function') return false;
+
+    let best = null;
+    const candidateUnits = this.unit.targetUnit?.isCombatEffective()
+      ? [this.unit.targetUnit]
+      : context.opposingUnits;
+    for (const enemyUnit of candidateUnits) {
+      const precisionGate = context.spotting?.canPrecisionTarget;
+      if (!enemyUnit.isCombatEffective()
+          || (typeof precisionGate === 'function'
+            && !precisionGate.call(context.spotting, this.unit, enemyUnit))) continue;
+      const enemyAgents = enemyUnit.soldierAI?.getLivingAgents() ?? [];
+      if (enemyAgents.length === 0) {
+        const los = checkLOS.call(context.spotting, this.position, enemyUnit.position);
+        if (los.clear && los.dist <= weapon.maxRange
+            && context.buildingInteraction?.canFireAt?.(this, enemyUnit.position) !== false
+            && (!best || los.dist < best.distance)) {
+          best = { unit: enemyUnit, agent: null, position: enemyUnit.position, distance: los.dist };
+        }
+        continue;
       }
-      if (candidates.length === 1) {
-        targetUnit = candidates[0];
-      } else {
-        const randomFn = context.random ?? Math.random;
-        targetUnit = candidates[Math.floor(randomFn() * candidates.length)];
+      for (const enemy of enemyAgents) {
+        const los = checkLOS.call(context.spotting, this.position, enemy.position);
+        if (los.clear && los.dist <= weapon.maxRange
+            && context.buildingInteraction?.canFireAt?.(this, enemy.position) !== false
+            && (!best || los.dist < best.distance)) {
+          best = { unit: enemyUnit, agent: enemy, position: enemy.position, distance: los.dist };
+        }
       }
-      this.targetUnitId = targetUnit.id;
+    }
+    if (!best && this.unit.targetPos) {
+      const los = checkLOS.call(context.spotting, this.position, this.unit.targetPos);
+      if (los.clear && los.dist <= weapon.maxRange
+          && context.buildingInteraction?.canFireAt?.(this, this.unit.targetPos) !== false) {
+        best = { unit: null, agent: null, position: this.unit.targetPos, distance: los.dist };
+      }
+    }
+    if (!best) {
+      this.targetUnitId = null;
+      this.targetSoldierId = null;
+      this.syncRecord();
+      return false;
     }
 
-    const targetSoldier = targetUnit.type === 'infantry_squad'
-      ? targetUnit.soldierAI?.getLivingAgents().find(agent => agent.id === this.targetSoldierId)
-        ?? targetUnit.soldierAI?.getLivingAgents()[0]
-      : null;
-    this.targetSoldierId = targetSoldier?.id ?? null;
+    this.targetUnitId = best.unit?.id ?? null;
+    this.targetSoldierId = best.agent?.id ?? null;
+    this.facing = Math.atan2(best.position.x - this.position.x, best.position.z - this.position.z);
+    this.state = 'AIMING';
 
-    let fired = false;
-    const rpm = weapon.cyclicRPM ?? weapon.rateOfFireRpm ?? weapon.practicalRPM ?? 600;
-    const cadenceSeconds = 60 / rpm;
-    let iterations = 0;
-    while (this.fireCooldown <= INFANTRY_CADENCE_EPSILON && iterations < 64) {
-      if (this.magazineAmmo <= 0) {
-        this.startReload();
-        break;
-      }
+    const experienceDispersion = { Green: 1.5, Regular: 1.15, Veteran: 0.92, Crack: 0.78 };
+    const dispersionScale = (experienceDispersion[this.unit.experience] ?? 1.15)
+      * (best.agent?.stance === 'PRONE' || best.unit?.isHiding ? 1.55 : 1)
+      * (this.isWounded ? 1.45 : 1)
+      * (1 + this.suppression / 85)
+      * (this.unit.targetMode === 'TARGET_LIGHT' ? 1.25 : 1)
+      / suppressionAccuracyFactor;
+    const muzzlePosition = this.getMuzzleWorldPosition();
+    const cyclicRPM = weapon.cyclicRPM ?? weapon.rateOfFireRpm ?? weapon.practicalRPM ?? 600;
+    const practicalRPM = weapon.practicalRPM ?? cyclicRPM;
+    const burstSize = Math.max(1, weapon.burstSize ?? 1);
+    const cyclicInterval = 60 / cyclicRPM;
+    let firedAny = false;
+    let emitted = 0;
+    while (this.fireCooldown <= INFANTRY_CADENCE_EPSILON
+        && this.magazineAmmo > 0
+        && emitted < MAX_INFANTRY_ROUNDS_PER_STEP) {
+      if (this.burstRemaining <= 0) this.burstRemaining = burstSize;
+      const fired = context.combat.fireWeapon(this.unit, best.unit, best.position, {
+        shooter: this,
+        targetSoldier: best.agent,
+        weapon,
+        muzzlePosition,
+        dispersionScale
+      });
+      if (!fired) break;
+
       this.magazineAmmo--;
       this.roundsFired++;
       this.recoilTime = 0.12;
-      this.fireCooldown += cadenceSeconds;
-      if (Math.abs(this.fireCooldown) < 1e-9) this.fireCooldown = 0;
-      iterations++;
-
-      context.combat.fireWeapon(this.unit, targetUnit, targetUnit.position, {
-        weapon,
-        shooter: this,
-        targetSoldier,
-        dispersionScale: 1 / suppressionAccuracyFactor
-      });
-      fired = true;
-
-      // Stop multi-shot catchup if fireCooldown is no longer negative
-      if (this.fireCooldown >= -INFANTRY_CADENCE_EPSILON) break;
+      this.burstRemaining--;
+      if (this.burstRemaining > 0 && this.magazineAmmo > 0) {
+        this.fireCooldown += cyclicInterval;
+      } else {
+        const burstCycle = burstSize * 60 / practicalRPM;
+        this.fireCooldown += Math.max(
+          cyclicInterval,
+          burstCycle - cyclicInterval * Math.max(0, burstSize - 1)
+        );
+        this.burstRemaining = 0;
+        if (this.magazineAmmo <= 0) this.startReload();
+      }
+      firedAny = true;
+      emitted++;
     }
-    return fired;
+    if (emitted === MAX_INFANTRY_ROUNDS_PER_STEP
+        && this.fireCooldown <= INFANTRY_CADENCE_EPSILON) {
+      this.fireCooldown = cyclicInterval;
+    }
+    this.syncRecord();
+    return firedAny;
   }
 }

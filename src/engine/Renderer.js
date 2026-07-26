@@ -7,6 +7,7 @@ export class Renderer {
     this.debugMode = options.debugMode || 'final';
     this.backendName = 'initializing';
     this.deviceLost = false;
+    this.onDeviceLost = options.onDeviceLost ?? null;
 
     // 1. Scene setup
     this.scene = new THREE.Scene();
@@ -24,26 +25,9 @@ export class Renderer {
 
     // 3. WebGPU renderer with WebGL 2 fallback capability.
     const hasWebGPU = typeof navigator !== 'undefined' && Boolean(navigator.gpu);
-    this.graphicsRenderer = new THREE.WebGPURenderer({
-      forceWebGL: !hasWebGPU,
-      antialias: true,
-      powerPreference: 'high-performance',
-      alpha: false
+    this.graphicsRenderer = this.createGraphicsRenderer({
+      forceWebGL: !hasWebGPU
     });
-    this.graphicsRenderer.setSize(window.innerWidth, window.innerHeight);
-    const maxPixelRatio = this.qualityTier === 'low' ? 1.25 : 2;
-    this.graphicsRenderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPixelRatio));
-    this.graphicsRenderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.graphicsRenderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.graphicsRenderer.toneMappingExposure = 0.72;
-    this.graphicsRenderer.shadowMap.enabled = this.qualityTier !== 'low';
-    this.graphicsRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    const reportDeviceLost = this.graphicsRenderer.onDeviceLost.bind(this.graphicsRenderer);
-    this.graphicsRenderer.onDeviceLost = info => {
-      reportDeviceLost(info);
-      this.deviceLost = true;
-      options.onDeviceLost?.(info);
-    };
 
     this.container.appendChild(this.graphicsRenderer.domElement);
 
@@ -55,6 +39,30 @@ export class Renderer {
     window.addEventListener('resize', () => this.onWindowResize());
   }
 
+  createGraphicsRenderer({ forceWebGL }) {
+    const graphicsRenderer = new THREE.WebGPURenderer({
+      forceWebGL,
+      antialias: true,
+      powerPreference: 'high-performance',
+      alpha: false
+    });
+    graphicsRenderer.setSize(window.innerWidth, window.innerHeight);
+    const maxPixelRatio = this.qualityTier === 'low' ? 1.25 : 2;
+    graphicsRenderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPixelRatio));
+    graphicsRenderer.outputColorSpace = THREE.SRGBColorSpace;
+    graphicsRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+    graphicsRenderer.toneMappingExposure = 0.72;
+    graphicsRenderer.shadowMap.enabled = this.qualityTier !== 'low';
+    graphicsRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    const reportDeviceLost = graphicsRenderer.onDeviceLost.bind(graphicsRenderer);
+    graphicsRenderer.onDeviceLost = info => {
+      reportDeviceLost(info);
+      this.deviceLost = true;
+      this.onDeviceLost?.(info);
+    };
+    return graphicsRenderer;
+  }
+
   get domElement() {
     return this.graphicsRenderer.domElement;
   }
@@ -63,24 +71,12 @@ export class Renderer {
     try {
       await this.graphicsRenderer.init();
     } catch (err) {
+      if (this.graphicsRenderer.backend?.isWebGLBackend) throw err;
       console.warn('[WARN] WebGPU initialization failed, switching to WebGL2 backend:', err);
-      if (!this.graphicsRenderer.backend?.isWebGLBackend) {
-        this.graphicsRenderer.dispose();
-        const maxPixelRatio = this.qualityTier === 'low' ? 1.25 : 2;
-        this.graphicsRenderer = new THREE.WebGPURenderer({
-          forceWebGL: true,
-          antialias: true,
-          powerPreference: 'high-performance',
-          alpha: false
-        });
-        this.graphicsRenderer.setSize(window.innerWidth, window.innerHeight);
-        this.graphicsRenderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPixelRatio));
-        this.graphicsRenderer.outputColorSpace = THREE.SRGBColorSpace;
-        this.graphicsRenderer.toneMapping = THREE.ACESFilmicToneMapping;
-        this.graphicsRenderer.toneMappingExposure = 0.72;
-        this.container.replaceChildren(this.graphicsRenderer.domElement);
-        await this.graphicsRenderer.init();
-      }
+      this.graphicsRenderer.dispose();
+      this.graphicsRenderer = this.createGraphicsRenderer({ forceWebGL: true });
+      this.container.replaceChildren(this.graphicsRenderer.domElement);
+      await this.graphicsRenderer.init();
     }
     // The game owns its animation loop. Preserve the completed frame's metrics
     // until the next game render instead of letting the renderer's internal

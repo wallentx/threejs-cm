@@ -13,6 +13,7 @@ Status:
 
 - [ ] Complete the Three.js r185 WebGPU renderer migration.
   - [x] Upgrade Three.js from r160 to r185; make `WebGPURenderer` primary with its direct WebGL 2 fallback; use explicit asynchronous initialization and pipeline warmup; replace deprecated `Clock` use with the visibility-aware `Timer`; retain opaque-background alpha behavior; and expose the active backend and current-frame diagnostics.
+  - [x] Harden fallback reconstruction so shadow settings and device-loss reporting survive renderer replacement, failed WebGL initialization propagates, and native WebGPU reaches the live ready state.
   - [ ] Validate native WebGPU on representative desktop and mobile hardware, then establish TSL/node-material and WebGPU post-processing conventions before adding custom shader effects.
 - [ ] Complete engine, game-family, map, scenario, and asset-layer separation.
   - [x] Define ownership and one-way import rules in `docs/ARCHITECTURE.md` and `AGENTS.md`.
@@ -47,6 +48,7 @@ Status:
 - [ ] Improve infantry tactical AI: cover selection, bounds, spacing, danger areas, fire-and-movement, withdrawal, and casualty response.
   - [x] First environmental-reaction pass: per-soldier incoming-fire source/impact/intensity memory, deterministic shielding-cover scoring, spacing correction, casualty response, inspectable decisions, and rewind-safe state.
   - [x] Automated 5-tier morale and suppression recovery: READY (normal), CAUTIOUS (crouched scanning, 0.75x pace), DUCKING (low profile, 0.45x pace), TAKING_COVER (reroute to hard cover), PINNED / COWERING (prone head-covered hold), and ROUTED / FLEEING (sprint away from threat origin vector). Base 18 pts/sec out-of-fire recovery with cover (+8 pts/sec) and leadership (+6 pts/sec) bonuses.
+  - [x] Repair individual-fire regression: retain LOS, range, aperture, movement, ordered-target, actual target-position, practical burst cadence, accepted-shot ammunition, deterministic selection, squad pinning, and legacy ammunition restore invariants.
   - [ ] Add terrain danger maps, concealment/LOS-aware movement, buddy bounds, fire-and-movement, withdrawal, surrender, and persistent memory of observed threats.
 - [ ] Improve vehicle AI: hull-down positioning, turret-first observation, threat facing, reverse movement, and damaged-vehicle behavior.
 - [ ] Add deterministic movement collision and tactical navigation.
@@ -60,6 +62,7 @@ Status:
   - [x] Wire infantry ENTER GROUND, ENTER UPPER, and EXIT orders; individual approach, door/stair transit, occupancy and casualty release; window firing arcs; roster state; realtime/WEGO simulation; and capture/restore.
   - [x] Fade occupied/interior-transit buildings consistently across every LOD so individual troops and floor changes remain visible; restore opacity on final exit and rollback.
   - [x] Keep authored footprint, facade openings, floor line, roof profile, damage state, and visual identity consistent across all building LOD tiers.
+  - [x] Restore MOVE-click floor selection, individual-occupancy exit controls, and consistent open/closed door-leaf state across every LOD.
   - [ ] Generalize the authored-house slice into reusable building/map records with more floor plans, entrances, interior routes, firing positions, capacity rules, and AI-selected occupation.
 - [ ] Add destructible buildings with persistent tactical consequences.
   - [x] Add section health/resistance, projectile breaches, aperture state, support-loss collapse, rubble colliders, deterministic occupant damage/ejection, collision deltas, and rollback-safe events.
@@ -102,6 +105,7 @@ Status:
 - [ ] Remove the remaining 500 kB production chunk warning.
   - [x] Split application code from the Three.js vendor chunk; the application bundle is about 250 kB, while the minified Three.js chunk remains about 501 kB.
   - [ ] Reassess code splitting after the WebGPU renderer migration; the r185 WebGPU vendor chunk is about 806 kB minified and the application chunk is about 384 kB.
+  - [x] Keep the warning visible during reassessment instead of suppressing it by raising Vite's warning threshold.
 
 ## Completed
 

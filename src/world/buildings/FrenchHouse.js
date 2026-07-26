@@ -396,6 +396,9 @@ function buildCheapShell(descriptor, level, runtime) {
       kind,
       lod: level
     };
+    if (kind === 'door') {
+      panel.visible = !openingIsOpen(descriptor, runtime, aperture.id);
+    }
     group.add(panel);
   };
 
@@ -558,9 +561,14 @@ export function applyFrenchHouseVisualState(root, descriptor, runtime, { interio
     const detail = root.getObjectByName(`HouseOpening:${openingId}`);
     const frame = root.getObjectByName(`HouseFrame:${openingId}`);
     const open = opening.open || opening.breached || opening.enabled === false;
-    if (detail) detail.visible = opening.enabled !== false && open;
+    if (detail) detail.visible = opening.enabled !== false && !open;
     if (frame) frame.visible = !opening.breached && opening.enabled !== false;
     root.traverse(object => {
+      if (object.userData?.openingId === openingId
+          && object.userData.semantic === 'opening'
+          && object.userData.kind === 'door') {
+        object.visible = opening.enabled !== false && !open;
+      }
       if (object.userData?.openingId === openingId
           && object.userData.semantic === 'building-section-part') object.visible = !open;
     });

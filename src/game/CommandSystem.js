@@ -5,6 +5,7 @@ export class CommandSystem {
   constructor(scene, {
     deploymentZones = {},
     terrain = null,
+    buildingInteraction = null,
     isSetupPhase = () => false,
     onInvalidDeployment = null,
     onBuildingOrder = null
@@ -12,6 +13,7 @@ export class CommandSystem {
     this.scene = scene;
     this.deploymentZones = deploymentZones;
     this.terrain = terrain;
+    this.buildingInteraction = buildingInteraction;
     this.isSetupPhase = isSetupPhase;
     this.onInvalidDeployment = onInvalidDeployment;
     this.onBuildingOrder = onBuildingOrder;
@@ -84,12 +86,6 @@ export class CommandSystem {
       if (!this.isSetupPhase() && this.activeUnit.type === 'infantry_squad') {
         if (buildingId && this.onBuildingMoveClick) {
           const handled = this.onBuildingMoveClick(this.activeUnit, pointVec3, buildingId, orderType);
-          if (handled) {
-            this.renderOverlays();
-            return true;
-          }
-        } else if (targetUnit && targetUnit.type === 'vehicle' && targetUnit.capacity > 0 && this.onVehicleMountClick) {
-          const handled = this.onVehicleMountClick(this.activeUnit, targetUnit);
           if (handled) {
             this.renderOverlays();
             return true;

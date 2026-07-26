@@ -112,6 +112,45 @@ test('setup movement relocates the full squad immediately and rejects an escapin
   assert.equal(unit.position.z, 84, 'invalid placement must not move the unit');
 });
 
+test('infantry MOVE click delegates an occupied building footprint to floor selection', () => {
+  const scene = new THREE.Scene();
+  const point = new THREE.Vector3(4, 0, 7);
+  const unit = {
+    faction: 'french',
+    type: 'infantry_squad',
+    position: new THREE.Vector3(),
+    waypoints: [],
+    targetPos: null,
+    addWaypoint() {
+      throw new Error('building click must not become an ordinary waypoint');
+    }
+  };
+  let request = null;
+  const commands = new CommandSystem(scene, {
+    isSetupPhase: () => false,
+    buildingInteraction: {
+      findBuildingAt(candidate) {
+        assert.equal(candidate, point);
+        return 'house-a';
+      }
+    }
+  });
+  commands.onBuildingMoveClick = (selected, destination, buildingId, orderType) => {
+    request = { selected, destination, buildingId, orderType };
+    return true;
+  };
+  commands.setActiveUnit(unit);
+  commands.setCommandMode('MOVE_QUICK');
+
+  assert.equal(commands.handleMapClick(point), true);
+  assert.deepEqual(request, {
+    selected: unit,
+    destination: point,
+    buildingId: 'house-a',
+    orderType: 'QUICK'
+  });
+});
+
 test('setup-zone mesh follows sampled terrain and never accepts raycasts', () => {
   const scene = new THREE.Scene();
   const terrain = new TerrainBuilder(scene, {

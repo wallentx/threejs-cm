@@ -32,9 +32,6 @@ export class UIManager {
       this.game.commands.onBuildingMoveClick = (unit, pointVec3, buildingId, orderType) => {
         return this.showFloorSelectorModal(unit, pointVec3, buildingId, orderType);
       };
-      this.game.commands.onVehicleMountClick = (unit, targetVehicle) => {
-        return this.showVehicleMountModal(unit, targetVehicle);
-      };
     }
   }
 
@@ -211,7 +208,9 @@ export class UIManager {
       special: [
         { label: 'HIDE', action: 'HIDE', key: 'H' },
         { label: 'DEPLOY', action: 'DEPLOY', key: 'D' },
-        ...(this.game.selectedUnit?.buildingLocation || this.game.selectedUnit?.vehicleLocation
+        ...(this.game.selectedUnit?.soldierAI?.agents.some(
+          agent => Boolean(agent.buildingLocation)
+        )
           ? [{ label: 'DISMOUNT / EXIT', action: 'EXIT_BUILDING', key: 'E' }]
           : [])
       ],
@@ -741,43 +740,31 @@ export class UIManager {
     const close = () => modal.remove();
     modal.querySelector('#btn-floor-ground')?.addEventListener('click', () => {
       close();
-      this.game.commands.onBuildingOrder?.(unit, 'ENTER_GROUND', pointVec3, buildingId);
-      this.showToast('Ordered to Ground Floor', 'info');
+      const result = this.game.commands.onBuildingOrder?.(
+        unit, 'ENTER_GROUND', pointVec3, buildingId
+      );
+      if (result?.accepted) {
+        this.game.commands.cancelActiveMode();
+        this.renderCommandGrid();
+        this.showToast('Ordered to Ground Floor', 'info');
+      } else {
+        this.showToast(result?.reason ?? 'Unable to enter building', 'warn');
+      }
     });
     modal.querySelector('#btn-floor-upper')?.addEventListener('click', () => {
       close();
-      this.game.commands.onBuildingOrder?.(unit, 'ENTER_UPPER', pointVec3, buildingId);
-      this.showToast('Ordered to Upper Floor', 'info');
+      const result = this.game.commands.onBuildingOrder?.(
+        unit, 'ENTER_UPPER', pointVec3, buildingId
+      );
+      if (result?.accepted) {
+        this.game.commands.cancelActiveMode();
+        this.renderCommandGrid();
+        this.showToast('Ordered to Upper Floor', 'info');
+      } else {
+        this.showToast(result?.reason ?? 'Unable to enter building', 'warn');
+      }
     });
     modal.querySelector('#btn-floor-cancel')?.addEventListener('click', close);
-    return true;
-  }
-
-  showVehicleMountModal(unit, targetVehicle) {
-    const existing = document.getElementById('vehicle-mount-modal');
-    if (existing) existing.remove();
-
-    const modal = document.createElement('div');
-    modal.id = 'vehicle-mount-modal';
-    modal.className = 'building-floor-modal';
-    modal.innerHTML = `
-      <div class="floor-modal-content">
-        <div class="floor-modal-title">Mount Transport</div>
-        <div class="floor-modal-buttons">
-          <button id="btn-mount-confirm" class="btn-floor">Mount ${targetVehicle.name || 'Vehicle'}</button>
-          <button id="btn-mount-cancel" class="btn-floor btn-cancel">Cancel</button>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(modal);
-
-    const close = () => modal.remove();
-    modal.querySelector('#btn-mount-confirm')?.addEventListener('click', () => {
-      close();
-      unit.addWaypoint(targetVehicle.position.clone(), 'MOVE');
-      this.showToast(`Mounting ${targetVehicle.name || 'Vehicle'}`, 'info');
-    });
-    modal.querySelector('#btn-mount-cancel')?.addEventListener('click', close);
     return true;
   }
 
