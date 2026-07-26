@@ -100,6 +100,7 @@ Status:
   - [x] Add distinct high, medium, core, and far-proxy runtime tiers for every unit.
   - [x] Add vehicle-profile fidelity metadata for cast, riveted, boxy, armored-car, and truck construction.
   - [x] Add a deterministic cached PBR surface pack to all 14 vehicles with explicit paint/track/rubber/metal/canvas/wood slots, metre-driven UVs, and cheaper proxy materials.
+  - [x] Enforce the shared `+Z`-forward local frame (`-X` right, `+X` left); correct infantry limbs, firing grips, rifle actions, vehicle MGs/visors, and track-side semantics; retain blueprint or museum provenance for resolved asymmetric mounts.
   - [ ] Replace procedural paint approximations with vehicle-specific, historically sourced liveries, markings, UV atlases, and damage variants.
 - [ ] Add deterministic visual capture coverage for high/medium/low LOD, ballistic impacts, and vehicle damage states.
 - [ ] Remove the remaining 500 kB production chunk warning.

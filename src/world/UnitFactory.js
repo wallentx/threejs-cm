@@ -13,6 +13,7 @@ import {
   createRenaultR35Mesh,
   createSdKfz231Mesh
 } from './vehicles/index.js';
+import { lateralX } from './LocalFrame.js';
 import {
   applyVehicleMaterialPack,
   setVehicleMaterialSlot
@@ -264,7 +265,7 @@ export class UnitFactory {
 
       const leftHip = createPivotedLimb(trouserMat, 0.68, 1.08);
       leftHip.name = 'LeftLeg';
-      leftHip.position.set(-0.14, 0.83, 0);
+      leftHip.position.set(lateralX('left', 0.14), 0.83, 0);
       soldierGroup.add(leftHip);
       const leftBoot = new THREE.Mesh(geometry.boot, leatherMat);
       leftBoot.position.set(0, -0.69, 0.08);
@@ -272,7 +273,7 @@ export class UnitFactory {
 
       const rightHip = createPivotedLimb(trouserMat, 0.68, 1.08);
       rightHip.name = 'RightLeg';
-      rightHip.position.set(0.14, 0.83, 0);
+      rightHip.position.set(lateralX('right', 0.14), 0.83, 0);
       soldierGroup.add(rightHip);
       const rightBoot = new THREE.Mesh(geometry.boot, leatherMat);
       rightBoot.position.set(0, -0.69, 0.08);
@@ -280,18 +281,18 @@ export class UnitFactory {
 
       const leftArm = createTwoBoneArm(uniformMat, skinMat);
       leftArm.name = 'LeftArm';
-      leftArm.position.set(-0.3, 1.52, 0);
+      leftArm.position.set(lateralX('left', 0.3), 1.52, 0);
       leftArm.userData.anatomicalSide = 'left';
       leftArm.rotation.x = -0.82;
-      leftArm.rotation.z = -0.18;
+      leftArm.rotation.z = 0.18;
       soldierGroup.add(leftArm);
 
       const rightArm = createTwoBoneArm(uniformMat, skinMat);
       rightArm.name = 'RightArm';
-      rightArm.position.set(0.3, 1.52, 0);
+      rightArm.position.set(lateralX('right', 0.3), 1.52, 0);
       rightArm.userData.anatomicalSide = 'right';
       rightArm.rotation.x = -0.72;
-      rightArm.rotation.z = 0.2;
+      rightArm.rotation.z = -0.2;
       soldierGroup.add(rightArm);
 
       const leftHand = leftArm.userData.armRig.hand;
@@ -612,8 +613,10 @@ export class UnitFactory {
       coax.geometry.rotateX(Math.PI / 2);
       coax.position.set(-0.19, 0.38, 1.0);
       coax.userData.weaponMountId = 'coax';
-      coax.userData.mountSide = 'pending';
-      coax.userData.placementQuality = 'pending direct visual confirmation';
+      coax.userData.mountSide = 'right';
+      coax.userData.placementQuality = 'blueprint-confirmed front arrangement';
+      coax.userData.referenceUrl =
+        'https://www.the-blueprints.com/blueprints/tanks/tanks-s/50770/view/somua_s35/';
       turretGroup.add(coax);
       const coaxMuzzle = new THREE.Object3D();
       coaxMuzzle.name = 'coax_muzzle';
@@ -621,8 +624,10 @@ export class UnitFactory {
       coaxMuzzle.userData = {
         weaponMountId: 'coax',
         forwardAxis: '+Z',
-        mountSide: 'pending',
-        placementQuality: 'pending direct visual confirmation'
+        mountSide: 'right',
+        placementQuality: 'blueprint-confirmed front arrangement',
+        referenceUrl:
+          'https://www.the-blueprints.com/blueprints/tanks/tanks-s/50770/view/somua_s35/'
       };
       turretGroup.add(coaxMuzzle);
 
@@ -641,7 +646,13 @@ export class UnitFactory {
       tankGroup.userData.muzzle = muzzle;
       tankGroup.userData.barrel = barrel;
       tankGroup.userData.weaponMuzzles = { coax: coaxMuzzle };
-      addPart(new THREE.BoxGeometry(0.34, 0.28, 0.14), darkGreen, 'S35_DriverVisor', [-0.35, 1.35, 2.02], [-0.15, 0, 0]);
+      addPart(
+        new THREE.BoxGeometry(0.34, 0.28, 0.14),
+        darkGreen,
+        'S35_DriverVisor',
+        [lateralX('left', 0.35), 1.35, 2.02],
+        [-0.15, 0, 0]
+      );
       for (const side of [-1, 1]) {
         addPart(new THREE.CylinderGeometry(0.11, 0.11, 0.13, 10), setVehicleMaterialSlot(new THREE.MeshStandardMaterial({
           color: '#d8c78b',
@@ -755,7 +766,7 @@ export class UnitFactory {
         coaxGeo,
         metalDetailMat,
         'PzIII_MG34_Coax',
-        [0.27, 0.36, 1.18],
+        [lateralX('right', 0.27), 0.36, 1.18],
         null,
         turretGroup
       );
@@ -764,7 +775,7 @@ export class UnitFactory {
       coax.userData.placementQuality = 'historical visual reference';
       const coaxMuzzle = new THREE.Object3D();
       coaxMuzzle.name = 'coax_muzzle';
-      coaxMuzzle.position.set(0.27, 0.36, 1.49);
+      coaxMuzzle.position.set(lateralX('right', 0.27), 0.36, 1.49);
       coaxMuzzle.userData = {
         weaponMountId: 'coax',
         forwardAxis: '+Z',
@@ -789,14 +800,29 @@ export class UnitFactory {
       tankGroup.userData.muzzle = muzzle;
       tankGroup.userData.barrel = barrel;
 
-      addPart(new THREE.BoxGeometry(0.36, 0.19, 0.1), edgeMat, 'PzIII_DriverVisor', [-0.47, 1.67, 2.03]);
-      addPart(new THREE.SphereGeometry(0.13, 8, 6), edgeMat, 'PzIII_HullMG_Ball', [0.5, 1.62, 2.08]);
+      addPart(
+        new THREE.BoxGeometry(0.36, 0.19, 0.1),
+        edgeMat,
+        'PzIII_DriverVisor',
+        [lateralX('left', 0.47), 1.67, 2.03]
+      );
+      addPart(
+        new THREE.SphereGeometry(0.13, 8, 6),
+        edgeMat,
+        'PzIII_HullMG_Ball',
+        [lateralX('right', 0.5), 1.62, 2.08]
+      );
       const hullMgGeo = new THREE.CylinderGeometry(0.018, 0.024, 0.42, 7);
       hullMgGeo.rotateX(Math.PI / 2);
-      addPart(hullMgGeo, metalDetailMat, 'PzIII_MG34_Hull', [0.5, 1.62, 2.28]);
+      addPart(
+        hullMgGeo,
+        metalDetailMat,
+        'PzIII_MG34_Hull',
+        [lateralX('right', 0.5), 1.62, 2.28]
+      );
       const hullMgMuzzle = new THREE.Object3D();
       hullMgMuzzle.name = 'hull_mg_muzzle';
-      hullMgMuzzle.position.set(0.5, 1.62, 2.49);
+      hullMgMuzzle.position.set(lateralX('right', 0.5), 1.62, 2.49);
       hullMgMuzzle.userData = { weaponMountId: 'hull_mg', forwardAxis: '+Z' };
       tankGroup.add(hullMgMuzzle);
       tankGroup.userData.weaponMuzzles = { coax: coaxMuzzle, hull_mg: hullMgMuzzle };

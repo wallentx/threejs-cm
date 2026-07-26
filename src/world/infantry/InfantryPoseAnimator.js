@@ -169,8 +169,8 @@ export function bindInfantryHandsToWeapon(mesh, soldier) {
     ?.userData.visualContract?.magazine === 'internal';
   const rightGrip = reload && internalMagazine ? parts.reloadGrip : parts.triggerGrip;
   const leftGrip = reload && !internalMagazine ? parts.reloadGrip : parts.supportGrip;
-  const rightBound = solveTwoBoneArm(mesh, parts.rightArm, rightGrip, 1);
-  const leftBound = solveTwoBoneArm(mesh, parts.leftArm, leftGrip, -1);
+  const rightBound = solveTwoBoneArm(mesh, parts.rightArm, rightGrip, -1);
+  const leftBound = solveTwoBoneArm(mesh, parts.leftArm, leftGrip, 1);
   parts.weaponRig.userData.activeGripAssignments = {
     right: rightGrip?.name ?? null,
     left: leftGrip?.name ?? null

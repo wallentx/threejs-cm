@@ -49,6 +49,14 @@ test('tracked running gear forms a closed core belt with high-detail cleats', ()
   assert.equal(parts.idlers.length, 2);
   assert.equal(parts.roadWheels.length, 10);
   assert.equal(parts.tracks.length, 2);
+  const rightTrack = gear.getObjectByName('RightTrackLinks');
+  const leftTrack = gear.getObjectByName('LeftTrackLinks');
+  assert.equal(rightTrack.userData.semanticSide, 'right');
+  assert.equal(leftTrack.userData.semanticSide, 'left');
+  assert.ok(rightTrack.userData.instancePath.every(link => link.position[0] < 0));
+  assert.ok(leftTrack.userData.instancePath.every(link => link.position[0] > 0));
+  assert.ok(gear.getObjectByName('RightDriveSprocket').position.x < 0);
+  assert.ok(gear.getObjectByName('LeftDriveSprocket').position.x > 0);
   const matrix = new THREE.Matrix4();
   const linkPosition = new THREE.Vector3();
   const cleatPosition = new THREE.Vector3();
@@ -90,6 +98,11 @@ test('far track proxy keeps an open running-gear silhouette instead of an opaque
   });
   proxy.updateMatrixWorld(true);
   const belt = proxy.getObjectByName('ProxyLeftTrackBelt');
+  const rightBelt = proxy.getObjectByName('ProxyRightTrackBelt');
+  assert.ok(belt.position.x > 0);
+  assert.ok(rightBelt.position.x < 0);
+  assert.equal(belt.userData.semanticSide, 'left');
+  assert.equal(rightBelt.userData.semanticSide, 'right');
   belt.visible = true;
 
   const throughOpening = new THREE.Raycaster(
@@ -129,6 +142,8 @@ test('each tracked factory exposes named, vehicle-configured running gear', () =
     assert.equal(proxyRight.geometry.name, 'ProxyTrackBeltGeometry');
     assert.equal(proxyLeft.geometry.userData.closedTrackBelt, true);
     assert.equal(proxyRight.geometry.userData.closedTrackBelt, true);
+    assert.ok(proxyLeft.position.x > 0, `${name} left track must use +X`);
+    assert.ok(proxyRight.position.x < 0, `${name} right track must use -X`);
     assert.notEqual(proxyLeft.geometry.type, 'BoxGeometry');
     assert.notEqual(proxyRight.geometry.type, 'BoxGeometry');
     assert.equal(proxyWheels.isInstancedMesh, true);

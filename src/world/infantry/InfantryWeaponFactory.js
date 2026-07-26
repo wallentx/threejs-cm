@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { lateralX } from '../LocalFrame.js';
 
 // Visual dimensions are metres. Overall lengths are historical nominal values;
 // the smaller sectional dimensions are inferred visual proportions.
@@ -226,7 +227,7 @@ function addFireControls(model, spec, materials) {
       stemGeometry,
       materials.metal,
       `${spec.designation}_BoltHandle`,
-      [0.07, 0.005, handleZ]
+      [lateralX('right', 0.07), 0.005, handleZ]
     );
     boltHandle.userData.semanticSide = 'right';
     const boltKnob = meshPart(
@@ -234,7 +235,7 @@ function addFireControls(model, spec, materials) {
       new THREE.SphereGeometry(0.018, 6, 4),
       materials.metal,
       `${spec.designation}_BoltKnob`,
-      [0.125, spec.id === 'mas36' ? -0.008 : 0.005, handleZ]
+      [lateralX('right', 0.125), spec.id === 'mas36' ? -0.008 : 0.005, handleZ]
     );
     boltKnob.userData.semanticSide = 'right';
     boltHandle.userData.knob = boltKnob;
@@ -243,19 +244,19 @@ function addFireControls(model, spec, materials) {
       new THREE.BoxGeometry(0.009, 0.026, 0.075),
       materials.metal,
       `${spec.designation}_EjectionPort`,
-      [0.046, 0.014, handleZ + 0.025]
+      [lateralX('right', 0.046), 0.014, handleZ + 0.025]
     );
     ejectionPort.userData.semanticSide = 'right';
   } else {
-    const handleSide = ['fm2429', 'mas38', 'mg34'].includes(spec.id) ? 1 : -1;
+    const handleSide = ['fm2429', 'mas38', 'mg34'].includes(spec.id) ? 'right' : 'left';
     chargingHandle = meshPart(
       model,
       stemGeometry,
       materials.metal,
       `${spec.designation}_ChargingHandle`,
-      [handleSide * 0.075, 0.012, handleZ]
+      [lateralX(handleSide, 0.075), 0.012, handleZ]
     );
-    chargingHandle.userData.semanticSide = handleSide > 0 ? 'right' : 'left';
+    chargingHandle.userData.semanticSide = handleSide;
   }
   return { triggerGuard, pistolGrip, boltHandle, chargingHandle, ejectionPort };
 }
@@ -422,13 +423,17 @@ export function createInfantryWeaponRig(weaponName, materials) {
 
   const triggerGrip = new THREE.Object3D();
   triggerGrip.name = 'TriggerHandGrip';
-  triggerGrip.position.set(0.045, -0.035, Math.max(0.16, spec.stockEnd - 0.025));
+  triggerGrip.position.set(
+    lateralX('right', 0.045),
+    -0.035,
+    Math.max(0.16, spec.stockEnd - 0.025)
+  );
   rig.add(triggerGrip);
 
   const supportGrip = new THREE.Object3D();
   supportGrip.name = 'SupportHandGrip';
   supportGrip.position.set(
-    -0.045,
+    lateralX('left', 0.045),
     -0.03,
     spec.receiverEnd + (spec.handguardEnd - spec.receiverEnd) * 0.25
   );
@@ -449,10 +454,10 @@ export function createInfantryWeaponRig(weaponName, materials) {
 
   // Butt starts just ahead of the firing shoulder. Long-gun support grips
   // remain inside a physically plausible two-segment arm reach.
-  // +X is the model's right side. Seat the butt visibly into the right
+  // With +Z forward, -X is the model's right side. Seat the butt into the right
   // shoulder so the pose reads as right-handed from normal tactical cameras.
-  rig.position.set(0.18, 1.46, 0.06);
-  rig.rotation.set(-0.14, 0, -0.07);
+  rig.position.set(lateralX('right', 0.18), 1.46, 0.06);
+  rig.rotation.set(-0.14, 0, 0.07);
   rig.userData.restPosition = rig.position.toArray();
   rig.userData.restRotation = rig.rotation.toArray();
   rig.userData.weaponName = weaponName;
@@ -462,7 +467,7 @@ export function createInfantryWeaponRig(weaponName, materials) {
   rig.userData.semanticRig = 'two-hand-firearm';
   rig.userData.handedness = {
     firingHand: 'right',
-    triggerSide: '+X',
+    triggerSide: '-X',
     supportHand: 'left'
   };
   return rig;

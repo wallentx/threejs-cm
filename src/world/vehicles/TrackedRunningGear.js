@@ -82,16 +82,29 @@ function addBeltLinks(group, config, side) {
   const linkGeometry = createTrackLinkGeometry(trackWidth, pitch * 0.9, Math.min(0.07, trackWidth * 0.22));
   const cleatGeometry = createTrackLinkGeometry(trackWidth * 1.04, pitch * 0.68, Math.min(0.04, trackWidth * 0.12));
   const links = new THREE.InstancedMesh(linkGeometry, trackMaterial, count);
-  links.name = side < 0 ? 'LeftTrackLinks' : 'RightTrackLinks';
+  const semanticSide = side < 0 ? 'Right' : 'Left';
+  links.name = `${semanticSide}TrackLinks`;
   links.castShadow = true;
   links.receiveShadow = true;
   // Belt owns the tracked silhouette and therefore survives the core tier.
-  links.userData = { lodBand: 'core', trackPart: 'links', side, count };
+  links.userData = {
+    lodBand: 'core',
+    trackPart: 'links',
+    side,
+    semanticSide: semanticSide.toLowerCase(),
+    count
+  };
   const cleats = new THREE.InstancedMesh(cleatGeometry, trackMaterial, count);
-  cleats.name = side < 0 ? 'LeftTrackCleats' : 'RightTrackCleats';
+  cleats.name = `${semanticSide}TrackCleats`;
   cleats.castShadow = true;
   cleats.receiveShadow = true;
-  cleats.userData = { lodBand: 'high', trackPart: 'cleats', side, count };
+  cleats.userData = {
+    lodBand: 'high',
+    trackPart: 'cleats',
+    side,
+    semanticSide: semanticSide.toLowerCase(),
+    count
+  };
   const rearZ = -straight / 2;
   const frontZ = straight / 2;
   const bottomY = centerY - radius;
@@ -159,7 +172,12 @@ function addWheel(group, name, material, radius, width, side, x, y, z, band, kin
   wheel.position.set(side * x, y, z);
   wheel.castShadow = true;
   wheel.receiveShadow = true;
-  wheel.userData = { lodBand: band, trackPart: kind, side };
+  wheel.userData = {
+    lodBand: band,
+    trackPart: kind,
+    side,
+    semanticSide: side < 0 ? 'right' : 'left'
+  };
   group.add(wheel);
   return wheel;
 }
@@ -199,12 +217,12 @@ export function createTrackedRunningGear({
     }, side);
     parts.tracks.push(belt);
     const sprocket = addWheel(
-      sprockets, side < 0 ? 'LeftDriveSprocket' : 'RightDriveSprocket', wheelMaterial,
+      sprockets, side < 0 ? 'RightDriveSprocket' : 'LeftDriveSprocket', wheelMaterial,
       sprocketRadius, trackWidth * 0.82, side, trackCenterX, centerY, beltLength / 2 - beltHeight / 2,
       'medium', 'sprocket'
     );
     const idler = addWheel(
-      idlers, side < 0 ? 'LeftIdlerWheel' : 'RightIdlerWheel', wheelMaterial,
+      idlers, side < 0 ? 'RightIdlerWheel' : 'LeftIdlerWheel', wheelMaterial,
       idlerRadius, trackWidth * 0.76, side, trackCenterX, centerY, -beltLength / 2 + beltHeight / 2,
       'medium', 'idler'
     );
@@ -212,7 +230,7 @@ export function createTrackedRunningGear({
     parts.idlers.push(idler);
     for (let index = 0; index < roadWheelCount; index++) {
       parts.roadWheels.push(addWheel(
-        roadWheels, `${side < 0 ? 'Left' : 'Right'}RoadWheel_${index + 1}`, wheelMaterial,
+        roadWheels, `${side < 0 ? 'Right' : 'Left'}RoadWheel_${index + 1}`, wheelMaterial,
         roadWheelRadius, trackWidth * 0.46, side, trackCenterX + trackWidth * 0.08,
         roadWheelY, roadWheelZStart + index * roadWheelSpacing, 'medium', 'roadWheel'
       ));
@@ -251,7 +269,7 @@ export function createTrackedRunningGearProxy({
       createProxyTrackBeltGeometry(beltLength, beltHeight, trackWidth),
       trackMaterial
     );
-    belt.name = side < 0 ? 'ProxyLeftTrackBelt' : 'ProxyRightTrackBelt';
+    belt.name = side < 0 ? 'ProxyRightTrackBelt' : 'ProxyLeftTrackBelt';
     belt.position.set(side * trackCenterX, centerY, 0);
     belt.visible = false;
     belt.castShadow = true;
@@ -259,7 +277,8 @@ export function createTrackedRunningGearProxy({
     belt.userData = {
       lodBand: 'proxy',
       trackPart: 'proxyBelt',
-      side
+      side,
+      semanticSide: side < 0 ? 'right' : 'left'
     };
     proxy.add(belt);
   }

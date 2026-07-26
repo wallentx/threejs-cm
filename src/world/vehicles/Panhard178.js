@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { lateralX } from '../LocalFrame.js';
 import { setVehicleMaterialSlot } from './VehicleMaterialLibrary.js';
 
 export function createPanhard178Mesh() {
@@ -80,7 +81,7 @@ export function createPanhard178Mesh() {
   const coax = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.02, 0.5, 6), metalMat);
   coax.name = 'coax_barrel';
   coax.rotation.x = Math.PI / 2;
-  coax.position.set(-0.15, 0.3, 0.7);
+  coax.position.set(lateralX('left', 0.15), 0.3, 0.7);
   coax.userData.lodBand = 'high';
   coax.userData.weaponMountId = 'coax';
   turretGroup.add(coax);

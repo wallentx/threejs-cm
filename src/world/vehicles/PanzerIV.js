@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { lateralX } from '../LocalFrame.js';
 import { setVehicleMaterialSlot } from './VehicleMaterialLibrary.js';
 import { createTrackedRunningGear } from './TrackedRunningGear.js';
 
@@ -90,7 +91,7 @@ export function createPanzerIVMesh() {
   const coax = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.02, 0.55, 6), metalMat);
   coax.name = 'coax_barrel';
   coax.rotation.x = Math.PI / 2;
-  coax.position.set(0.25, 0.38, 1.1);
+  coax.position.set(lateralX('right', 0.25), 0.38, 1.1);
   coax.userData.lodBand = 'high';
   coax.userData.weaponMountId = 'coax';
   turretGroup.add(coax);

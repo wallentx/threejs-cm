@@ -483,11 +483,11 @@ export class SoldierAI {
 
     parts.leftLeg.rotation.set(0, 0, 0);
     parts.rightLeg.rotation.set(0, 0, 0);
-    parts.leftArm.rotation.set(-0.82, 0, -0.18);
-    parts.rightArm.rotation.set(-0.72, 0, 0.2);
-    parts.weapon.rotation.set(-0.16, 0, -0.08);
+    parts.leftArm.rotation.set(-0.82, 0, 0.18);
+    parts.rightArm.rotation.set(-0.72, 0, -0.2);
+    parts.weapon.rotation.set(-0.16, 0, 0.08);
     const weaponRest = parts.weapon.userData.restPosition;
-    const weaponRestX = weaponRest?.[0] ?? 0.18;
+    const weaponRestX = weaponRest?.[0] ?? -0.18;
     parts.weapon.position.set(
       weaponRestX,
       weaponRest?.[1] ?? 1.46,
@@ -541,29 +541,29 @@ export class SoldierAI {
         parts.leftArm.rotation.x = -1.35 + reloadProgress * 0.22;
         parts.rightArm.rotation.x = -0.65;
         parts.weapon.rotation.x = 0.15;
-        parts.weapon.rotation.z = 0.35;
+        parts.weapon.rotation.z = -0.35;
         parts.weapon.position.set(weaponRestX - 0.02, 1.35, 0.08);
       } else if (isMG34) {
         // MG34 belt/feed-cover manipulation
         parts.leftArm.rotation.x = -1.18 + reloadProgress * 0.14;
         parts.rightArm.rotation.x = -0.78;
         parts.weapon.rotation.x = 0.08;
-        parts.weapon.rotation.z = -0.18;
+        parts.weapon.rotation.z = 0.18;
         parts.weapon.position.set(weaponRestX - 0.04, 1.38, 0.08);
       } else if (isSMG) {
         // Bottom-fed SMG magazine change
         parts.leftArm.rotation.x = -0.55 + reloadProgress * 0.16;
         parts.rightArm.rotation.x = -0.42 - reloadProgress * 0.12;
         parts.weapon.rotation.x = 0.30;
-        parts.weapon.rotation.z = 0.24;
+        parts.weapon.rotation.z = -0.24;
         parts.weapon.position.set(weaponRestX - 0.02, 1.34, 0.08);
       } else {
         // Rifle bolt/stripper-clip manipulation
         parts.leftArm.rotation.x = -0.88;
         parts.rightArm.rotation.x = -1.16 + reloadProgress * 0.18;
         parts.weapon.rotation.x = 0.12;
-        parts.weapon.rotation.z = 0.08;
-        parts.weapon.position.set(weaponRestX - 0.02, 1.4, 0.08);
+        parts.weapon.rotation.z = -0.08;
+        parts.weapon.position.set(weaponRestX + 0.02, 1.4, 0.08);
       }
     } else if ((soldier.recoilTime ?? 0) > 0) {
       // 4. Weapon-specific Recoil Profiles

@@ -162,23 +162,23 @@ test('infantry firing rigs use right trigger hands and right-side rifle actions'
       const parts = soldier.userData.parts;
       assert.equal(parts.rightArm.userData.anatomicalSide, 'right');
       assert.equal(parts.leftArm.userData.anatomicalSide, 'left');
-      assert.ok(parts.rightArm.position.x > 0);
-      assert.ok(parts.leftArm.position.x < 0);
+      assert.ok(parts.rightArm.position.x < 0);
+      assert.ok(parts.leftArm.position.x > 0);
       assert.deepEqual(parts.weaponRig.userData.handedness, {
         firingHand: 'right',
-        triggerSide: '+X',
+        triggerSide: '-X',
         supportHand: 'left'
       });
       assert.equal(parts.weaponRig.userData.handBindings.trigger, 'RightHand');
       assert.equal(parts.weaponRig.userData.handBindings.support, 'LeftHand');
-      assert.ok(parts.weaponRig.position.x > 0.15, 'stock must visibly seat at right shoulder');
+      assert.ok(parts.weaponRig.position.x < -0.15, 'stock must visibly seat at right shoulder');
 
       if (/MAS-36|Kar98k/.test(soldier.userData.weaponName)) {
         const { boltHandle, ejectionPort } = parts.weaponModel.userData.parts;
         assert.equal(boltHandle.userData.semanticSide, 'right');
         assert.equal(ejectionPort.userData.semanticSide, 'right');
-        assert.ok(boltHandle.position.x > 0);
-        assert.ok(ejectionPort.position.x > 0);
+        assert.ok(boltHandle.position.x < 0);
+        assert.ok(ejectionPort.position.x < 0);
       }
 
       const expectedChargingSide = new Map([
@@ -192,17 +192,22 @@ test('infantry firing rigs use right trigger hands and right-side rifle actions'
         assert.equal(chargingHandle.userData.semanticSide, expectedChargingSide);
         assert.equal(
           Math.sign(chargingHandle.position.x),
-          expectedChargingSide === 'right' ? 1 : -1
+          expectedChargingSide === 'right' ? -1 : 1
         );
       }
     }
   }
 });
 
-test('confirmed right-side coax mounts align rendered barrels and muzzle markers', () => {
+test('right-side coax mounts align rendered barrels and muzzle markers', () => {
   for (const type of [
+    'fr_somua',
+    'fr_renault_r35',
     'fr_hotchkiss_h39',
+    'fr_amc35',
+    'fr_char_b1bis',
     'ger_panzer3',
+    'ger_panzer2',
     'ger_panzer35t',
     'ger_panzer38t',
     'ger_sdkfz231',
@@ -213,10 +218,10 @@ test('confirmed right-side coax mounts align rendered barrels and muzzle markers
     const mainMuzzle = vehicle.userData.muzzle;
     assert.equal(marker.parent, mainMuzzle.parent, `${type} coax must traverse with main gun`);
     assert.equal(marker.userData.mountSide, 'right');
-    assert.match(marker.userData.placementQuality, /historical/);
+    assert.match(marker.userData.placementQuality, /historical|blueprint|museum/);
     assert.ok(
-      marker.position.x > mainMuzzle.position.x,
-      `${type} confirmed right-side coax must be +X of main gun`
+      marker.position.x < mainMuzzle.position.x,
+      `${type} confirmed right-side coax must be -X of main gun`
     );
 
     const renderedBarrels = [];
@@ -242,8 +247,8 @@ test('Char B1 hull machine gun remains right of its right-side 75mm gun', () => 
   const marker = vehicle.userData.weaponMuzzles.hull_mg;
   assert.equal(hullGun.userData.mountSide, 'right');
   assert.equal(marker.userData.mountSide, 'right');
-  assert.ok(hullGun.position.x > 0);
-  assert.ok(marker.position.x > hullGun.position.x);
+  assert.ok(hullGun.position.x < 0);
+  assert.ok(marker.position.x < hullGun.position.x);
   const barrel = vehicle.children.find(
     object => object.isMesh && object.userData.weaponMountId === 'hull_mg'
   );
@@ -251,7 +256,16 @@ test('Char B1 hull machine gun remains right of its right-side 75mm gun', () => 
   assert.equal(barrel.position.x, marker.position.x);
 });
 
-test('uncertain mount sides remain explicitly provisional instead of guessed', () => {
+test('left-side Panhard coax uses +X in the shared +Z-forward frame', () => {
+  const vehicle = UnitFactory.createTankMesh('fr_panhard178');
+  const marker = vehicle.userData.weaponMuzzles.coax;
+  assert.equal(marker.userData.mountSide, 'left');
+  assert.ok(marker.position.x > vehicle.userData.muzzle.position.x);
+  const barrel = marker.parent.getObjectByName('coax_barrel');
+  assert.ok(barrel.position.x > 0);
+});
+
+test('blueprint-resolved mount sides retain source provenance', () => {
   for (const type of [
     'fr_somua',
     'fr_renault_r35',
@@ -261,7 +275,8 @@ test('uncertain mount sides remain explicitly provisional instead of guessed', (
   ]) {
     const vehicle = UnitFactory.createTankMesh(type);
     const marker = vehicle.userData.weaponMuzzles.coax;
-    assert.equal(marker.userData.mountSide, 'pending');
-    assert.match(marker.userData.placementQuality, /pending direct visual confirmation/);
+    assert.equal(marker.userData.mountSide, 'right');
+    assert.match(marker.userData.placementQuality, /blueprint|museum/);
+    assert.match(marker.userData.referenceUrl, /^https:\/\//);
   }
 });

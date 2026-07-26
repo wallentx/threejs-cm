@@ -4,8 +4,16 @@ import {
   setVehicleMaterialSlot
 } from './VehicleMaterialLibrary.js';
 import { createTrackedRunningGearProxy } from './TrackedRunningGear.js';
+import { lateralX } from '../LocalFrame.js';
 
 const VEHICLE_ENHANCEMENT_VERSION = 'authored-v2-material-v4-track-proxy';
+
+const BLUEPRINT_REFERENCES = Object.freeze({
+  fr_renault_r35: 'https://www.the-blueprints.com/blueprints/tanks/tanks-r/50737/view/renault_r35/',
+  fr_amc35: 'https://museedesblindes.fr/les_chars/amc-35/',
+  fr_char_b1bis: 'https://www.the-blueprints.com/blueprints/tanks/tanks-c/54878/view/char_b1_bis/',
+  ger_panzer2: 'https://www.the-blueprints.com/blueprints/tanks/ww2-tanks-germany-2/81805/view/sd_kfz_121_pzkpfwii_ausfc/'
+});
 
 const VEHICLE_PROFILES = Object.freeze({
   fr_renault_r35: { kind: 'tracked', hull: 'cast', wheels: 5 },
@@ -28,70 +36,112 @@ const VEHICLE_PROFILES = Object.freeze({
 const AUXILIARY_MOUNT_LAYOUTS = Object.freeze({
   fr_renault_r35: {
     coax: {
-      parent: 'turret', position: [-0.18, 0.30, 0.80],
-      side: 'pending', placementQuality: 'pending direct visual confirmation'
+      parent: 'turret',
+      position: [lateralX('right', 0.18), 0.30, 0.80],
+      barrel: [lateralX('right', 0.18), 0.30, 0.56, 0.48],
+      side: 'right',
+      placementQuality: 'blueprint-confirmed front arrangement',
+      referenceUrl: BLUEPRINT_REFERENCES.fr_renault_r35
     }
   },
   fr_hotchkiss_h39: {
     coax: {
-      parent: 'turret', position: [0.18, 0.30, 0.88], barrel: [0.18, 0.30, 0.60, 0.56],
+      parent: 'turret',
+      position: [lateralX('right', 0.18), 0.30, 0.88],
+      barrel: [lateralX('right', 0.18), 0.30, 0.60, 0.56],
       side: 'right', placementQuality: 'historical visual reference'
     }
   },
   fr_amc35: {
     coax: {
-      parent: 'turret', position: [-0.20, 0.33, 1.45], barrel: [-0.20, 0.33, 1.10, 0.70],
-      side: 'pending', placementQuality: 'pending direct visual confirmation'
+      parent: 'turret',
+      position: [lateralX('right', 0.20), 0.33, 1.45],
+      barrel: [lateralX('right', 0.20), 0.33, 1.10, 0.70],
+      side: 'right',
+      placementQuality: 'museum-reference front arrangement',
+      referenceUrl: BLUEPRINT_REFERENCES.fr_amc35
     }
   },
   fr_panhard178: {
     coax: {
-      parent: 'turret', position: [-0.15, 0.30, 0.95],
+      parent: 'turret', position: [lateralX('left', 0.15), 0.30, 0.95],
       side: 'left', placementQuality: 'documented secondary reference'
     }
   },
   fr_char_b1bis: {
     coax: {
-      parent: 'turret', position: [-0.18, 0.34, 1.28],
-      side: 'pending', placementQuality: 'pending direct visual confirmation'
+      parent: 'turret',
+      position: [lateralX('right', 0.18), 0.34, 1.28],
+      barrel: [lateralX('right', 0.18), 0.34, 0.99, 0.58],
+      side: 'right',
+      placementQuality: 'blueprint-confirmed front arrangement',
+      referenceUrl: BLUEPRINT_REFERENCES.fr_char_b1bis
     },
     hull_mg: {
-      parent: 'hull', position: [0.72, 1.14, 3.08], barrel: [0.72, 1.14, 2.80, 0.56],
+      parent: 'hull',
+      position: [lateralX('right', 0.72), 1.14, 3.08],
+      barrel: [lateralX('right', 0.72), 1.14, 2.80, 0.56],
       side: 'right', placementQuality: 'historical arrangement'
     }
   },
   ger_panzer2: {
     coax: {
-      parent: 'turret', position: [-0.12, 0.26, 0.90],
-      side: 'pending', placementQuality: 'pending direct visual confirmation'
+      parent: 'turret',
+      position: [lateralX('right', 0.12), 0.26, 0.90],
+      barrel: [lateralX('right', 0.12), 0.26, 0.64, 0.52],
+      side: 'right',
+      placementQuality: 'blueprint-confirmed front arrangement',
+      referenceUrl: BLUEPRINT_REFERENCES.ger_panzer2
     }
   },
   ger_panzer35t: {
     coax: {
-      parent: 'turret', position: [0.22, 0.30, 1.25], barrel: [0.22, 0.30, 0.96, 0.58],
+      parent: 'turret',
+      position: [lateralX('right', 0.22), 0.30, 1.25],
+      barrel: [lateralX('right', 0.22), 0.30, 0.96, 0.58],
       side: 'right', placementQuality: 'historical visual reference'
     },
-    hull_mg: { parent: 'hull', position: [0.42, 1.42, 1.62], barrel: [0.42, 1.42, 1.42, 0.40] }
+    hull_mg: {
+      parent: 'hull',
+      position: [lateralX('right', 0.42), 1.42, 1.62],
+      barrel: [lateralX('right', 0.42), 1.42, 1.42, 0.40],
+      side: 'right',
+      placementQuality: 'historical arrangement'
+    }
   },
   ger_panzer38t: {
     coax: {
-      parent: 'turret', position: [0.22, 0.30, 1.30], barrel: [0.22, 0.30, 1.00, 0.60],
+      parent: 'turret',
+      position: [lateralX('right', 0.22), 0.30, 1.30],
+      barrel: [lateralX('right', 0.22), 0.30, 1.00, 0.60],
       side: 'right', placementQuality: 'historical arrangement'
     },
-    hull_mg: { parent: 'hull', position: [0.44, 1.48, 1.62], barrel: [0.44, 1.48, 1.42, 0.40] }
+    hull_mg: {
+      parent: 'hull',
+      position: [lateralX('right', 0.44), 1.48, 1.62],
+      barrel: [lateralX('right', 0.44), 1.48, 1.42, 0.40],
+      side: 'right',
+      placementQuality: 'historical arrangement'
+    }
   },
   ger_sdkfz231: {
     coax: {
-      parent: 'turret', position: [0.12, 0.27, 0.90],
+      parent: 'turret', position: [lateralX('right', 0.12), 0.27, 0.90],
       side: 'right', placementQuality: 'historical visual reference'
     }
   },
   ger_panzer4: {
     coax: {
-      parent: 'turret', position: [0.25, 0.38, 1.38],
+      parent: 'turret', position: [lateralX('right', 0.25), 0.38, 1.38],
       side: 'right', placementQuality: 'historical arrangement'
     },
-    hull_mg: { parent: 'hull', position: [0.50, 1.64, 2.58], barrel: [0.50, 1.64, 2.36, 0.44] }
+    hull_mg: {
+      parent: 'hull',
+      position: [lateralX('right', 0.50), 1.64, 2.58],
+      barrel: [lateralX('right', 0.50), 1.64, 2.36, 0.44],
+      side: 'right',
+      placementQuality: 'historical arrangement'
+    }
   }
 });
 
@@ -151,6 +201,7 @@ function addAuxiliaryWeaponMounts(root, metalMaterial) {
       barrel.userData.weaponMountId = id;
       barrel.userData.mountSide = layout.side ?? null;
       barrel.userData.placementQuality = layout.placementQuality ?? 'inferred';
+      barrel.userData.referenceUrl = layout.referenceUrl ?? null;
       parent.add(barrel);
     }
     const marker = new THREE.Object3D();
@@ -160,6 +211,7 @@ function addAuxiliaryWeaponMounts(root, metalMaterial) {
     marker.userData.forwardAxis = '+Z';
     marker.userData.mountSide = layout.side ?? null;
     marker.userData.placementQuality = layout.placementQuality ?? 'inferred';
+    marker.userData.referenceUrl = layout.referenceUrl ?? null;
     parent.add(marker);
     weaponMuzzles[id] = marker;
 
@@ -169,6 +221,7 @@ function addAuxiliaryWeaponMounts(root, metalMaterial) {
       if (!object.isMesh || object.userData.weaponMountId !== id) return;
       object.userData.mountSide = layout.side ?? null;
       object.userData.placementQuality = layout.placementQuality ?? 'inferred';
+      object.userData.referenceUrl = layout.referenceUrl ?? null;
     });
   }
   root.userData.weaponMuzzles = weaponMuzzles;

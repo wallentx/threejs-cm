@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { lateralX } from '../LocalFrame.js';
 import { setVehicleMaterialSlot } from './VehicleMaterialLibrary.js';
 import { createTrackedRunningGear } from './TrackedRunningGear.js';
 
@@ -22,7 +23,7 @@ export function createCharB1BisMesh() {
   const hullGunBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.11, 1.25, 10), metalMat);
   hullGunBarrel.name = 'CharB1_75mm_HullGun';
   hullGunBarrel.rotation.x = Math.PI / 2;
-  hullGunBarrel.position.set(0.48, 0.92, 3.1);
+  hullGunBarrel.position.set(lateralX('right', 0.48), 0.92, 3.1);
   hullGunBarrel.userData.lodBand = 'core';
   hullGunBarrel.userData.mountSide = 'right';
   tankGroup.add(hullGunBarrel);
