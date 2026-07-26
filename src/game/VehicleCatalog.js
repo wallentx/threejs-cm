@@ -1,67 +1,592 @@
+function freezeCrew(crew) {
+  return Object.freeze(crew.map(member => Object.freeze({ ...member })));
+}
+
+function freezeZones(zones) {
+  return Object.freeze(Object.fromEntries(
+    Object.entries(zones).map(([zone, roles]) => [zone, Object.freeze([...roles])])
+  ));
+}
+
+function freezeMounts(mounts) {
+  return Object.freeze(mounts.map(mount => Object.freeze({
+    ...mount,
+    crewRoles: Object.freeze([...(mount.crewRoles ?? [])]),
+    loaderRoles: Object.freeze([...(mount.loaderRoles ?? mount.crewRoles ?? [])])
+  })));
+}
+
+function freezeVehicle(vehicle) {
+  return Object.freeze({
+    ...vehicle,
+    crew: freezeCrew(vehicle.crew),
+    driverRoles: Object.freeze([...(vehicle.driverRoles ?? ['DRIVER'])]),
+    gunnerRoles: Object.freeze([...(vehicle.gunnerRoles ?? [])]),
+    loaderRoles: Object.freeze([...(vehicle.loaderRoles ?? [])]),
+    mainGun: vehicle.mainGun ? Object.freeze({ ...vehicle.mainGun }) : null,
+    ammunition: Object.freeze({ ap: 0, he: 0, ...vehicle.ammunition }),
+    movementMps: Object.freeze({ ...vehicle.movementMps }),
+    armorMm: Object.freeze({ ...vehicle.armorMm }),
+    zoneCrew: freezeZones(vehicle.zoneCrew),
+    weaponMounts: freezeMounts(vehicle.weaponMounts ?? VEHICLE_MACHINE_GUN_MOUNTS[vehicle.id] ?? []),
+    dataQuality: Object.freeze({ ...vehicle.dataQuality })
+  });
+}
+
+const crewman = (role, label) => ({ role, label });
+const machineGunMount = (
+  id,
+  label,
+  weaponId,
+  crewRoles,
+  carriedAmmo,
+  dataQuality,
+  referenceUrl = null,
+  loaderRoles = crewRoles
+) => ({
+  id,
+  label,
+  weaponId,
+  componentId: id,
+  crewRoles,
+  loaderRoles,
+  carriedAmmo,
+  traverse: id === 'coax' ? 'turret' : 'hull',
+  dataQuality,
+  referenceUrl
+});
+const armor = (hullFront, hullSide, hullRear, turretFront, turretSide, turretRear) => ({
+  hull_front: hullFront,
+  hull_side: hullSide,
+  hull_rear: hullRear,
+  turret_front: turretFront,
+  turret_side: turretSide,
+  turret_rear: turretRear
+});
+const movement = (move, quick, fast, hunt) => ({ MOVE: move, QUICK: quick, FAST: fast, HUNT: hunt });
+
+const FRENCH_ARMAMENT_REFERENCE = 'https://www.chars-francais.net/index.php?catid=13&id=2026%3A1935-somua-s-35&view=article';
+const GERMAN_ARMAMENT_REFERENCE = 'https://tankmuseum.org/article/live-round-panzer-iii';
+
+export const VEHICLE_MACHINE_GUN_MOUNTS = Object.freeze({
+  SOMUA_S35: freezeMounts([
+    machineGunMount('coax', 'Coaxial MAC mle 1931', 'MAC31_VEHICLE', ['COMMANDER_GUNNER'], 2550,
+      'historical identity, mount, 15 drums, and 2,550-round carried load', FRENCH_ARMAMENT_REFERENCE)
+  ]),
+  RENAULT_R35: freezeMounts([
+    machineGunMount('coax', 'Coaxial MAC mle 1931', 'MAC31_VEHICLE', ['COMMANDER_GUNNER'], 2400,
+      'historical identity and mount; carried load is a bounded gameplay approximation')
+  ]),
+  HOTCHKISS_H39: freezeMounts([
+    machineGunMount('coax', 'Coaxial MAC mle 1931', 'MAC31_VEHICLE', ['COMMANDER_GUNNER'], 2400,
+      'historical identity and mount; carried load is a bounded gameplay approximation')
+  ]),
+  AMC_35: freezeMounts([
+    machineGunMount('coax', 'Coaxial MAC mle 1931', 'MAC31_VEHICLE', ['GUNNER_LOADER'], 5250,
+      'historical identity and mount; carried load is a bounded gameplay approximation')
+  ]),
+  PANHARD_178: freezeMounts([
+    machineGunMount('coax', 'Coaxial MAC mle 1931', 'MAC31_VEHICLE', ['GUNNER'], 3750,
+      'historical identity and mount; carried load is a bounded gameplay approximation',
+      null, ['COMMANDER'])
+  ]),
+  LAFFLY_V15T: freezeMounts([]),
+  CHAR_B1_BIS: freezeMounts([
+    machineGunMount('coax', 'Coaxial MAC mle 1931', 'MAC31_VEHICLE', ['COMMANDER_GUNNER'], 2400,
+      'historical identity and mount; ammunition allocation is a gameplay approximation'),
+    machineGunMount('hull_mg', 'Hull MAC mle 1931', 'MAC31_VEHICLE', ['DRIVER_HULL_GUNNER'], 2400,
+      'historical identity and fixed hull mount; ammunition allocation is a gameplay approximation',
+      null, ['HULL_LOADER'])
+  ]),
+  PANZER_III_D: freezeMounts([
+    machineGunMount('coax', 'Coaxial MG 34', 'MG34_VEHICLE', ['GUNNER'], 2250,
+      'historical identity and mount; ammunition allocation is a gameplay approximation',
+      GERMAN_ARMAMENT_REFERENCE, ['LOADER']),
+    machineGunMount('hull_mg', 'Hull MG 34', 'MG34_VEHICLE', ['RADIO_OPERATOR'], 2175,
+      'historical identity, mount, and radio-operator dependency; ammunition allocation is a gameplay approximation',
+      GERMAN_ARMAMENT_REFERENCE)
+  ]),
+  PANZER_II_C: freezeMounts([
+    machineGunMount('coax', 'Coaxial MG 34', 'MG34_VEHICLE', ['COMMANDER_GUNNER'], 2250,
+      'historical identity and mount; carried load is a bounded gameplay approximation',
+      null, ['LOADER_RADIO'])
+  ]),
+  PANZER_35T: freezeMounts([
+    machineGunMount('coax', 'Coaxial MG 37(t)', 'MG37T_VEHICLE', ['COMMANDER_GUNNER'], 1350,
+      'historical identity and mount; ammunition allocation is a gameplay approximation',
+      null, ['LOADER']),
+    machineGunMount('hull_mg', 'Hull MG 37(t)', 'MG37T_VEHICLE', ['RADIO_OPERATOR'], 1350,
+      'historical identity and mount; ammunition allocation is a gameplay approximation')
+  ]),
+  PANZER_38T: freezeMounts([
+    machineGunMount('coax', 'Coaxial MG 37(t)', 'MG37T_VEHICLE', ['COMMANDER_GUNNER'], 1350,
+      'historical identity and mount; ammunition allocation is a gameplay approximation',
+      null, ['LOADER']),
+    machineGunMount('hull_mg', 'Hull MG 37(t)', 'MG37T_VEHICLE', ['RADIO_OPERATOR'], 1350,
+      'historical identity and mount; ammunition allocation is a gameplay approximation')
+  ]),
+  SDKFZ_231: freezeMounts([
+    machineGunMount('coax', 'Coaxial MG 34', 'MG34_VEHICLE', ['GUNNER'], 2010,
+      'historical identity and mount; carried load is a bounded gameplay approximation',
+      null, ['COMMANDER'])
+  ]),
+  OPEL_BLITZ: freezeMounts([]),
+  PANZER_IV_D: freezeMounts([
+    machineGunMount('coax', 'Coaxial MG 34', 'MG34_VEHICLE', ['GUNNER'], 1350,
+      'historical identity and mount; ammunition allocation is a gameplay approximation',
+      null, ['LOADER']),
+    machineGunMount('hull_mg', 'Hull MG 34', 'MG34_VEHICLE', ['RADIO_OPERATOR'], 1350,
+      'historical identity, mount, and radio-operator dependency; ammunition allocation is a gameplay approximation',
+      'https://tankmuseum.org/tank-nuts/tank-collection/panzer-iv/')
+  ])
+});
+
 export const VEHICLES = Object.freeze({
-  SOMUA_S35: Object.freeze({
+  SOMUA_S35: freezeVehicle({
     id: 'SOMUA_S35',
+    modelId: 'fr_somua',
     name: 'SOMUA S35',
-    crew: Object.freeze([
-      Object.freeze({ role: 'COMMANDER_GUNNER', label: 'Commander / Gunner' }),
-      Object.freeze({ role: 'DRIVER', label: 'Driver' }),
-      Object.freeze({ role: 'RADIO_OPERATOR', label: 'Radio Operator' })
-    ]),
-    gunnerRoles: Object.freeze(['COMMANDER_GUNNER']),
-    loaderRoles: Object.freeze(['COMMANDER_GUNNER']),
-    mainGun: Object.freeze({ ap: 'SA35_AP', he: 'SA35_HE' }),
-    ammunition: Object.freeze({ ap: 70, he: 48 }),
+    crew: [
+      crewman('COMMANDER_GUNNER', 'Commander / Gunner'),
+      crewman('DRIVER', 'Driver'),
+      crewman('RADIO_OPERATOR', 'Radio Operator')
+    ],
+    gunnerRoles: ['COMMANDER_GUNNER'],
+    loaderRoles: ['COMMANDER_GUNNER'],
+    mainGun: { ap: 'SA35_AP', he: 'SA35_HE' },
+    ammunition: { ap: 70, he: 48 },
+    movementMps: movement(2.5, 3.5, 5.2, 2.0),
     turretTraverseRadPerSecond: 0.18,
     hitRadius: 2.35,
-    armorMm: Object.freeze({
-      hull_front: 40,
-      hull_side: 40,
-      hull_rear: 35,
-      turret_front: 40,
-      turret_side: 40,
-      turret_rear: 40
-    }),
-    zoneCrew: Object.freeze({
-      hull_front: Object.freeze(['DRIVER', 'RADIO_OPERATOR']),
-      hull_side: Object.freeze(['DRIVER', 'RADIO_OPERATOR', 'COMMANDER_GUNNER']),
-      hull_rear: Object.freeze(['RADIO_OPERATOR']),
-      turret_front: Object.freeze(['COMMANDER_GUNNER']),
-      turret_side: Object.freeze(['COMMANDER_GUNNER']),
-      turret_rear: Object.freeze(['COMMANDER_GUNNER'])
-    })
+    armorMm: armor(40, 40, 35, 40, 40, 40),
+    zoneCrew: {
+      hull_front: ['DRIVER', 'RADIO_OPERATOR'],
+      hull_side: ['DRIVER', 'RADIO_OPERATOR', 'COMMANDER_GUNNER'],
+      hull_rear: ['RADIO_OPERATOR'],
+      turret_front: ['COMMANDER_GUNNER'],
+      turret_side: ['COMMANDER_GUNNER'],
+      turret_rear: ['COMMANDER_GUNNER']
+    },
+    dataQuality: {
+      crewArmorArmament: 'historical',
+      ammunitionSplit: 'gameplay approximation',
+      movement: 'gameplay approximation',
+      referenceUrl: 'https://museedesblindes.fr/les_chars/somua-s35/'
+    }
   }),
-  PANZER_III_D: Object.freeze({
+  RENAULT_R35: freezeVehicle({
+    id: 'RENAULT_R35',
+    modelId: 'fr_renault_r35',
+    name: 'Renault R35',
+    crew: [
+      crewman('COMMANDER_GUNNER', 'Commander / Gunner / Loader'),
+      crewman('DRIVER', 'Driver')
+    ],
+    gunnerRoles: ['COMMANDER_GUNNER'],
+    loaderRoles: ['COMMANDER_GUNNER'],
+    mainGun: { ap: 'SA18_AP', he: 'SA18_HE' },
+    ammunition: { ap: 42, he: 16 },
+    movementMps: movement(2.0, 2.8, 4.0, 1.6),
+    turretTraverseRadPerSecond: 0.16,
+    hitRadius: 2.05,
+    armorMm: armor(40, 40, 32, 40, 40, 40),
+    zoneCrew: {
+      hull_front: ['DRIVER'],
+      hull_side: ['DRIVER', 'COMMANDER_GUNNER'],
+      hull_rear: ['DRIVER'],
+      turret_front: ['COMMANDER_GUNNER'],
+      turret_side: ['COMMANDER_GUNNER'],
+      turret_rear: ['COMMANDER_GUNNER']
+    },
+    dataQuality: {
+      crewArmorArmament: 'historical',
+      ammunitionSplit: 'inferred from 58-round total',
+      movement: 'gameplay approximation',
+      referenceUrl: 'https://museedesblindes.fr/les_chars/renault-r35/'
+    }
+  }),
+  HOTCHKISS_H39: freezeVehicle({
+    id: 'HOTCHKISS_H39',
+    modelId: 'fr_hotchkiss_h39',
+    name: 'Hotchkiss H39',
+    crew: [
+      crewman('COMMANDER_GUNNER', 'Commander / Gunner / Loader'),
+      crewman('DRIVER', 'Driver')
+    ],
+    gunnerRoles: ['COMMANDER_GUNNER'],
+    loaderRoles: ['COMMANDER_GUNNER'],
+    mainGun: { ap: 'SA38_AP', he: 'SA38_HE' },
+    ammunition: { ap: 70, he: 30 },
+    movementMps: movement(2.8, 3.8, 5.5, 1.9),
+    turretTraverseRadPerSecond: 0.17,
+    hitRadius: 2.15,
+    armorMm: armor(40, 40, 40, 40, 40, 40),
+    zoneCrew: {
+      hull_front: ['DRIVER'],
+      hull_side: ['DRIVER', 'COMMANDER_GUNNER'],
+      hull_rear: ['DRIVER'],
+      turret_front: ['COMMANDER_GUNNER'],
+      turret_side: ['COMMANDER_GUNNER'],
+      turret_rear: ['COMMANDER_GUNNER']
+    },
+    dataQuality: {
+      crewArmorArmament: 'historical',
+      ammunitionSplit: 'inferred from 100-round total',
+      movement: 'gameplay approximation',
+      referenceUrl: 'https://museedesblindes.fr/les_chars/hotchkiss-h-39/'
+    }
+  }),
+  AMC_35: freezeVehicle({
+    id: 'AMC_35',
+    modelId: 'fr_amc35',
+    name: 'AMC 35 (ACG-1)',
+    crew: [
+      crewman('COMMANDER', 'Commander'),
+      crewman('GUNNER_LOADER', 'Gunner / Loader'),
+      crewman('DRIVER', 'Driver')
+    ],
+    gunnerRoles: ['GUNNER_LOADER'],
+    loaderRoles: ['GUNNER_LOADER'],
+    mainGun: { ap: 'SA35_AP', he: 'SA35_HE' },
+    ammunition: { ap: 70, he: 50 },
+    movementMps: movement(3.0, 4.0, 5.8, 2.0),
+    turretTraverseRadPerSecond: 0.2,
+    hitRadius: 2.35,
+    armorMm: armor(25, 25, 20, 25, 25, 25),
+    zoneCrew: {
+      hull_front: ['DRIVER'],
+      hull_side: ['DRIVER', 'COMMANDER', 'GUNNER_LOADER'],
+      hull_rear: ['DRIVER'],
+      turret_front: ['COMMANDER', 'GUNNER_LOADER'],
+      turret_side: ['COMMANDER', 'GUNNER_LOADER'],
+      turret_rear: ['COMMANDER', 'GUNNER_LOADER']
+    },
+    dataQuality: {
+      crewArmorArmament: 'historical',
+      ammunitionSplit: 'inferred from 120-round total',
+      movement: 'gameplay approximation',
+      referenceUrl: 'https://museedesblindes.fr/les_chars/amc-35/'
+    }
+  }),
+  PANHARD_178: freezeVehicle({
+    id: 'PANHARD_178',
+    modelId: 'fr_panhard178',
+    name: 'Panhard 178 (AMD 35)',
+    crew: [
+      crewman('COMMANDER', 'Commander'),
+      crewman('GUNNER', 'Gunner'),
+      crewman('DRIVER', 'Forward Driver'),
+      crewman('REAR_DRIVER_RADIO', 'Rear Driver / Radio Operator')
+    ],
+    gunnerRoles: ['GUNNER'],
+    loaderRoles: ['COMMANDER'],
+    mainGun: { ap: 'SA35_25_AP' },
+    ammunition: { ap: 150, he: 0 },
+    movementMps: movement(3.8, 5.4, 7.5, 2.4),
+    turretTraverseRadPerSecond: 0.24,
+    hitRadius: 2.5,
+    armorMm: armor(20, 15, 15, 20, 15, 15),
+    zoneCrew: {
+      hull_front: ['DRIVER'],
+      hull_side: ['DRIVER', 'REAR_DRIVER_RADIO', 'COMMANDER', 'GUNNER'],
+      hull_rear: ['REAR_DRIVER_RADIO'],
+      turret_front: ['COMMANDER', 'GUNNER'],
+      turret_side: ['COMMANDER', 'GUNNER'],
+      turret_rear: ['COMMANDER']
+    },
+    dataQuality: {
+      crewArmorArmament: 'historical',
+      ammunitionSplit: 'historical AP-only combat load represented',
+      movement: 'gameplay approximation'
+    }
+  }),
+  LAFFLY_V15T: freezeVehicle({
+    id: 'LAFFLY_V15T',
+    modelId: 'fr_laffly_v15t',
+    name: 'Laffly V15T',
+    crew: [
+      crewman('DRIVER', 'Driver'),
+      crewman('PASSENGER', 'Vehicle Commander')
+    ],
+    gunnerRoles: [],
+    loaderRoles: [],
+    mainGun: null,
+    ammunition: { ap: 0, he: 0 },
+    movementMps: movement(3.4, 4.8, 7.0, 2.2),
+    turretTraverseRadPerSecond: 0,
+    hitRadius: 2.3,
+    armorMm: armor(0, 0, 0, 0, 0, 0),
+    zoneCrew: {
+      hull_front: ['DRIVER', 'PASSENGER'],
+      hull_side: ['DRIVER', 'PASSENGER'],
+      hull_rear: ['PASSENGER'],
+      turret_front: [],
+      turret_side: [],
+      turret_rear: []
+    },
+    dataQuality: {
+      crewArmorArmament: 'historical unarmored tractor',
+      ammunitionSplit: 'not applicable',
+      movement: 'gameplay approximation'
+    }
+  }),
+  CHAR_B1_BIS: freezeVehicle({
+    id: 'CHAR_B1_BIS',
+    modelId: 'fr_char_b1bis',
+    name: 'Char B1 bis',
+    crew: [
+      crewman('COMMANDER_GUNNER', 'Commander / 47mm Gunner / Loader'),
+      crewman('DRIVER_HULL_GUNNER', 'Driver / 75mm Gunner'),
+      crewman('HULL_LOADER', '75mm Loader'),
+      crewman('RADIO_OPERATOR', 'Radio Operator')
+    ],
+    driverRoles: ['DRIVER_HULL_GUNNER'],
+    gunnerRoles: ['COMMANDER_GUNNER'],
+    loaderRoles: ['COMMANDER_GUNNER'],
+    mainGun: { ap: 'SA35_AP', he: 'SA35_HE' },
+    ammunition: { ap: 30, he: 20 },
+    movementMps: movement(2.2, 3.0, 4.3, 1.7),
+    turretTraverseRadPerSecond: 0.16,
+    hitRadius: 3.2,
+    armorMm: armor(60, 55, 55, 56, 46, 46),
+    zoneCrew: {
+      hull_front: ['DRIVER_HULL_GUNNER', 'HULL_LOADER'],
+      hull_side: ['DRIVER_HULL_GUNNER', 'HULL_LOADER', 'RADIO_OPERATOR', 'COMMANDER_GUNNER'],
+      hull_rear: ['RADIO_OPERATOR', 'HULL_LOADER'],
+      turret_front: ['COMMANDER_GUNNER'],
+      turret_side: ['COMMANDER_GUNNER'],
+      turret_rear: ['COMMANDER_GUNNER']
+    },
+    dataQuality: {
+      crewArmorArmament: 'historical; current simulation drives turret 47mm only',
+      ammunitionSplit: 'inferred from 50-round 47mm total',
+      movement: 'gameplay approximation',
+      referenceUrl: 'https://museedesblindes.fr/les_chars/b1-bis/'
+    }
+  }),
+  PANZER_III_D: freezeVehicle({
     id: 'PANZER_III_D',
+    modelId: 'ger_panzer3',
     name: 'Panzer III Ausf. D',
-    crew: Object.freeze([
-      Object.freeze({ role: 'COMMANDER', label: 'Commander' }),
-      Object.freeze({ role: 'GUNNER', label: 'Gunner' }),
-      Object.freeze({ role: 'LOADER', label: 'Loader' }),
-      Object.freeze({ role: 'DRIVER', label: 'Driver' }),
-      Object.freeze({ role: 'RADIO_OPERATOR', label: 'Radio Operator' })
-    ]),
-    gunnerRoles: Object.freeze(['GUNNER']),
-    loaderRoles: Object.freeze(['LOADER']),
-    mainGun: Object.freeze({ ap: 'KWK36_AP', he: 'KWK36_HE' }),
-    ammunition: Object.freeze({ ap: 72, he: 48 }),
+    crew: [
+      crewman('COMMANDER', 'Commander'),
+      crewman('GUNNER', 'Gunner'),
+      crewman('LOADER', 'Loader'),
+      crewman('DRIVER', 'Driver'),
+      crewman('RADIO_OPERATOR', 'Radio Operator')
+    ],
+    gunnerRoles: ['GUNNER'],
+    loaderRoles: ['LOADER'],
+    mainGun: { ap: 'KWK36_AP', he: 'KWK36_HE' },
+    ammunition: { ap: 72, he: 48 },
+    movementMps: movement(2.7, 3.8, 5.5, 2.1),
     turretTraverseRadPerSecond: 0.25,
     hitRadius: 2.55,
-    armorMm: Object.freeze({
-      hull_front: 30,
-      hull_side: 14.5,
-      hull_rear: 14.5,
-      turret_front: 30,
-      turret_side: 14.5,
-      turret_rear: 14.5
-    }),
-    zoneCrew: Object.freeze({
-      hull_front: Object.freeze(['DRIVER', 'RADIO_OPERATOR']),
-      hull_side: Object.freeze(['DRIVER', 'RADIO_OPERATOR', 'GUNNER', 'LOADER']),
-      hull_rear: Object.freeze(['DRIVER', 'RADIO_OPERATOR']),
-      turret_front: Object.freeze(['GUNNER', 'LOADER', 'COMMANDER']),
-      turret_side: Object.freeze(['GUNNER', 'LOADER', 'COMMANDER']),
-      turret_rear: Object.freeze(['LOADER', 'COMMANDER'])
-    })
+    armorMm: armor(30, 14.5, 14.5, 30, 14.5, 14.5),
+    zoneCrew: {
+      hull_front: ['DRIVER', 'RADIO_OPERATOR'],
+      hull_side: ['DRIVER', 'RADIO_OPERATOR', 'GUNNER', 'LOADER'],
+      hull_rear: ['DRIVER', 'RADIO_OPERATOR'],
+      turret_front: ['GUNNER', 'LOADER', 'COMMANDER'],
+      turret_side: ['GUNNER', 'LOADER', 'COMMANDER'],
+      turret_rear: ['LOADER', 'COMMANDER']
+    },
+    dataQuality: {
+      crewArmorArmament: 'historical',
+      ammunitionSplit: 'gameplay approximation',
+      movement: 'gameplay approximation'
+    }
+  }),
+  PANZER_II_C: freezeVehicle({
+    id: 'PANZER_II_C',
+    modelId: 'ger_panzer2',
+    name: 'Panzer II Ausf. C',
+    crew: [
+      crewman('COMMANDER_GUNNER', 'Commander / Gunner'),
+      crewman('LOADER_RADIO', 'Loader / Radio Operator'),
+      crewman('DRIVER', 'Driver')
+    ],
+    gunnerRoles: ['COMMANDER_GUNNER'],
+    loaderRoles: ['LOADER_RADIO'],
+    mainGun: { ap: 'KWK30_AP', he: 'KWK30_HE' },
+    ammunition: { ap: 90, he: 90 },
+    movementMps: movement(3.0, 4.2, 5.8, 2.2),
+    turretTraverseRadPerSecond: 0.28,
+    hitRadius: 2.5,
+    armorMm: armor(14.5, 14.5, 14.5, 14.5, 14.5, 14.5),
+    zoneCrew: {
+      hull_front: ['DRIVER', 'LOADER_RADIO'],
+      hull_side: ['DRIVER', 'LOADER_RADIO', 'COMMANDER_GUNNER'],
+      hull_rear: ['DRIVER', 'LOADER_RADIO'],
+      turret_front: ['COMMANDER_GUNNER', 'LOADER_RADIO'],
+      turret_side: ['COMMANDER_GUNNER', 'LOADER_RADIO'],
+      turret_rear: ['LOADER_RADIO']
+    },
+    dataQuality: {
+      crewArmorArmament: 'historical',
+      ammunitionSplit: 'inferred from 180-round total',
+      movement: 'gameplay approximation'
+    }
+  }),
+  PANZER_35T: freezeVehicle({
+    id: 'PANZER_35T',
+    modelId: 'ger_panzer35t',
+    name: 'Panzer 35(t)',
+    crew: [
+      crewman('COMMANDER_GUNNER', 'Commander / Gunner'),
+      crewman('LOADER', 'Loader'),
+      crewman('DRIVER', 'Driver'),
+      crewman('RADIO_OPERATOR', 'Radio Operator')
+    ],
+    gunnerRoles: ['COMMANDER_GUNNER'],
+    loaderRoles: ['LOADER'],
+    mainGun: { ap: 'KWK34T_AP', he: 'KWK34T_HE' },
+    ammunition: { ap: 48, he: 30 },
+    movementMps: movement(2.8, 4.0, 5.5, 2.1),
+    turretTraverseRadPerSecond: 0.22,
+    hitRadius: 2.5,
+    armorMm: armor(25, 16, 16, 25, 16, 16),
+    zoneCrew: {
+      hull_front: ['DRIVER', 'RADIO_OPERATOR'],
+      hull_side: ['DRIVER', 'RADIO_OPERATOR', 'COMMANDER_GUNNER', 'LOADER'],
+      hull_rear: ['DRIVER', 'RADIO_OPERATOR'],
+      turret_front: ['COMMANDER_GUNNER', 'LOADER'],
+      turret_side: ['COMMANDER_GUNNER', 'LOADER'],
+      turret_rear: ['LOADER']
+    },
+    dataQuality: {
+      crewArmorArmament: 'historical',
+      ammunitionSplit: 'inferred from 78-round total',
+      movement: 'gameplay approximation'
+    }
+  }),
+  PANZER_38T: freezeVehicle({
+    id: 'PANZER_38T',
+    modelId: 'ger_panzer38t',
+    name: 'Panzer 38(t)',
+    crew: [
+      crewman('COMMANDER_GUNNER', 'Commander / Gunner'),
+      crewman('LOADER', 'Loader'),
+      crewman('DRIVER', 'Driver'),
+      crewman('RADIO_OPERATOR', 'Radio Operator')
+    ],
+    gunnerRoles: ['COMMANDER_GUNNER'],
+    loaderRoles: ['LOADER'],
+    mainGun: { ap: 'KWK38T_AP', he: 'KWK38T_HE' },
+    ammunition: { ap: 54, he: 36 },
+    movementMps: movement(3.0, 4.3, 6.0, 2.2),
+    turretTraverseRadPerSecond: 0.23,
+    hitRadius: 2.45,
+    armorMm: armor(25, 15, 15, 25, 15, 15),
+    zoneCrew: {
+      hull_front: ['DRIVER', 'RADIO_OPERATOR'],
+      hull_side: ['DRIVER', 'RADIO_OPERATOR', 'COMMANDER_GUNNER', 'LOADER'],
+      hull_rear: ['DRIVER', 'RADIO_OPERATOR'],
+      turret_front: ['COMMANDER_GUNNER', 'LOADER'],
+      turret_side: ['COMMANDER_GUNNER', 'LOADER'],
+      turret_rear: ['LOADER']
+    },
+    dataQuality: {
+      crewArmorArmament: 'historical early-production armor',
+      ammunitionSplit: 'inferred from 90-round total',
+      movement: 'gameplay approximation'
+    }
+  }),
+  SDKFZ_231: freezeVehicle({
+    id: 'SDKFZ_231',
+    modelId: 'ger_sdkfz231',
+    name: 'Sd.Kfz. 231 (8-Rad)',
+    crew: [
+      crewman('COMMANDER', 'Commander'),
+      crewman('GUNNER', 'Gunner'),
+      crewman('DRIVER', 'Forward Driver'),
+      crewman('REAR_DRIVER_RADIO', 'Rear Driver / Radio Operator')
+    ],
+    gunnerRoles: ['GUNNER'],
+    loaderRoles: ['COMMANDER'],
+    mainGun: { ap: 'KWK30_AP', he: 'KWK30_HE' },
+    ammunition: { ap: 90, he: 90 },
+    movementMps: movement(4.0, 5.8, 8.0, 2.5),
+    turretTraverseRadPerSecond: 0.3,
+    hitRadius: 3.0,
+    armorMm: armor(14.5, 8, 8, 14.5, 8, 8),
+    zoneCrew: {
+      hull_front: ['DRIVER'],
+      hull_side: ['DRIVER', 'REAR_DRIVER_RADIO', 'COMMANDER', 'GUNNER'],
+      hull_rear: ['REAR_DRIVER_RADIO'],
+      turret_front: ['COMMANDER', 'GUNNER'],
+      turret_side: ['COMMANDER', 'GUNNER'],
+      turret_rear: ['COMMANDER']
+    },
+    dataQuality: {
+      crewArmorArmament: 'historical',
+      ammunitionSplit: 'inferred from 180-round total',
+      movement: 'gameplay approximation'
+    }
+  }),
+  OPEL_BLITZ: freezeVehicle({
+    id: 'OPEL_BLITZ',
+    modelId: 'ger_opel_blitz',
+    name: 'Opel Blitz 3.6-36S',
+    crew: [
+      crewman('DRIVER', 'Driver'),
+      crewman('PASSENGER', 'Vehicle Commander')
+    ],
+    gunnerRoles: [],
+    loaderRoles: [],
+    mainGun: null,
+    ammunition: { ap: 0, he: 0 },
+    movementMps: movement(3.2, 4.7, 6.5, 2.0),
+    turretTraverseRadPerSecond: 0,
+    hitRadius: 3.1,
+    armorMm: armor(0, 0, 0, 0, 0, 0),
+    zoneCrew: {
+      hull_front: ['DRIVER', 'PASSENGER'],
+      hull_side: ['DRIVER', 'PASSENGER'],
+      hull_rear: ['PASSENGER'],
+      turret_front: [],
+      turret_side: [],
+      turret_rear: []
+    },
+    dataQuality: {
+      crewArmorArmament: 'historical unarmored truck',
+      ammunitionSplit: 'not applicable',
+      movement: 'gameplay approximation'
+    }
+  }),
+  PANZER_IV_D: freezeVehicle({
+    id: 'PANZER_IV_D',
+    modelId: 'ger_panzer4',
+    name: 'Panzer IV Ausf. D',
+    crew: [
+      crewman('COMMANDER', 'Commander'),
+      crewman('GUNNER', 'Gunner'),
+      crewman('LOADER', 'Loader'),
+      crewman('DRIVER', 'Driver'),
+      crewman('RADIO_OPERATOR', 'Radio Operator')
+    ],
+    gunnerRoles: ['GUNNER'],
+    loaderRoles: ['LOADER'],
+    mainGun: { ap: 'KWK37_AP', he: 'KWK37_HE' },
+    ammunition: { ap: 32, he: 48 },
+    movementMps: movement(2.8, 4.0, 5.5, 2.0),
+    turretTraverseRadPerSecond: 0.24,
+    hitRadius: 3.0,
+    armorMm: armor(30, 20, 20, 30, 20, 20),
+    zoneCrew: {
+      hull_front: ['DRIVER', 'RADIO_OPERATOR'],
+      hull_side: ['DRIVER', 'RADIO_OPERATOR', 'GUNNER', 'LOADER'],
+      hull_rear: ['DRIVER', 'RADIO_OPERATOR'],
+      turret_front: ['GUNNER', 'LOADER', 'COMMANDER'],
+      turret_side: ['GUNNER', 'LOADER', 'COMMANDER'],
+      turret_rear: ['LOADER', 'COMMANDER']
+    },
+    dataQuality: {
+      crewArmorArmament: 'historical',
+      ammunitionSplit: 'inferred from 80-round total',
+      movement: 'gameplay approximation',
+      referenceUrl: 'https://tankmuseum.org/tank-nuts/tank-collection/panzer-iv/'
+    }
   })
 });
 
@@ -82,4 +607,3 @@ export function penetrationAtVelocity(weapon, velocity) {
   const ratio = Math.max(0, velocity) / weapon.muzzleVelocity;
   return weapon.penetrationMmAt100m * Math.pow(ratio, weapon.penetrationVelocityExponent ?? 1.35);
 }
-

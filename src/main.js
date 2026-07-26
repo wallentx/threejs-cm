@@ -3,6 +3,7 @@ import { Renderer } from './engine/Renderer.js';
 import { CameraManager } from './engine/CameraManager.js';
 import { SoundEngine } from './engine/SoundEngine.js';
 import { TerrainBuilder } from './world/TerrainBuilder.js';
+import { VehicleDamageEffects } from './world/VehicleDamageEffects.js';
 import { Unit } from './game/Unit.js';
 import { CommandSystem } from './game/CommandSystem.js';
 import { SpottingSystem } from './game/SpottingSystem.js';
@@ -12,6 +13,8 @@ import { SupportSystem } from './game/SupportSystem.js';
 import { WegoManager } from './game/WegoManager.js';
 import { UIManager } from './ui/UIManager.js';
 import { MapEditor } from './editor/MapEditor.js';
+import { loadScenario } from './scenario/ScenarioRuntime.js';
+import { STONNE_1940_SCENARIO } from './scenarios/france1940/stonne1940.js';
 
 // Deduplicated Logger to prevent 60 FPS console flooding
 let lastLoggedMsg = '';
@@ -66,11 +69,16 @@ class Game {
       this.container = document.getElementById('canvas-container');
       if (!this.container) throw new Error('#canvas-container element not found');
 
+      this.scenario = STONNE_1940_SCENARIO;
       const params = new URLSearchParams(window.location.search);
-      this.seed = Number.parseInt(params.get('seed') || '19400516', 10) >>> 0;
+      this.seed = Number.parseInt(
+        params.get('seed') || String(this.scenario.defaultSeed),
+        10
+      ) >>> 0;
       this.randomState = this.seed || 1;
       this.qualityTier = params.get('quality') === 'low' ? 'low' : 'high';
       this.requestedPlayMode = params.get('mode') === 'realtime' ? 'realtime' : 'wego';
+      this.startWithoutSelection = params.get('selected') === 'none';
       this.visualDebugMode = params.get('debug') || 'final';
       this.cameraBookmark = ['near', 'design', 'far'].includes(params.get('camera'))
         ? params.get('camera')
@@ -93,20 +101,32 @@ class Game {
 
       // 3. Terrain Builder
       log('Building Ardennes 1940 Terrain Map...', 'info');
-      this.terrain = new TerrainBuilder(this.scene);
+      this.terrain = new TerrainBuilder(this.scene, {
+        deploymentZones: this.scenario.deploymentZones
+      });
       this.terrain.buildScenarioMap();
 
       // 4. Game Systems
       this.units = [];
       this.selectedUnit = null;
+      this.matchStarted = false;
 
       log('Setting up Command & Combat Systems...', 'info');
-      this.commands = new CommandSystem(this.scene);
+      this.commands = new CommandSystem(this.scene, {
+        deploymentZones: this.scenario.deploymentZones,
+        terrain: this.terrain,
+        isSetupPhase: () => this.wego?.isSetupPhase() ?? false,
+        onInvalidDeployment: () => this.ui?.showToast(
+          'Entire unit footprint must stay inside its setup area',
+          'warn'
+        )
+      });
       this.spotting = new SpottingSystem(this.scene, this.terrain);
       this.combat = new CombatSystem(this.scene, this.sound, () => this.random(), {
         terrain: this.terrain,
         getUnits: () => this.units
       });
+      this.vehicleDamageEffects = new VehicleDamageEffects();
       this.support = new SupportSystem(this.scene, this.combat, () => this.random());
       this.wego = new WegoManager(this);
 
@@ -118,7 +138,7 @@ class Game {
 
       // 6. Build Scenario
       log('Spawning 1940 French & German Units...', 'info');
-      this.setupScenarioStonne1940();
+      this.setupScenario(this.scenario);
       const cameraLevels = { near: 2, design: 4, far: 8 };
       this.cameraManager.setHeightPreset(cameraLevels[this.cameraBookmark]);
       this.renderer.configureSceneShadows();
@@ -133,6 +153,9 @@ class Game {
       this.initInteraction();
       window.__CMBN_GAME__ = this;
       document.body.dataset.gameStatus = 'ready';
+      document.body.dataset.deploymentStatus = this.matchStarted ? 'closed' : 'valid';
+      document.body.dataset.scenarioId = this.scenario.id;
+      document.body.dataset.gameFamilyId = this.scenario.gameFamilyId;
       document.body.dataset.captureManifest = `${this.seed}:${this.cameraBookmark}:${this.qualityTier}:${this.visualDebugMode}:${this.wego.playMode}`;
 
       // 8. Start Game Loop
@@ -146,78 +169,23 @@ class Game {
     }
   }
 
-  setupScenarioStonne1940() {
-    const frPlatoonHQ = new Unit({
-      id: 'fr_hq',
-      name: 'French 3e DLM Platoon HQ',
-      faction: 'french',
-      type: 'infantry_squad',
-      position: new THREE.Vector3(0, 0, 40),
-      experience: 'Veteran',
-      leadership: 1
+  setupScenario(scenario) {
+    const loaded = loadScenario(scenario, {
+      terrain: this.terrain,
+      scene: this.scene,
+      agentDebug: this.visualDebugMode === 'agents'
     });
+    this.units = loaded.units;
+    if (this.startWithoutSelection || !loaded.initialSelection) this.deselectUnit();
+    else this.selectUnit(loaded.initialSelection);
+    if (loaded.cameraTarget) this.cameraManager.setFocusTarget(loaded.cameraTarget.position);
+  }
 
-    const frSquad1 = new Unit({
-      id: 'fr_sq1',
-      name: 'Chasseurs Portés Squad 1',
-      faction: 'french',
-      type: 'infantry_squad',
-      position: new THREE.Vector3(-18, 0, 35),
-      experience: 'Regular'
-    });
-
-    const frSomua = new Unit({
-      id: 'fr_tank',
-      name: 'SOMUA S35 (47mm)',
-      faction: 'french',
-      type: 'tank',
-      position: new THREE.Vector3(18, 0, 40),
-      experience: 'Veteran'
-    });
-
-    const gerSquad1 = new Unit({
-      id: 'ger_sq1',
-      name: '1940 Grenadier Squad',
-      faction: 'german',
-      type: 'infantry_squad',
-      position: new THREE.Vector3(25, 0, -35),
-      experience: 'Veteran',
-      rotation: Math.PI
-    });
-
-    const gerPanzer3 = new Unit({
-      id: 'ger_tank',
-      name: 'Panzer III Ausf. D',
-      faction: 'german',
-      type: 'tank',
-      position: new THREE.Vector3(-25, 0, -45),
-      experience: 'Regular',
-      rotation: Math.PI
-    });
-
-    const gerBunker = new Unit({
-      id: 'ger_bunker',
-      name: 'German MG34 Bunker',
-      faction: 'german',
-      type: 'bunker',
-      position: new THREE.Vector3(0, 0, -25),
-      experience: 'Crack',
-      rotation: Math.PI
-    });
-
-    this.units = [frPlatoonHQ, frSquad1, frSomua, gerSquad1, gerPanzer3, gerBunker];
-
-    this.units.forEach(u => {
-      u.position.y = this.terrain.getHeightAt(u.position.x, u.position.z);
-      if (u.mesh) {
-        u.mesh.position.copy(u.position);
-        this.scene.add(u.mesh);
-      }
-      u.setAgentDebug(this.visualDebugMode === 'agents');
-    });
-
-    this.selectUnit(frPlatoonHQ);
-    this.cameraManager.setFocusTarget(frPlatoonHQ.position);
+  beginMatch() {
+    if (this.matchStarted) return;
+    this.matchStarted = true;
+    this.terrain.removeSetupZones();
+    document.body.dataset.deploymentStatus = 'closed';
   }
 
   selectUnit(unit) {
@@ -226,6 +194,7 @@ class Game {
       if (disc) disc.visible = candidate === unit;
     }
     this.selectedUnit = unit;
+    document.body.dataset.selectedUnit = unit.id;
     this.commands.setActiveUnit(unit);
     this.ui.updateUnitHUD(unit);
     this.ui.renderCommandGrid();
@@ -237,6 +206,7 @@ class Game {
       this.selectedUnit.mesh.userData.selectionDisc.visible = false;
     }
     this.selectedUnit = null;
+    document.body.dataset.selectedUnit = 'none';
     this.commands.clearActiveUnit();
     this.cameraManager.followUnit = null;
     this.ui.clearUnitHUD();
@@ -298,8 +268,10 @@ class Game {
     return {
       randomState: this.randomState,
       units: this.units.map(unit => unit.captureState()),
+      combat: this.combat.captureState(),
       supportMissions: this.support.captureState(),
-      selectedUnitId: this.selectedUnit?.id ?? null
+      selectedUnitId: this.selectedUnit?.id ?? null,
+      matchStarted: this.matchStarted
     };
   }
 
@@ -309,8 +281,10 @@ class Game {
     for (const unitState of state.units) {
       unitMap.get(unitState.id)?.restoreState(unitState, unitMap);
     }
-    this.combat.reset();
+    this.combat.restoreState(state.combat, unitMap);
+    this.vehicleDamageEffects.resetTransient();
     this.support.restoreState(state.supportMissions, unitMap);
+    if (state.matchStarted) this.beginMatch();
     const selected = state.selectedUnitId ? unitMap.get(state.selectedUnitId) : null;
     if (selected) this.selectUnit(selected);
     this.commands.renderOverlays();
@@ -323,7 +297,7 @@ class Game {
     const visibleTargets = opposingUnits.filter(target => {
       if (!target.isCombatEffective()) return false;
       const los = this.spotting.checkLOS(attacker.position, target.position);
-      return los.clear && los.dist <= (attacker.type === 'tank' ? 220 : 150);
+      return los.clear && los.dist <= (attacker.vehicleSpec ? 220 : 150);
     });
     if (visibleTargets.length === 0) return null;
     return visibleTargets[Math.floor(this.random() * visibleTargets.length)];
@@ -362,7 +336,7 @@ class Game {
       }
 
       const target = this.chooseTarget(attacker, opposingUnits);
-      if (attacker.type === 'tank') {
+      if (attacker.vehicleSpec) {
         attacker.updateVehicleCombat(delta, {
           target,
           combat: this.combat,
@@ -504,6 +478,11 @@ class Game {
       const lod = unit.updateLOD(this.camera.position, this.qualityTier);
       lodCounts[lod]++;
     }
+    this.vehicleDamageEffects.update(
+      delta,
+      this.units,
+      this.combat.telemetry.impacts
+    );
     this.ui.render(this.units, this.cameraManager);
     this.renderer.render();
 

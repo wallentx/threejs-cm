@@ -24,6 +24,10 @@
   -webkit-touch-callout: none;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html, body {
   width: 100%;
   height: 100%;
@@ -84,7 +88,7 @@ html, body {
 #debug-content {
   padding: 6px;
   overflow-y: auto;
-  flex: 1;
+  max-height: 105px;
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -95,6 +99,58 @@ html, body {
 .log-info { color: #38bdf8; }
 .log-warn { color: #fbbf24; }
 .log-error { color: #f87171; font-weight: 700; }
+
+#shot-inspector {
+  border-top: 1px solid var(--panel-border);
+  background: rgba(3, 7, 18, 0.86);
+  min-height: 0;
+}
+
+.shot-inspector-header {
+  padding: 4px 6px;
+  color: var(--accent-gold);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+#shot-inspector-list {
+  max-height: 132px;
+  overflow-y: auto;
+  padding: 0 6px 6px;
+}
+
+.shot-empty {
+  color: var(--text-muted);
+  padding: 4px 0;
+}
+
+.shot-record {
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  color: #cbd5e1;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.shot-record-title {
+  color: #7dd3fc;
+  font-weight: 700;
+}
+
+.shot-record-vectors,
+.shot-record-crew {
+  color: var(--text-muted);
+}
+
+.shot-outcome.penetrated {
+  color: #fb7185;
+  font-weight: 700;
+}
+
+.shot-outcome.stopped {
+  color: #86efac;
+  font-weight: 700;
+}
 
 /* 3D Canvas Layer */
 #canvas-container {
@@ -217,6 +273,14 @@ canvas {
 .btn-top.highlight {
   border-color: var(--accent-gold);
   color: var(--accent-gold);
+}
+
+.btn-top.danger {
+  border-color: var(--accent-red);
+}
+
+.mobile-control-label {
+  display: none;
 }
 
 /* Floating 3D Icons Overlay */
@@ -475,6 +539,12 @@ canvas {
   flex-direction: column;
 }
 
+/* Preserve selection-dependent HUD cells without leaving invisible controls focusable. */
+.hud-box.is-selection-empty > * {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .box-header {
   font-size: 9px;
   font-weight: 700;
@@ -592,6 +662,162 @@ canvas {
   text-decoration: line-through;
 }
 
+.vehicle-status {
+  display: grid;
+  gap: 3px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.vehicle-status[hidden] {
+  display: none;
+}
+
+.vehicle-status.burning {
+  border-left: 2px solid #ff6b1a;
+  padding-left: 3px;
+  animation: vehicle-damage-pulse 0.7s ease-in-out infinite alternate;
+}
+
+.vehicle-status.destroyed {
+  border-left: 2px solid #ef4444;
+  padding-left: 3px;
+  filter: saturate(0.72);
+}
+
+.vehicle-system-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.vehicle-system {
+  --system-color: #4ade80;
+  position: relative;
+  min-width: 0;
+  padding: 2px 3px 3px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--system-color) 48%, transparent);
+  border-radius: 3px;
+  background: rgba(30, 41, 59, 0.72);
+  font-family: var(--font-mono);
+  font-size: 7px;
+}
+
+.vehicle-system::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    var(--system-color) 0 var(--system-health),
+    rgba(255, 255, 255, 0.08) var(--system-health)
+  );
+  content: "";
+}
+
+.vehicle-system strong,
+.vehicle-system span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vehicle-system span {
+  color: var(--system-color);
+  font-size: 6px;
+}
+
+.vehicle-system.damaged {
+  --system-color: #f59e0b;
+}
+
+.vehicle-system.disabled,
+.vehicle-system.destroyed {
+  --system-color: #ef4444;
+}
+
+.vehicle-system.burning {
+  --system-color: #ff6b1a;
+  animation: vehicle-damage-pulse 0.7s ease-in-out infinite alternate;
+}
+
+.vehicle-mount-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.vehicle-mount {
+  padding: 1px 3px;
+  border: 1px solid #475569;
+  border-radius: 3px;
+  color: #cbd5e1;
+  background: rgba(15, 23, 42, 0.76);
+  font-family: var(--font-mono);
+  font-size: 6px;
+}
+
+.vehicle-mount.disabled {
+  border-color: #7f1d1d;
+  color: #fca5a5;
+}
+
+.vehicle-floating-health {
+  position: relative;
+  width: 116px;
+  height: 10px;
+  margin: 2px auto 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  border-radius: 2px;
+  background: rgba(15, 23, 42, 0.92);
+}
+
+.vehicle-floating-health > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(90deg, #dc2626, #f59e0b 48%, #22c55e);
+}
+
+.vehicle-floating-health > strong {
+  position: absolute;
+  inset: 0;
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 7px;
+  line-height: 9px;
+  text-align: center;
+  text-shadow: 0 1px 2px #000;
+}
+
+.vehicle-floating-health.burning {
+  border-color: #ff6b1a;
+  box-shadow: 0 0 7px rgba(255, 86, 20, 0.75);
+}
+
+.vehicle-floating-damage {
+  max-width: 180px;
+  margin-top: 1px;
+  padding: 1px 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  color: #fecaca;
+  background: rgba(69, 10, 10, 0.9);
+  font-family: var(--font-mono);
+  font-size: 6px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes vehicle-damage-pulse {
+  from { filter: brightness(0.88); }
+  to { filter: brightness(1.3); }
+}
+
 .ammo-inventory {
   margin-top: 4px;
   padding-top: 2px;
@@ -678,13 +904,194 @@ canvas {
 @media (max-width: 640px) {
   .hide-mobile { display: none !important; }
 
+  #top-bar {
+    height: auto;
+    min-height: 92px;
+    padding: 4px 6px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "brand phase"
+      "controls controls";
+    align-content: center;
+    gap: 4px 6px;
+  }
+
+  .brand {
+    grid-area: brand;
+    min-width: 0;
+  }
+
+  .sub-title {
+    display: none;
+  }
+
+  .phase-container {
+    grid-area: phase;
+    justify-self: end;
+    min-width: 0;
+  }
+
+  .phase-badge {
+    padding: 4px 5px;
+    font-size: 9px;
+  }
+
+  .turn-timer {
+    font-size: 10px;
+  }
+
+  .top-controls {
+    grid-area: controls;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 3px;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .btn-top {
+    min-width: 0;
+    min-height: 40px;
+    padding: 4px 2px;
+    justify-content: center;
+    gap: 2px;
+    font-size: 9px;
+    line-height: 1.05;
+    overflow: hidden;
+  }
+
+  .btn-top .control-label {
+    overflow-wrap: anywhere;
+  }
+
+  .mobile-control-label {
+    display: inline;
+  }
+
+  .debug-log {
+    top: 98px;
+    left: 4px;
+    width: calc(100vw - 8px);
+    max-width: none;
+    max-height: 42vh;
+  }
+
   .mode-selector label {
     min-height: 36px;
     padding: 5px 7px;
     font-size: 10px;
   }
-  
+
+  #wego-bar {
+    padding: 5px 6px;
+  }
+
+  .wego-left {
+    min-width: 0;
+  }
+
+  .vcr-controls {
+    flex-wrap: wrap;
+  }
+
+  .vcr-btn {
+    min-width: 34px;
+    padding: 4px 6px;
+  }
+
+  .timeline-container {
+    min-width: 90px;
+  }
+
   #hud-panel {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 0;
+  }
+
+  .hud-box,
+  .roster-grid,
+  .command-grid {
+    min-width: 0;
+  }
+
+  .ammo-inventory {
+    flex-wrap: wrap;
+  }
+
+  .vehicle-system-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .btn-cmd {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (orientation: portrait) {
+  #hud-panel {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(2, 132px);
+    grid-auto-rows: 132px;
+    overflow-y: hidden;
+  }
+
+  #panel-minimap {
+    display: flex;
+    order: 0;
+    min-height: 0;
+  }
+
+  #minimap-canvas {
+    height: auto;
+    min-height: 0;
+    flex: 1;
+  }
+
+  #panel-unit-info,
+  #panel-team-roster,
+  #panel-commands {
+    grid-column: auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  #panel-team-roster .roster-grid {
+    max-height: 42px;
+  }
+
+  #panel-team-roster .vehicle-status {
+    flex: 1;
+  }
+
+  #panel-commands .command-grid {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    align-content: start;
+    padding-right: 2px;
+  }
+}
+
+@media (max-width: 420px) {
+  .badge-poc {
+    display: none;
+  }
+
+  .game-logo {
+    font-size: 11px;
+  }
+
+  .phase-container {
+    gap: 3px;
+  }
+
+  .top-controls .hide-mobile {
+    display: none !important;
+  }
+
+  #ui-container {
+    max-height: 48vh;
   }
 }

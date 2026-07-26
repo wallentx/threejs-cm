@@ -1,0 +1,26 @@
+import { createRenaultR35Mesh as createRenaultR35Base } from './RenaultR35.js';
+import { createHotchkissH39Mesh as createHotchkissH39Base } from './HotchkissH39.js';
+import { createAMC35Mesh as createAMC35Base } from './AMC35.js';
+import { createPanhard178Mesh as createPanhard178Base } from './Panhard178.js';
+import { createLafflyV15TMesh as createLafflyV15TBase } from './LafflyV15T.js';
+import { createCharB1BisMesh as createCharB1BisBase } from './CharB1Bis.js';
+import { createPanzerIIMesh as createPanzerIIBase } from './PanzerII.js';
+import { createPanzer35tMesh as createPanzer35tBase } from './Panzer35t.js';
+import { createPanzer38tMesh as createPanzer38tBase } from './Panzer38t.js';
+import { createSdKfz231Mesh as createSdKfz231Base } from './SdKfz231.js';
+import { createOpelBlitzMesh as createOpelBlitzBase } from './OpelBlitz.js';
+import { createPanzerIVMesh as createPanzerIVBase } from './PanzerIV.js';
+import { enhanceVehicleModel } from './VehicleModelEnhancer.js';
+
+export const createRenaultR35Mesh = () => enhanceVehicleModel(createRenaultR35Base());
+export const createHotchkissH39Mesh = () => enhanceVehicleModel(createHotchkissH39Base());
+export const createAMC35Mesh = () => enhanceVehicleModel(createAMC35Base());
+export const createPanhard178Mesh = () => enhanceVehicleModel(createPanhard178Base());
+export const createLafflyV15TMesh = () => enhanceVehicleModel(createLafflyV15TBase());
+export const createCharB1BisMesh = () => enhanceVehicleModel(createCharB1BisBase());
+export const createPanzerIIMesh = () => enhanceVehicleModel(createPanzerIIBase());
+export const createPanzer35tMesh = () => enhanceVehicleModel(createPanzer35tBase());
+export const createPanzer38tMesh = () => enhanceVehicleModel(createPanzer38tBase());
+export const createSdKfz231Mesh = () => enhanceVehicleModel(createSdKfz231Base());
+export const createOpelBlitzMesh = () => enhanceVehicleModel(createOpelBlitzBase());
+export const createPanzerIVMesh = () => enhanceVehicleModel(createPanzerIVBase());

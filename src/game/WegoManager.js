@@ -9,6 +9,7 @@ export class WegoManager {
     this.currentTurnTime = 0.0;
     this.isPlaying = false;
     this.playbackSpeed = 1.0;
+    this.matchStarted = false;
 
     this.historySnapshots = [];
     this.turnStartSnapshot = null;
@@ -21,6 +22,7 @@ export class WegoManager {
     const changed = this.playMode !== mode;
     this.playMode = mode;
     if (mode === 'realtime') {
+      this.beginMatch();
       this.phase = 'ACTION_PHASE';
       this.isPlaying = true;
       if (changed) this.currentTurnTime = 0;
@@ -57,6 +59,7 @@ export class WegoManager {
     }
     if (this.phase === 'ACTION_PHASE' && this.playMode === 'wego') return;
 
+    this.beginMatch();
     this.phase = 'ACTION_PHASE';
     this.currentTurnTime = 0.0;
     this.isPlaying = true;
@@ -69,6 +72,17 @@ export class WegoManager {
       this.game.ui.updatePhaseDisplay(this.phase, this.turnNumber, this.currentTurnTime);
       this.game.ui.showToast(`Turn ${this.turnNumber} Action Phase Initiated!`, 'info');
     }
+  }
+
+  beginMatch() {
+    if (this.matchStarted) return false;
+    this.matchStarted = true;
+    this.game.beginMatch?.();
+    return true;
+  }
+
+  isSetupPhase() {
+    return !this.matchStarted && this.playMode === 'wego' && this.phase === 'COMMAND_PHASE';
   }
 
   togglePlayPause() {

@@ -74,6 +74,8 @@ Do not commit or push unless the user asks.
 ## Three.js model contract
 
 - `+Y` is up, `+Z` is forward, and dimensions use metres.
+- Reuse `src/world/WorldScale.js` and `TerrainScale.js`; do not add hidden
+  per-model scale multipliers or duplicate physical constants.
 - Model identity must survive silhouette-only viewing.
 - Vehicle dimensions and defining features belong in one named data table or metadata object.
 - Articulated parts must be named and exposed through `userData` when simulation or animation controls them.
@@ -85,6 +87,8 @@ Do not commit or push unless the user asks.
   - `proxy`: far model
   - `ui`: selection and diagnostic geometry
 - Every detailed unit needs a viable far proxy.
+- Vehicle surfaces use explicit slots through `VehicleMaterialLibrary`; keep
+  detailed UV density metre-driven and far proxies on their cheaper map policy.
 - Do not solve fidelity by leaving all geometry active at every distance.
 - Preserve shadows, material ownership, and resource disposal.
 
@@ -106,6 +110,11 @@ Do not commit or push unless the user asks.
 - Core mode and command controls must remain available on mobile. Do not hide them with `.hide-mobile`.
 - Do not restore the permanent right-side camera-control strip.
 - Do not add authentication, access tokens, cloud services, or external dashboards to run the local game.
+- Panels declared layout-stable must retain their grid footprint when selection
+  content is empty. Clear stale controls, make the panel `inert` and
+  `aria-disabled`, hide internal content, then restore content and interactivity
+  after reselection. Explicitly conditional panels may opt out. Cover the
+  selected -> empty -> selected transition in UI tests.
 
 ## Dependencies
 
@@ -118,6 +127,18 @@ Do not commit or push unless the user asks.
 ## Code-change discipline
 
 - Preserve the existing ES-module architecture.
+- Read `docs/ARCHITECTURE.md` before cross-cutting changes.
+- Keep `src/main.js` as the composition root; do not add battle rosters, map
+  coordinates, weapon tables, vehicle tables, or mesh construction there.
+- Put generic scenario validation and instantiation in `src/scenario/`.
+- Put concrete battle records in `src/scenarios/<family>/` as plain data with
+  no Three.js, DOM, runtime, or renderer imports.
+- Generic engine, simulation, and world code must receive concrete scenario
+  and family data through arguments or registries. Do not import a concrete
+  scenario from a lower layer.
+- Treat high-fan-out composition files and public registries as
+  integration-owned files. Parallel workers should own separate layer folders
+  and leave small wiring changes for one integrator.
 - Avoid broad rewrites for isolated TODO items.
 - Keep simulation logic out of rendering-only helpers.
 - Avoid per-frame geometry/material creation and unbounded hot-loop allocation.
@@ -141,4 +162,3 @@ An item is complete only when relevant parts below are satisfied:
 10. `TODO.md` accurately records completed, partial, remaining, or dropped scope.
 
 The current production bundle-size warning is known. Do not treat it as a build failure, but do not worsen it casually.
-

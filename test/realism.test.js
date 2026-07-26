@@ -73,6 +73,70 @@ test('individual soldier consumes own magazine and dead soldier cannot fire', ()
   assert.equal(shots, 1);
 });
 
+test('automatic infantry cadence is invariant across simulation step sizes', () => {
+  const runCadence = steps => {
+    const attacker = new Unit({
+      id: `infantry_cadence_${steps.length}`,
+      faction: 'german',
+      type: 'infantry_squad',
+      position: new THREE.Vector3()
+    });
+    const target = new Unit({
+      id: `infantry_cadence_target_${steps.length}`,
+      faction: 'french',
+      type: 'infantry_squad',
+      position: new THREE.Vector3(0, 0, 20)
+    });
+    const agent = attacker.soldierAI.agents.find(candidate => candidate.weaponId === 'MG34');
+    assert.ok(agent);
+    agent.fireCooldown = 0;
+    agent.magazineAmmo = WEAPONS.MG34.magazineSize;
+    agent.reserveAmmo = 0;
+    agent.state = 'READY';
+    let shots = 0;
+    const combatContext = {
+      opposingUnits: [target],
+      spotting: {
+        checkLOS(from, to) {
+          return { clear: true, dist: from.distanceTo(to) };
+        }
+      },
+      combat: { fireWeapon: () => { shots++; return true; } }
+    };
+    const movementContext = {
+      goal: agent.position.clone(),
+      neighbors: attacker.soldierAI.agents,
+      anchorMoving: false,
+      orderType: 'QUICK',
+      squadPinned: false,
+      waypointIndex: 0
+    };
+
+    for (const delta of steps) {
+      agent.updateMovement(delta, flatTerrain, movementContext);
+      agent.updateCombat(delta, combatContext);
+    }
+    return {
+      shots,
+      roundsFired: agent.roundsFired,
+      magazineAmmo: agent.magazineAmmo,
+      fireCooldown: agent.fireCooldown
+    };
+  };
+
+  const at10Fps = runCadence(Array.from({ length: 4 }, () => 1 / 10));
+  const at30Fps = runCadence(Array.from({ length: 12 }, () => 1 / 30));
+  const at60Fps = runCadence(Array.from({ length: 24 }, () => 1 / 60));
+  const accelerated = runCadence([0.2, 0.2]);
+
+  for (const result of [at30Fps, at60Fps, accelerated]) {
+    assert.equal(result.shots, at10Fps.shots);
+    assert.equal(result.roundsFired, at10Fps.roundsFired);
+    assert.equal(result.magazineAmmo, at10Fps.magazineAmmo);
+    assert.ok(Math.abs(result.fireCooldown - at10Fps.fireCooldown) < 1e-9);
+  }
+});
+
 test('soldier reload time transfers only carried reserve ammunition', () => {
   const unit = new Unit({
     id: 'reload_test',
@@ -238,6 +302,10 @@ test('projectile starts at visible soldier muzzle and resolves swept hit', () =>
   for (let step = 0; step < 30 && combat.projectiles.length > 0; step++) combat.update(1 / 60);
   assert.ok(victim.health < 100);
   assert.equal(combat.telemetry.infantryHits, 1);
+  assert.equal(combat.telemetry.impacts.length, 1);
+  assert.equal(combat.telemetry.impacts[0].kind, 'infantry');
+  assert.equal(combat.telemetry.impacts[0].targetSoldierId, victim.id);
+  assert.equal(combat.telemetry.impacts[0].penetrated, null);
 });
 
 test('distance LOD switches between authored geometry and low proxy', () => {
@@ -268,6 +336,56 @@ test('distance LOD switches between authored geometry and low proxy', () => {
   assert.equal(coreVisible, true);
 });
 
+test('infantry LOD never overlaps near geometry with far proxies', () => {
+  for (const faction of ['french', 'german']) {
+    const unit = new Unit({
+      id: `lod_${faction}`,
+      faction,
+      type: 'infantry_squad',
+      position: new THREE.Vector3()
+    });
+    const countVisible = (band) => {
+      let count = 0;
+      unit.mesh.traverse(object => {
+        if (object.isMesh && object.userData.lodBand === band && object.visible) count++;
+      });
+      return count;
+    };
+    const countVisibleNonProxy = () => {
+      let count = 0;
+      unit.mesh.traverse(object => {
+        if (object.isMesh && object.userData.lodBand !== 'proxy'
+          && object.userData.lodBand !== 'ui' && object.visible) count++;
+      });
+      return count;
+    };
+
+    assert.equal(countVisible('proxy'), 0);
+    unit.updateLOD(new THREE.Vector3(0, 2, 5), 'high');
+    assert.equal(unit.currentLOD, 'high');
+    assert.equal(countVisible('proxy'), 0);
+    assert.ok(countVisible('high') > 0);
+
+    unit.updateLOD(new THREE.Vector3(0, 2, 75), 'high');
+    assert.equal(unit.currentLOD, 'medium');
+    assert.equal(countVisible('proxy'), 0);
+    assert.equal(countVisible('high'), 0);
+    assert.ok(countVisibleNonProxy() > 0);
+
+    unit.updateLOD(new THREE.Vector3(0, 2, 100), 'high');
+    assert.equal(unit.currentLOD, 'core');
+    assert.equal(countVisible('proxy'), 0);
+    assert.equal(countVisible('high'), 0);
+    assert.equal(countVisible('medium'), 0);
+    assert.ok(countVisible('core') > 0);
+
+    unit.updateLOD(new THREE.Vector3(0, 2, 180), 'high');
+    assert.equal(unit.currentLOD, 'low');
+    assert.ok(countVisible('proxy') > 0);
+    assert.equal(countVisibleNonProxy(), 0);
+  }
+});
+
 test('new move after completed path starts a clean order queue', () => {
   const unit = new Unit({
     id: 'turn_two_orders',
@@ -282,4 +400,127 @@ test('new move after completed path starts a clean order queue', () => {
   assert.equal(unit.waypoints.length, 1);
   assert.equal(unit.waypoints[0].orderType, 'HUNT');
   assert.deepEqual(unit.waypoints[0].position.toArray(), [10, 0, 0]);
+});
+
+test('inspectable shot telemetry records detailed impact fields', () => {
+  const attacker = new Unit({
+    id: 'telemetry_attacker',
+    faction: 'french',
+    type: 'tank',
+    position: new THREE.Vector3(0, 0, 0)
+  });
+  const target = new Unit({
+    id: 'telemetry_target',
+    faction: 'german',
+    type: 'tank',
+    position: new THREE.Vector3(0, 0, 80)
+  });
+  const scene = new THREE.Scene();
+  scene.add(attacker.mesh, target.mesh);
+  const combat = new CombatSystem(scene, sound, () => 0.5, {
+    getUnits: () => [attacker, target]
+  });
+
+  combat.fireWeapon(attacker, target, target.position, {
+    weapon: WEAPONS.SA35_AP,
+    muzzlePosition: attacker.getMuzzleWorldPosition(),
+    dispersionScale: 0
+  });
+
+  for (let step = 0; step < 40 && combat.projectiles.length > 0; step++) {
+    combat.update(1 / 60);
+  }
+
+  assert.ok(combat.telemetry.impacts.length > 0);
+  const latest = combat.telemetry.impacts[combat.telemetry.impacts.length - 1];
+  assert.equal(latest.weaponId, 'SA35_AP');
+  assert.equal(latest.shooterId, 'telemetry_attacker');
+  assert.equal(latest.targetId, 'telemetry_target');
+  assert.ok(latest.rangeMeters > 0);
+  assert.ok(latest.impactSpeed > 0);
+  assert.equal(latest.kind, 'vehicle');
+  assert.ok(latest.zone !== null);
+  assert.ok(latest.impactCosine > 0);
+  assert.ok(Number.isFinite(latest.impactAngleDegrees));
+  assert.ok(latest.effectiveArmorMm > 0);
+  assert.ok(latest.penetrationMm >= 0);
+  assert.ok(typeof latest.penetrated === 'boolean');
+});
+
+test('shot telemetry distinguishes stopped and penetrating armor records', () => {
+  const scene = new THREE.Scene();
+  const combat = new CombatSystem(scene, sound, () => 0.5);
+  const ballistics = new BallisticsSystem({ random: () => 0.5 });
+  const makeTarget = (id, armor) => ({
+    id,
+    faction: 'german',
+    type: 'tank',
+    position: new THREE.Vector3(),
+    rotation: 0,
+    vehicleSpec: {
+      armorMm: {
+        hull_front: armor,
+        hull_rear: armor,
+        hull_side: armor,
+        turret_front: armor,
+        turret_rear: armor,
+        turret_side: armor
+      }
+    },
+    applyArmorHit(result) {
+      return {
+        penetrated: result.penetrated,
+        casualty: result.penetrated
+          ? { id: 1, name: 'Gunner 1', role: 'GUNNER', status: 'WOUNDED', health: 20 }
+          : null,
+        damage: { hull: 'OK', turret: result.penetrated ? 'DAMAGED' : 'OK', gun: 'OK' }
+      };
+    }
+  });
+  const record = (id, weapon, armor) => {
+    const target = makeTarget(`target_${id}`, armor);
+    const projectile = {
+      id,
+      shooterId: 'attacker',
+      targetSoldierId: null,
+      weapon,
+      ammoId: weapon.id,
+      muzzlePosition: new THREE.Vector3(0, 1.5, -50),
+      position: new THREE.Vector3(0, 1.2, 2),
+      previousPosition: new THREE.Vector3(0, 1.2, 1),
+      velocity: new THREE.Vector3(0, 0, weapon.muzzleVelocity),
+      distanceTravelled: 52,
+      lifetime: 0.08
+    };
+    const hit = {
+      kind: 'vehicle',
+      unit: target,
+      point: new THREE.Vector3(0, 1.2, 2)
+    };
+    const result = ballistics.resolveVehicleImpact(projectile, hit);
+    combat.recordImpact(projectile, hit, result);
+    return {
+      entry: combat.telemetry.impacts[combat.telemetry.impacts.length - 1],
+      sourceDamage: result.crewResult.damage
+    };
+  };
+
+  const { entry: stopped } = record(1, WEAPONS.KAR98K, 35);
+  const { entry: penetrated, sourceDamage } = record(2, WEAPONS.SA35_AP, 10);
+
+  assert.equal(stopped.penetrated, false);
+  assert.equal(stopped.crewResult.casualty, null);
+  assert.equal(penetrated.penetrated, true);
+  assert.equal(penetrated.crewResult.casualty.role, 'GUNNER');
+  assert.equal(penetrated.crewResult.damage.turret, 'DAMAGED');
+  assert.ok(stopped.impactCosine > 0);
+  assert.ok(Number.isFinite(stopped.impactAngleDegrees));
+
+  sourceDamage.turret = 'DESTROYED';
+  assert.equal(penetrated.crewResult.damage.turret, 'DAMAGED');
+
+  for (let id = 3; id <= 105; id++) record(id, WEAPONS.KAR98K, 35);
+  assert.equal(combat.telemetry.impacts.length, 100);
+  assert.equal(combat.telemetry.impacts[0].id, 6);
+  assert.equal(combat.telemetry.impacts[99].id, 105);
 });

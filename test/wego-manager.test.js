@@ -15,11 +15,29 @@ function createHarness() {
     },
     simulateToTime(targetTime) {
       game.wego.currentTurnTime = targetTime;
+    },
+    beginMatch() {
+      game.matchBegun = (game.matchBegun ?? 0) + 1;
     }
   };
   game.wego = new WegoManager(game);
   return { game, wego: game.wego, restored };
 }
+
+test('initial setup phase ends permanently when action begins, including realtime', () => {
+  const { game, wego } = createHarness();
+  assert.equal(wego.isSetupPhase(), true);
+  wego.executeTurn();
+  assert.equal(wego.isSetupPhase(), false);
+  assert.equal(game.matchBegun, 1);
+  wego.completeSimulationStep(60);
+  assert.equal(wego.isSetupPhase(), false, 'later command turns are not deployment');
+
+  const realtime = createHarness();
+  realtime.wego.setPlayMode('realtime');
+  assert.equal(realtime.wego.isSetupPhase(), false);
+  assert.equal(realtime.game.matchBegun, 1);
+});
 
 test('playback speed scales simulation delta and records checkpoints', () => {
   const { wego } = createHarness();

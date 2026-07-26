@@ -73,6 +73,41 @@ test('infantry model exposes articulated period equipment', () => {
   }
 });
 
+test('pose reset restores headgear after pinned and wounded states', () => {
+  const unit = new Unit({
+    id: 'pose_reset',
+    faction: 'french',
+    type: 'infantry_squad',
+    position: new THREE.Vector3()
+  });
+  const agent = unit.soldierAI.agents[0];
+  const mesh = unit.mesh.userData.soldiers[0];
+  const { head, headgear } = mesh.userData.parts;
+  const baseHeadY = head.position.y;
+  const baseHeadgearY = headgear.map(item => item.position.y);
+
+  agent.stance = 'PRONE';
+  agent.suppression = 60;
+  agent.status = 'WOUNDED';
+  unit.soldierAI.applyPose(mesh, agent);
+  assert.equal(head.position.y, baseHeadY - 0.1);
+  assert.deepEqual(
+    headgear.map(item => item.position.y),
+    baseHeadgearY.map(value => value - 0.1)
+  );
+  assert.notEqual(mesh.rotation.z, 0);
+
+  agent.stance = 'STANDING';
+  agent.suppression = 0;
+  agent.status = 'OK';
+  unit.soldierAI.applyPose(mesh, agent);
+  assert.equal(head.position.y, baseHeadY);
+  assert.deepEqual(headgear.map(item => item.position.y), baseHeadgearY);
+  assert.equal(mesh.rotation.x, 0);
+  assert.equal(mesh.rotation.z, 0);
+  assert.equal(mesh.position.y, 0);
+});
+
 test('a projectile resolves against its targeted individual soldier', () => {
   const attacker = new Unit({
     id: 'fire_team',
@@ -166,6 +201,36 @@ test('French tank model carries SOMUA S35 dimensions and defining assemblies', (
   assert.ok(names.includes('S35_EngineDeck'));
   assert.ok(names.filter(name => name.startsWith('S35_RoadWheel_')).length >= 18);
   assert.ok(metadata.features.includes('APX 1 CE one-man turret'));
+});
+
+test('SOMUA S35 cast hull end caps face outward', () => {
+  const tank = new Unit({
+    id: 's35_winding',
+    faction: 'french',
+    type: 'tank',
+    position: new THREE.Vector3()
+  });
+  const hull = tank.mesh.getObjectByName('S35_CastHull');
+  assert.ok(hull);
+  const positions = hull.geometry.attributes.position;
+  const indices = hull.geometry.index;
+  const capStart = 4 * 6 * 2 * 3;
+  const vertexIndex = offset => indices?.getX(offset) ?? offset;
+
+  for (let triangle = 0; triangle < 8; triangle++) {
+    const offset = capStart + triangle * 3;
+    const a = new THREE.Vector3().fromBufferAttribute(positions, vertexIndex(offset));
+    const b = new THREE.Vector3().fromBufferAttribute(positions, vertexIndex(offset + 1));
+    const c = new THREE.Vector3().fromBufferAttribute(positions, vertexIndex(offset + 2));
+    const normal = new THREE.Vector3().crossVectors(
+      new THREE.Vector3().subVectors(b, a),
+      new THREE.Vector3().subVectors(c, a)
+    );
+    assert.ok(
+      triangle < 4 ? normal.z < 0 : normal.z > 0,
+      `S35 cap triangle ${triangle} must face outward`
+    );
+  }
 });
 
 test('right-side camera button strip is absent', async () => {

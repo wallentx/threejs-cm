@@ -1,8 +1,18 @@
 import * as THREE from 'three';
+import { isPositionInsideDeploymentZone } from '../scenario/DeploymentRules.js';
 
 export class CommandSystem {
-  constructor(scene) {
+  constructor(scene, {
+    deploymentZones = {},
+    terrain = null,
+    isSetupPhase = () => false,
+    onInvalidDeployment = null
+  } = {}) {
     this.scene = scene;
+    this.deploymentZones = deploymentZones;
+    this.terrain = terrain;
+    this.isSetupPhase = isSetupPhase;
+    this.onInvalidDeployment = onInvalidDeployment;
     this.activeUnit = null;
     this.activeMode = null; // 'MOVE_FAST', 'MOVE_QUICK', 'MOVE_HUNT', 'TARGET', 'TARGET_LIGHT', 'FACE', 'TARGET_ARC'
 
@@ -55,8 +65,37 @@ export class CommandSystem {
 
     if (this.activeMode && this.activeMode.startsWith('MOVE_')) {
       const orderType = this.activeMode.replace('MOVE_', '');
-      this.activeUnit.addWaypoint(pointVec3, orderType);
+      if (this.isSetupPhase()) {
+        const destination = pointVec3.clone();
+        destination.y = this.terrain?.getHeightAt(destination.x, destination.z) ?? destination.y;
+        if (!isPositionInsideDeploymentZone(this.activeUnit, destination, this.deploymentZones)) {
+          this.onInvalidDeployment?.(this.activeUnit, destination);
+          return false;
+        }
+        const displacement = destination.clone().sub(this.activeUnit.position);
+        this.activeUnit.clearWaypoints();
+        this.activeUnit.position.copy(destination);
+        this.activeUnit.mesh?.position.copy(destination);
+        if (this.activeUnit.mesh) {
+          this.activeUnit.mesh.rotation.y = this.activeUnit.rotation;
+          this.activeUnit.mesh.updateMatrixWorld(true);
+        }
+        // Infantry agents own their world positions. Move them with the squad
+        // anchor so the setup teleport cannot leave rendered soldiers behind.
+        for (const agent of this.activeUnit.soldierAI?.agents ?? []) {
+          agent.position.add(displacement);
+          agent.position.y = this.terrain?.getHeightAt(agent.position.x, agent.position.z)
+            ?? agent.position.y;
+          agent.velocity.set(0, 0, 0);
+          agent.commandWaypoint = -1;
+          agent.syncRecord();
+        }
+        this.activeUnit.soldierAI?.syncMeshes();
+      } else {
+        this.activeUnit.addWaypoint(pointVec3, orderType);
+      }
       this.renderOverlays();
+      return true;
     } else if (this.activeMode === 'TARGET' || this.activeMode === 'TARGET_LIGHT') {
       this.activeUnit.targetUnit = targetUnit;
       this.activeUnit.targetPos = pointVec3.clone();

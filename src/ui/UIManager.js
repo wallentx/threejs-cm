@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Minimap } from './Minimap.js';
 import { getWeapon } from '../game/WeaponCatalog.js';
+import { buildVehicleStatusView } from './VehicleStatusPresenter.js';
 
 export class UIManager {
   constructor(game) {
@@ -18,6 +19,7 @@ export class UIManager {
     this.showPaths = true;
     this.showHUD = true;
     this.lastHudUpdate = 0;
+    this.lastImpactId = null;
 
     this.initDOM();
     this.initHotkeys();
@@ -73,6 +75,9 @@ export class UIManager {
       }
     });
 
+    this.bindClick('btn-cancel-cmd', () => this.cancelOrDeselect(false));
+    this.bindClick('btn-deselect-unit', () => this.game.deselectUnit());
+
     // Fullscreen Toggle
     this.bindClick('btn-fullscreen', () => {
       if (!document.fullscreenElement) {
@@ -100,7 +105,6 @@ export class UIManager {
     const uiContainer = document.getElementById('ui-container');
     if (uiContainer) {
       uiContainer.addEventListener('touchmove', (e) => {
-        // Prevent touch scrolling outside roster grid
         if (!e.target.closest('.roster-grid') && !e.target.closest('#hud-panel')) {
           e.preventDefault();
         }
@@ -161,6 +165,20 @@ export class UIManager {
     const grid = document.getElementById('command-grid');
     if (!grid) return;
     grid.innerHTML = '';
+    const hasSelection = Boolean(this.game.selectedUnit);
+    const commandPanel = document.getElementById('panel-commands');
+    const rosterPanel = document.getElementById('panel-team-roster');
+    for (const panel of [commandPanel, rosterPanel]) {
+      if (!panel) continue;
+      // Keep the HUD grid stable: empty selection-dependent panels stay in
+      // their cells, but their controls/content become non-interactive.
+      panel.hidden = false;
+      panel.inert = !hasSelection;
+      panel.setAttribute('aria-disabled', String(!hasSelection));
+      panel.classList.toggle('is-selection-empty', !hasSelection);
+    }
+    document.body?.classList.toggle('no-unit-selected', !hasSelection);
+    if (!hasSelection) return;
 
     const tabButtons = {
       move: [
@@ -202,7 +220,7 @@ export class UIManager {
       `;
 
       btn.addEventListener('click', () => {
-        if (!this.canIssueOrders()) {
+        if (!['CANCEL_ACTION', 'DESELECT'].includes(btnDef.action) && !this.canIssueOrders()) {
           this.showToast('Orders are locked during WEGO action playback', 'warn');
           return;
         }
@@ -223,6 +241,14 @@ export class UIManager {
   }
 
   handleDirectAction(action) {
+    if (action === 'CANCEL_ACTION') {
+      this.cancelOrDeselect(false);
+      return;
+    }
+    if (action === 'DESELECT') {
+      this.game.deselectUnit();
+      return;
+    }
     if (!this.canIssueOrders()) {
       this.showToast('Orders are locked during WEGO action playback', 'warn');
       return;
@@ -262,12 +288,6 @@ export class UIManager {
       case 'SPLIT':
         this.game.splitUnit(unit);
         break;
-      case 'CANCEL_ACTION':
-        this.cancelOrDeselect(false);
-        break;
-      case 'DESELECT':
-        this.game.deselectUnit();
-        break;
     }
   }
 
@@ -288,6 +308,7 @@ export class UIManager {
     if (commandName === 'HUNT') this.game.commands.setCommandMode('MOVE_HUNT');
     if (commandName === 'TARGET') this.game.commands.setCommandMode('TARGET');
     if (commandName === 'FACE') this.game.commands.setCommandMode('FACE');
+    this.renderCommandGrid();
   }
 
   canIssueOrders() {
@@ -295,7 +316,22 @@ export class UIManager {
   }
 
   updateUnitHUD(unit) {
-    if (!unit) return;
+    if (!unit) {
+      const flagEl = document.getElementById('unit-flag');
+      if (flagEl) flagEl.innerText = '⚔️';
+      const nameEl = document.getElementById('unit-name');
+      if (nameEl) nameEl.innerText = 'NO UNIT SELECTED';
+      const subEl = document.getElementById('unit-sub');
+      if (subEl) subEl.innerText = 'Tap a friendly unit';
+      const rosterGrid = document.getElementById('roster-grid');
+      if (rosterGrid) rosterGrid.innerHTML = '';
+      const rifleEl = document.getElementById('ammo-rifle');
+      if (rifleEl) rifleEl.innerText = 'RIFLES: --';
+      const barEl = document.getElementById('ammo-bar');
+      if (barEl) barEl.innerText = 'AUTOMATIC: --';
+      this.renderVehicleStatus(null);
+      return;
+    }
 
     const flagEl = document.getElementById('unit-flag');
     if (flagEl) flagEl.innerText = unit.faction === 'french' ? '🇫🇷' : '🇩🇪';
@@ -329,21 +365,26 @@ export class UIManager {
         slot.title = `${s.role} | ${s.state ?? s.status} | Health ${Math.round(s.health ?? 0)} | Suppression ${Math.round(s.suppression ?? 0)}${ammoText ? ` | Ammo ${ammoText}` : ''}`;
         slot.innerHTML = `
           <span>${s.name}<em>${s.role ?? ''} · HP ${Math.round(s.health ?? 0)} · ${s.state ?? s.status}</em></span>
-          <strong>${s.weapon ?? ''}${ammoText ? ` · ${ammoText}` : ''}</strong>
+          <strong>${s.weapon ?? 'Unarmed'}${ammoText ? ` · ${ammoText}` : ''}</strong>
         `;
         rosterGrid.appendChild(slot);
       });
     }
+    this.renderVehicleStatus(unit);
 
     const rifleEl = document.getElementById('ammo-rifle');
     const barEl = document.getElementById('ammo-bar');
     if (unit.vehicleWeapon) {
       const loaded = unit.vehicleWeapon.loadedType?.toUpperCase() ?? 'EMPTY';
-      if (rifleEl) rifleEl.innerText = `MAIN GUN: ${loaded}`;
+      const feed = unit.vehicleWeapon.feedAmmo ?? (unit.vehicleWeapon.loadedType ? 1 : 0);
+      if (rifleEl) rifleEl.innerText = `MAIN GUN: ${loaded} · FEED ${feed}`;
       if (barEl) {
         const ammo = unit.vehicleWeapon.ammunition;
-        barEl.innerText = `AP ${ammo.ap} · HE ${ammo.he}${unit.vehicleWeapon.reloadTimer > 0 ? ` · RELOAD ${unit.vehicleWeapon.reloadTimer.toFixed(1)}s` : ''}`;
+        barEl.innerText = `AP ${ammo.ap ?? 0} · HE ${ammo.he ?? 0}${unit.vehicleWeapon.reloadTimer > 0 ? ` · RELOAD ${unit.vehicleWeapon.reloadTimer.toFixed(1)}s` : ''}`;
       }
+    } else if (unit.vehicleSpec) {
+      if (rifleEl) rifleEl.innerText = 'MAIN GUN: UNARMED';
+      if (barEl) barEl.innerText = 'AMMUNITION: NONE';
     } else {
       const agents = unit.soldierAI?.agents ?? [];
       const rifleAmmo = agents
@@ -358,16 +399,66 @@ export class UIManager {
   }
 
   clearUnitHUD() {
-    const nameEl = document.getElementById('unit-name');
-    if (nameEl) nameEl.innerText = 'NO UNIT SELECTED';
-    const subEl = document.getElementById('unit-sub');
-    if (subEl) subEl.innerText = 'Tap a friendly unit';
-    const roster = document.getElementById('roster-grid');
-    if (roster) roster.innerHTML = '';
-    const rifle = document.getElementById('ammo-rifle');
-    if (rifle) rifle.innerText = 'RIFLES: --';
-    const automatic = document.getElementById('ammo-bar');
-    if (automatic) automatic.innerText = 'AUTOMATIC: --';
+    this.updateUnitHUD(null);
+  }
+
+  renderVehicleStatus(unit) {
+    const root = document.getElementById('vehicle-status');
+    const componentGrid = document.getElementById('vehicle-system-grid');
+    const mountGrid = document.getElementById('vehicle-mount-grid');
+    const header = document.getElementById('selection-roster-header');
+    const view = buildVehicleStatusView(unit);
+
+    if (!view) {
+      if (root) {
+        root.hidden = true;
+        root.classList.remove('burning', 'destroyed');
+      }
+      if (componentGrid) componentGrid.replaceChildren();
+      if (mountGrid) mountGrid.replaceChildren();
+      if (header) header.textContent = 'SQUAD ROSTER & WEAPONS';
+      return null;
+    }
+
+    if (root) {
+      root.hidden = false;
+      root.classList.toggle('burning', view.burning);
+      root.classList.toggle('destroyed', view.destroyed);
+    }
+    if (header) {
+      const condition = view.destroyed ? ' · KNOCKED OUT' : (view.burning ? ' · BURNING' : '');
+      header.textContent = `CREW, WEAPONS & SYSTEMS · ${view.health}%${condition}`;
+    }
+
+    if (componentGrid) {
+      componentGrid.replaceChildren();
+      for (const component of view.components) {
+        const item = document.createElement('div');
+        item.className = `vehicle-system ${component.status.toLowerCase()}`;
+        item.style.setProperty('--system-health', `${component.health}%`);
+        item.title = `${component.label}: ${component.status} (${Math.round(component.health)}% health)`;
+
+        const label = document.createElement('strong');
+        label.textContent = component.label;
+        const status = document.createElement('span');
+        status.textContent = `${component.status} ${Math.round(component.health)}%`;
+        item.append(label, status);
+        componentGrid.appendChild(item);
+      }
+    }
+
+    if (mountGrid) {
+      mountGrid.replaceChildren();
+      for (const mount of view.mounts) {
+        const item = document.createElement('div');
+        item.className = `vehicle-mount ${mount.operational ? '' : 'disabled'}`.trim();
+        const reload = mount.reloadTimer > 0 ? ` RLD ${mount.reloadTimer.toFixed(1)}s` : '';
+        item.textContent = `${mount.label} [${mount.status}]: ${mount.weaponId ?? 'UNARMED'} ${mount.feed}/${mount.reserve}${reload}`;
+        item.title = `${mount.label}: ${mount.status}`;
+        mountGrid.appendChild(item);
+      }
+    }
+    return view;
   }
 
   updatePhaseDisplay(phase, turnNum, turnTime) {
@@ -440,6 +531,62 @@ export class UIManager {
     document.body.dataset.playMode = mode;
   }
 
+  updateShotInspector(impacts) {
+    const list = document.getElementById('shot-inspector-list');
+    if (!list) return;
+    const latestId = impacts[impacts.length - 1]?.id ?? null;
+    if (latestId === this.lastImpactId && list.childElementCount > 0) return;
+    this.lastImpactId = latestId;
+    list.replaceChildren();
+
+    if (impacts.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'shot-empty';
+      empty.textContent = 'No resolved impacts yet.';
+      list.appendChild(empty);
+      return;
+    }
+
+    for (const record of impacts.slice(-5).reverse()) {
+      const entry = document.createElement('article');
+      entry.className = `shot-record ${record.penetrated === true ? 'penetrated' : ''}`;
+
+      const identity = document.createElement('div');
+      identity.className = 'shot-record-title';
+      identity.textContent = `#${record.id} ${record.shooterId ?? 'unknown'} -> ${record.targetId ?? record.kind}`;
+
+      const flight = document.createElement('div');
+      flight.textContent = `${record.weaponId}/${record.ammoId} | ${record.rangeMeters.toFixed(1)} m | ${record.impactSpeed.toFixed(0)} m/s | ${record.flightTime.toFixed(3)} s`;
+
+      const vectors = document.createElement('div');
+      vectors.className = 'shot-record-vectors';
+      vectors.textContent = `muzzle [${record.muzzlePosition.map(value => value.toFixed(1)).join(', ')}] | impact [${record.impactPosition.map(value => value.toFixed(1)).join(', ')}]`;
+
+      entry.append(identity, flight, vectors);
+
+      if (record.kind === 'vehicle') {
+        const armor = document.createElement('div');
+        const outcome = record.penetrated ? 'PENETRATED' : 'STOPPED';
+        armor.className = `shot-outcome ${record.penetrated ? 'penetrated' : 'stopped'}`;
+        armor.textContent = `${record.zone} | armor ${record.nominalArmorMm?.toFixed(1)} -> ${record.effectiveArmorMm?.toFixed(1)} mm | pen ${record.penetrationMm?.toFixed(1)} mm | cos ${record.impactCosine?.toFixed(3)} | ${outcome}`;
+        entry.appendChild(armor);
+
+        const crew = document.createElement('div');
+        crew.className = 'shot-record-crew';
+        const casualty = record.crewResult?.casualty;
+        const damagedModules = Object.entries(record.crewResult?.damage ?? {})
+          .filter(([, state]) => state !== 'OK')
+          .map(([module, state]) => `${module}:${state}`);
+        crew.textContent = casualty
+          ? `crew ${casualty.role ?? casualty.name}: ${casualty.status} (${Math.round(casualty.health)} HP)`
+          : `crew none${damagedModules.length ? ` | ${damagedModules.join(', ')}` : ''}`;
+        entry.appendChild(crew);
+      }
+
+      list.appendChild(entry);
+    }
+  }
+
   updateFloatingIcons(units, cameraManager) {
     const overlay = document.getElementById('icon-overlay');
     if (!overlay) return;
@@ -469,12 +616,24 @@ export class UIManager {
 
       const isSelected = this.game.selectedUnit && this.game.selectedUnit.id === u.id;
       const isFrench = u.faction === 'french';
+      const vehicleStatus = isSelected ? buildVehicleStatusView(u) : null;
+      const damagedLabels = vehicleStatus?.damagedComponents
+        .slice(0, 3)
+        .map(component => `${component.label}:${component.status}`)
+        .join(' · ');
 
       iconDiv.innerHTML = `
         <div class="icon-badge ${isFrench ? 'french' : 'german'} ${isSelected ? 'selected' : ''}">
-          ${u.type === 'tank' ? '🛡️' : '⚔️'}
+          ${u.vehicleSpec ? '🛡️' : '⚔️'}
         </div>
         <div class="icon-label">${u.name}</div>
+        ${vehicleStatus ? `
+          <div class="vehicle-floating-health ${vehicleStatus.burning ? 'burning' : ''}">
+            <span style="width:${vehicleStatus.health}%"></span>
+            <strong>${vehicleStatus.destroyed ? 'KNOCKED OUT' : `${vehicleStatus.health}%`}</strong>
+          </div>
+          ${damagedLabels ? `<div class="vehicle-floating-damage">${damagedLabels}</div>` : ''}
+        ` : ''}
       `;
 
       iconDiv.addEventListener('click', (e) => {
@@ -504,6 +663,7 @@ export class UIManager {
     if (this.minimap && this.minimap.render) {
       this.minimap.render(units, cameraManager);
     }
+    this.updateShotInspector(this.game.combat?.telemetry?.impacts ?? []);
     const now = performance.now();
     if (this.game.selectedUnit && now - this.lastHudUpdate >= 100) {
       this.updateUnitHUD(this.game.selectedUnit);

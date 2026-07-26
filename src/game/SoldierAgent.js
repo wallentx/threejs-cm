@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { getWeapon, weaponIdFromName } from './WeaponCatalog.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
+const MAX_INFANTRY_ROUNDS_PER_STEP = 64;
+const INFANTRY_CADENCE_EPSILON = 1e-9;
 
 function hash01(value) {
   let hash = 2166136261;
@@ -86,11 +88,15 @@ export class SoldierAgent {
   }
 
   updateMovement(delta, terrain, context) {
-    const dt = Math.min(Math.max(delta, 0), 0.1);
-    this.fireCooldown = Math.max(-0.1, this.fireCooldown - dt);
-    this.recoilTime = Math.max(0, this.recoilTime - dt);
+    const elapsed = Math.max(delta, 0);
+    const dt = Math.min(elapsed, 0.1);
+    // Retain at most one outer step of cadence debt. updateCombat consumes that
+    // debt with a bounded catch-up loop, so automatic fire is elapsed-time
+    // driven without releasing a long backlog after movement or suppression.
+    this.fireCooldown = Math.max(-elapsed, this.fireCooldown - elapsed);
+    this.recoilTime = Math.max(0, this.recoilTime - elapsed);
     if (this.reloadTimer > 0) {
-      this.reloadTimer = Math.max(0, this.reloadTimer - dt);
+      this.reloadTimer = Math.max(0, this.reloadTimer - elapsed);
       this.state = 'RELOADING';
       if (this.reloadTimer === 0) this.completeReload();
     }
@@ -190,7 +196,8 @@ export class SoldierAgent {
 
   updateCombat(delta, context) {
     const weapon = getWeapon(this.weaponId);
-    if (!weapon || !this.isAlive || this.suppression >= 58 || this.fireCooldown > 0) return false;
+    if (!weapon || !this.isAlive || this.suppression >= 58
+        || this.fireCooldown > INFANTRY_CADENCE_EPSILON) return false;
     if (this.reloadTimer > 0) return false;
     if (this.state === 'MOVING' || this.state === 'REACTING' || this.state === 'ADVANCING') return false;
     if (this.magazineAmmo <= 0) {
@@ -243,20 +250,27 @@ export class SoldierAgent {
       * (this.isWounded ? 1.45 : 1)
       * (1 + this.suppression / 85)
       * (this.unit.targetMode === 'TARGET_LIGHT' ? 1.25 : 1);
-    if (this.burstRemaining <= 0) this.burstRemaining = weapon.burstSize;
-    const fired = context.combat.fireWeapon(this.unit, best.unit, best.position, {
-      shooter: this,
-      targetSoldier: best.agent,
-      weapon,
-      muzzlePosition: this.getMuzzleWorldPosition(),
-      dispersionScale
-    });
-    if (fired) {
+    const muzzlePosition = this.getMuzzleWorldPosition();
+    const cyclicInterval = 60 / weapon.cyclicRPM;
+    let firedAny = false;
+    let emitted = 0;
+    while (this.fireCooldown <= INFANTRY_CADENCE_EPSILON
+        && this.magazineAmmo > 0
+        && emitted < MAX_INFANTRY_ROUNDS_PER_STEP) {
+      if (this.burstRemaining <= 0) this.burstRemaining = weapon.burstSize;
+      const fired = context.combat.fireWeapon(this.unit, best.unit, best.position, {
+        shooter: this,
+        targetSoldier: best.agent,
+        weapon,
+        muzzlePosition,
+        dispersionScale
+      });
+      if (!fired) break;
+
       this.magazineAmmo--;
       this.roundsFired++;
       this.recoilTime = 0.12;
       this.burstRemaining--;
-      const cyclicInterval = 60 / weapon.cyclicRPM;
       if (this.burstRemaining > 0 && this.magazineAmmo > 0) {
         this.fireCooldown += cyclicInterval;
       } else {
@@ -266,11 +280,21 @@ export class SoldierAgent {
           burstCycle - cyclicInterval * Math.max(0, weapon.burstSize - 1)
         );
         this.burstRemaining = 0;
-        if (this.magazineAmmo <= 0) this.startReload();
+        if (this.magazineAmmo <= 0) {
+          this.startReload();
+        }
       }
+      firedAny = true;
+      emitted++;
+    }
+    if (emitted === MAX_INFANTRY_ROUNDS_PER_STEP
+        && this.fireCooldown <= INFANTRY_CADENCE_EPSILON) {
+      // Deterministically discard pathological backlog instead of permitting an
+      // unbounded hot loop.
+      this.fireCooldown = cyclicInterval;
     }
     this.syncRecord();
-    return fired;
+    return firedAny;
   }
 
   applyDamage(amount, suppression = 35) {

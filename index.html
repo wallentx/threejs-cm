@@ -18,6 +18,12 @@
         <button id="btn-clear-log" style="background:none;border:none;color:#aaa;font-size:10px;cursor:pointer;">Clear</button>
       </div>
       <div id="debug-content"></div>
+      <section id="shot-inspector" aria-live="polite">
+        <div class="shot-inspector-header">LATEST RESOLVED SHOTS</div>
+        <div id="shot-inspector-list">
+          <div class="shot-empty">No resolved impacts yet.</div>
+        </div>
+      </section>
     </div>
 
     <!-- 3D Canvas Container -->
@@ -35,14 +41,20 @@
         <div id="turn-timer" class="turn-timer">TURN 1 [00:60]</div>
       </div>
       <div class="top-controls">
+        <button id="btn-cancel-cmd" class="btn-top danger" title="Cancel Active Command Tool">
+          <span class="icon">🚫</span> <span class="control-label">CANCEL TOOL</span>
+        </button>
+        <button id="btn-deselect-unit" class="btn-top" title="Deselect Active Unit">
+          <span class="icon">✖</span> <span class="control-label">DESELECT</span>
+        </button>
         <button id="btn-fullscreen" class="btn-top highlight" title="Toggle Fullscreen">
-          <span class="icon">⛶</span> <span class="hide-mobile">FULLSCREEN</span>
+          <span class="icon hide-mobile">⛶</span><span class="mobile-control-label">FULL</span><span class="hide-mobile">FULLSCREEN</span>
         </button>
         <button id="btn-hud-toggle" class="btn-top" title="Toggle UI HUD">
-          <span class="icon">📺</span> <span class="hide-mobile">HUD</span>
+          <span class="icon hide-mobile">📺</span><span class="mobile-control-label">HUD</span><span class="hide-mobile">HUD</span>
         </button>
         <button id="btn-debug-toggle" class="btn-top" title="Toggle Log Console">
-          <span class="icon">🐛</span> <span class="hide-mobile">LOGS</span>
+          <span class="icon hide-mobile">🐛</span><span class="mobile-control-label">LOG</span><span class="hide-mobile">LOGS</span>
         </button>
       </div>
     </header>
@@ -76,7 +88,7 @@
         </div>
 
         <div class="timeline-container">
-          <span id="time-display" class="hide-mobile">00:00 / 00:60</span>
+          <span id="time-display" class="hide-mobile">00:00 / 01:00</span>
           <input type="range" id="timeline-slider" min="0" max="60" value="0" step="0.1">
         </div>
 
@@ -114,8 +126,12 @@
 
         <!-- 2. Squad Roster Panel (Center Left) -->
         <div id="panel-team-roster" class="hud-box">
-          <div class="box-header">SQUAD ROSTER & WEAPONS</div>
+          <div id="selection-roster-header" class="box-header">SQUAD ROSTER & WEAPONS</div>
           <div id="roster-grid" class="roster-grid"></div>
+          <div id="vehicle-status" class="vehicle-status" hidden>
+            <div id="vehicle-system-grid" class="vehicle-system-grid"></div>
+            <div id="vehicle-mount-grid" class="vehicle-mount-grid"></div>
+          </div>
           <div class="ammo-inventory">
             <span class="ammo-tag">AMMO:</span>
             <span id="ammo-rifle" class="ammo-count">MAS-36: 750</span>
@@ -135,7 +151,7 @@
         </div>
 
         <!-- 4. Mini-map Container -->
-        <div id="panel-minimap" class="hud-box minimap-box hide-mobile">
+        <div id="panel-minimap" class="hud-box minimap-box">
           <div class="box-header">TACTICAL MAP</div>
           <canvas id="minimap-canvas" width="180" height="150"></canvas>
         </div>

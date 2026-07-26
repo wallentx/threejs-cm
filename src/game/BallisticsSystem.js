@@ -90,7 +90,7 @@ export class BallisticsSystem {
         continue;
       }
 
-      if (unit.type === 'tank') {
+      if (unit.vehicleSpec) {
         const center = scratchPoint.copy(unit.position).add(new THREE.Vector3(0, 1.35, 0));
         const radius = unit.vehicleSpec?.hitRadius ?? 2.4;
         const point = segmentSphereIntersection(
@@ -107,6 +107,21 @@ export class BallisticsSystem {
             distance,
             point
           };
+        }
+        continue;
+      }
+
+      if (unit.structureSpec) {
+        const center = scratchPoint.copy(unit.position).add(new THREE.Vector3(0, unit.structureSpec.height * 0.5, 0));
+        const point = segmentSphereIntersection(
+          projectile.previousPosition,
+          projectile.position,
+          center,
+          unit.structureSpec.hitRadius
+        );
+        const distance = point?.distanceTo(projectile.previousPosition) ?? Infinity;
+        if (point && (!closest || distance < closest.distance)) {
+          closest = { kind: 'structure', unit, distance, point };
         }
       }
     }
@@ -154,6 +169,10 @@ export class BallisticsSystem {
       ...result,
       zone,
       nominalArmorMm,
+      impactCosine,
+      impactAngleDegrees: THREE.MathUtils.radToDeg(
+        Math.acos(THREE.MathUtils.clamp(impactCosine, 0, 1))
+      ),
       crewResult: unit.applyArmorHit?.({
         ...result,
         zone,
@@ -161,6 +180,31 @@ export class BallisticsSystem {
         impactPoint: hit.point,
         random: this.random
       }) ?? null
+    };
+  }
+
+  resolveStructureImpact(projectile, hit) {
+    const unit = hit.unit;
+    scratchIncoming.copy(projectile.velocity).normalize();
+    const localIncoming = scratchIncoming.clone().applyAxisAngle(
+      new THREE.Vector3(0, 1, 0),
+      -unit.rotation
+    );
+    const impactCosine = Math.max(0.12, Math.abs(localIncoming.z));
+    const nominalArmorMm = unit.structureState?.armorMm ?? unit.structureSpec?.armorMm ?? 0;
+    const result = resolveArmorPenetration(
+      projectile.weapon,
+      projectile.velocity.length(),
+      nominalArmorMm,
+      impactCosine
+    );
+    return {
+      ...result,
+      zone: 'front',
+      nominalArmorMm,
+      impactCosine,
+      impactAngleDegrees: THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(impactCosine, 0, 1))),
+      crewResult: unit.applyStructureHit({ ...result, weapon: projectile.weapon, zone: 'front' })
     };
   }
 }
