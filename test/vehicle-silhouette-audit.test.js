@@ -392,8 +392,8 @@ test('CLI script enforces error handling, missing TMPDIR validation, and baselin
     await assert.rejects(access(targetInReadOnly), 'Target file in unwritable directory must not exist');
 
     // Full process execution: both outputs must match the reviewed baseline.
-    await execFileAsync('node', [scriptPath, outA]);
-    await execFileAsync('node', [scriptPath, outB]);
+    const runA = await execFileAsync('node', [scriptPath, outA]);
+    const runB = await execFileAsync('node', [scriptPath, outB]);
 
     // Normal audit runs never modify the baseline fixture.
     const postAuditBaselineBytes = await readFile(baselinePath, 'utf8');
@@ -403,6 +403,9 @@ test('CLI script enforces error handling, missing TMPDIR validation, and baselin
     const contentA = await readFile(outA, 'utf8');
     const contentB = await readFile(outB, 'utf8');
     assert.equal(contentA, contentB, 'Fresh-process audit outputs must be byte-for-byte identical');
+    const recordCount = JSON.parse(contentA).recordCount;
+    assert.match(runA.stdout, new RegExp(`\\(${recordCount}/${recordCount} records match\\)`));
+    assert.match(runB.stdout, new RegExp(`\\(${recordCount}/${recordCount} records match\\)`));
   } finally {
     await rm(testDir, { recursive: true, force: true });
   }

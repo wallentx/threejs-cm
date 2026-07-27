@@ -23,33 +23,89 @@ export const STONNE_1940_MAP = defineMapDescriptor({
       roughness: 0.94,
       metalness: 0
     },
+    riverBankMaterial: {
+      color: 0x716b42,
+      roughness: 0.98,
+      metalness: 0,
+      presentationApproximation:
+        'renderer-only procedural riverbank material; not historical soil evidence'
+    },
     layers: [
       {
         id: 'field-northwest',
         kind: 'field',
         color: '#b09943',
-        rect: [60, 60, 400, 400],
+        polygon: [
+          [60, 88],
+          [185, 60],
+          [328, 72],
+          [460, 120],
+          [444, 268],
+          [458, 430],
+          [332, 460],
+          [180, 448],
+          [78, 400],
+          [60, 250]
+        ],
         visualOnly: true
       },
       {
         id: 'field-northeast',
         kind: 'field',
         color: '#567a3a',
-        rect: [560, 60, 400, 400],
+        polygon: [
+          [582, 60],
+          [735, 70],
+          [870, 62],
+          [958, 110],
+          [944, 250],
+          [960, 390],
+          [900, 460],
+          [745, 445],
+          [600, 460],
+          [560, 350],
+          [575, 190]
+        ],
         visualOnly: true
       },
       {
         id: 'field-southwest',
         kind: 'field',
         color: '#9e893c',
-        rect: [60, 560, 400, 400],
+        polygon: [
+          [72, 580],
+          [210, 560],
+          [345, 575],
+          [452, 620],
+          [460, 760],
+          [430, 930],
+          [310, 960],
+          [160, 948],
+          [60, 890],
+          [76, 730]
+        ],
         visualOnly: true
       },
       {
         id: 'road-north-south',
         kind: 'road',
         color: '#92704a',
-        rect: [480, 0, 64, 1024],
+        polygon: [
+          [477, 0],
+          [544, 0],
+          [548, 150],
+          [537, 310],
+          [541, 475],
+          [554, 640],
+          [547, 820],
+          [542, 1024],
+          [478, 1024],
+          [482, 820],
+          [475, 650],
+          [479, 480],
+          [470, 310],
+          [481, 150]
+        ],
         visualOnly: true
       }
     ],

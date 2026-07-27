@@ -202,6 +202,128 @@ test('family definition rejects stable key/id mismatches', () => {
   assert.throws(() => validateFamilyDefinition(invalid), /formations key\/id mismatch/);
 });
 
+test('family definition validates explicit support-ammunition allocations', () => {
+  const family = createFamily();
+  const formation =
+    family.formations.FRENCH_CHASSEURS_PORTES_SQUAD;
+  const transfer = formation.supportAmmunitionTransfers[0];
+  const invalidFamily = replacement => ({
+    ...family,
+    formations: {
+      ...family.formations,
+      FRENCH_CHASSEURS_PORTES_SQUAD: {
+        ...formation,
+        supportAmmunitionTransfers: [replacement]
+      }
+    }
+  });
+
+  assert.throws(
+    () => validateFamilyDefinition(invalidFamily({
+      ...transfer,
+      donorSoldierId: 'missing-donor'
+    })),
+    /unknown donor/
+  );
+  assert.throws(
+    () => validateFamilyDefinition(invalidFamily({
+      ...transfer,
+      recipientSoldierId: transfer.donorSoldierId
+    })),
+    /donor and recipient must differ/
+  );
+  assert.throws(
+    () => validateFamilyDefinition(invalidFamily({
+      ...transfer,
+      weaponId: 'MAS36'
+    })),
+    /recipient .* carries FM2429, not MAS36/
+  );
+  assert.throws(
+    () => validateFamilyDefinition(invalidFamily({
+      ...transfer,
+      carriedRounds: 0
+    })),
+    /carriedRounds must be a positive integer/
+  );
+  assert.throws(
+    () => validateFamilyDefinition(invalidFamily({
+      ...transfer,
+      handoffRounds: transfer.carriedRounds + 1
+    })),
+    /handoffRounds cannot exceed carriedRounds/
+  );
+  assert.throws(
+    () => validateFamilyDefinition(invalidFamily({
+      ...transfer,
+      rangeMeters: Number.NaN
+    })),
+    /rangeMeters must be positive and finite/
+  );
+  assert.throws(
+    () => validateFamilyDefinition(invalidFamily({
+      ...transfer,
+      dataQuality: 'unknown'
+    })),
+    /requires a historical, sourced, inferred, or approximation label/
+  );
+
+  const independent = {
+    ...transfer,
+    id: 'second-support-feed',
+    donorSoldierId: 'rifleman-2',
+    recipientSoldierId: 'rifleman-1',
+    weaponId: 'MAS36',
+    carriedRounds: 5,
+    handoffRounds: 5
+  };
+  const invalidTransfers = transfers => ({
+    ...family,
+    formations: {
+      ...family.formations,
+      FRENCH_CHASSEURS_PORTES_SQUAD: {
+        ...formation,
+        supportAmmunitionTransfers: transfers
+      }
+    }
+  });
+  assert.throws(
+    () => validateFamilyDefinition(invalidTransfers([
+      transfer,
+      { ...independent, id: transfer.id }
+    ])),
+    /duplicate support ammunition transfer id/
+  );
+  assert.throws(
+    () => validateFamilyDefinition(invalidTransfers([
+      transfer,
+      { ...independent, donorSoldierId: transfer.donorSoldierId }
+    ])),
+    /multiple support ammunition transfers to donor/
+  );
+  assert.throws(
+    () => validateFamilyDefinition(invalidTransfers([
+      transfer,
+      {
+        ...independent,
+        recipientSoldierId: transfer.recipientSoldierId,
+        weaponId: transfer.weaponId
+      }
+    ])),
+    /multiple support ammunition transfers to recipient/
+  );
+  assert.throws(
+    () => validateFamilyDefinition(invalidTransfers([
+      transfer,
+      {
+        ...independent,
+        donorSoldierId: transfer.recipientSoldierId
+      }
+    ])),
+    /reuses support ammunition endpoint automatic-rifleman/
+  );
+});
+
 test('France 1940 owns canonical frozen catalogs and ignores obsolete adapters', () => {
   const weapons = {
     TEST_RIFLE: { id: 'TEST_RIFLE' }

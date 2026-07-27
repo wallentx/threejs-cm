@@ -213,6 +213,51 @@ test('family resolver expands an ordered formation into a fresh authoritative ro
   assert.equal(nextResolution[0].roster[0].health, 100);
 });
 
+test('production resolver conserves and isolates assistant-gunner support feeds', () => {
+  const first = resolveScenarioUnitDefinitions(
+    STONNE_1940_SCENARIO,
+    PRODUCTION_FAMILY_REGISTRY
+  );
+  const second = resolveScenarioUnitDefinitions(
+    STONNE_1940_SCENARIO,
+    PRODUCTION_FAMILY_REGISTRY
+  );
+  for (const [unitId, weaponId, feedRounds] of [
+    ['fr_sq1', 'FM2429', 25],
+    ['ger_sq1', 'MG34', 50]
+  ]) {
+    const firstUnit = first.find(unit => unit.id === unitId);
+    const secondUnit = second.find(unit => unit.id === unitId);
+    const donor = firstUnit.roster.find(member =>
+      member.id === 'assistant-gunner');
+    const recipient = firstUnit.roster.find(member =>
+      member.id === 'automatic-rifleman');
+    const weapon =
+      PRODUCTION_FAMILY_REGISTRY.require('france-1940')
+        .catalogs.weapons[weaponId];
+
+    assert.equal(donor.supportAmmunitionTransfer.weaponId, weaponId);
+    assert.equal(
+      donor.supportAmmunitionTransfer.remainingRounds,
+      feedRounds
+    );
+    assert.equal(
+      recipient.magazineAmmo
+        + recipient.reserveAmmo
+        + donor.supportAmmunitionTransfer.remainingRounds,
+      weapon.carriedAmmo
+    );
+    const secondDonor = secondUnit.roster.find(member =>
+      member.id === 'assistant-gunner');
+    assert.notEqual(
+      donor.supportAmmunitionTransfer,
+      secondDonor.supportAmmunitionTransfer
+    );
+    donor.supportAmmunitionTransfer.elapsedSeconds = 2;
+    assert.equal(secondDonor.supportAmmunitionTransfer.elapsedSeconds, 0);
+  }
+});
+
 test('formation reordering preserves stable soldier identity and equipment ownership', () => {
   const section = FAMILY_FIXTURE.formations.FRENCH_SECTION;
   const reorderedFamily = {

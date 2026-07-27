@@ -11,6 +11,23 @@ function createCanvas(width, height) {
   return canvas;
 }
 
+export function drawTerrainSurfaceLayers(context, layers) {
+  for (const layer of layers) {
+    context.fillStyle = layer.color;
+    if (Object.hasOwn(layer, 'rect')) {
+      context.fillRect(...layer.rect);
+      continue;
+    }
+    context.beginPath();
+    context.moveTo(...layer.polygon[0]);
+    for (let index = 1; index < layer.polygon.length; index++) {
+      context.lineTo(...layer.polygon[index]);
+    }
+    context.closePath();
+    context.fill();
+  }
+}
+
 function createGroundTexture(surfaces) {
   const [width, height] = surfaces.textureResolution;
   const canvas = createCanvas(width, height);
@@ -18,10 +35,7 @@ function createGroundTexture(surfaces) {
   if (!context) return null;
   context.fillStyle = surfaces.baseColor;
   context.fillRect(0, 0, width, height);
-  for (const layer of surfaces.layers) {
-    context.fillStyle = layer.color;
-    context.fillRect(...layer.rect);
-  }
+  drawTerrainSurfaceLayers(context, surfaces.layers);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.wrapS = THREE.RepeatWrapping;
@@ -97,6 +111,11 @@ function createSurfaceSet(surfaces) {
       roughness: surfaces.terrainMaterial.roughness,
       metalness: surfaces.terrainMaterial.metalness
     }), 'ground'),
+    riverBank: markMaterial(new THREE.MeshStandardMaterial({
+      color: surfaces.riverBankMaterial.color,
+      roughness: surfaces.riverBankMaterial.roughness,
+      metalness: surfaces.riverBankMaterial.metalness
+    }), 'river-bank'),
     water: markMaterial(new THREE.MeshStandardMaterial({
       color: surfaces.waterMaterial.color,
       transparent: true,

@@ -207,6 +207,36 @@ function freezeInternalLayout(vehicle) {
   });
 }
 
+function freezeCrewTaskPolicy(vehicle) {
+  if (!vehicle.crewTaskPolicy) return null;
+  const replacement = vehicle.crewTaskPolicy.mainGunnerReplacement;
+  if (
+    vehicle.crewTaskPolicy.schemaVersion !== 1
+    || !replacement
+    || typeof replacement.id !== 'string'
+    || replacement.id.length === 0
+    || typeof replacement.targetRole !== 'string'
+    || !vehicle.gunnerRoles?.includes(replacement.targetRole)
+    || !Array.isArray(replacement.candidateRoles)
+    || replacement.candidateRoles.length === 0
+    || replacement.candidateRoles.some(role =>
+      role === replacement.targetRole
+      || !vehicle.crew.some(crewman => crewman.role === role))
+    || !Number.isFinite(replacement.delaySeconds)
+    || replacement.delaySeconds <= 0
+    || !/gameplay approximation/i.test(replacement.dataQuality ?? '')
+  ) {
+    throw new TypeError(`Vehicle ${vehicle.id} has an invalid crew-task policy`);
+  }
+  return Object.freeze({
+    schemaVersion: 1,
+    mainGunnerReplacement: Object.freeze({
+      ...replacement,
+      candidateRoles: Object.freeze([...replacement.candidateRoles])
+    })
+  });
+}
+
 function freezeVehicle(vehicle) {
   const hasNominalArmor = Object.values(vehicle.armorMm ?? {})
     .some(value => Number(value) > 0);
@@ -223,6 +253,7 @@ function freezeVehicle(vehicle) {
     driverRoles: Object.freeze([...(vehicle.driverRoles ?? ['DRIVER'])]),
     gunnerRoles: Object.freeze([...(vehicle.gunnerRoles ?? [])]),
     loaderRoles: Object.freeze([...(vehicle.loaderRoles ?? [])]),
+    crewTaskPolicy: freezeCrewTaskPolicy(vehicle),
     mainGun: vehicle.mainGun ? Object.freeze({ ...vehicle.mainGun }) : null,
     ammunition: Object.freeze({ ap: 0, he: 0, ...vehicle.ammunition }),
     movementMps: Object.freeze({ ...vehicle.movementMps }),
@@ -717,6 +748,20 @@ export const FRANCE_1940_VEHICLES = Object.freeze({
     observationEquipment: observationEquipment(['COMMANDER']),
     gunnerRoles: ['GUNNER'],
     loaderRoles: ['LOADER'],
+    crewTaskPolicy: {
+      schemaVersion: 1,
+      mainGunnerReplacement: {
+        id: 'panzer-iii-d-commander-main-gunner-v1',
+        targetRole: 'GUNNER',
+        candidateRoles: ['COMMANDER'],
+        delaySeconds: 12,
+        dataQuality: [
+          'gameplay approximation',
+          'commander eligibility and 12-second task-transfer delay are not historical timing claims'
+        ].join('; '),
+        referenceUrl: null
+      }
+    },
     mainGun: { ap: 'KWK36_AP', he: 'KWK36_HE' },
     ammunition: { ap: 72, he: 48 },
     movementMps: movement(2.7, 3.8, 5.5, 2.1),

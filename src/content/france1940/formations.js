@@ -7,17 +7,35 @@ function freezeMembers(members) {
   return Object.freeze(members.map(member => Object.freeze({ ...member })));
 }
 
-function freezeFormation({ id, factionId, name, namePrefix, members }) {
+function freezeSupportAmmunitionTransfers(transfers = []) {
+  return Object.freeze(
+    transfers.map(transfer => Object.freeze({ ...transfer }))
+  );
+}
+
+function freezeFormation({
+  id,
+  factionId,
+  name,
+  namePrefix,
+  members,
+  supportAmmunitionTransfers
+}) {
   return Object.freeze({
     id,
     factionId,
     name,
     namePrefix,
     members: freezeMembers(members),
+    supportAmmunitionTransfers:
+      freezeSupportAmmunitionTransfers(supportAmmunitionTransfers),
     provenance: PROVENANCE,
     dataQuality: PROVENANCE.dataQuality
   });
 }
+
+const SUPPORT_AMMUNITION_DATA_QUALITY =
+  'gameplay approximation for same-squad feed allocation, range, and handoff time';
 
 export const FRANCE_1940_FORMATIONS = Object.freeze({
   FRENCH_CHASSEURS_PORTES_SQUAD: freezeFormation({
@@ -32,6 +50,19 @@ export const FRANCE_1940_FORMATIONS = Object.freeze({
       { id: 'rifleman-2', name: 'Chasseur 4', role: 'Rifleman', weaponId: 'MAS36' },
       { id: 'assistant-gunner', name: 'Chasseur 5', role: 'Assistant Gunner', weaponId: 'MAS36' },
       { id: 'assistant-leader', name: 'Chasseur 6', role: 'Assistant Leader', weaponId: 'MAS38' }
+    ],
+    supportAmmunitionTransfers: [
+      {
+        id: 'french-fm2429-assistant-feed',
+        donorSoldierId: 'assistant-gunner',
+        recipientSoldierId: 'automatic-rifleman',
+        weaponId: 'FM2429',
+        carriedRounds: 25,
+        handoffRounds: 25,
+        rangeMeters: 2,
+        delaySeconds: 3,
+        dataQuality: SUPPORT_AMMUNITION_DATA_QUALITY
+      }
     ]
   }),
   GERMAN_GRENADIER_SQUAD_1940: freezeFormation({
@@ -46,6 +77,19 @@ export const FRANCE_1940_FORMATIONS = Object.freeze({
       { id: 'rifleman-2', name: 'Grenadier 4', role: 'Rifleman', weaponId: 'KAR98K' },
       { id: 'assistant-gunner', name: 'Grenadier 5', role: 'Assistant Gunner', weaponId: 'KAR98K' },
       { id: 'assistant-leader', name: 'Grenadier 6', role: 'Assistant Leader', weaponId: 'MP40' }
+    ],
+    supportAmmunitionTransfers: [
+      {
+        id: 'german-mg34-assistant-feed',
+        donorSoldierId: 'assistant-gunner',
+        recipientSoldierId: 'automatic-rifleman',
+        weaponId: 'MG34',
+        carriedRounds: 50,
+        handoffRounds: 50,
+        rangeMeters: 2,
+        delaySeconds: 3,
+        dataQuality: SUPPORT_AMMUNITION_DATA_QUALITY
+      }
     ]
   })
 });

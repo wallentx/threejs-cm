@@ -7,6 +7,13 @@ import {
   recordFireControlShot,
   resetFireControlState
 } from '../simulation/combat/FireControl.js';
+import {
+  captureInfantryAmmunitionTransferState,
+  restoreInfantryAmmunitionTransferState
+} from '../simulation/infantry/InfantryAmmunitionTransfer.js';
+import {
+  restoreThreatMemory
+} from '../simulation/infantry/ThreatMemory.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const MAX_INFANTRY_ROUNDS_PER_STEP = 64;
@@ -48,6 +55,11 @@ export class SoldierAgent {
     this.magazineAmmo = record.magazineAmmo ?? weapon?.magazineSize ?? 0;
     this.reserveAmmo = record.reserveAmmo
       ?? Math.max(0, (weapon?.carriedAmmo ?? 0) - this.magazineAmmo);
+    this.supportAmmunitionTransfer =
+      restoreInfantryAmmunitionTransferState(
+        record.supportAmmunitionTransfer
+      );
+    this.threatMemory = restoreThreatMemory(record.threatMemory);
     this.reloadTimer = record.reloadTimer ?? 0;
     this.burstRemaining = record.burstRemaining ?? 0;
     this.roundsFired = record.roundsFired ?? 0;
@@ -93,16 +105,25 @@ export class SoldierAgent {
 
   capture() {
     this.syncRecord();
-    return {
+    const snapshot = {
       ...this.record,
       worldPosition: [...this.record.worldPosition],
       velocity: [...this.record.velocity],
       slotOffset: [...this.record.slotOffset],
       fireControl: captureFireControlState(this.fireControl),
+      supportAmmunitionTransfer:
+        captureInfantryAmmunitionTransferState(
+          this.supportAmmunitionTransfer
+        ),
+      threatMemory: this.threatMemory.captureState(),
       buildingLocation: this.record.buildingLocation
         ? JSON.parse(JSON.stringify(this.record.buildingLocation))
         : null
     };
+    if (!snapshot.supportAmmunitionTransfer) {
+      delete snapshot.supportAmmunitionTransfer;
+    }
+    return snapshot;
   }
 
   restore(record) {
@@ -128,6 +149,11 @@ export class SoldierAgent {
     this.magazineAmmo = record.magazineAmmo ?? weapon?.magazineSize ?? 0;
     this.reserveAmmo = record.reserveAmmo
       ?? Math.max(0, (weapon?.carriedAmmo ?? 0) - this.magazineAmmo);
+    this.supportAmmunitionTransfer =
+      restoreInfantryAmmunitionTransferState(
+        record.supportAmmunitionTransfer
+      );
+    this.threatMemory = restoreThreatMemory(record.threatMemory);
     this.reloadTimer = record.reloadTimer ?? 0;
     this.burstRemaining = record.burstRemaining ?? 0;
     this.roundsFired = record.roundsFired ?? 0;
@@ -166,11 +192,20 @@ export class SoldierAgent {
       targetUnitId: this.targetUnitId,
       targetSoldierId: this.targetSoldierId,
       fireControl: captureFireControlState(this.fireControl),
+      threatMemory: this.threatMemory.captureState(),
       buildingLocation: this.buildingLocation
         ? JSON.parse(JSON.stringify(this.buildingLocation))
         : null,
       commandWaypoint: this.commandWaypoint
     });
+    if (this.supportAmmunitionTransfer) {
+      this.record.supportAmmunitionTransfer =
+        captureInfantryAmmunitionTransferState(
+          this.supportAmmunitionTransfer
+        );
+    } else {
+      delete this.record.supportAmmunitionTransfer;
+    }
   }
 
   updateMovement(delta, terrain, context = {}) {

@@ -10,12 +10,111 @@ function markResource(resource, role) {
   return resource;
 }
 
+// Renderer-only gameplay approximations. These colors, lifetimes, scales, and
+// shard behavior distinguish debris at a glance; they are not historical
+// evidence or authoritative building-material properties.
+const BUILDING_DEBRIS_MATERIAL_STYLES = Object.freeze({
+  masonry: Object.freeze({
+    id: 'masonry',
+    color: 0xa58f73,
+    initialOpacity: 0.94,
+    maxLife: 0.9,
+    growthPerSecond: 0.7,
+    initialScale: 0.82
+  }),
+  timber: Object.freeze({
+    id: 'timber',
+    color: 0x795333,
+    initialOpacity: 0.92,
+    maxLife: 1.05,
+    growthPerSecond: 0.55,
+    initialScale: 0.76
+  }),
+  roofTile: Object.freeze({
+    id: 'roof-tile',
+    color: 0x8f4634,
+    initialOpacity: 0.95,
+    maxLife: 0.82,
+    growthPerSecond: 0.82,
+    initialScale: 0.72
+  }),
+  mixed: Object.freeze({
+    id: 'mixed',
+    color: 0x8c6f52,
+    initialOpacity: 0.93,
+    maxLife: 0.98,
+    growthPerSecond: 0.62,
+    initialScale: 0.8
+  }),
+  fallback: Object.freeze({
+    id: 'fallback',
+    color: 0x77736c,
+    initialOpacity: 0.9,
+    maxLife: 0.86,
+    growthPerSecond: 0.6,
+    initialScale: 0.74
+  })
+});
+
+const BUILDING_DEBRIS_SEVERITY_SCALE = Object.freeze({
+  damaged: 0.72,
+  breached: 1,
+  collapsed: 1.38
+});
+
+const BUILDING_DEBRIS_RESOLVED_STYLES = Object.freeze(
+  Object.fromEntries(
+    Object.entries(BUILDING_DEBRIS_MATERIAL_STYLES).map(([family, style]) => [
+      family,
+      Object.freeze(Object.fromEntries(
+        Object.entries(BUILDING_DEBRIS_SEVERITY_SCALE).map(
+          ([severity, scale]) => [
+            severity,
+            Object.freeze({
+              ...style,
+              severity,
+              initialScale: style.initialScale * scale,
+              maxLife: style.maxLife * (0.85 + scale * 0.15)
+            })
+          ]
+        )
+      ))
+    ])
+  )
+);
+
+function buildingDebrisMaterialFamily(materialLabel) {
+  const label = String(materialLabel ?? '').trim().toLowerCase();
+  const hasTile = label.includes('tile') || label.includes('roof');
+  const hasTimber = label.includes('timber') || label.includes('wood');
+  const hasMasonry = label.includes('masonry')
+    || label.includes('stone')
+    || label.includes('brick');
+  if (hasTile) return 'roofTile';
+  if (label.includes('mixed') || (hasTimber && hasMasonry)) return 'mixed';
+  if (hasMasonry) return 'masonry';
+  if (hasTimber) return 'timber';
+  return 'fallback';
+}
+
+function resolveBuildingDebrisStyle(materialLabel, severity = 'damaged') {
+  const family = buildingDebrisMaterialFamily(materialLabel);
+  const severityKey = Object.hasOwn(BUILDING_DEBRIS_SEVERITY_SCALE, severity)
+    ? severity
+    : 'damaged';
+  return BUILDING_DEBRIS_RESOLVED_STYLES[family][severityKey];
+}
+
 function createCombatResources() {
   const effectGeometries = Object.freeze({
     impact: markResource(new THREE.SphereGeometry(0.16, 6, 5), 'combat-impact'),
     explosion: markResource(
       new THREE.SphereGeometry(2.5, 12, 12),
       'combat-explosion'
+    ),
+    buildingDebris: markResource(
+      new THREE.TetrahedronGeometry(0.34, 0),
+      'combat-building-debris'
     )
   });
   const styles = Object.freeze({
@@ -23,16 +122,23 @@ function createCombatResources() {
       color: 0xffb347,
       initialOpacity: 0.9,
       maxLife: 0.18,
-      growthPerSecond: 2.4
+      growthPerSecond: 2.4,
+      initialScale: 1
     }),
     explosion: Object.freeze({
       color: 0xff4500,
       initialOpacity: 0.9,
       maxLife: 0.6,
-      growthPerSecond: 2.4
-    })
+      growthPerSecond: 2.4,
+      initialScale: 1
+    }),
+    buildingDebris: BUILDING_DEBRIS_MATERIAL_STYLES.fallback
   });
-  const effectCaps = Object.freeze({ impact: 48, explosion: 12 });
+  const effectCaps = Object.freeze({
+    impact: 48,
+    explosion: 12,
+    buildingDebris: 24
+  });
   const projectileResources = new Map();
   let disposed = false;
   return Object.freeze({
@@ -40,6 +146,7 @@ function createCombatResources() {
     effectGeometries,
     effectCaps,
     styles,
+    resolveBuildingDebrisStyle,
     createEffectMaterial(kind) {
       const style = styles[kind];
       if (!style) throw new Error(`unknown combat VFX role ${kind}`);

@@ -27,7 +27,10 @@ function createDeterministicRandom(seed = 0x7f4a7c15) {
   };
 }
 
-function createBattle() {
+function createBattle({
+  sound = {},
+  onAuditoryEvent = null
+} = {}) {
   const attacker = new Unit({
     id: 'rollback_attacker',
     faction: 'french',
@@ -43,8 +46,9 @@ function createBattle() {
   const scene = new THREE.Scene();
   scene.add(attacker.mesh, target.mesh);
   const random = createDeterministicRandom();
-  const combat = new CombatSystem(scene, {}, () => random.next(), {
+  const combat = new CombatSystem(scene, sound, () => random.next(), {
     getUnits: () => [attacker, target],
+    onAuditoryEvent,
     vfxProvider: TEST_VFX_PROVIDER
   });
   const unitMap = new Map([
@@ -317,5 +321,57 @@ test('internal penetration paths and multiple crew results deep-copy through tel
   assert.deepEqual(combat.telemetry.impacts[0].exitPosition, [1, 2, 1]);
   assert.deepEqual(combat.telemetry.impacts[0].exitResult.point, [1, 2, 1]);
   assert.deepEqual(combat.telemetry.impacts[0].exitResult.normal, [0, 0, 1]);
+  combat.reset();
+});
+
+test('weapon-report events replay from shot sequence and ignore presentation-audio failure', () => {
+  const events = [];
+  const battle = createBattle({
+    sound: {
+      playWeapon() {
+        throw new Error('presentation audio unavailable');
+      }
+    },
+    onAuditoryEvent(event) {
+      events.push(JSON.parse(JSON.stringify(event)));
+    }
+  });
+  const { attacker, target, combat, random, unitMap } = battle;
+  const beforeShot = combat.captureState();
+  const beforeRandom = random.capture();
+  const options = {
+    weapon: getWeapon('SA35_AP'),
+    muzzlePosition: attacker.getMuzzleWorldPosition(),
+    dispersionScale: 0
+  };
+
+  assert.equal(combat.fireWeapon(attacker, target, target.position, options), true);
+  assert.equal(combat.projectiles.length, 1);
+  assert.equal(combat.telemetry.shotsFired, 1);
+  assert.equal(events.length, 1);
+  const firstEvent = events[0];
+  assert.equal(firstEvent.id, 'weapon-report:000000000001');
+  assert.equal(firstEvent.shotSequence, 1);
+  assert.equal(firstEvent.sourceUnitId, attacker.id);
+  assert.equal(firstEvent.sourceFaction, attacker.faction);
+  assert.deepEqual(firstEvent.origin, options.muzzlePosition.toArray());
+  const afterShot = combat.captureState();
+
+  combat.restoreState(beforeShot, unitMap);
+  random.restore(beforeRandom);
+  events.length = 0;
+  assert.equal(combat.fireWeapon(attacker, target, target.position, options), true);
+  assert.deepEqual(events, [firstEvent]);
+  assert.deepEqual(combat.captureState(), afterShot);
+
+  combat.restoreState(afterShot, unitMap);
+  events.length = 0;
+  assert.equal(combat.fireWeapon(attacker, target, target.position, options), true);
+  assert.equal(events[0].id, 'weapon-report:000000000002');
+  assert.equal(events[0].shotSequence, 2);
+
+  const eventCount = events.length;
+  assert.equal(combat.fireWeapon(null, target, target.position, options), false);
+  assert.equal(events.length, eventCount, 'rejected fire must emit no weapon report');
   combat.reset();
 });

@@ -253,6 +253,8 @@ export class GameApp {
       this.combat = new CombatSystem(this.scene, this.sound, () => this.random(), {
         terrain: this.terrain,
         getUnits: () => this.units,
+        onAuditoryEvent: event =>
+          this.spotting.recordAuditoryEvent(event, this.units),
         buildingSystem: this.buildingSystem,
         onOccupantConsequences: consequences =>
           this.buildingInteraction.handleOccupantConsequences(consequences),
@@ -602,6 +604,12 @@ export class GameApp {
     });
     this.buildingInteraction.advance(delta);
     this.syncBuildingInteriorPresentation();
+    // Building transit owns door/stair movement after ordinary unit movement.
+    // Support-ammunition eligibility must therefore sample the final
+    // individual positions for this step, before any combat consumes reserve.
+    for (const unit of this.units) {
+      unit.soldierAI?.advanceSupportAmmunitionTransfers(delta);
+    }
     // Observation is authoritative simulation state. Advance it exactly once,
     // after movement/collision and before any weapon may select a target.
     this.spotting.advance(this.units, delta);

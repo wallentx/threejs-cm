@@ -119,7 +119,52 @@ export class CommandSystem {
         }
         this.activeUnit.soldierAI?.syncMeshes();
       } else {
-        this.activeUnit.addWaypoint(pointVec3, orderType);
+        if (this.activeUnit.type === 'infantry_squad') {
+          const pendingWaypoint = this.activeUnit.currentWaypointIndex < this.activeUnit.waypoints.length
+            ? this.activeUnit.waypoints[this.activeUnit.waypoints.length - 1]
+            : null;
+          const routeStart = pendingWaypoint?.position ?? this.activeUnit.position;
+          // Unit advances to the next waypoint once its anchor is within 0.8 m.
+          // Keep formation goals clear even at that early-acceptance boundary.
+          const waypointArrivalTolerance = 0.8;
+          const formationClearance = Math.max(
+            0,
+            ...(this.activeUnit.soldierAI?.getLivingAgents?.().map(agent => {
+              const offset = this.activeUnit.soldierAI.getFormationOffset?.(agent.index, orderType);
+              return typeof offset?.length === 'function' ? offset.length() : 0;
+            }) ?? [])
+          ) + waypointArrivalTolerance;
+          const plannedRoute = this.activeUnit.collisionWorld?.getNavigationPath?.(
+            { x: routeStart.x, z: routeStart.z },
+            { x: pointVec3.x, z: pointVec3.z },
+            this.activeUnit.collisionRadius,
+            'infantry',
+            { waypointClearance: formationClearance }
+          );
+          const routePoints = Array.isArray(plannedRoute) && plannedRoute.length > 0
+            ? plannedRoute
+            : [{ x: pointVec3.x, z: pointVec3.z }];
+          for (let index = 0; index < routePoints.length; index++) {
+            const routePoint = routePoints[index];
+            const isDestination = index === routePoints.length - 1
+              && routePoint.x === pointVec3.x
+              && routePoint.z === pointVec3.z;
+            if (!isDestination && routePoint.x === routeStart.x && routePoint.z === routeStart.z) {
+              continue;
+            }
+            const y = isDestination
+              ? pointVec3.y
+              : this.terrain?.getMovementHeightAt?.(routePoint.x, routePoint.z)
+                ?? this.terrain?.getHeightAt?.(routePoint.x, routePoint.z)
+                ?? pointVec3.y;
+            this.activeUnit.addWaypoint(
+              new THREE.Vector3(routePoint.x, y, routePoint.z),
+              orderType
+            );
+          }
+        } else {
+          this.activeUnit.addWaypoint(pointVec3, orderType);
+        }
       }
       this.renderOverlays();
       return true;

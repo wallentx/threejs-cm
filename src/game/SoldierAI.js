@@ -5,6 +5,13 @@ import {
   applyInfantrySecondaryPose,
   bindInfantryHandsToWeapon
 } from '../world/infantry/index.js';
+import {
+  advanceInfantryAmmunitionTransfer,
+  captureInfantryAmmunitionTransferState
+} from '../simulation/infantry/InfantryAmmunitionTransfer.js';
+import {
+  cloneThreatMemoryState
+} from '../simulation/infantry/ThreatMemory.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const scratchGoal = new THREE.Vector3();
@@ -24,7 +31,7 @@ function hash01(value) {
 }
 
 function copySoldier(soldier) {
-  return {
+  const copy = {
     ...soldier,
     worldPosition: [...soldier.worldPosition],
     velocity: [...soldier.velocity],
@@ -44,16 +51,49 @@ function copySoldier(soldier) {
           impactPosition: soldier.tacticalDecision.impactPosition
             ? [...soldier.tacticalDecision.impactPosition]
             : null,
+          threatMemoryPosition: soldier.tacticalDecision.threatMemoryPosition
+            ? [...soldier.tacticalDecision.threatMemoryPosition]
+            : null,
           goal: soldier.tacticalDecision.goal ? [...soldier.tacticalDecision.goal] : null
         }
-      : null
+      : null,
+    supportAmmunitionTransfer:
+      captureInfantryAmmunitionTransferState(
+        soldier.supportAmmunitionTransfer
+      ),
+    threatMemory: cloneThreatMemoryState(soldier.threatMemory)
   };
+  if (!copy.supportAmmunitionTransfer) {
+    delete copy.supportAmmunitionTransfer;
+  }
+  return copy;
 }
 
 function readPosition(value, target) {
   if (value?.isVector3) return target.copy(value);
   if (Array.isArray(value) && value.length >= 3) return target.fromArray(value);
   return null;
+}
+
+function isFinitePosition(position) {
+  return Boolean(
+    position
+    && Number.isFinite(position.x)
+    && Number.isFinite(position.y)
+    && Number.isFinite(position.z)
+  );
+}
+
+function isStableIncomingFireEventId(value) {
+  return (typeof value === 'string' && value.length > 0)
+    || (typeof value === 'number' && Number.isFinite(value));
+}
+
+function canReactToThreat(agent) {
+  return Boolean(
+    agent.isAlive
+    && !['INCAPACITATED', 'DEAD'].includes(agent.status)
+  );
 }
 
 function segmentIntersectsBounds(start, end, bounds) {
@@ -261,6 +301,10 @@ export class SoldierAI {
       const agent = this.agents[index];
       const soldier = agent.record;
       advanceInfantryAnimation(soldier, dt);
+      const canReact = canReactToThreat(agent);
+      const rememberedThreat = canReact
+        ? agent.threatMemory.advance(dt)
+        : null;
 
       soldier.incomingFireTimer = Math.max(0, (soldier.incomingFireTimer ?? 0) - dt);
       if (soldier.incomingFireTimer === 0) soldier.incomingFireIntensity = 0;
@@ -290,14 +334,23 @@ export class SoldierAI {
         ? 'incoming-fire'
         : soldier.casualtyResponseTimer > 0
           ? 'casualty-response'
-          : (agent.suppression >= 35 ? 'suppression-reaction' : null);
-      const threatPosition = (soldier.incomingFireTimer > 0 || agent.suppression >= 35)
+          : rememberedThreat
+            ? 'threat-memory'
+            : agent.suppression >= 35
+              ? 'suppression-reaction'
+              : null;
+      const threatPosition = reactionReason === 'threat-memory'
         ? (
-            readPosition(soldier.incomingThreatPosition, scratchThreat)
+            readPosition(rememberedThreat.threatPosition, scratchThreat)
             ?? fallbackThreatPosition
           )
-        : fallbackThreatPosition;
-      const cover = reactionReason && agent.isAlive
+        : (soldier.incomingFireTimer > 0 || agent.suppression >= 35)
+          ? (
+              readPosition(soldier.incomingThreatPosition, scratchThreat)
+              ?? fallbackThreatPosition
+            )
+          : fallbackThreatPosition;
+      const cover = reactionReason && canReact
         ? selectNearbyCover(agent, terrain, threatPosition, this.agents)
         : null;
       if (cover) goal.copy(cover.position);
@@ -325,6 +378,22 @@ export class SoldierAI {
         (soldier.incomingFireIntensity ?? 0).toFixed(4)
       );
       decision.incomingFireEventVersion = soldier.incomingFireEventVersion ?? 0;
+      decision.threatMemoryEventId = rememberedThreat?.eventId ?? null;
+      decision.threatMemoryAgeSeconds = rememberedThreat
+        ? Number(rememberedThreat.ageSeconds.toFixed(9))
+        : null;
+      decision.threatMemoryScore = rememberedThreat
+        ? Number(rememberedThreat.score.toFixed(9))
+        : null;
+      if (rememberedThreat) {
+        const memoryPosition = decision.threatMemoryPosition ?? [0, 0, 0];
+        memoryPosition[0] = rememberedThreat.threatPosition[0];
+        memoryPosition[1] = rememberedThreat.threatPosition[1];
+        memoryPosition[2] = rememberedThreat.threatPosition[2];
+        decision.threatMemoryPosition = memoryPosition;
+      } else {
+        decision.threatMemoryPosition = null;
+      }
       if (threatPosition?.isVector3) {
         const threatArray = decision.threatPosition ?? [0, 0, 0];
         threatArray[0] = threatPosition.x;
@@ -334,11 +403,14 @@ export class SoldierAI {
       } else {
         decision.threatPosition = null;
       }
-      if (soldier.incomingImpactPosition) {
+      const decisionImpactPosition = reactionReason === 'threat-memory'
+        ? rememberedThreat?.impactPosition
+        : soldier.incomingImpactPosition;
+      if (decisionImpactPosition) {
         const impactArray = decision.impactPosition ?? [0, 0, 0];
-        impactArray[0] = soldier.incomingImpactPosition[0];
-        impactArray[1] = soldier.incomingImpactPosition[1];
-        impactArray[2] = soldier.incomingImpactPosition[2];
+        impactArray[0] = decisionImpactPosition[0];
+        impactArray[1] = decisionImpactPosition[1];
+        impactArray[2] = decisionImpactPosition[2];
         decision.impactPosition = impactArray;
       } else {
         decision.impactPosition = null;
@@ -378,10 +450,46 @@ export class SoldierAI {
     this.syncMeshes();
   }
 
+  advanceSupportAmmunitionTransfers(deltaSeconds) {
+    const byId = new Map(this.agents.map(agent => [agent.id, agent]));
+    const donors = this.agents
+      .filter(agent => agent.supportAmmunitionTransfer)
+      .sort((left, right) =>
+        String(left.id).localeCompare(String(right.id)));
+    let transferredRounds = 0;
+    for (const donor of donors) {
+      const state = donor.supportAmmunitionTransfer;
+      const recipient = byId.get(state.recipientSoldierId) ?? null;
+      const distanceMeters = recipient
+        ? donor.position.distanceTo(recipient.position)
+        : Infinity;
+      const result = advanceInfantryAmmunitionTransfer(
+        state,
+        { donor, recipient, distanceMeters },
+        deltaSeconds
+      );
+      donor.supportAmmunitionTransfer = result.state;
+      if (result.transferRounds > 0 && recipient) {
+        recipient.reserveAmmo += result.transferRounds;
+        recipient.syncRecord();
+        transferredRounds += result.transferRounds;
+      }
+      donor.syncRecord();
+    }
+    return transferredRounds;
+  }
+
   registerIncomingFire(threatPosition, impactPosition, options = {}) {
-    const threat = readPosition(threatPosition, scratchThreat);
-    const impact = readPosition(impactPosition, scratchImpact);
+    const readThreat = readPosition(threatPosition, scratchThreat);
+    const readImpact = readPosition(impactPosition, scratchImpact);
+    const threat = isFinitePosition(readThreat) ? readThreat : null;
+    const impact = isFinitePosition(readImpact) ? readImpact : null;
     if (!impact) return 0;
+    if (options.projectileId !== undefined
+        && options.projectileId !== null
+        && !isStableIncomingFireEventId(options.projectileId)) {
+      throw new TypeError('incoming-fire projectileId must be a non-empty stable ID');
+    }
     const radius = Math.max(0.5, Number.isFinite(options.radius) ? options.radius : 10);
     const intensity = THREE.MathUtils.clamp(
       Number.isFinite(options.intensity) ? options.intensity : 1,
@@ -390,7 +498,7 @@ export class SoldierAI {
     );
     let reacting = 0;
     for (const agent of this.agents) {
-      if (!agent.isAlive) continue;
+      if (!canReactToThreat(agent)) continue;
       const distance = agent.position.distanceTo(impact);
       if (distance > radius) continue;
       const exposure = 1 - distance / radius;
@@ -399,14 +507,30 @@ export class SoldierAI {
       );
       const timer = 1.35 + exposure * 1.85 + variation * 0.3;
       const suppression = intensity * exposure * 9;
+      const incomingFireEventVersion =
+        (agent.record.incomingFireEventVersion ?? 0) + 1;
+      const eventId = options.projectileId ?? [
+        'local-incoming-fire',
+        this.unit.id,
+        agent.id,
+        incomingFireEventVersion
+      ].join(':');
       agent.suppression = Math.min(100, agent.suppression + suppression);
       Object.assign(agent.record, {
         incomingFireTimer: Math.max(agent.record.incomingFireTimer ?? 0, timer),
         incomingFireIntensity: Math.max(agent.record.incomingFireIntensity ?? 0, intensity * exposure),
-        incomingFireEventVersion: (agent.record.incomingFireEventVersion ?? 0) + 1,
+        incomingFireEventVersion,
         incomingThreatPosition: threat ? threat.toArray() : null,
         incomingImpactPosition: impact.toArray()
       });
+      if (threat) {
+        agent.threatMemory.record({
+          eventId,
+          threatPosition: threat,
+          impactPosition: impact,
+          intensity: intensity * exposure
+        });
+      }
       agent.syncRecord();
       reacting++;
     }

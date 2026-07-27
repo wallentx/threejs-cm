@@ -265,6 +265,186 @@ test('ballistics applies gravity and armor slope instead of magic hit damage', (
   assert.equal(resolveArmorPenetration(WEAPONS.SA35_AP, 660, 30, 0.5).penetrated, false);
 });
 
+function terrainSweepProjectile(start, end) {
+  return {
+    attacker: { faction: 'french' },
+    previousPosition: start.clone(),
+    position: end.clone(),
+    velocity: new THREE.Vector3(),
+    weapon: { dragPerSecond: 0 },
+    distanceTravelled: start.distanceTo(end),
+    lifetime: 0
+  };
+}
+
+test('bounded terrain sweep resolves the first ridge contact while both endpoints are clear', () => {
+  const terrain = {
+    getHeightAt: x => x >= 4 && x <= 6 ? 12 : 0
+  };
+  const ballistics = new BallisticsSystem({ terrain });
+  const projectile = terrainSweepProjectile(
+    new THREE.Vector3(0, 10, 0),
+    new THREE.Vector3(10, 9.6076, 0)
+  );
+
+  const hit = ballistics.detectImpact(projectile);
+
+  assert.equal(hit.kind, 'terrain');
+  assert.equal(hit.terrainSweepModel, 'bounded_heightfield_segment_v1');
+  assert.equal(hit.terrainSweepRefinementIterations, 12);
+  assert.match(hit.terrainSweepDataQuality, /bounded fixed-sample/);
+  assert.ok(hit.terrainSweepSampleCount > 0);
+  assert.ok(hit.terrainSweepSpacingMeters <= 0.25);
+  assert.equal(
+    hit.terrainSweepRefinementToleranceMeters,
+    hit.terrainSweepSpacingMeters / (2 ** hit.terrainSweepRefinementIterations)
+  );
+  assert.ok(
+    hit.point.x >= 4
+      && hit.point.x - 4 <= hit.terrainSweepRefinementToleranceMeters,
+    hit.point.x
+  );
+  assert.ok(Math.abs(hit.point.y - terrain.getHeightAt(hit.point.x, hit.point.z)) < 1e-9);
+  assert.ok(Math.abs(hit.point.z) < 1e-9);
+  assert.ok(Math.abs(hit.distance / projectile.distanceTravelled - hit.point.x / 10) < 1e-9);
+
+  const belowTerrain = terrainSweepProjectile(
+    new THREE.Vector3(2, -1, 0),
+    new THREE.Vector3(2, 4, 0)
+  );
+  assert.equal(ballistics.detectImpact(belowTerrain).distance, 0);
+  const nonzeroClear = terrainSweepProjectile(
+    new THREE.Vector3(2, 20, 0),
+    new THREE.Vector3(3, 20, 0)
+  );
+  assert.equal(ballistics.detectImpact(nonzeroClear), null);
+  const zeroLengthClear = terrainSweepProjectile(
+    new THREE.Vector3(2, 20, 0),
+    new THREE.Vector3(2, 20, 0)
+  );
+  assert.equal(ballistics.detectImpact(zeroLengthClear), null);
+
+  const flatEndpoint = new BallisticsSystem({ terrain: flatTerrain }).detectImpact(
+    terrainSweepProjectile(new THREE.Vector3(0, 1, 0), new THREE.Vector3(2, 0, 0))
+  );
+  assert.equal(flatEndpoint.kind, 'terrain');
+  assert.deepEqual(flatEndpoint.point.toArray(), [2, 0, 0]);
+  assert.equal(flatEndpoint.distance, Math.sqrt(5));
+
+  const cappedTerrain = new BallisticsSystem({
+    terrain: { getHeightAt: x => x >= 590 && x <= 610 ? 12 : 0 }
+  }).detectImpact(terrainSweepProjectile(
+    new THREE.Vector3(0, 10, 0),
+    new THREE.Vector3(1000, 9.6076, 0)
+  ));
+  assert.equal(cappedTerrain.kind, 'terrain');
+  assert.equal(cappedTerrain.terrainSweepSampleCount, 512);
+  assert.ok(cappedTerrain.terrainSweepSpacingMeters > 0.25);
+  assert.equal(
+    cappedTerrain.terrainSweepRefinementToleranceMeters,
+    cappedTerrain.terrainSweepSpacingMeters / (2 ** cappedTerrain.terrainSweepRefinementIterations)
+  );
+});
+
+test('terrain sweep preserves nearer unit and building contacts while blocking later contacts', () => {
+  const terrain = { getHeightAt: x => x >= 4 && x <= 6 ? 12 : 0 };
+  const segmentStart = new THREE.Vector3(0, 10, 0);
+  const segmentEnd = new THREE.Vector3(10, 9.6076, 0);
+  const infantry = {
+    id: 'near-infantry',
+    faction: 'german',
+    type: 'infantry_squad',
+    isCombatEffective: () => true,
+    soldierAI: {
+      getLivingAgents: () => [{ id: 'near-soldier', position: new THREE.Vector3(1, 9.08, 0) }]
+    }
+  };
+  const buildingAtOneMetre = {
+    id: 'building:near',
+    buildingId: 'near-building',
+    sectionId: 'wall',
+    partId: 'wall:near',
+    blocks: ['projectile'],
+    centerX: 1,
+    centerY: 10,
+    centerZ: 0,
+    halfWidth: 0.2,
+    halfHeight: 1,
+    halfDepth: 1,
+    rotation: 0
+  };
+  const nearUnit = new BallisticsSystem({ terrain, getUnits: () => [infantry] });
+  assert.equal(nearUnit.detectImpact(terrainSweepProjectile(segmentStart, segmentEnd)).kind, 'infantry');
+  const nearBuilding = new BallisticsSystem({
+    terrain,
+    getBuildingColliders: () => [buildingAtOneMetre]
+  });
+  assert.equal(nearBuilding.detectImpact(terrainSweepProjectile(segmentStart, segmentEnd)).kind, 'building');
+  const laterBuilding = new BallisticsSystem({
+    terrain,
+    getBuildingColliders: () => [{ ...buildingAtOneMetre, centerX: 8 }]
+  });
+  assert.equal(laterBuilding.detectImpact(terrainSweepProjectile(segmentStart, segmentEnd)).kind, 'terrain');
+});
+
+function createTerrainSweepCombat(id) {
+  const attacker = new Unit({
+    id: `${id}-attacker`,
+    faction: 'french',
+    type: 'infantry_squad',
+    position: new THREE.Vector3()
+  });
+  const scene = new THREE.Scene();
+  scene.add(attacker.mesh);
+  const combat = new CombatSystem(scene, sound, () => 0, {
+    terrain: { getHeightAt: (_x, z) => z >= 4 && z <= 6 ? 12 : 0 },
+    getUnits: () => [attacker],
+    vfxProvider: TEST_VFX_PROVIDER
+  });
+  assert.equal(combat.fireWeapon(attacker, null, new THREE.Vector3(0, 15, 30), {
+    weapon: WEAPONS.MAS36,
+    muzzlePosition: attacker.getMuzzleWorldPosition(),
+    dispersionScale: 0
+  }), true);
+  return { attacker, combat };
+}
+
+test('terrain impacts are partition-stable and replay without new snapshot state', () => {
+  const coarse = createTerrainSweepCombat('terrain-coarse');
+  const bounded = createTerrainSweepCombat('terrain-bounded');
+  const replay = createTerrainSweepCombat('terrain-replay');
+  const snapshot = replay.combat.captureState();
+
+  coarse.combat.update(1 / 120);
+  bounded.combat.update(1 / 240);
+  bounded.combat.update(1 / 240);
+  replay.combat.update(1 / 120);
+  const firstReplay = replay.combat.captureState();
+  replay.combat.restoreState(snapshot, new Map([[replay.attacker.id, replay.attacker]]));
+  replay.combat.update(1 / 120);
+
+  const coarseImpact = coarse.combat.telemetry.impacts[0];
+  const boundedImpact = bounded.combat.telemetry.impacts[0];
+  const terrainTolerance = new BallisticsSystem({
+    terrain: { getHeightAt: (_x, z) => z >= 4 && z <= 6 ? 12 : 0 }
+  }).detectImpact(terrainSweepProjectile(
+    new THREE.Vector3(0, 2, 0),
+    new THREE.Vector3(0, 3, 8)
+  )).terrainSweepRefinementToleranceMeters;
+  assert.equal(coarseImpact.kind, 'terrain');
+  assert.equal(boundedImpact.kind, 'terrain');
+  assert.ok(
+    new THREE.Vector3().fromArray(coarseImpact.impactPosition)
+      .distanceTo(new THREE.Vector3().fromArray(boundedImpact.impactPosition))
+        <= terrainTolerance
+  );
+  assert.deepEqual(replay.combat.captureState(), firstReplay);
+
+  coarse.combat.dispose();
+  bounded.combat.dispose();
+  replay.combat.dispose();
+});
+
 test('vehicle crew layout controls gun, reload, and movement roles', () => {
   const somua = new Unit({
     id: 'crew_s35',

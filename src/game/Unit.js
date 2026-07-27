@@ -28,6 +28,14 @@ import {
   recordFireControlShot,
   resetFireControlState
 } from '../simulation/combat/FireControl.js';
+import {
+  advanceVehicleCrewTaskStep,
+  captureVehicleCrewTaskState,
+  createVehicleCrewTaskState,
+  effectiveVehicleCrewRole,
+  hasEffectiveVehicleCrewRole,
+  restoreVehicleCrewTaskState
+} from '../simulation/vehicles/VehicleCrewTasks.js';
 
 function wrapAngle(angle) {
   return Math.atan2(Math.sin(angle), Math.cos(angle));
@@ -35,6 +43,8 @@ function wrapAngle(angle) {
 
 const MAX_VEHICLE_MOUNT_ROUNDS_PER_STEP = 64;
 const VEHICLE_MOUNT_CADENCE_EPSILON = 1e-9;
+const VEHICLE_MAIN_GUN_CATCHUP_HZ = 60;
+const MAX_VEHICLE_MAIN_GUN_CATCHUP_STEPS = 4096;
 
 function cloneRoster(roster) {
   return roster.map(soldier => ({
@@ -135,6 +145,11 @@ export class Unit {
       ?? this.vehicleSpec?.crew.length
       ?? 0;
     this.roster = resolvedRoster ?? this.initRoster();
+    this.vehicleCrewTasks = createVehicleCrewTaskState(
+      this.vehicleSpec?.crewTaskPolicy,
+      config.vehicleCrewTasks
+    );
+    this.vehicleMainGunnerCombatSeconds = null;
 
     // Read-only compatibility summary. Soldier and vehicle weapon states own ammunition.
     this.ammo = config.ammo || {
@@ -397,8 +412,18 @@ export class Unit {
     return this.roster.filter(crewman => crewman.health > 0 && crewman.status !== 'KIA');
   }
 
-  isCrewRoleAlive(roles) {
+  isOriginalCrewRoleAlive(roles) {
     return this.getLivingCrew().some(crewman => roles.includes(crewman.role));
+  }
+
+  getEffectiveCrewRole(crewman) {
+    return effectiveVehicleCrewRole(crewman, this.vehicleCrewTasks);
+  }
+
+  isCrewRoleAlive(roles) {
+    return this.vehicleCrewTasks
+      ? hasEffectiveVehicleCrewRole(this.vehicleCrewTasks, this.roster, roles)
+      : this.isOriginalCrewRoleAlive(roles);
   }
 
   hasOperationalGunner() {
@@ -544,7 +569,7 @@ export class Unit {
       mount
       && state
       && component?.operational
-      && this.isCrewRoleAlive(mount.crewRoles)
+      && this.isOriginalCrewRoleAlive(mount.crewRoles)
       && !this.vehicleDamageState.destroyed
       && !this.vehicleDamageState.burning
     );
@@ -556,7 +581,7 @@ export class Unit {
     const weapon = this.weaponLookup(mount?.weaponId);
     if (!mount || !state || !weapon || state.feedAmmo > 0 || state.reloadTimer > 0
         || state.reserveAmmo <= 0 || !this.isVehicleMountOperational(mountId)
-        || !this.isCrewRoleAlive(mount.loaderRoles)
+        || !this.isOriginalCrewRoleAlive(mount.loaderRoles)
         || !this.vehicleComponents.ammunition?.operational) return false;
     state.reloadTimer = weapon.reloadSeconds;
     state.fireState = 'RELOADING';
@@ -660,8 +685,68 @@ export class Unit {
     return true;
   }
 
+  advanceVehicleMainWeaponSystem(delta) {
+    if (!this.vehicleWeapon) return;
+    this.vehicleWeapon.fireState = this.vehicleWeapon.reloadTimer > 0 ? 'RELOADING' : 'READY';
+    this.vehicleWeapon.cooldown = Math.max(-delta, this.vehicleWeapon.cooldown - delta);
+    this.vehicleWeapon.recoilTimer = Math.max(
+      0,
+      (this.vehicleWeapon.recoilTimer ?? 0) - delta
+    );
+    const barrel = this.mesh?.userData.barrel;
+    if (barrel) {
+      const restZ = barrel.userData.restZ ?? barrel.position.z;
+      barrel.userData.restZ = restZ;
+      const recoil = THREE.MathUtils.clamp(this.vehicleWeapon.recoilTimer / 0.18, 0, 1);
+      barrel.position.z = restZ - Math.sin(recoil * Math.PI) * 0.16;
+    }
+    if (this.vehicleWeapon.reloadTimer > 0) {
+      const ammunitionFactor = this.getVehicleAmmunitionHandlingFactor();
+      if (ammunitionFactor <= 0) {
+        this.vehicleWeapon.reloadTimer = 0;
+        this.vehicleWeapon.fireState = 'AMMO_STOWAGE_DISABLED';
+      } else if (this.hasOperationalLoader()) {
+        const breechFactor = this.vehicleComponents.breech.status === 'DAMAGED' ? 0.55 : 1;
+        this.vehicleWeapon.reloadTimer = Math.max(
+          0,
+          this.vehicleWeapon.reloadTimer - delta * breechFactor * ammunitionFactor
+        );
+        if (this.vehicleWeapon.reloadTimer === 0) {
+          const type = this.vehicleWeapon.pendingType;
+          const weapon = this.weaponLookup(this.vehicleSpec.mainGun[type]);
+          const rounds = Math.min(
+            weapon?.magazineSize ?? 1,
+            this.vehicleWeapon.ammunition[type] ?? 0
+          );
+          if (rounds > 0) {
+            this.vehicleWeapon.ammunition[type] -= rounds;
+            this.vehicleWeapon.loadedType = type;
+            this.vehicleWeapon.feedAmmo = rounds;
+            this.vehicleWeapon.fireState = 'READY';
+          }
+        }
+      }
+    }
+    if (!this.vehicleWeapon.loadedType && this.vehicleWeapon.reloadTimer <= 0) {
+      const reserveAmmo = Object.values(this.vehicleWeapon.ammunition)
+        .reduce((total, rounds) => total + rounds, 0);
+      this.vehicleWeapon.fireState = reserveAmmo > 0
+        && this.getVehicleAmmunitionHandlingFactor() <= 0
+        ? 'AMMO_STOWAGE_DISABLED'
+        : 'EMPTY';
+    }
+  }
+
   updateVehicleSystems(delta) {
     if (!this.vehicleSpec) return;
+    const crewTaskStep = advanceVehicleCrewTaskStep(
+      this.vehicleCrewTasks,
+      this.vehicleSpec.crewTaskPolicy,
+      this.roster,
+      delta
+    );
+    this.vehicleCrewTasks = crewTaskStep.state;
+    this.vehicleMainGunnerCombatSeconds = crewTaskStep.mainGunnerAvailableSeconds;
     if (this.vehicleDamageState.destroyed) {
       if (this.vehicleWeapon) {
         this.vehicleWeapon.isFiring = false;
@@ -679,51 +764,7 @@ export class Unit {
     }
     if (this.vehicleWeapon) {
       this.vehicleWeapon.isFiring = false;
-      this.vehicleWeapon.fireState = this.vehicleWeapon.reloadTimer > 0 ? 'RELOADING' : 'READY';
-      this.vehicleWeapon.cooldown = Math.max(-delta, this.vehicleWeapon.cooldown - delta);
-      this.vehicleWeapon.recoilTimer = Math.max(0, (this.vehicleWeapon.recoilTimer ?? 0) - delta);
-      const barrel = this.mesh?.userData.barrel;
-      if (barrel) {
-        const restZ = barrel.userData.restZ ?? barrel.position.z;
-        barrel.userData.restZ = restZ;
-        const recoil = THREE.MathUtils.clamp(this.vehicleWeapon.recoilTimer / 0.18, 0, 1);
-        barrel.position.z = restZ - Math.sin(recoil * Math.PI) * 0.16;
-      }
-      if (this.vehicleWeapon.reloadTimer > 0) {
-        const ammunitionFactor = this.getVehicleAmmunitionHandlingFactor();
-        if (ammunitionFactor <= 0) {
-          this.vehicleWeapon.reloadTimer = 0;
-          this.vehicleWeapon.fireState = 'AMMO_STOWAGE_DISABLED';
-        } else if (this.hasOperationalLoader()) {
-          const breechFactor = this.vehicleComponents.breech.status === 'DAMAGED' ? 0.55 : 1;
-          this.vehicleWeapon.reloadTimer = Math.max(
-            0,
-            this.vehicleWeapon.reloadTimer - delta * breechFactor * ammunitionFactor
-          );
-          if (this.vehicleWeapon.reloadTimer === 0) {
-            const type = this.vehicleWeapon.pendingType;
-            const weapon = this.weaponLookup(this.vehicleSpec.mainGun[type]);
-            const rounds = Math.min(
-              weapon?.magazineSize ?? 1,
-              this.vehicleWeapon.ammunition[type] ?? 0
-            );
-            if (rounds > 0) {
-              this.vehicleWeapon.ammunition[type] -= rounds;
-              this.vehicleWeapon.loadedType = type;
-              this.vehicleWeapon.feedAmmo = rounds;
-              this.vehicleWeapon.fireState = 'READY';
-            }
-          }
-        }
-      }
-      if (!this.vehicleWeapon.loadedType && this.vehicleWeapon.reloadTimer <= 0) {
-        const reserveAmmo = Object.values(this.vehicleWeapon.ammunition)
-          .reduce((total, rounds) => total + rounds, 0);
-        this.vehicleWeapon.fireState = reserveAmmo > 0
-          && this.getVehicleAmmunitionHandlingFactor() <= 0
-          ? 'AMMO_STOWAGE_DISABLED'
-          : 'EMPTY';
-      }
+      this.advanceVehicleMainWeaponSystem(delta);
     }
 
     for (const mount of this.vehicleSpec.weaponMounts ?? []) {
@@ -740,7 +781,7 @@ export class Unit {
           state.reloadTimer = 0;
           state.fireState = 'AMMO_STOWAGE_DISABLED';
         } else if (this.isVehicleMountOperational(mount.id)
-            && this.isCrewRoleAlive(mount.loaderRoles)) {
+            && this.isOriginalCrewRoleAlive(mount.loaderRoles)) {
           state.reloadTimer = Math.max(0, state.reloadTimer - delta * ammunitionFactor);
         }
         if (state.reloadTimer === 0 && ammunitionFactor > 0) {
@@ -772,6 +813,71 @@ export class Unit {
   }
 
   updateVehicleCombat(delta, context) {
+    const mainGunnerDelta = Math.min(
+      delta,
+      Math.max(0, this.vehicleMainGunnerCombatSeconds ?? delta)
+    );
+    this.vehicleMainGunnerCombatSeconds = null;
+    const targetPosition = context.target?.position ?? this.targetPos;
+    const crossesCrewTaskCompletion = Boolean(
+      targetPosition
+      && mainGunnerDelta > VEHICLE_MOUNT_CADENCE_EPSILON
+      && mainGunnerDelta < delta - VEHICLE_MOUNT_CADENCE_EPSILON
+    );
+    if (!crossesCrewTaskCompletion) {
+      return this.updateVehicleCombatStep(delta, mainGunnerDelta, context);
+    }
+
+    const fixedStepSeconds = 1 / VEHICLE_MAIN_GUN_CATCHUP_HZ;
+    let fullStepCount = Math.floor(mainGunnerDelta / fixedStepSeconds);
+    let remainderSeconds =
+      mainGunnerDelta - fullStepCount * fixedStepSeconds;
+    if (fixedStepSeconds - remainderSeconds <= VEHICLE_MOUNT_CADENCE_EPSILON) {
+      fullStepCount++;
+      remainderSeconds = 0;
+    } else if (remainderSeconds <= VEHICLE_MOUNT_CADENCE_EPSILON) {
+      remainderSeconds = 0;
+    }
+    if (
+      fullStepCount + (remainderSeconds > 0 ? 1 : 0)
+      > MAX_VEHICLE_MAIN_GUN_CATCHUP_STEPS
+    ) {
+      fullStepCount = MAX_VEHICLE_MAIN_GUN_CATCHUP_STEPS - 1;
+      remainderSeconds =
+        mainGunnerDelta - fullStepCount * fixedStepSeconds;
+    }
+    const stepCount = fullStepCount + (remainderSeconds > 0 ? 1 : 0);
+    let firedMain = false;
+    for (let index = 0; index < stepCount; index++) {
+      const stepSeconds = index < fullStepCount
+        ? fixedStepSeconds
+        : remainderSeconds;
+      if (index > 0) {
+        this.vehicleWeapon.isFiring = false;
+        this.advanceVehicleMainWeaponSystem(stepSeconds);
+      }
+      firedMain = this.updateVehicleCombatStep(
+        stepSeconds,
+        stepSeconds,
+        context,
+        { includeMounts: false }
+      ) || firedMain;
+    }
+    const firedMount = this.updateVehicleCombatStep(
+      delta,
+      0,
+      context,
+      { includeMain: false }
+    );
+    return firedMain || firedMount;
+  }
+
+  updateVehicleCombatStep(
+    delta,
+    mainGunnerDelta,
+    context,
+    { includeMain = true, includeMounts = true } = {}
+  ) {
     if (!this.vehicleSpec || !this.isCombatEffective()) return false;
     const target = context.target;
     const targetPosition = target?.position ?? this.targetPos;
@@ -798,11 +904,18 @@ export class Unit {
     const desiredTurretYaw = wrapAngle(desiredWorldYaw - this.rotation);
     const currentTurretYaw = this.vehicleWeapon?.turretYaw ?? 0;
     const yawError = wrapAngle(desiredTurretYaw - currentTurretYaw);
-    if (this.vehicleWeapon && this.vehicleComponents.turret_traverse?.operational) {
+    if (
+      this.vehicleWeapon
+      && this.vehicleComponents.turret_traverse?.operational
+      && this.hasOperationalGunner()
+      && mainGunnerDelta > 0
+    ) {
       const traverseDamageFactor = this.vehicleComponents.turret_traverse.status === 'DAMAGED'
         ? 0.42
         : 1;
-      const traverse = this.vehicleSpec.turretTraverseRadPerSecond * traverseDamageFactor * delta;
+      const traverse = this.vehicleSpec.turretTraverseRadPerSecond
+        * traverseDamageFactor
+        * mainGunnerDelta;
       this.vehicleWeapon.turretYaw = wrapAngle(
         currentTurretYaw + THREE.MathUtils.clamp(yawError, -traverse, traverse)
       );
@@ -822,7 +935,7 @@ export class Unit {
     const shooterMoving = Boolean(context.shooterMoving);
 
     let firedMain = false;
-    if (this.vehicleSpec.mainGun && this.vehicleWeapon) {
+    if (includeMain && this.vehicleSpec.mainGun && this.vehicleWeapon) {
       this.vehicleWeapon.targetUnitId = target?.id ?? null;
       this.vehicleWeapon.targetPos = targetPosition.toArray();
       this.vehicleWeapon.targetMode = this.targetMode;
@@ -835,10 +948,11 @@ export class Unit {
       );
       const mainCanAim = Math.abs(remainingTurretYawError) <= 0.06
         && this.hasOperationalGunner()
+        && mainGunnerDelta > 0
         && !this.vehicleDamageState.burning
         && !shooterMoving;
       const mainAim = advanceFireControlState(this.vehicleWeapon.fireControl, {
-        deltaSeconds: delta,
+        deltaSeconds: mainGunnerDelta,
         shooterKey: `${this.id}:main`,
         targetKey,
         weapon: aimWeapon,
@@ -864,7 +978,7 @@ export class Unit {
       }
       if (!this.vehicleWeapon.loadedType) {
         this.beginVehicleReload(desiredAmmoType);
-      } else if (this.canVehicleFire() && mainAim.ready) {
+      } else if (mainGunnerDelta > 0 && this.canVehicleFire() && mainAim.ready) {
         const weapon = this.weaponLookup(
           this.vehicleSpec.mainGun[this.vehicleWeapon.loadedType]
         );
@@ -909,18 +1023,20 @@ export class Unit {
       }
     }
 
-    const firedMachineGun = this.updateVehicleMachineGunCombat(context, {
-      target,
-      targetPosition,
-      desiredWorldYaw,
-      turretYawError: remainingTurretYawError,
-      targetKey,
-      trueRangeMeters,
-      targetMoving,
-      shooterMoving,
-      deltaSeconds: delta,
-      occupiedCrewRoles: firedMain ? this.vehicleSpec.gunnerRoles : []
-    });
+    const firedMachineGun = includeMounts
+      ? this.updateVehicleMachineGunCombat(context, {
+          target,
+          targetPosition,
+          desiredWorldYaw,
+          turretYawError: remainingTurretYawError,
+          targetKey,
+          trueRangeMeters,
+          targetMoving,
+          shooterMoving,
+          deltaSeconds: delta,
+          occupiedCrewRoles: firedMain ? this.vehicleSpec.gunnerRoles : []
+        })
+      : false;
     return firedMain || firedMachineGun;
   }
 
@@ -1280,6 +1396,8 @@ export class Unit {
         Object.entries(this.vehicleComponents).map(([id, component]) => [id, { ...component }])
       ),
       vehicleDamageState: createVehicleDamageState(this.vehicleDamageState),
+      vehicleCrewTasks: captureVehicleCrewTaskState(this.vehicleCrewTasks),
+      vehicleMainGunnerCombatSeconds: this.vehicleMainGunnerCombatSeconds,
       structureState: this.structureState
         ? { ...this.structureState, events: this.structureState.events.map(event => ({ ...event })) }
         : null,
@@ -1324,6 +1442,15 @@ export class Unit {
     this.vehicleDamage = { ...this.vehicleDamage, ...state.vehicleDamage };
     this.vehicleComponents = createVehicleComponents(this.vehicleSpec, state.vehicleComponents);
     this.vehicleDamageState = createVehicleDamageState(state.vehicleDamageState);
+    this.vehicleCrewTasks = restoreVehicleCrewTaskState(
+      this.vehicleSpec?.crewTaskPolicy,
+      state.vehicleCrewTasks
+    );
+    this.vehicleMainGunnerCombatSeconds = Number.isFinite(
+      state.vehicleMainGunnerCombatSeconds
+    )
+      ? Math.max(0, state.vehicleMainGunnerCombatSeconds)
+      : null;
     this.structureState = createStructureState(this.structureSpec, state.structureState);
     if (!state.vehicleComponents) this.applyLegacyVehicleDamage(state.vehicleDamage);
     if (state.vehicleWeapon) this.vehicleWeapon = this.initVehicleWeapon(state.vehicleWeapon);

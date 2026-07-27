@@ -299,6 +299,9 @@ These seams are usable now, before the staged directory migration is complete:
 | Vehicle visual selection | `content/france1940/render/*` | Injected `UnitFactory`, calibration and silhouette tools |
 | Logical asset identity and pack replacement | `assets/AssetManifest.js`, `content/france1940/assets/*` | Composition-bound family render providers |
 | External image loading, cache, fallback, and ownership | `assets/ExternalImageAssetService.js` | Calibration-reference consumer; browser lifecycle only |
+| External texture loading and lifecycle | `assets/ExternalTextureAssetService.js`: injected image acquisition; identity-safe, deduplicated disposable texture resources; bounded ownership, cancellation, and image/texture release | Future family texture adapters and live material consumers |
+| External decoded-audio loading and lifecycle | `assets/ExternalAudioAssetService.js`: validated fetch/decode; identity-safe deduplication and fallback; bounded true-LRU decoded resources, abort, release, and aggregate cleanup failures | Future family playback adapters and live sound consumers |
+| External model loading and lifecycle | `assets/ExternalModelAssetService.js`: injected fetch, source release, parse, clone, and instance/template disposal; identity-safe fallback; bounded template ownership with clone leases, deferred eviction, cancellation, and aggregate cleanup failures | Future family format adapters and live scene-instance consumers |
 | Projectile, impact, explosion, and vehicle-damage VFX resources | `world/vfx/ProceduralBattlefieldVfxProvider.js`, family VFX asset binding | `CombatSystem`, `VehicleDamageEffects`; presentation only |
 | Weapon, explosion, and UI audio event profiles | `content/france1940/audio/*`, family audio asset binding | Injected generic `SoundEngine`; presentation only |
 | Browser lifecycle and faction scheduling | `app/GameApp.js`, `app/FactionRosterIndex.js` | Composition, scenario runtime, UI/editor clients |
@@ -574,10 +577,16 @@ These are tolerated migration inputs, not patterns to copy:
 - No scenario registry exists yet. Logical asset manifests and replacement
   resolution now cover vehicle surfaces, both infantry mesh models, and the
   MG 34 bunker plus ground, water, bridge, masonry, foliage, battlefield VFX,
-  battlefield audio, and calibration-reference media. External image loading,
-  ownership, and fallback policy now cover calibration references; external
-  Three.js models/textures and decoded audio still lack equivalent lifecycle
-  coverage.
+  battlefield audio, and calibration-reference media. Content and manifests
+  own logical identity and provenance. Generic image, texture, decoded-audio,
+  and model services own loading, cache, fallback, cancellation, and resource
+  lifecycle at their respective boundaries.
+- Concrete external family records, format and playback adapters, asynchronous
+  preload composition, initialization-failure teardown, and live
+  texture/model/audio consumers are not yet integrated. Family adapters will
+  map logical events and assets to loaded resources; runtime consumers will
+  own live nodes and instances; composition will own preload and teardown.
+  Current procedural providers remain the live fallbacks.
 
 Do not block useful work solely to remove these exceptions. New code should use
 the target boundary, while touched legacy code should move one dependency at a
@@ -609,14 +618,15 @@ time.
 6. **Narrow UI and editor access.** Replace full-game references with runtime
    queries, commands, and events. Route map edits through map/scenario authoring
    services.
-7. **Add the asset service.** The renderer-neutral manifest, provider binding,
-   explicit replacement resolver, vehicle-surface consumer, infantry mesh
-   providers, bunker mesh provider, terrain-surface provider, battlefield-VFX
-   provider, battlefield-audio provider, and replaceable
-   calibration-reference registry now exist. A bounded external-image loader
-   owns calibration URL caching, fallback, and disposal. Extend that same
-   boundary to external models, textures, and decoded audio while keeping
-   procedural fallbacks deterministic.
+7. **Complete live external-asset integration.** The renderer-neutral manifest,
+   provider binding, explicit replacement resolver, vehicle-surface consumer,
+   infantry mesh providers, bunker mesh provider, terrain-surface provider,
+   battlefield-VFX provider, battlefield-audio provider, and replaceable
+   calibration-reference registry exist alongside generic image, texture,
+   decoded-audio, and model lifecycle services. Add concrete family records,
+   format and playback adapters, asynchronous preload composition,
+   initialization-failure teardown, and live consumers while keeping current
+   procedural providers as deterministic fallbacks.
 8. **Remove shims.** Delete legacy re-exports and globals only after imports,
    focused tests, integration tests, and the production build confirm no
    remaining consumers.

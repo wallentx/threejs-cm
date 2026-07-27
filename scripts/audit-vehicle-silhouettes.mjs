@@ -1,4 +1,5 @@
 import { readFile, mkdir, writeFile, rename, rm, mkdtemp } from 'node:fs/promises';
+import { writeSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import {
   FRANCE_1940_VEHICLE_MESH_FACTORIES
@@ -11,6 +12,14 @@ import {
   validateBaselineReportSchema,
   compareSilhouetteAuditWithBaseline
 } from '../src/calibration/VehicleSilhouetteAudit.js';
+
+function writeStderr(message) {
+  writeSync(process.stderr.fd, message);
+}
+
+function writeStdout(message) {
+  writeSync(process.stdout.fd, message);
+}
 
 function parseCliArgs(args) {
   let isUpdateBaseline = false;
@@ -80,7 +89,7 @@ async function writeAtomic(targetPath, content) {
 
 const parsed = parseCliArgs(process.argv.slice(2));
 if (parsed.error) {
-  process.stderr.write(`CLI error: ${parsed.error}\n`);
+  writeStderr(`CLI error: ${parsed.error}\n`);
   process.exit(1);
 }
 
@@ -94,32 +103,35 @@ const manifest = createVehicleSilhouetteManifest({
 const hasFailures = manifest.failures && manifest.failures.length > 0;
 
 if (isUpdateBaseline && hasFailures) {
-  process.stderr.write('Audit validation failed with errors:\n');
+  writeStderr('Audit validation failed with errors:\n');
   for (const failure of manifest.failures) {
-    process.stderr.write(`  - ${failure}\n`);
+    writeStderr(`  - ${failure}\n`);
   }
-  process.stderr.write('Refusing to update baseline fixture due to audit validation failures.\n');
+  writeStderr('Refusing to update baseline fixture due to audit validation failures.\n');
   process.exit(1);
 }
 
 const serializedManifest = `${JSON.stringify(manifest, null, 2)}\n`;
 await writeAtomic(targetOutput, serializedManifest);
 
-console.log(
+writeStdout(
   `${manifest.vehicleCount} vehicles x ${manifest.views.length} views x ${manifest.lods.length} LODs`
-  + ` (${manifest.recordCount} records) -> ${targetOutput}`
+  + ` (${manifest.recordCount} records) -> ${targetOutput}\n`
 );
 
 if (hasFailures) {
-  process.stderr.write('Audit validation failed with errors:\n');
+  writeStderr('Audit validation failed with errors:\n');
   for (const failure of manifest.failures) {
-    process.stderr.write(`  - ${failure}\n`);
+    writeStderr(`  - ${failure}\n`);
   }
   process.exit(1);
 }
 
 if (isUpdateBaseline) {
-  console.log(`Baseline fixture updated cleanly at ${targetOutput} with ${manifest.recordCount} records.`);
+  writeStdout(
+    `Baseline fixture updated cleanly at ${targetOutput} `
+    + `with ${manifest.recordCount} records.\n`
+  );
   process.exit(0);
 }
 
@@ -127,7 +139,7 @@ let baselineContent;
 try {
   baselineContent = await readFile(baselineFixturePath, 'utf8');
 } catch (err) {
-  process.stderr.write(`Missing or unreadable baseline fixture at expected path: ${baselineFixturePath}\n`);
+  writeStderr(`Missing or unreadable baseline fixture at expected path: ${baselineFixturePath}\n`);
   process.exit(1);
 }
 
@@ -135,27 +147,30 @@ let baselineReport;
 try {
   baselineReport = JSON.parse(baselineContent);
 } catch (err) {
-  process.stderr.write(`Malformed baseline fixture JSON at ${baselineFixturePath}: ${err.message}\n`);
+  writeStderr(`Malformed baseline fixture JSON at ${baselineFixturePath}: ${err.message}\n`);
   process.exit(1);
 }
 
 const baselineValidation = validateBaselineReportSchema(baselineReport);
 if (!baselineValidation.valid) {
-  process.stderr.write(`Baseline fixture schema validation failed for ${baselineFixturePath}:\n`);
+  writeStderr(`Baseline fixture schema validation failed for ${baselineFixturePath}:\n`);
   for (const err of baselineValidation.errors) {
-    process.stderr.write(`  - ${err}\n`);
+    writeStderr(`  - ${err}\n`);
   }
   process.exit(1);
 }
 
 const comparison = compareSilhouetteAuditWithBaseline(manifest, baselineReport);
 if (!comparison.pass) {
-  process.stderr.write('Baseline comparison failures:\n');
+  writeStderr('Baseline comparison failures:\n');
   for (const diff of comparison.differences) {
-    process.stderr.write(`  - ${diff}\n`);
+    writeStderr(`  - ${diff}\n`);
   }
   process.exit(1);
 }
 
-console.log('Baseline comparison PASSED cleanly (168/168 records match).');
+writeStdout(
+  `Baseline comparison PASSED cleanly `
+  + `(${manifest.recordCount}/${baselineReport.recordCount} records match).\n`
+);
 process.exit(0);

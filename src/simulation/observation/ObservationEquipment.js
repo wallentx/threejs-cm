@@ -18,16 +18,19 @@ function addEquipment(target, values) {
 
 export function equipmentForObserver(unit, person, profile = null) {
   const equipment = new Set();
+  const effectiveRole = typeof unit?.getEffectiveCrewRole === 'function'
+    ? unit.getEffectiveCrewRole(person)
+    : person?.role;
   addEquipment(equipment, person?.equipment);
   addEquipment(equipment, profile?.equipment);
   addEquipment(equipment, profile?.soldierEquipment?.[person?.id]);
-  addEquipment(equipment, profile?.equipmentByRole?.[person?.role]);
+  addEquipment(equipment, profile?.equipmentByRole?.[effectiveRole]);
 
   const vehicleEquipment = unit?.vehicleSpec?.observationEquipment;
-  if (vehicleEquipment?.binocularRoles?.includes(person?.role)) {
+  if (vehicleEquipment?.binocularRoles?.includes(effectiveRole)) {
     equipment.add(OBSERVATION_EQUIPMENT.BINOCULARS);
   }
-  if (vehicleEquipment?.radioOperatorRoles?.includes(person?.role)) {
+  if (vehicleEquipment?.radioOperatorRoles?.includes(effectiveRole)) {
     equipment.add(OBSERVATION_EQUIPMENT.RADIO);
   }
   return equipment;

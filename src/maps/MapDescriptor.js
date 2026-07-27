@@ -91,6 +91,16 @@ function validateMaterial(record, path, { transparent = false } = {}) {
   }
 }
 
+function validateRiverBankMaterial(record, path) {
+  validateMaterial(record, path);
+  if (
+    typeof record.presentationApproximation !== 'string'
+    || record.presentationApproximation.trim().length === 0
+  ) {
+    throw new Error(`${path}.presentationApproximation requires a non-empty label`);
+  }
+}
+
 function requireTuple(value, length, path) {
   if (!Array.isArray(value) || value.length !== length) {
     throw new Error(`${path} must contain ${length} values`);
@@ -134,6 +144,113 @@ function registerFeatureId(ids, record, path) {
   ids.add(id);
 }
 
+function validateSurfaceRect(rect, textureResolution, path) {
+  const [x, y, width, height] = requireTuple(rect, 4, path);
+  if (x < 0 || y < 0 || width <= 0 || height <= 0) {
+    throw new Error(`${path} requires non-negative origin and positive size`);
+  }
+  if (x + width > textureResolution[0] || y + height > textureResolution[1]) {
+    throw new Error(`${path} lies outside texture bounds`);
+  }
+}
+
+function pointsEqual(a, b) {
+  return a[0] === b[0] && a[1] === b[1];
+}
+
+function orientation(a, b, c) {
+  return (
+    (b[0] - a[0]) * (c[1] - a[1])
+    - (b[1] - a[1]) * (c[0] - a[0])
+  );
+}
+
+function pointLiesOnSegment(point, start, end) {
+  return (
+    orientation(start, end, point) === 0
+    && point[0] >= Math.min(start[0], end[0])
+    && point[0] <= Math.max(start[0], end[0])
+    && point[1] >= Math.min(start[1], end[1])
+    && point[1] <= Math.max(start[1], end[1])
+  );
+}
+
+function segmentsIntersect(a, b, c, d) {
+  const abc = orientation(a, b, c);
+  const abd = orientation(a, b, d);
+  const cda = orientation(c, d, a);
+  const cdb = orientation(c, d, b);
+  if (
+    ((abc > 0 && abd < 0) || (abc < 0 && abd > 0))
+    && ((cda > 0 && cdb < 0) || (cda < 0 && cdb > 0))
+  ) {
+    return true;
+  }
+  return (
+    (abc === 0 && pointLiesOnSegment(c, a, b))
+    || (abd === 0 && pointLiesOnSegment(d, a, b))
+    || (cda === 0 && pointLiesOnSegment(a, c, d))
+    || (cdb === 0 && pointLiesOnSegment(b, c, d))
+  );
+}
+
+function validateSurfacePolygon(polygon, textureResolution, path) {
+  if (!Array.isArray(polygon) || polygon.length < 3) {
+    throw new Error(`${path} must contain at least three points`);
+  }
+  polygon.forEach((point, index) => {
+    const [u, v] = requireTuple(point, 2, `${path}[${index}]`);
+    if (u < 0 || u > textureResolution[0] || v < 0 || v > textureResolution[1]) {
+      throw new Error(`${path}[${index}] lies outside texture bounds`);
+    }
+    const next = polygon[(index + 1) % polygon.length];
+    if (Array.isArray(next) && pointsEqual(point, next)) {
+      throw new Error(`${path} requires distinct consecutive vertices`);
+    }
+  });
+
+  for (let first = 0; first < polygon.length; first++) {
+    const firstNext = (first + 1) % polygon.length;
+    for (let second = first + 1; second < polygon.length; second++) {
+      const secondNext = (second + 1) % polygon.length;
+      const adjacent = (
+        firstNext === second
+        || secondNext === first
+      );
+      if (
+        !adjacent
+        && segmentsIntersect(
+          polygon[first],
+          polygon[firstNext],
+          polygon[second],
+          polygon[secondNext]
+        )
+      ) {
+        throw new Error(`${path} must not self-intersect`);
+      }
+    }
+  }
+
+  const doubledArea = polygon.reduce((area, point, index) => {
+    const next = polygon[(index + 1) % polygon.length];
+    return area + point[0] * next[1] - next[0] * point[1];
+  }, 0);
+  if (doubledArea === 0) throw new Error(`${path} must have non-zero area`);
+}
+
+function validateSurfaceShape(layer, textureResolution, path) {
+  const hasRect = Object.hasOwn(layer, 'rect');
+  const hasPolygon = Object.hasOwn(layer, 'polygon');
+  if (hasRect === hasPolygon) {
+    throw new Error(`${path} must declare exactly one shape: rect or polygon`);
+  }
+  if (hasRect) {
+    validateSurfaceRect(layer.rect, textureResolution, `${path}.rect`);
+  } else {
+    validateSurfacePolygon(layer.polygon, textureResolution, `${path}.polygon`);
+  }
+}
+
 export function validateMapDescriptor(map) {
   requireRecord(map, 'map');
   requireId(map.id, 'map');
@@ -173,6 +290,7 @@ export function validateMapDescriptor(map) {
   });
   requireColor(surfaces.baseColor, 'map.surfaces.baseColor');
   validateMaterial(surfaces.terrainMaterial, 'map.surfaces.terrainMaterial');
+  validateRiverBankMaterial(surfaces.riverBankMaterial, 'map.surfaces.riverBankMaterial');
   validateMaterial(surfaces.waterMaterial, 'map.surfaces.waterMaterial', {
     transparent: true
   });
@@ -184,13 +302,7 @@ export function validateMapDescriptor(map) {
     registerFeatureId(ids, layer, path);
     requireId(layer.kind, `${path}.kind`);
     requireColor(layer.color, `${path}.color`);
-    const [x, y, width, height] = requireTuple(layer.rect, 4, `${path}.rect`);
-    if (x < 0 || y < 0 || width <= 0 || height <= 0) {
-      throw new Error(`${path}.rect requires non-negative origin and positive size`);
-    }
-    if (x + width > textureResolution[0] || y + height > textureResolution[1]) {
-      throw new Error(`${path}.rect lies outside texture bounds`);
-    }
+    validateSurfaceShape(layer, textureResolution, path);
     if (layer.visualOnly !== true) {
       throw new Error(`${path} must explicitly declare visualOnly`);
     }

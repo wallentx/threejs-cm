@@ -7,6 +7,18 @@ import {
 import {
   H39_BLUEPRINT_CALIBRATION
 } from '../src/world/vehicles/HotchkissH39.js';
+import {
+  HOTCHKISS_H39_VISUAL_DATA
+} from '../src/content/france1940/vehicleData/HotchkissH39VisualData.js';
+
+function assertDeeplyFrozen(value, seen = new Set()) {
+  if (!value || typeof value !== 'object' || seen.has(value)) return;
+  seen.add(value);
+  assert.equal(Object.isFrozen(value), true);
+  for (const child of Object.values(value)) {
+    assertDeeplyFrozen(child, seen);
+  }
+}
 
 function signedVolume(geometry) {
   const positions = geometry.attributes.position;
@@ -30,6 +42,38 @@ function signedVolume(geometry) {
   }
   return volume;
 }
+
+test('H39 family visual data owns exact immutable renderer parameters and URL-only provenance', () => {
+  assert.equal(HOTCHKISS_H39_VISUAL_DATA.modelId, 'fr_hotchkiss_h39');
+  assert.equal(
+    HOTCHKISS_H39_VISUAL_DATA.coordinateFrame,
+    '+Y up, +Z forward, vehicle right -X, metres'
+  );
+  assert.deepEqual(HOTCHKISS_H39_VISUAL_DATA.dimensionsMeters, {
+    length: 4.22,
+    width: 1.85,
+    height: 2.15
+  });
+  assert.equal(
+    H39_BLUEPRINT_CALIBRATION,
+    HOTCHKISS_H39_VISUAL_DATA.blueprint
+  );
+  assert.equal(
+    HOTCHKISS_H39_VISUAL_DATA.blueprint.registrationStatus,
+    'URL and provenance only; no accepted pixel-registered raster'
+  );
+  assert.equal(HOTCHKISS_H39_VISUAL_DATA.blueprint.imageUrl, undefined);
+  assert.equal(HOTCHKISS_H39_VISUAL_DATA.blueprint.views, undefined);
+  assert.equal(
+    HOTCHKISS_H39_VISUAL_DATA.geometry.runningGear.model,
+    'legacy-capsule-v1'
+  );
+  assert.match(
+    HOTCHKISS_H39_VISUAL_DATA.geometry.runningGear.quality,
+    /renderer approximation pending .* support-point migration/
+  );
+  assertDeeplyFrozen(HOTCHKISS_H39_VISUAL_DATA);
+});
 
 test('H39 exposes evidence-backed metre datums and defining landmarks', () => {
   assert.deepEqual(H39_BLUEPRINT_CALIBRATION.rigidEnvelopeMeters, {

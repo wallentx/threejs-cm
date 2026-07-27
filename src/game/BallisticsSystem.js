@@ -31,6 +31,24 @@ const scratchPointOffset = new THREE.Vector3();
 const scratchLocal = new THREE.Vector3();
 const scratchIncoming = new THREE.Vector3();
 const IMPACT_EPSILON = 1e-7;
+// Renderer-independent finite height-field approximation: sample the entire
+// swept segment at this metre-scale spacing, then refine the first crossing.
+const TERRAIN_SWEEP_SAMPLE_SPACING_METERS = 0.25;
+const TERRAIN_SWEEP_MAX_SAMPLES = 512;
+const TERRAIN_SWEEP_REFINEMENT_ITERATIONS = 12;
+const TERRAIN_SWEEP_MODEL = 'bounded_heightfield_segment_v1';
+const TERRAIN_SWEEP_DATA_QUALITY =
+  'bounded fixed-sample height-field collision approximation';
+
+function terrainSweepMetadata(segmentDistance, sampleCount) {
+  const spacingMeters = sampleCount > 0 ? segmentDistance / sampleCount : 0;
+  return {
+    terrainSweepSampleCount: sampleCount,
+    terrainSweepSpacingMeters: spacingMeters,
+    terrainSweepRefinementToleranceMeters:
+      spacingMeters / (2 ** TERRAIN_SWEEP_REFINEMENT_ITERATIONS)
+  };
+}
 
 export function distanceToSegment(point, start, end) {
   scratchSegment.subVectors(end, start);
@@ -69,6 +87,74 @@ export function segmentOrientedBoxIntersection(start, end, collider) {
     point: new THREE.Vector3(...intersection.point),
     normal: new THREE.Vector3(...intersection.normal)
   };
+}
+
+function findTerrainSweepImpact(start, end, getHeightAt) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const dz = end.z - start.z;
+  const segmentDistance = Math.hypot(dx, dy, dz);
+  if (segmentDistance <= IMPACT_EPSILON) {
+    const ground = getHeightAt(start.x, start.z);
+    if (!Number.isFinite(ground) || start.y > ground) return null;
+    return {
+      point: new THREE.Vector3(start.x, ground, start.z),
+      distance: 0,
+      ...terrainSweepMetadata(0, 0)
+    };
+  }
+
+  const sampleCount = Math.min(
+    TERRAIN_SWEEP_MAX_SAMPLES,
+    Math.max(1, Math.ceil(segmentDistance / TERRAIN_SWEEP_SAMPLE_SPACING_METERS))
+  );
+  const heightAt = t => getHeightAt(start.x + dx * t, start.z + dz * t);
+  let lowerT = 0;
+  const lowerHeight = heightAt(lowerT);
+  if (!Number.isFinite(lowerHeight)) return null;
+  if (start.y <= lowerHeight) {
+    return {
+      point: new THREE.Vector3(start.x, lowerHeight, start.z),
+      distance: 0,
+      ...terrainSweepMetadata(segmentDistance, sampleCount)
+    };
+  }
+
+  for (let index = 1; index <= sampleCount; index++) {
+    const upperT = index / sampleCount;
+    const upperHeight = heightAt(upperT);
+    if (!Number.isFinite(upperHeight)) {
+      lowerT = upperT;
+      continue;
+    }
+    const upperY = start.y + dy * upperT;
+    if (upperY > upperHeight) {
+      lowerT = upperT;
+      continue;
+    }
+
+    let refinedLower = lowerT;
+    let refinedUpper = upperT;
+    for (let refinement = 0; refinement < TERRAIN_SWEEP_REFINEMENT_ITERATIONS; refinement++) {
+      const middle = (refinedLower + refinedUpper) * 0.5;
+      const middleHeight = heightAt(middle);
+      if (!Number.isFinite(middleHeight) || start.y + dy * middle > middleHeight) {
+        refinedLower = middle;
+      } else {
+        refinedUpper = middle;
+      }
+    }
+    const impactX = start.x + dx * refinedUpper;
+    const impactZ = start.z + dz * refinedUpper;
+    const impactHeight = getHeightAt(impactX, impactZ);
+    if (!Number.isFinite(impactHeight)) return null;
+    return {
+      point: new THREE.Vector3(impactX, impactHeight, impactZ),
+      distance: segmentDistance * refinedUpper,
+      ...terrainSweepMetadata(segmentDistance, sampleCount)
+    };
+  }
+  return null;
 }
 
 export function collectBuildingColliderRecords(buildingSystem) {
@@ -271,18 +357,23 @@ export class BallisticsSystem {
         && projectile.distanceTravelled >= projectile.armorIgnore.untilDistance) {
       projectile.armorIgnore = null;
     }
-    if (closest) return closest;
-
-    if (this.terrain) {
-      const ground = this.terrain.getHeightAt(projectile.position.x, projectile.position.z);
-      if (projectile.position.y <= ground) {
-        return {
+    if (this.terrain?.getHeightAt) {
+      const terrainImpact = findTerrainSweepImpact(
+        projectile.previousPosition,
+        projectile.position,
+        this.terrain.getHeightAt.bind(this.terrain)
+      );
+      if (terrainImpact) {
+        consider({
           kind: 'terrain',
-          point: new THREE.Vector3(projectile.position.x, ground, projectile.position.z)
-        };
+          ...terrainImpact,
+          terrainSweepModel: TERRAIN_SWEEP_MODEL,
+          terrainSweepRefinementIterations: TERRAIN_SWEEP_REFINEMENT_ITERATIONS,
+          terrainSweepDataQuality: TERRAIN_SWEEP_DATA_QUALITY
+        });
       }
     }
-    return null;
+    return closest;
   }
 
   resolveVehicleImpact(projectile, hit) {

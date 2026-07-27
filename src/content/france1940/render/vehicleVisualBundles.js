@@ -14,6 +14,9 @@ import {
   RENAULT_R35_VISUAL_DATA
 } from '../vehicleData/RenaultR35VisualData.js';
 import {
+  HOTCHKISS_H39_VISUAL_DATA
+} from '../vehicleData/HotchkissH39VisualData.js';
+import {
   RENAULT_D2_VISUAL_DATA
 } from '../vehicleData/RenaultD2AuthoringData.js';
 import {
@@ -29,6 +32,7 @@ import {
 const DEFAULT_REQUIRED_LODS = Object.freeze(['high', 'medium', 'core', 'proxy']);
 const VISUAL_DATA_BY_MODEL_ID = Object.freeze({
   [RENAULT_R35_VISUAL_DATA.modelId]: RENAULT_R35_VISUAL_DATA,
+  [HOTCHKISS_H39_VISUAL_DATA.modelId]: HOTCHKISS_H39_VISUAL_DATA,
   [RENAULT_D2_VISUAL_DATA.modelId]: RENAULT_D2_VISUAL_DATA
 });
 
@@ -59,7 +63,7 @@ function assetRecordsByModelId(assetResolver) {
     Object.values(FRANCE_1940_VEHICLES).map(vehicle => {
       const visualData = VISUAL_DATA_BY_MODEL_ID[vehicle.modelId] ?? null;
       const blueprintBinding = blueprintBindings[vehicle.modelId] ?? null;
-      const blueprint = visualData
+      const blueprint = visualData && blueprintBinding
         ? Object.freeze({
             logicalId: blueprintBinding.logicalId,
             sourcePackId: blueprintBinding.packId,

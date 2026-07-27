@@ -177,17 +177,35 @@ function addMagazine(model, spec, metalMaterial) {
     magazine.userData.feedType = 'side-drum';
     return magazine;
   }
+  if (spec.id === 'mas38') {
+    const magWell = boxPart(
+      model,
+      metalMaterial,
+      'MAS38_MagWell',
+      0.034,
+      0.038,
+      spec.stockEnd + 0.075,
+      spec.stockEnd + 0.135,
+      -0.032
+    );
+    magWell.userData.lodBand = 'high';
+  }
+
+  const magWidth = spec.id === 'mas38' ? 0.024 : (spec.id === 'mp40' ? 0.028 : 0.045);
+  const magHeight = spec.id === 'mas38' ? 0.16 : (spec.id === 'mp40' ? 0.20 : 0.18);
+  const magEndZ = spec.stockEnd + (spec.id === 'mas38' ? 0.125 : 0.15);
+
   const magazine = boxPart(
     model,
     metalMaterial,
     `${spec.designation}_BoxMagazine`,
-    spec.id === 'mp40' ? 0.055 : 0.065,
-    spec.id === 'mp40' ? 0.22 : 0.19,
+    magWidth,
+    magHeight,
     spec.stockEnd + 0.08,
-    spec.stockEnd + 0.15,
-    -0.13
+    magEndZ,
+    spec.id === 'mas38' ? -0.11 : -0.13
   );
-  magazine.rotation.x = spec.id === 'mas38' ? 0.09 : -0.03;
+  magazine.rotation.x = spec.id === 'mas38' ? 0.22 : -0.03;
   magazine.userData.feedType = 'bottom';
   return magazine;
 }
@@ -293,11 +311,12 @@ function buildWeaponModel(spec, materials) {
     butt.rotation.x = spec.id === 'mas38' ? -0.05 : 0.03;
   }
 
+  const receiverWidth = spec.kind === 'lmg' ? 0.105 : (spec.id === 'mas38' ? 0.048 : (spec.id === 'mp40' ? 0.052 : 0.08));
   const receiver = boxPart(
     model,
     materials.metal,
     `${spec.designation}_Receiver`,
-    spec.kind === 'lmg' ? 0.105 : 0.08,
+    receiverWidth,
     spec.kind === 'lmg' ? 0.1 : 0.075,
     spec.stockEnd,
     spec.receiverEnd,
@@ -325,8 +344,35 @@ function buildWeaponModel(spec, materials) {
       spec.receiverEnd + 0.045,
       0.052
     );
-    profileDetail.rotation.x = -0.1;
+    profileDetail.rotation.x = -0.11;
     profileDetail.userData.definingFeature = 'canted receiver profile';
+
+    // MAS-38 Top Rear Sight Ramp
+    const sightRamp = boxPart(
+      model,
+      materials.metal,
+      'MAS38_RearSightRamp',
+      0.035,
+      0.035,
+      spec.stockEnd + 0.04,
+      spec.stockEnd + 0.12,
+      0.068
+    );
+    sightRamp.userData.lodBand = 'high';
+
+    // MAS-38 Right-Side Spring Dust Cover over Ejection Port
+    const dustCover = boxPart(
+      model,
+      materials.metal,
+      'MAS38_DustCover',
+      0.018,
+      0.032,
+      spec.stockEnd + 0.12,
+      spec.receiverEnd - 0.02,
+      0.018
+    );
+    dustCover.position.x = lateralX('right', 0.044);
+    dustCover.userData.lodBand = 'high';
   }
   const barrel = cylinderPart(
     model,
@@ -371,6 +417,23 @@ function buildWeaponModel(spec, materials) {
     0.03
   );
   frontSight.userData.semanticPart = 'frontSight';
+
+  if (spec.id === 'mas38') {
+    for (const side of [-1, 1]) {
+      const ear = boxPart(
+        model,
+        materials.metal,
+        `MAS38_FrontSightEar_${side < 0 ? 'Left' : 'Right'}`,
+        0.008,
+        0.055,
+        spec.overallLength - 0.055,
+        spec.overallLength - 0.035,
+        0.032
+      );
+      ear.position.x = side * 0.018;
+      ear.userData.lodBand = 'high';
+    }
+  }
 
   // Keep one coherent firearm silhouette through the core infantry tier.
   // Detail controls can disappear at distance, but the stock/receiver/feed/

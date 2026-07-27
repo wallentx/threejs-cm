@@ -9,6 +9,14 @@ const QUAD_UVS = [
   0, 1
 ];
 
+// These control only the one-time visual surface tessellation. Terrain height,
+// collision, and navigation continue to use getHeightAt() independently.
+const RIVER_BANK_X_SUBDIVISIONS = 60;
+const RIVER_BANK_CROSS_SLOPE_SUBDIVISIONS = 6;
+const RIVER_BANK_SURFACE_OFFSET = 0.0125;
+const RIVER_BANK_RENDERER_APPROXIMATION =
+  'renderer-only bounded terrain samples and surface offset to prevent z-fighting';
+
 function addQuad(positions, uvs, a, b, c, d, uScale = 1, vScale = 1) {
   for (const point of [a, b, c, a, c, d]) {
     positions.push(point.x, point.y, point.z);
@@ -248,6 +256,7 @@ export class TerrainBuilder {
     this.navigationRecords = [];
     this.collisionWorld = new StaticCollisionWorld();
     this.bridgeSurface = null;
+    this.riverBankStrips = [];
     this.buildingSystem = buildingSystem;
     this.structureAdapters = structureAdapters;
     this.terrainSurfaceProvider = terrainSurfaceProvider;
@@ -358,6 +367,7 @@ export class TerrainBuilder {
     );
     const requiredMaterials = [
       'ground',
+      'riverBank',
       'water',
       'bridgeRoad',
       'masonry',
@@ -403,6 +413,8 @@ export class TerrainBuilder {
       bedLevel: river.bedLevel
     };
     this.scene.add(water);
+
+    this.buildRiverBankStrips();
 
     const stoneMat = this.createMasonryMaterial();
     const roadMat = surfaceMaterials.bridgeRoad;
@@ -569,6 +581,74 @@ export class TerrainBuilder {
       barrierColliderIds: riverExclusionIds,
       blocks: ['vehicle', 'infantry']
     });
+  }
+
+  buildRiverBankStrips() {
+    const river = this.mapDescriptor.river;
+    const material = this.getSurfaceAssets().materials.riverBank;
+    const halfWaterWidth = river.waterWidth * 0.5;
+    const halfCutWidth = river.cutWidth * 0.5;
+    const minX = -this.width * 0.5;
+    const maxX = this.width * 0.5;
+    const createStrip = (side) => {
+      const direction = side === 'north' ? 1 : -1;
+      const innerZ = river.centerZ + direction * halfWaterWidth;
+      const outerZ = river.centerZ + direction * halfCutWidth;
+      const minZ = Math.min(innerZ, outerZ);
+      const maxZ = Math.max(innerZ, outerZ);
+      const positions = [];
+      const uvs = [];
+      const indices = [];
+      for (let row = 0; row <= RIVER_BANK_CROSS_SLOPE_SUBDIVISIONS; row++) {
+        const z = THREE.MathUtils.lerp(
+          minZ,
+          maxZ,
+          row / RIVER_BANK_CROSS_SLOPE_SUBDIVISIONS
+        );
+        for (let column = 0; column <= RIVER_BANK_X_SUBDIVISIONS; column++) {
+          const x = THREE.MathUtils.lerp(minX, maxX, column / RIVER_BANK_X_SUBDIVISIONS);
+          positions.push(x, this.getHeightAt(x, z) + RIVER_BANK_SURFACE_OFFSET, z);
+          uvs.push(
+            column / RIVER_BANK_X_SUBDIVISIONS,
+            row / RIVER_BANK_CROSS_SLOPE_SUBDIVISIONS
+          );
+        }
+      }
+      for (let row = 0; row < RIVER_BANK_CROSS_SLOPE_SUBDIVISIONS; row++) {
+        for (let column = 0; column < RIVER_BANK_X_SUBDIVISIONS; column++) {
+          const a = row * (RIVER_BANK_X_SUBDIVISIONS + 1) + column;
+          const b = a + 1;
+          const c = a + RIVER_BANK_X_SUBDIVISIONS + 1;
+          const d = c + 1;
+          indices.push(a, c, b, b, c, d);
+        }
+      }
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      geometry.setIndex(indices);
+      geometry.computeVertexNormals();
+      geometry.computeBoundingBox();
+      geometry.computeBoundingSphere();
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.name = `RiverBank${side[0].toUpperCase()}${side.slice(1)}`;
+      mesh.receiveShadow = true;
+      mesh.userData.mapFeatureId = river.id;
+      mesh.userData.side = side;
+      mesh.userData.materialRole = 'riverBank';
+      mesh.userData.worldBounds = { minX, maxX, minZ, maxZ };
+      mesh.userData.bankEdges = { innerZ, outerZ };
+      mesh.userData.rendererApproximation = {
+        label: RIVER_BANK_RENDERER_APPROXIMATION,
+        xSubdivisions: RIVER_BANK_X_SUBDIVISIONS,
+        crossSlopeSubdivisions: RIVER_BANK_CROSS_SLOPE_SUBDIVISIONS,
+        surfaceOffset: RIVER_BANK_SURFACE_OFFSET
+      };
+      this.scene.add(mesh);
+      return mesh;
+    };
+    this.riverBankStrips = [createStrip('south'), createStrip('north')];
+    return this.riverBankStrips;
   }
 
   buildStoneWalls() {

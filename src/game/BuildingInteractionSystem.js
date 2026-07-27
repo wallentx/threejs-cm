@@ -230,6 +230,39 @@ function slotsOnFloor(descriptor, floorId) {
     .sort((left, right) => compareId(left.id, right.id));
 }
 
+function pendingTargetClaims(units, buildingId) {
+  const claims = [];
+  for (const unit of [...(units ?? [])]
+    .sort((left, right) => compareId(left.id, right.id))) {
+    for (const agent of [...(unit?.soldierAI?.agents ?? [])]
+      .sort((left, right) => compareId(left.id, right.id))) {
+      const location = agent?.buildingLocation;
+      if (!location?.targetSlotId
+          || location.phase === 'outside'
+          || String(location.buildingId) !== String(buildingId)) continue;
+      claims.push({
+        targetSlotId: String(location.targetSlotId),
+        unitId: String(location.unitId ?? unit.id),
+        soldierId: String(location.soldierId ?? agent.id)
+      });
+    }
+  }
+  return claims.sort((left, right) =>
+    compareId(left.targetSlotId, right.targetSlotId)
+      || compareId(left.unitId, right.unitId)
+      || compareId(left.soldierId, right.soldierId));
+}
+
+function claimableSlots(slots, state, claimedTargetSlotIds = new Set()) {
+  const invalid = new Set((state.invalidSlots ?? []).map(String));
+  const occupied = new Set(Object.keys(state.occupancy ?? {}));
+  const reserved = new Set(Object.keys(state.reservations ?? {}));
+  return slots.filter(slot => !invalid.has(String(slot.id))
+    && !occupied.has(String(slot.id))
+    && !reserved.has(String(slot.id))
+    && !claimedTargetSlotIds.has(String(slot.id)));
+}
+
 function slotIndex(descriptor) {
   const index = new Map();
   for (const room of descriptor.rooms) {
@@ -356,29 +389,27 @@ export class BuildingInteractionSystem {
       return { accepted: false, reason: 'no_available_soldiers', assigned: [] };
     }
 
-    const room = descriptor.rooms.find(r => r.floorId === resolvedFloorId);
-    const roomSlots = room?.slots ?? [];
-    const finalSlots = [];
-    for (let i = 0; i < agents.length; i++) {
-      if (i < roomSlots.length) {
-        finalSlots.push(roomSlots[i]);
-      } else {
-        const offset = (i - roomSlots.length + 1) * 0.4;
-        const angle = (i * 1.5) % (Math.PI * 2);
-        const floorY = roomSlots[0]?.localPosition[1] ?? 0.15;
-        finalSlots.push({
-          id: `${room?.id ?? 'room'}-interior-${i}`,
-          localPosition: [
-            Math.sin(angle) * offset,
-            floorY,
-            Math.cos(angle) * offset
-          ],
-          capacity: 1
-        });
-      }
-    }
-    const entrySlots = slotsOnFloor(descriptor, lowerFloorId(descriptor));
+    const claimedTargetSlotIds = new Set(
+      pendingTargetClaims(this.getUnits(), buildingId)
+        .map(claim => claim.targetSlotId)
+    );
+    const finalSlots = claimableSlots(
+      slotsOnFloor(descriptor, resolvedFloorId),
+      state,
+      claimedTargetSlotIds
+    );
+    const entryFloorId = lowerFloorId(descriptor);
+    const entrySlots = resolvedFloorId === entryFloorId
+      ? finalSlots
+      : claimableSlots(
+        slotsOnFloor(descriptor, entryFloorId),
+        state,
+        claimedTargetSlotIds
+      );
     const count = Math.min(agents.length, entrySlots.length, finalSlots.length);
+    if (count === 0) {
+      return { accepted: false, reason: 'no_free_slots', assigned: [] };
+    }
     const sequence = ++this.orderSequence;
     const requests = [];
     for (let index = 0; index < count; index++) {

@@ -1,13 +1,15 @@
 export const CONTACT_CHANNEL = Object.freeze({
   DIRECT: 'DIRECT',
   VOICE: 'VOICE',
-  RADIO: 'RADIO'
+  RADIO: 'RADIO',
+  SOUND: 'SOUND'
 });
 
 const CHANNEL_PRIORITY = Object.freeze({
-  [CONTACT_CHANNEL.DIRECT]: 3,
-  [CONTACT_CHANNEL.VOICE]: 2,
-  [CONTACT_CHANNEL.RADIO]: 1
+  [CONTACT_CHANNEL.DIRECT]: 4,
+  [CONTACT_CHANNEL.VOICE]: 3,
+  [CONTACT_CHANNEL.RADIO]: 2,
+  [CONTACT_CHANNEL.SOUND]: 1
 });
 
 export function clonePosition(position) {
@@ -34,11 +36,14 @@ export function createContact({
   sourceSoldierId,
   channel,
   confidence,
-  uncertaintyM = 0
+  uncertaintyM = 0,
+  sourceEventId = null,
+  reportKind = null,
+  approximationLabel = null
 }) {
   const boundedConfidence = Math.max(0, Math.min(1, confidence));
   const boundedUncertainty = Math.max(0, uncertaintyM);
-  return {
+  const contact = {
     targetUnitId,
     targetSoldierId,
     position: clonePosition(position),
@@ -52,6 +57,10 @@ export function createContact({
     baseConfidence: boundedConfidence,
     baseUncertaintyM: boundedUncertainty
   };
+  if (sourceEventId !== null) contact.sourceEventId = sourceEventId;
+  if (reportKind !== null) contact.reportKind = reportKind;
+  if (approximationLabel !== null) contact.approximationLabel = approximationLabel;
+  return contact;
 }
 
 export function cloneContact(contact) {
@@ -80,19 +89,26 @@ function lexicalSource(contact) {
   return `${contact.sourceUnitId ?? ''}:${contact.sourceSoldierId ?? ''}`;
 }
 
+function lexicalEvent(contact) {
+  return String(contact.sourceEventId ?? '');
+}
+
 export function preferContact(left, right) {
   if (!left) return cloneContact(right);
   if (!right) return cloneContact(left);
   if (right.observedAt !== left.observedAt) {
     return cloneContact(right.observedAt > left.observedAt ? right : left);
   }
-  if (Math.abs(right.confidence - left.confidence) > 1e-12) {
-    return cloneContact(right.confidence > left.confidence ? right : left);
-  }
   const rightPriority = CHANNEL_PRIORITY[right.channel] ?? 0;
   const leftPriority = CHANNEL_PRIORITY[left.channel] ?? 0;
   if (rightPriority !== leftPriority) {
     return cloneContact(rightPriority > leftPriority ? right : left);
+  }
+  if (Math.abs(right.confidence - left.confidence) > 1e-12) {
+    return cloneContact(right.confidence > left.confidence ? right : left);
+  }
+  if (lexicalEvent(right) !== lexicalEvent(left)) {
+    return cloneContact(lexicalEvent(right) > lexicalEvent(left) ? right : left);
   }
   return cloneContact(lexicalSource(right) < lexicalSource(left) ? right : left);
 }

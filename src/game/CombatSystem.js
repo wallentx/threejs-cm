@@ -5,6 +5,9 @@ import {
   validateBattlefieldVfxProvider,
   validateCombatVfxResourceSet
 } from '../world/vfx/BattlefieldVfxContract.js';
+import {
+  createWeaponReportEvent
+} from '../simulation/observation/SoundContacts.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const scratchAim = new THREE.Vector3();
@@ -222,6 +225,9 @@ export class CombatSystem {
     this.onBuildingChanged = options.onBuildingChanged ?? null;
     this.onOccupantConsequences = options.onOccupantConsequences ?? null;
     this.onOccupantConsequence = options.onOccupantConsequence ?? null;
+    this.onAuditoryEvent = typeof options.onAuditoryEvent === 'function'
+      ? options.onAuditoryEvent
+      : null;
     this.ballistics = new BallisticsSystem({
       terrain: options.terrain ?? null,
       getUnits: options.getUnits ?? (() => []),
@@ -317,7 +323,20 @@ export class CombatSystem {
     this.projectiles.push(projectile);
     this.telemetry.shotsFired++;
 
-    this.sound?.playWeapon?.(weapon);
+    if (this.onAuditoryEvent) {
+      this.onAuditoryEvent(createWeaponReportEvent({
+        shotSequence: projectile.id,
+        sourceUnitId: attacker.id,
+        sourceFaction: attacker.faction,
+        weapon,
+        origin: fromPos
+      }));
+    }
+    try {
+      this.sound?.playWeapon?.(weapon);
+    } catch {
+      // Presentation failure must not invalidate an already accepted shot.
+    }
     return true;
   }
 

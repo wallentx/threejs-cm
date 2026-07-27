@@ -74,6 +74,123 @@ function validateFactionVehicles(factions, vehicles) {
   }
 }
 
+function validateFormationSupportAmmunition(
+  formationId,
+  formation,
+  weapons
+) {
+  const transfers = formation.supportAmmunitionTransfers ?? [];
+  if (!Array.isArray(transfers)) {
+    throw new TypeError(
+      `formation ${formationId} supportAmmunitionTransfers must be an array`
+    );
+  }
+  const membersById = new Map(
+    formation.members.map(member => [member.id, member])
+  );
+  const transferIds = new Set();
+  const donorIds = new Set();
+  const recipientIds = new Set();
+  const endpointIds = new Set();
+  for (const [index, transfer] of transfers.entries()) {
+    const context =
+      `formation ${formationId} support ammunition transfer ${index}`;
+    if (!transfer || typeof transfer !== 'object' || Array.isArray(transfer)) {
+      throw new TypeError(`${context} must be a record`);
+    }
+    if (typeof transfer.id !== 'string' || transfer.id.length === 0) {
+      throw new Error(`${context} requires a stable id`);
+    }
+    if (transferIds.has(transfer.id)) {
+      throw new Error(
+        `formation ${formationId} contains duplicate support ammunition transfer id: `
+        + transfer.id
+      );
+    }
+    transferIds.add(transfer.id);
+    const donor = membersById.get(transfer.donorSoldierId);
+    const recipient = membersById.get(transfer.recipientSoldierId);
+    if (!donor) {
+      throw new Error(
+        `${context} references unknown donor ${transfer.donorSoldierId ?? 'missing'}`
+      );
+    }
+    if (!recipient) {
+      throw new Error(
+        `${context} references unknown recipient ${transfer.recipientSoldierId ?? 'missing'}`
+      );
+    }
+    if (donor.id === recipient.id) {
+      throw new Error(`${context} donor and recipient must differ`);
+    }
+    if (donorIds.has(donor.id)) {
+      throw new Error(
+        `formation ${formationId} assigns multiple support ammunition transfers `
+        + `to donor ${donor.id}`
+      );
+    }
+    if (recipientIds.has(recipient.id)) {
+      throw new Error(
+        `formation ${formationId} assigns multiple support ammunition transfers `
+        + `to recipient ${recipient.id}`
+      );
+    }
+    for (const endpoint of [donor, recipient]) {
+      if (endpointIds.has(endpoint.id)) {
+        throw new Error(
+          `formation ${formationId} reuses support ammunition endpoint `
+          + endpoint.id
+        );
+      }
+    }
+    donorIds.add(donor.id);
+    recipientIds.add(recipient.id);
+    endpointIds.add(donor.id);
+    endpointIds.add(recipient.id);
+    assertWeaponReference(weapons, transfer.weaponId, context);
+    if (recipient.weaponId !== transfer.weaponId) {
+      throw new Error(
+        `${context} recipient ${recipient.id} carries ${recipient.weaponId}, `
+        + `not ${transfer.weaponId}`
+      );
+    }
+    for (const field of ['carriedRounds', 'handoffRounds']) {
+      if (!Number.isSafeInteger(transfer[field]) || transfer[field] <= 0) {
+        throw new Error(`${context} ${field} must be a positive integer`);
+      }
+    }
+    if (transfer.handoffRounds > transfer.carriedRounds) {
+      throw new Error(`${context} handoffRounds cannot exceed carriedRounds`);
+    }
+    for (const field of ['rangeMeters', 'delaySeconds']) {
+      if (!Number.isFinite(transfer[field]) || transfer[field] <= 0) {
+        throw new Error(`${context} ${field} must be positive and finite`);
+      }
+    }
+    if (
+      typeof transfer.dataQuality !== 'string'
+      || !/(historical|source|inferred|approximation)/i.test(
+        transfer.dataQuality
+      )
+    ) {
+      throw new Error(
+        `${context} requires a historical, sourced, inferred, or approximation label`
+      );
+    }
+    const weapon = weapons[transfer.weaponId];
+    const availableReserve =
+      Number(weapon.carriedAmmo) - Number(weapon.magazineSize);
+    if (
+      !Number.isSafeInteger(availableReserve)
+      || transfer.carriedRounds > availableReserve
+    ) {
+      throw new Error(
+        `${context} carriedRounds exceeds ${transfer.weaponId} initial reserve`
+      );
+    }
+  }
+}
+
 /**
  * Validate a plain, injected game-family definition without changing it.
  *
@@ -143,6 +260,7 @@ export function validateFamilyDefinition(family) {
       }
       assertWeaponReference(weapons, member?.weaponId, `formation ${formationId} member ${index}`);
     });
+    validateFormationSupportAmmunition(formationId, formation, weapons);
   }
 
   validateVehicleWeapons(vehicles, weapons);

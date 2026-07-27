@@ -20,6 +20,7 @@ import { TerrainBuilder } from '../src/world/TerrainBuilder.js';
 
 const MATERIAL_ROLES = Object.freeze([
   'ground',
+  'riverBank',
   'water',
   'bridgeRoad',
   'masonry',
@@ -29,12 +30,14 @@ const MATERIAL_ROLES = Object.freeze([
 ]);
 
 function replacementSurfaceSet(implementationId) {
+  const disposeCounts = Object.fromEntries(MATERIAL_ROLES.map(role => [role, 0]));
   const materials = Object.freeze(Object.fromEntries(
     MATERIAL_ROLES.map((role, index) => {
       const material = new THREE.MeshStandardMaterial({
         color: new THREE.Color().setHSL(index / MATERIAL_ROLES.length, 0.5, 0.5)
       });
       material.userData.replacementRole = role;
+      material.addEventListener('dispose', () => { disposeCounts[role]++; });
       return [role, material];
     })
   ));
@@ -48,7 +51,10 @@ function replacementSurfaceSet(implementationId) {
       for (const material of Object.values(materials)) material.dispose();
       return true;
     },
-    implementationId
+    implementationId,
+    getDisposeCounts() {
+      return { ...disposeCounts };
+    }
   });
 }
 
@@ -69,7 +75,7 @@ test('TerrainBuilder requires an injected family-neutral surface provider', asyn
   assert.match(source, /terrainSurfaceProvider\.create/);
 });
 
-test('replacement terrain surface provider reaches live ground, river, bridge, walls, and foliage', () => {
+test('replacement terrain surface provider reaches live ground, riverbank, river, bridge, walls, and foliage', () => {
   const implementationId = 'test-terrain-surfaces-v1';
   let createCount = 0;
   const replacementProvider = Object.freeze({
@@ -117,6 +123,10 @@ test('replacement terrain surface provider reaches live ground, river, bridge, w
   assert.equal(createCount, 1);
   assert.equal(terrain.terrainMesh.material.userData.replacementRole, 'ground');
   assert.equal(
+    scene.getObjectByName('RiverBankNorth').material.userData.replacementRole,
+    'riverBank'
+  );
+  assert.equal(
     scene.getObjectByName('RiverWater').material.userData.replacementRole,
     'water'
   );
@@ -141,8 +151,17 @@ test('replacement terrain surface provider reaches live ground, river, bridge, w
     implementationId
   });
   assert.equal(terrain.getSurfaceAssets(), terrain.getSurfaceAssets());
-  assert.equal(terrain.getSurfaceAssets().dispose(), true);
-  assert.equal(terrain.getSurfaceAssets().dispose(), false);
+  const surfaceSet = terrain.getSurfaceAssets();
+  assert.equal(surfaceSet.dispose(), true);
+  assert.deepEqual(
+    surfaceSet.getDisposeCounts(),
+    Object.fromEntries(MATERIAL_ROLES.map(role => [role, 1]))
+  );
+  assert.equal(surfaceSet.dispose(), false);
+  assert.deepEqual(
+    surfaceSet.getDisposeCounts(),
+    Object.fromEntries(MATERIAL_ROLES.map(role => [role, 1]))
+  );
 });
 
 test('terrain asset binding rejects a mismatched generator and incomplete surface set', () => {
@@ -213,5 +232,30 @@ test('terrain asset binding rejects a mismatched generator and incomplete surfac
   assert.throws(
     () => terrain.getSurfaceAssets(),
     /requires terrain material water/
+  );
+
+  const missingRiverBankProvider = Object.freeze({
+    id: 'test-missing-riverbank-provider',
+    kind: 'terrain-surface-provider',
+    create() {
+      const materials = Object.freeze(Object.fromEntries(
+        MATERIAL_ROLES
+          .filter(role => role !== 'riverBank')
+          .map(role => [role, new THREE.MeshStandardMaterial()])
+      ));
+      return Object.freeze({
+        kind: 'terrain-surface-set',
+        materials,
+        dispose() {}
+      });
+    }
+  });
+  const terrainWithMissingRiverBank = new TerrainBuilder(new THREE.Scene(), {
+    mapDescriptor: STONNE_1940_MAP,
+    terrainSurfaceProvider: missingRiverBankProvider
+  });
+  assert.throws(
+    () => terrainWithMissingRiverBank.getSurfaceAssets(),
+    /requires material riverBank/
   );
 });

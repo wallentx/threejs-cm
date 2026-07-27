@@ -239,6 +239,79 @@ test('river bed remains below visible water and bridge reaches connected banks',
   assert.equal(bridge.userData.dimensionsMeters.length, STONNE_1940_MAP.bridge.span);
 });
 
+test('riverbank strips conform to the existing height field without collision or navigation authority', () => {
+  const scene = new THREE.Scene();
+  const terrain = createTerrain(scene);
+  const colliderCount = terrain.colliderRecords.length;
+  const navigationCount = terrain.navigationRecords.length;
+  terrain.buildRiverAndBridge();
+
+  assert.equal(terrain.riverBankStrips.length, 2);
+  assert.deepEqual(
+    terrain.riverBankStrips.map(strip => strip.userData.side),
+    ['south', 'north']
+  );
+  for (const strip of terrain.riverBankStrips) {
+    const { side, mapFeatureId, materialRole, worldBounds, bankEdges, rendererApproximation } = strip.userData;
+    const positions = strip.geometry.attributes.position;
+    const normals = strip.geometry.attributes.normal;
+    assert.equal(mapFeatureId, STONNE_1940_MAP.river.id);
+    assert.equal(materialRole, 'riverBank');
+    assert.equal(strip.material, terrain.getSurfaceAssets().materials.riverBank);
+    assert.equal(strip.receiveShadow, true);
+    assert.equal(strip.castShadow, false);
+    assert.match(rendererApproximation.label, /renderer-only/);
+    assert.ok(rendererApproximation.xSubdivisions > 1);
+    assert.ok(rendererApproximation.crossSlopeSubdivisions > 1);
+    assert.ok(rendererApproximation.surfaceOffset > 0);
+    assert.equal(worldBounds.minX, -STONNE_1940_MAP.dimensions.width * 0.5);
+    assert.equal(worldBounds.maxX, STONNE_1940_MAP.dimensions.width * 0.5);
+    assert.equal(
+      bankEdges.innerZ,
+      STONNE_1940_MAP.river.centerZ
+        + (side === 'north' ? 1 : -1) * STONNE_1940_MAP.river.waterWidth * 0.5
+    );
+    assert.equal(
+      bankEdges.outerZ,
+      STONNE_1940_MAP.river.centerZ
+        + (side === 'north' ? 1 : -1) * STONNE_1940_MAP.river.cutWidth * 0.5
+    );
+    assert.ok(
+      new Set(Array.from({ length: positions.count }, (_, index) => positions.getZ(index))).size
+        > 2,
+      'bounded cross-slope samples must retain the smooth bank'
+    );
+    for (let index = 0; index < positions.count; index++) {
+      const x = positions.getX(index);
+      const y = positions.getY(index);
+      const z = positions.getZ(index);
+      assert.ok(Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z));
+      assertNear(
+        y,
+        terrain.getHeightAt(x, z) + rendererApproximation.surfaceOffset,
+        'riverbank vertex must follow authoritative terrain height'
+      );
+      assert.ok(Number.isFinite(normals.getX(index)));
+      assert.ok(Number.isFinite(normals.getY(index)));
+      assert.ok(Number.isFinite(normals.getZ(index)));
+      assert.ok(normals.getY(index) > 0, 'riverbank normals must face upward');
+    }
+    strip.geometry.computeBoundingBox();
+    assertNear(strip.geometry.boundingBox.min.x, worldBounds.minX, 'riverbank min X');
+    assertNear(strip.geometry.boundingBox.max.x, worldBounds.maxX, 'riverbank max X');
+    assertNear(strip.geometry.boundingBox.min.z, worldBounds.minZ, 'riverbank min Z');
+    assertNear(strip.geometry.boundingBox.max.z, worldBounds.maxZ, 'riverbank max Z');
+    assert.ok(strip.geometry.index.count > 0, 'riverbank requires indexed outward winding');
+  }
+  assert.equal(terrain.colliderRecords.length, colliderCount + 8);
+  assert.equal(terrain.navigationRecords.length, navigationCount + 1);
+  assert.equal(
+    terrain.colliderRecords.some(record => record.type === 'river_bank'),
+    false,
+    'riverbank strips must not create collision records'
+  );
+});
+
 test('bridge and house meshes expose calibrated metre dimensions', () => {
   const scene = new THREE.Scene();
   const terrain = createTerrain(scene);

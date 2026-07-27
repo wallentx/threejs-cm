@@ -1,4 +1,8 @@
-const COMBAT_EFFECT_ROLES = Object.freeze(['impact', 'explosion']);
+const COMBAT_EFFECT_ROLES = Object.freeze([
+  'impact',
+  'explosion',
+  'buildingDebris'
+]);
 const VEHICLE_GEOMETRY_ROLES = Object.freeze([
   'smoke',
   'flame',
@@ -17,6 +21,21 @@ function positiveInteger(value) {
   return Number.isInteger(value) && value > 0;
 }
 
+function validCombatStyle(style) {
+  return Boolean(
+    style
+    && Number.isFinite(style.color)
+    && Number.isFinite(style.initialOpacity)
+    && style.initialOpacity >= 0
+    && Number.isFinite(style.maxLife)
+    && style.maxLife > 0
+    && Number.isFinite(style.growthPerSecond)
+    && style.growthPerSecond >= 0
+    && Number.isFinite(style.initialScale)
+    && style.initialScale > 0
+  );
+}
+
 export function validateCombatVfxResourceSet(resourceSet) {
   if (!resourceSet || resourceSet.kind !== 'combat-vfx-resources') {
     throw new TypeError('battlefield VFX provider must create combat VFX resources');
@@ -28,15 +47,14 @@ export function validateCombatVfxResourceSet(resourceSet) {
     if (!positiveInteger(resourceSet.effectCaps?.[role])) {
       throw new TypeError(`combat VFX resources require positive ${role} cap`);
     }
-    const style = resourceSet.styles?.[role];
-    if (
-      !style
-      || !Number.isFinite(style.color)
-      || !Number.isFinite(style.maxLife)
-      || style.maxLife <= 0
-    ) {
+    if (!validCombatStyle(resourceSet.styles?.[role])) {
       throw new TypeError(`combat VFX resources require ${role} style`);
     }
+  }
+  if (typeof resourceSet.resolveBuildingDebrisStyle !== 'function') {
+    throw new TypeError(
+      'combat VFX resources require building debris material-style resolver'
+    );
   }
   if (typeof resourceSet.createEffectMaterial !== 'function') {
     throw new TypeError('combat VFX resources require createEffectMaterial');

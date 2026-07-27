@@ -542,6 +542,29 @@ test('all 15 vehicles route through Unit, crew, armament, selection, and LOD con
   });
 });
 
+test('Panzer III alone owns the frozen commander-to-main-gunner approximation', () => {
+  const policy = VEHICLES.PANZER_III_D.crewTaskPolicy;
+  assert.ok(Object.isFrozen(policy));
+  assert.ok(Object.isFrozen(policy.mainGunnerReplacement));
+  assert.ok(Object.isFrozen(policy.mainGunnerReplacement.candidateRoles));
+  assert.equal(policy.schemaVersion, 1);
+  assert.equal(
+    policy.mainGunnerReplacement.id,
+    'panzer-iii-d-commander-main-gunner-v1'
+  );
+  assert.equal(policy.mainGunnerReplacement.targetRole, 'GUNNER');
+  assert.deepEqual(policy.mainGunnerReplacement.candidateRoles, ['COMMANDER']);
+  assert.equal(policy.mainGunnerReplacement.delaySeconds, 12);
+  assert.match(policy.mainGunnerReplacement.dataQuality, /gameplay approximation/i);
+  assert.match(policy.mainGunnerReplacement.dataQuality, /not historical timing claims/i);
+  assert.equal(policy.mainGunnerReplacement.referenceUrl, null);
+
+  for (const [vehicleId, vehicle] of Object.entries(VEHICLES)) {
+    if (vehicleId === 'PANZER_III_D') continue;
+    assert.equal(vehicle.crewTaskPolicy, null, `${vehicleId} must not gain fallback reassignment`);
+  }
+});
+
 test('2cm autocannon consumes a 10-round feed before crewed reload', () => {
   const panzerII = new Unit({
     id: 'panzer2_feed',

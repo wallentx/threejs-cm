@@ -17,6 +17,14 @@ import {
   canRelayByVoice,
   unitProfile
 } from '../simulation/observation/CommunicationNetwork.js';
+import {
+  COMMUNICATION_RELAY_DELAY_APPROXIMATION,
+  CommunicationRelayQueue,
+  DEFAULT_COMMUNICATION_RELAY_DELAYS
+} from '../simulation/observation/CommunicationRelayQueue.js';
+import {
+  projectWeaponReportContacts
+} from '../simulation/observation/SoundContacts.js';
 import { intersectSegmentOrientedBox3D } from '../simulation/geometry/OrientedBox.js';
 
 const EXPERIENCE_RANGE_M = Object.freeze({
@@ -33,13 +41,42 @@ const DEFAULT_SETTINGS = Object.freeze({
   observationMemorySeconds: 60,
   contactLifetimeSeconds: 60,
   uncertaintyGrowthMps: 0.75,
+  soundContactLifetimeSeconds: 12,
+  soundUncertaintyGrowthMps: 1.5,
   voiceConfidence: 0.92,
   radioConfidence: 0.86,
+  voiceRelayDelaySeconds:
+    DEFAULT_COMMUNICATION_RELAY_DELAYS[CONTACT_CHANNEL.VOICE],
+  radioRelayDelaySeconds:
+    DEFAULT_COMMUNICATION_RELAY_DELAYS[CONTACT_CHANNEL.RADIO],
+  relayDelayApproximation: COMMUNICATION_RELAY_DELAY_APPROXIMATION,
   terrainSampleMeters: 2.5
 });
 
+const TIME_PRECISION = 1e9;
+const PROGRESS_PRECISION = 1e12;
+
 function finite(value, fallback = 0) {
   return Number.isFinite(value) ? value : fallback;
+}
+
+function canonicalTime(value) {
+  return Math.round(finite(value) * TIME_PRECISION) / TIME_PRECISION;
+}
+
+function normalizeTimeAccumulator(value) {
+  const accumulated = Math.max(0, finite(value));
+  const canonical = canonicalTime(accumulated);
+  const roundingNoise = Number.EPSILON
+    * Math.max(1, Math.abs(accumulated))
+    * 16;
+  return Math.abs(accumulated - canonical) <= roundingNoise
+    ? canonical
+    : accumulated;
+}
+
+function canonicalProgress(value) {
+  return Math.round(finite(value) * PROGRESS_PRECISION) / PROGRESS_PRECISION;
 }
 
 function positionObject(position) {
@@ -107,10 +144,40 @@ function observerKey(unitId, soldierId) {
   return `${unitId}\u0000${String(soldierId)}`;
 }
 
+function directEpisodeKey(senderUnitId, targetUnitId) {
+  return `${typeof senderUnitId}:${JSON.stringify(senderUnitId)}\u0000`
+    + `${typeof targetUnitId}:${JSON.stringify(targetUnitId)}`;
+}
+
+function cloneAcquisitionSnapshot(snapshot) {
+  if (!snapshot) return null;
+  return {
+    position: clonePosition(snapshot.position),
+    targetSoldierId: snapshot.targetSoldierId ?? null
+  };
+}
+
 function cloneObservation(observation) {
   return {
     ...observation,
-    lastSeenPosition: clonePosition(observation.lastSeenPosition)
+    lastSeenPosition: clonePosition(observation.lastSeenPosition),
+    directEpisodeSnapshot: cloneAcquisitionSnapshot(
+      observation.directEpisodeSnapshot
+    )
+  };
+}
+
+function cloneDirectObservationEpisode(episode) {
+  return {
+    senderUnitId: episode.senderUnitId,
+    targetUnitId: episode.targetUnitId,
+    episodeSequence: episode.episodeSequence,
+    active: episode.active === true,
+    acquiredAt: episode.acquiredAt ?? null,
+    sourceSoldierId: episode.sourceSoldierId ?? null,
+    targetSoldierId: episode.targetSoldierId ?? null,
+    position: clonePosition(episode.position),
+    confidence: finite(episode.confidence)
   };
 }
 
@@ -169,8 +236,33 @@ export class SpottingSystem {
     this.buildingColliders = [];
     this.buildingCollidersDirty = true;
     this.settings = { ...DEFAULT_SETTINGS, ...(options.settings ?? {}) };
+    if (!Number.isFinite(this.settings.voiceRelayDelaySeconds)
+        || this.settings.voiceRelayDelaySeconds <= 0) {
+      throw new TypeError('voiceRelayDelaySeconds must be positive and finite');
+    }
+    if (!Number.isFinite(this.settings.radioRelayDelaySeconds)
+        || this.settings.radioRelayDelaySeconds <= 0) {
+      throw new TypeError('radioRelayDelaySeconds must be positive and finite');
+    }
+    this.settings.voiceRelayDelaySeconds = canonicalTime(
+      this.settings.voiceRelayDelaySeconds
+    );
+    this.settings.radioRelayDelaySeconds = canonicalTime(
+      this.settings.radioRelayDelaySeconds
+    );
+    if (this.settings.voiceRelayDelaySeconds <= 0
+        || this.settings.radioRelayDelaySeconds <= 0) {
+      throw new TypeError('relay delays must remain positive at simulation precision');
+    }
+    this.settings.relayDelayApproximation =
+      COMMUNICATION_RELAY_DELAY_APPROXIMATION;
     this.time = 0;
+    // Preserve fractional input while exposing only canonical simulation
+    // seconds, avoiding partition-dependent drift from rounding every delta.
+    this.timeAccumulator = 0;
     this.observations = new Map();
+    this.directObservationEpisodes = new Map();
+    this.relayQueue = new CommunicationRelayQueue();
     this.unitContacts = new Map();
     this.spottingMap = this.unitContacts;
     this.unitProfiles = new Map();
@@ -182,6 +274,26 @@ export class SpottingSystem {
     for (const profile of profiles ?? []) {
       if (profile?.id) this.unitProfiles.set(profile.id, profile);
     }
+  }
+
+  recordAuditoryEvent(event, allUnits) {
+    const projections = projectWeaponReportContacts(event, allUnits, this.time);
+    for (const projection of projections) {
+      let contacts = this.unitContacts.get(projection.listenerUnitId);
+      if (!contacts) {
+        contacts = new Map();
+        this.unitContacts.set(projection.listenerUnitId, contacts);
+      }
+      contacts.set(
+        projection.targetUnitId,
+        preferContact(
+          contacts.get(projection.targetUnitId),
+          projection.contact
+        )
+      );
+    }
+    this.spottingMap = this.unitContacts;
+    return projections.map(projection => publicContact(projection.contact));
   }
 
   segmentIntersectsBox(p1Input, p2Input, box) {
@@ -361,8 +473,19 @@ export class SpottingSystem {
       lastSeenPosition: null,
       lastSeenTargetSoldierId: null,
       lastSeenAt: null,
-      confidence: 0
+      confidence: 0,
+      directEpisodeSequence: 0,
+      directEpisodeActive: false,
+      directEpisodeAcquiredAt: null,
+      directEpisodeSnapshot: null
     };
+    const intervalStart = canonicalTime(this.time - deltaSeconds);
+    const previousAcquisition = Math.max(
+      0,
+      Math.min(1, finite(existing.acquisition))
+    );
+    const wasEpisodeActive = existing.directEpisodeActive === true;
+    let acquisitionEvent = null;
     const profile = unitProfile(observerUnit, this.unitProfiles);
     const hasBinoculars = observerHasEquipment(
       observerUnit,
@@ -378,9 +501,12 @@ export class SpottingSystem {
     );
 
     if (evaluation) {
+      const requiredSeconds = canonicalTime(evaluation.acquisitionSeconds);
       existing.acquisition = Math.min(
         1,
-        existing.acquisition + deltaSeconds / evaluation.acquisitionSeconds
+        canonicalProgress(
+          previousAcquisition + deltaSeconds / requiredSeconds
+        )
       );
       existing.visibleNow = existing.acquisition >= 1 - 1e-12;
       if (existing.visibleNow) {
@@ -388,13 +514,49 @@ export class SpottingSystem {
         existing.lastSeenTargetSoldierId = evaluation.targetSoldierId;
         existing.lastSeenAt = this.time;
         existing.confidence = 1;
+        if (!wasEpisodeActive) {
+          const secondsToAcquire = Math.max(
+            0,
+            (1 - previousAcquisition) * requiredSeconds
+          );
+          existing.directEpisodeSequence = Math.max(
+            0,
+            Number.isSafeInteger(existing.directEpisodeSequence)
+              ? existing.directEpisodeSequence
+              : 0
+          ) + 1;
+          existing.directEpisodeAcquiredAt = canonicalTime(
+            Math.min(this.time, intervalStart + secondsToAcquire)
+          );
+          existing.directEpisodeSnapshot = {
+            position: clonePosition(evaluation.targetPosition),
+            targetSoldierId: evaluation.targetSoldierId ?? null
+          };
+          acquisitionEvent = {
+            senderUnitId: observerUnit.id,
+            sourceSoldierId: observer.id,
+            targetUnitId: targetUnit.id,
+            targetSoldierId: evaluation.targetSoldierId ?? null,
+            observerEpisodeSequence: existing.directEpisodeSequence,
+            acquiredAt: existing.directEpisodeAcquiredAt,
+            position: clonePosition(evaluation.targetPosition),
+            confidence: 1
+          };
+        }
+        existing.directEpisodeActive = true;
+      } else {
+        existing.directEpisodeActive = false;
       }
     } else {
       existing.acquisition = Math.max(
         0,
-        existing.acquisition - deltaSeconds * this.settings.lostAcquisitionDecayRate
+        canonicalProgress(
+          previousAcquisition
+            - deltaSeconds * this.settings.lostAcquisitionDecayRate
+        )
       );
       existing.visibleNow = false;
+      existing.directEpisodeActive = false;
     }
 
     if (!existing.visibleNow && existing.lastSeenAt !== null) {
@@ -402,7 +564,7 @@ export class SpottingSystem {
       existing.confidence = Math.max(0, 1 - age / this.settings.observationMemorySeconds);
     }
     targetMap.set(targetUnit.id, existing);
-    return existing;
+    return { observation: existing, acquisitionEvent };
   }
 
   buildDirectContacts(units) {
@@ -437,12 +599,203 @@ export class SpottingSystem {
     return directBySource;
   }
 
+  updateDirectObservationEpisodes(
+    directBySource,
+    acquisitionEvents,
+    unitIds
+  ) {
+    const eventsByPair = new Map();
+    for (const event of acquisitionEvents) {
+      const key = directEpisodeKey(event.senderUnitId, event.targetUnitId);
+      if (!eventsByPair.has(key)) eventsByPair.set(key, []);
+      eventsByPair.get(key).push(event);
+    }
+    for (const events of eventsByPair.values()) {
+      events.sort((left, right) =>
+        left.acquiredAt - right.acquiredAt
+        || String(left.sourceSoldierId).localeCompare(String(right.sourceSoldierId))
+        || String(left.targetSoldierId ?? '').localeCompare(
+          String(right.targetSoldierId ?? '')
+        )
+      );
+    }
+
+    const visiblePairs = new Set();
+    const acquiredEpisodes = [];
+    for (const [senderUnitId, contacts] of directBySource) {
+      const orderedContacts = [...contacts.values()].sort((left, right) =>
+        String(left.targetUnitId).localeCompare(String(right.targetUnitId))
+      );
+      for (const direct of orderedContacts) {
+        const key = directEpisodeKey(senderUnitId, direct.targetUnitId);
+        visiblePairs.add(key);
+        const previous = this.directObservationEpisodes.get(key);
+        if (previous?.active) continue;
+        const acquisition = eventsByPair.get(key)?.[0] ?? {
+          senderUnitId,
+          sourceSoldierId: direct.sourceSoldierId,
+          targetUnitId: direct.targetUnitId,
+          targetSoldierId: direct.targetSoldierId ?? null,
+          acquiredAt: direct.observedAt,
+          position: direct.position,
+          confidence: direct.confidence
+        };
+        const episode = {
+          senderUnitId,
+          targetUnitId: direct.targetUnitId,
+          episodeSequence: (previous?.episodeSequence ?? 0) + 1,
+          active: true,
+          acquiredAt: canonicalTime(acquisition.acquiredAt),
+          sourceSoldierId: acquisition.sourceSoldierId,
+          targetSoldierId: acquisition.targetSoldierId ?? null,
+          position: clonePosition(acquisition.position),
+          confidence: Math.max(0, Math.min(1, finite(acquisition.confidence)))
+        };
+        this.directObservationEpisodes.set(key, episode);
+        acquiredEpisodes.push(cloneDirectObservationEpisode(episode));
+      }
+    }
+
+    for (const [key, episode] of this.directObservationEpisodes) {
+      if (!unitIds.has(episode.senderUnitId)
+          || !unitIds.has(episode.targetUnitId)) {
+        this.directObservationEpisodes.delete(key);
+      } else if (!visiblePairs.has(key) && episode.active) {
+        episode.active = false;
+      }
+    }
+    return acquiredEpisodes;
+  }
+
+  relayChannel(sender, receiver) {
+    const senderProfile = unitProfile(sender, this.unitProfiles);
+    const receiverProfile = unitProfile(receiver, this.unitProfiles);
+    if (canRelayByVoice(sender, receiver, senderProfile, receiverProfile)) {
+      return CONTACT_CHANNEL.VOICE;
+    }
+    if (canRelayByRadio(sender, receiver, senderProfile, receiverProfile)) {
+      return CONTACT_CHANNEL.RADIO;
+    }
+    return null;
+  }
+
+  relayRouteIsValid(report, sender, receiver) {
+    const senderProfile = unitProfile(sender, this.unitProfiles);
+    const receiverProfile = unitProfile(receiver, this.unitProfiles);
+    if (report.channel === CONTACT_CHANNEL.VOICE) {
+      return canRelayByVoice(
+        sender,
+        receiver,
+        senderProfile,
+        receiverProfile
+      );
+    }
+    if (report.channel === CONTACT_CHANNEL.RADIO) {
+      return canRelayByRadio(
+        sender,
+        receiver,
+        senderProfile,
+        receiverProfile
+      );
+    }
+    return false;
+  }
+
+  relayDelaySeconds(channel) {
+    return channel === CONTACT_CHANNEL.VOICE
+      ? this.settings.voiceRelayDelaySeconds
+      : this.settings.radioRelayDelaySeconds;
+  }
+
+  enqueueRelayEpisodes(episodes, units) {
+    for (const episode of episodes) {
+      const sender = units.find(unit => unit.id === episode.senderUnitId);
+      if (!sender) continue;
+      for (const receiver of units) {
+        if (receiver === sender || receiver.faction !== sender.faction) continue;
+        const channel = this.relayChannel(sender, receiver);
+        if (!channel) continue;
+        const delaySeconds = this.relayDelaySeconds(channel);
+        this.relayQueue.enqueue({
+          senderUnitId: sender.id,
+          receiverUnitId: receiver.id,
+          targetUnitId: episode.targetUnitId,
+          sourceSoldierId: episode.sourceSoldierId,
+          targetSoldierId: episode.targetSoldierId,
+          episodeSequence: episode.episodeSequence,
+          channel,
+          confidence: episode.confidence,
+          acquiredAt: episode.acquiredAt,
+          delaySeconds,
+          dueAt: canonicalTime(episode.acquiredAt + delaySeconds),
+          position: episode.position,
+          approximationLabel: this.settings.relayDelayApproximation
+        });
+      }
+    }
+  }
+
+  deliverRelayReports(units, nextContacts) {
+    const unitsById = new Map(units.map(unit => [unit.id, unit]));
+    const unitIds = new Set(unitsById.keys());
+    this.relayQueue.pruneMissingUnits(unitIds);
+    for (const report of this.relayQueue.pendingReports()) {
+      const sender = unitsById.get(report.senderUnitId);
+      const receiver = unitsById.get(report.receiverUnitId);
+      const target = unitsById.get(report.targetUnitId);
+      if (!sender
+          || !receiver
+          || !target
+          || !this.relayRouteIsValid(report, sender, receiver)) {
+        this.relayQueue.cancel(report);
+        continue;
+      }
+      if (report.dueAt > this.time + 1e-12) continue;
+
+      const confidenceScale = report.channel === CONTACT_CHANNEL.VOICE
+        ? this.settings.voiceConfidence
+        : this.settings.radioConfidence;
+      const baseContact = createContact({
+        targetUnitId: report.targetUnitId,
+        targetSoldierId: report.targetSoldierId,
+        position: report.position,
+        observedAt: report.acquiredAt,
+        updatedAt: report.dueAt,
+        sourceUnitId: report.senderUnitId,
+        sourceSoldierId: report.sourceSoldierId,
+        channel: report.channel,
+        confidence: report.confidence * confidenceScale,
+        uncertaintyM: report.channel === CONTACT_CHANNEL.VOICE ? 1 : 2,
+        approximationLabel: report.approximationLabel
+      });
+      const relayed = decayContact(baseContact, this.time, {
+        lifetimeSeconds: this.settings.contactLifetimeSeconds,
+        uncertaintyGrowthMps: this.settings.uncertaintyGrowthMps
+      });
+      const receiverContacts = nextContacts.get(receiver.id);
+      if (relayed.confidence > 1e-6) {
+        receiverContacts.set(
+          relayed.targetUnitId,
+          preferContact(receiverContacts.get(relayed.targetUnitId), relayed)
+        );
+      }
+      this.relayQueue.markDelivered(report);
+    }
+  }
+
   advance(allUnits, deltaSeconds) {
-    const delta = Math.max(0, finite(deltaSeconds));
+    const requestedDelta = Math.max(0, finite(deltaSeconds));
+    const intervalStart = this.time;
+    this.timeAccumulator = normalizeTimeAccumulator(
+      this.timeAccumulator + requestedDelta
+    );
+    this.time = canonicalTime(this.timeAccumulator);
+    const delta = Math.max(0, this.time - intervalStart);
     this.refreshBuildingColliders();
-    this.time += delta;
     const units = sortedUnits(allUnits ?? []);
+    const unitIds = new Set(units.map(unit => unit.id));
     const liveObserverKeys = new Set();
+    const acquisitionEvents = [];
     for (const targetMap of this.observations.values()) {
       for (const observation of targetMap.values()) {
         observation.visibleNow = false;
@@ -463,12 +816,25 @@ export class SpottingSystem {
         liveObserverKeys.add(key);
         for (const targetUnit of units) {
           if (targetUnit.faction === observerUnit.faction || !unitCanBeObserved(targetUnit)) continue;
-          this.updateObservation(observerUnit, observer, targetUnit, delta);
+          const update = this.updateObservation(
+            observerUnit,
+            observer,
+            targetUnit,
+            delta
+          );
+          if (update.acquisitionEvent) {
+            acquisitionEvents.push(update.acquisitionEvent);
+          }
         }
       }
     }
     for (const key of this.observations.keys()) {
       if (!liveObserverKeys.has(key)) this.observations.delete(key);
+    }
+    for (const targetMap of this.observations.values()) {
+      for (const observation of targetMap.values()) {
+        if (!observation.visibleNow) observation.directEpisodeActive = false;
+      }
     }
 
     const nextContacts = new Map();
@@ -476,9 +842,14 @@ export class SpottingSystem {
       const contacts = new Map();
       if (livingPeople(unit).length > 0) {
         for (const [targetId, previous] of this.unitContacts.get(unit.id) ?? []) {
+          const soundContact = previous.channel === CONTACT_CHANNEL.SOUND;
           const decayed = decayContact(previous, this.time, {
-            lifetimeSeconds: this.settings.contactLifetimeSeconds,
-            uncertaintyGrowthMps: this.settings.uncertaintyGrowthMps
+            lifetimeSeconds: soundContact
+              ? this.settings.soundContactLifetimeSeconds
+              : this.settings.contactLifetimeSeconds,
+            uncertaintyGrowthMps: soundContact
+              ? this.settings.soundUncertaintyGrowthMps
+              : this.settings.uncertaintyGrowthMps
           });
           if (decayed.confidence > 1e-6) contacts.set(targetId, decayed);
         }
@@ -486,10 +857,14 @@ export class SpottingSystem {
       nextContacts.set(unit.id, contacts);
     }
 
-    // Relay sources are snapshotted before any recipient is updated. This keeps
-    // results independent of unit iteration order and prevents relay chaining
-    // within one simulation step.
+    // Direct sources and their acquisition snapshots are complete before any
+    // queued recipient delivery, so a relayed contact cannot chain onward.
     const directBySource = this.buildDirectContacts(units);
+    const acquiredEpisodes = this.updateDirectObservationEpisodes(
+      directBySource,
+      acquisitionEvents,
+      unitIds
+    );
     for (const sender of units) {
       const directContacts = directBySource.get(sender.id);
       if (!directContacts?.size) continue;
@@ -499,35 +874,10 @@ export class SpottingSystem {
           direct.targetUnitId,
           preferContact(senderContacts.get(direct.targetUnitId), direct)
         );
-        for (const receiver of units) {
-          if (receiver === sender || receiver.faction !== sender.faction) continue;
-          const senderProfile = unitProfile(sender, this.unitProfiles);
-          const receiverProfile = unitProfile(receiver, this.unitProfiles);
-          let channel = null;
-          let confidenceScale = 0;
-          if (canRelayByVoice(sender, receiver, senderProfile, receiverProfile)) {
-            channel = CONTACT_CHANNEL.VOICE;
-            confidenceScale = this.settings.voiceConfidence;
-          } else if (canRelayByRadio(sender, receiver, senderProfile, receiverProfile)) {
-            channel = CONTACT_CHANNEL.RADIO;
-            confidenceScale = this.settings.radioConfidence;
-          }
-          if (!channel) continue;
-          const relayed = createContact({
-            ...direct,
-            updatedAt: this.time,
-            channel,
-            confidence: direct.confidence * confidenceScale,
-            uncertaintyM: channel === CONTACT_CHANNEL.VOICE ? 1 : 2
-          });
-          const receiverContacts = nextContacts.get(receiver.id);
-          receiverContacts.set(
-            relayed.targetUnitId,
-            preferContact(receiverContacts.get(relayed.targetUnitId), relayed)
-          );
-        }
       }
     }
+    this.enqueueRelayEpisodes(acquiredEpisodes, units);
+    this.deliverRelayReports(units, nextContacts);
     this.unitContacts = nextContacts;
     this.spottingMap = this.unitContacts;
     return this;
@@ -662,16 +1012,147 @@ export class SpottingSystem {
       `${left.unitId}:${left.contact.targetUnitId}`
         .localeCompare(`${right.unitId}:${right.contact.targetUnitId}`)
     );
-    return { version: 1, time: this.time, observations, contacts };
+
+    const directObservationEpisodes = [
+      ...this.directObservationEpisodes.values()
+    ]
+      .sort((left, right) =>
+        directEpisodeKey(left.senderUnitId, left.targetUnitId).localeCompare(
+          directEpisodeKey(right.senderUnitId, right.targetUnitId)
+        )
+      )
+      .map(cloneDirectObservationEpisode);
+    return {
+      version: 3,
+      time: this.time,
+      timeAccumulator: this.timeAccumulator,
+      relayPolicy: {
+        approximationLabel: this.settings.relayDelayApproximation,
+        voiceDelaySeconds: this.settings.voiceRelayDelaySeconds,
+        radioDelaySeconds: this.settings.radioRelayDelaySeconds
+      },
+      observations,
+      directObservationEpisodes,
+      relayQueue: this.relayQueue.captureState(),
+      contacts
+    };
   }
 
   restoreState(state) {
-    this.time = Math.max(0, finite(state?.time));
+    const version = state?.version ?? 1;
+    if (version !== 1 && version !== 2 && version !== 3) {
+      throw new TypeError(`unsupported spotting state version ${version}`);
+    }
+    this.time = canonicalTime(Math.max(0, finite(state?.time)));
+    if (version === 3 && state?.timeAccumulator !== undefined) {
+      if (!Number.isFinite(state.timeAccumulator)
+          || state.timeAccumulator < 0
+          || canonicalTime(state.timeAccumulator) !== this.time) {
+        throw new TypeError(
+          'spotting timeAccumulator must be finite, non-negative, and match time'
+        );
+      }
+      this.timeAccumulator = state.timeAccumulator;
+    } else {
+      this.timeAccumulator = this.time;
+    }
+    if (version === 3) {
+      const relayPolicy = state?.relayPolicy ?? {};
+      if (relayPolicy.approximationLabel
+          !== COMMUNICATION_RELAY_DELAY_APPROXIMATION) {
+        throw new TypeError(
+          'spotting relay policy must retain the gameplay-approximation label'
+        );
+      }
+      if (!Number.isFinite(relayPolicy.voiceDelaySeconds)
+          || relayPolicy.voiceDelaySeconds <= 0
+          || !Number.isFinite(relayPolicy.radioDelaySeconds)
+          || relayPolicy.radioDelaySeconds <= 0) {
+        throw new TypeError('spotting relay policy delays must be positive and finite');
+      }
+      this.settings.voiceRelayDelaySeconds = canonicalTime(
+        relayPolicy.voiceDelaySeconds
+      );
+      this.settings.radioRelayDelaySeconds = canonicalTime(
+        relayPolicy.radioDelaySeconds
+      );
+      if (this.settings.voiceRelayDelaySeconds <= 0
+          || this.settings.radioRelayDelaySeconds <= 0) {
+        throw new TypeError(
+          'spotting relay policy delays must remain positive at simulation precision'
+        );
+      }
+      this.settings.relayDelayApproximation =
+        COMMUNICATION_RELAY_DELAY_APPROXIMATION;
+    }
     this.observations = new Map();
     for (const saved of state?.observations ?? []) {
       const key = observerKey(saved.observerUnitId, saved.observerSoldierId);
       if (!this.observations.has(key)) this.observations.set(key, new Map());
-      this.observations.get(key).set(saved.targetUnitId, cloneObservation(saved));
+      const observation = cloneObservation({
+        ...saved,
+        directEpisodeSequence: Number.isSafeInteger(saved.directEpisodeSequence)
+          && saved.directEpisodeSequence >= 0
+          ? saved.directEpisodeSequence
+          : 0,
+        directEpisodeActive: version === 3
+          ? saved.directEpisodeActive === true
+          : saved.visibleNow === true,
+        directEpisodeAcquiredAt: version === 3
+          ? saved.directEpisodeAcquiredAt ?? null
+          : saved.visibleNow ? saved.lastSeenAt ?? this.time : null,
+        directEpisodeSnapshot: version === 3
+          ? saved.directEpisodeSnapshot ?? null
+          : saved.visibleNow
+            ? {
+                position: saved.lastSeenPosition,
+                targetSoldierId: saved.lastSeenTargetSoldierId ?? null
+              }
+            : null
+      });
+      this.observations.get(key).set(saved.targetUnitId, observation);
+    }
+    this.directObservationEpisodes = new Map();
+    if (version === 3) {
+      for (const saved of state?.directObservationEpisodes ?? []) {
+        const episode = cloneDirectObservationEpisode(saved);
+        this.directObservationEpisodes.set(
+          directEpisodeKey(episode.senderUnitId, episode.targetUnitId),
+          episode
+        );
+      }
+    } else {
+      for (const targetMap of this.observations.values()) {
+        for (const observation of targetMap.values()) {
+          if (!observation.visibleNow) continue;
+          const key = directEpisodeKey(
+            observation.observerUnitId,
+            observation.targetUnitId
+          );
+          const candidate = {
+            senderUnitId: observation.observerUnitId,
+            targetUnitId: observation.targetUnitId,
+            episodeSequence: 0,
+            active: true,
+            acquiredAt: observation.lastSeenAt ?? this.time,
+            sourceSoldierId: observation.observerSoldierId,
+            targetSoldierId: observation.lastSeenTargetSoldierId ?? null,
+            position: clonePosition(observation.lastSeenPosition),
+            confidence: observation.confidence
+          };
+          const previous = this.directObservationEpisodes.get(key);
+          if (!previous
+              || String(candidate.sourceSoldierId).localeCompare(
+                String(previous.sourceSoldierId)
+              ) < 0) {
+            this.directObservationEpisodes.set(key, candidate);
+          }
+        }
+      }
+    }
+    this.relayQueue = new CommunicationRelayQueue();
+    if (version === 3) {
+      this.relayQueue.restoreState(state?.relayQueue);
     }
     this.unitContacts = new Map();
     for (const saved of state?.contacts ?? []) {

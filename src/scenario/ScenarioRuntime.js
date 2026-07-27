@@ -3,6 +3,10 @@ import * as THREE from 'three';
 // Runtime adapter: plain scenario records in, live tactical units out.
 import { Unit } from '../game/Unit.js';
 import { findUnitsOutsideDeploymentZones } from './DeploymentRules.js';
+import {
+  captureInfantryAmmunitionTransferState,
+  createInfantryAmmunitionTransferState
+} from '../simulation/infantry/InfantryAmmunitionTransfer.js';
 
 function assertScenarioDefinition(scenario) {
   if (!scenario?.id) throw new Error('Scenario requires an id');
@@ -81,7 +85,7 @@ function resolveInfantryRoster(definition, family) {
     throw new Error(`Scenario formation ${definition.formationId} requires ordered members`);
   }
 
-  return formation.members.map((member, index) => {
+  const roster = formation.members.map((member, index) => {
     const weapon = requireCatalogRecord(
       family.catalogs?.weapons,
       member.weaponId,
@@ -99,6 +103,31 @@ function resolveInfantryRoster(definition, family) {
       health: 100
     };
   });
+  const membersById = new Map(roster.map(member => [member.id, member]));
+  for (const allocation of formation.supportAmmunitionTransfers ?? []) {
+    const donor = membersById.get(allocation.donorSoldierId);
+    const recipient = membersById.get(allocation.recipientSoldierId);
+    const weapon = requireCatalogRecord(
+      family.catalogs?.weapons,
+      allocation.weaponId,
+      'support ammunition weapon',
+      definition.id
+    );
+    if (!donor || !recipient || recipient.weaponId !== allocation.weaponId) {
+      throw new Error(
+        `Scenario formation ${definition.formationId} has invalid support ammunition `
+        + `transfer ${allocation.id}`
+      );
+    }
+    recipient.magazineAmmo = weapon.magazineSize;
+    recipient.reserveAmmo =
+      weapon.carriedAmmo - weapon.magazineSize - allocation.carriedRounds;
+    donor.supportAmmunitionTransfer =
+      captureInfantryAmmunitionTransferState(
+        createInfantryAmmunitionTransferState(allocation)
+      );
+  }
+  return roster;
 }
 
 function resolveFamilyUnitDefinition(definition, family) {

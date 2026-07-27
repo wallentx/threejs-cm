@@ -16,6 +16,9 @@ import {
 import {
   FRANCE_1940_VEHICLES
 } from '../src/content/france1940/vehicles.js';
+import {
+  HOTCHKISS_H39_VISUAL_DATA
+} from '../src/content/france1940/vehicleData/HotchkissH39VisualData.js';
 
 const contractChecks = DEFAULT_VEHICLE_VISUAL_CHECKS.filter(check => (
   ['identity', 'assets', 'mesh-contract'].includes(check.id)
@@ -54,6 +57,30 @@ test('the same contract checks accept every registered vehicle bundle', () => {
     );
     assert.deepEqual(report.executedChecks, contractChecks.map(check => check.id));
   }
+});
+
+test('H39 bundle injects the exact family-owned visual data without source-mechanics claims', () => {
+  const bundle = FRANCE_1940_VEHICLE_VISUAL_BUNDLES.fr_hotchkiss_h39;
+  assert.equal(bundle.visualData, HOTCHKISS_H39_VISUAL_DATA);
+  assert.deepEqual(
+    bundle.validation.requiredLodBands,
+    HOTCHKISS_H39_VISUAL_DATA.validation.requiredLodBands
+  );
+  assert.equal(bundle.validation.sourceMechanics, undefined);
+
+  const report = evaluateVehicleVisualBundle(bundle, {
+    checks: contractChecks
+  });
+  assert.equal(
+    report.pass,
+    true,
+    report.failures.map(item => `${item.checkId}: ${item.message}`).join('\n')
+  );
+  assert.deepEqual(report.executedChecks, [
+    'identity',
+    'assets',
+    'mesh-contract'
+  ]);
 });
 
 test('R35 bundle passes source registration, rigid envelope, topology, and mount checks', () => {
