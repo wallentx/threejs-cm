@@ -12,6 +12,7 @@ import {
   FRANCE_1940_FACTIONS,
   FRANCE_1940_FORMATIONS,
   FRANCE_1940_PRESENTATION,
+  FRANCE_1940_VEHICLES,
   FRANCE_1940_WEAPONS
 } from '../src/content/france1940/index.js';
 
@@ -201,7 +202,7 @@ test('family definition rejects stable key/id mismatches', () => {
   assert.throws(() => validateFamilyDefinition(invalid), /formations key\/id mismatch/);
 });
 
-test('France 1940 owns frozen weapons while the injected vehicle adapter remains untouched', () => {
+test('France 1940 owns canonical frozen catalogs and ignores obsolete adapters', () => {
   const weapons = {
     TEST_RIFLE: { id: 'TEST_RIFLE' }
   };
@@ -218,8 +219,10 @@ test('France 1940 owns frozen weapons while the injected vehicle adapter remains
   assert.equal(Object.isFrozen(FRANCE_1940_FACTIONS.french.vehicleIds), true);
   assert.equal(family.catalogs.weapons, FRANCE_1940_WEAPONS);
   assert.equal(family.catalogs.weapons, WEAPONS, 'legacy shim must preserve catalog identity');
-  assert.equal(family.catalogs.vehicles, vehicles);
+  assert.equal(family.catalogs.vehicles, FRANCE_1940_VEHICLES);
+  assert.equal(family.catalogs.vehicles, VEHICLES, 'legacy shim must preserve catalog identity');
   assert.notEqual(family.catalogs.weapons, weapons, 'surplus transitional weapon injection is ignored');
+  assert.notEqual(family.catalogs.vehicles, vehicles, 'surplus transitional vehicle injection is ignored');
   assert.equal(Object.isFrozen(weapons), false);
   assert.equal(Object.isFrozen(vehicles), false);
   assert.equal(weapons.TEST_RIFLE.id, 'TEST_RIFLE');
@@ -233,6 +236,8 @@ test('family registry and France content stay renderer and runtime independent',
     '../src/content/france1940/formations.js',
     '../src/content/france1940/presentation.js',
     '../src/content/france1940/weapons.js',
+    '../src/content/france1940/vehicles.js',
+    '../src/content/france1940/catalogPorts.js',
     '../src/content/france1940/index.js'
   ].map(path => readFile(new URL(path, import.meta.url), 'utf8')));
 

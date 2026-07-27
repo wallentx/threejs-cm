@@ -7,9 +7,10 @@ async function read(relativePath) {
 }
 
 test('browser build uses Three r185 WebGPURenderer with explicit initialization and fallback diagnostics', async () => {
-  const [packageSource, rendererSource, mainSource, viteSource, markup] = await Promise.all([
+  const [packageSource, rendererSource, appSource, mainSource, viteSource, markup] = await Promise.all([
     read('../package.json'),
     read('../src/engine/Renderer.js'),
+    read('../src/app/GameApp.js'),
     read('../src/main.js'),
     read('../vite.config.js'),
     read('../index.html')
@@ -25,10 +26,11 @@ test('browser build uses Three r185 WebGPURenderer with explicit initialization 
   assert.match(rendererSource, /graphicsRenderer\.onDeviceLost = info =>/);
   assert.match(rendererSource, /graphicsRenderer\.shadowMap\.enabled = this\.qualityTier !== 'low'/);
   assert.match(rendererSource, /this\.graphicsRenderer\.backend\?\.isWebGLBackend\) throw err/);
-  assert.match(mainSource, /await this\.renderer\.initialize\(\)/);
-  assert.match(mainSource, /dataset\.rendererBackend = this\.renderer\.backendName/);
-  assert.match(mainSource, /new THREE\.Timer\(\)/);
-  assert.doesNotMatch(mainSource, /new THREE\.Clock\(\)/);
+  assert.match(appSource, /await this\.renderer\.initialize\(\)/);
+  assert.match(appSource, /dataset\.rendererBackend = this\.renderer\.backendName/);
+  assert.match(appSource, /new THREE\.Timer\(\)/);
+  assert.doesNotMatch(appSource, /new THREE\.Clock\(\)/);
+  assert.match(mainSource, /new GameApp\(gameDefinition\)/);
   assert.match(viteSource, /import\.meta\.resolve\('three\/webgpu'\)/);
   assert.match(viteSource, /find:\s*\/\^three\$\/,\s*replacement:\s*threeWebGPUPath/);
   assert.match(markup, /<title>[^<]+WebGPU PoC<\/title>/);

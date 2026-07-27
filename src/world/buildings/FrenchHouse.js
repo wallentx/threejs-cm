@@ -600,6 +600,20 @@ export function applyFrenchHouseVisualState(root, descriptor, runtime, { interio
   root.userData.runtimeCollisionVersion = runtime.collisionVersion ?? 0;
 }
 
+/**
+ * Composition helper for TerrainBuilder's generic structure port. The caller
+ * supplies the authoritative renderer-neutral descriptor; this module supplies
+ * presentation functions only.
+ */
+export function createFrenchHouseVisualAdapter(descriptor) {
+  if (!descriptor?.id) throw new Error('French house visual adapter requires a descriptor');
+  return Object.freeze({
+    descriptor,
+    createVisual: createFrenchHouseVisual,
+    applyVisualState: applyFrenchHouseVisualState
+  });
+}
+
 /** Dispose only renderer-owned resources created by createFrenchHouseVisual(). */
 export function disposeFrenchHouseVisual(root) {
   root?.traverse(object => {

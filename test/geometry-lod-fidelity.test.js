@@ -1,11 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { Unit } from '../src/game/Unit.js';
+import {
+  FRANCE_1940_VEHICLE_MESH_FACTORIES
+} from '../src/content/france1940/render/index.js';
+import { Unit } from './helpers/France1940TestUnit.js';
 import { UnitFactory } from '../src/world/UnitFactory.js';
 import {
   createSectionedHullGeometry
 } from '../src/world/vehicles/VehicleModelEnhancer.js';
+
+const createVehicleMesh = modelId => UnitFactory.createTankMesh(
+  modelId,
+  FRANCE_1940_VEHICLE_MESH_FACTORIES
+);
 
 const triangle = {
   a: new THREE.Vector3(),
@@ -59,7 +67,7 @@ test('sectioned vehicle hull compiler winds every convex plate outward', () => {
 
 test('R35 and H39 turrets seat on outward-wound cast decks', () => {
   for (const type of ['fr_renault_r35', 'fr_hotchkiss_h39']) {
-    const vehicle = UnitFactory.createTankMesh(type);
+    const vehicle = createVehicleMesh(type);
     const turret = vehicle.userData.turret;
     assert.ok(turret?.userData.deckContact, `${type} needs explicit deck-contact contract`);
     const deck = vehicle.getObjectByName(turret.userData.deckContact.hullName);
@@ -77,7 +85,7 @@ test('R35 and H39 turrets seat on outward-wound cast decks', () => {
 });
 
 test('Panzer III rear deck remains outward-facing at core distance', () => {
-  const vehicle = UnitFactory.createTankMesh('ger_panzer3');
+  const vehicle = createVehicleMesh('ger_panzer3');
   const deck = vehicle.getObjectByName('PzIII_EngineDeck');
   assert.ok(deck);
   assert.equal(deck.userData.surfaceRole, 'rear-hull-deck');
@@ -216,7 +224,7 @@ test('right-side coax mounts align rendered barrels and muzzle markers', () => {
     'ger_sdkfz231',
     'ger_panzer4'
   ]) {
-    const vehicle = UnitFactory.createTankMesh(type);
+    const vehicle = createVehicleMesh(type);
     const marker = vehicle.userData.weaponMuzzles.coax;
     const mainMuzzle = vehicle.userData.muzzle;
     assert.equal(marker.parent, mainMuzzle.parent, `${type} coax must traverse with main gun`);
@@ -245,7 +253,7 @@ test('right-side coax mounts align rendered barrels and muzzle markers', () => {
 });
 
 test('Char B1 hull machine gun remains right of its right-side 75mm gun', () => {
-  const vehicle = UnitFactory.createTankMesh('fr_char_b1bis');
+  const vehicle = createVehicleMesh('fr_char_b1bis');
   const hullGun = vehicle.getObjectByName('CharB1_75mm_HullGun');
   const marker = vehicle.userData.weaponMuzzles.hull_mg;
   assert.equal(hullGun.userData.mountSide, 'right');
@@ -260,7 +268,7 @@ test('Char B1 hull machine gun remains right of its right-side 75mm gun', () => 
 });
 
 test('left-side Panhard coax uses +X in the shared +Z-forward frame', () => {
-  const vehicle = UnitFactory.createTankMesh('fr_panhard178');
+  const vehicle = createVehicleMesh('fr_panhard178');
   const marker = vehicle.userData.weaponMuzzles.coax;
   assert.equal(marker.userData.mountSide, 'left');
   assert.ok(marker.position.x > vehicle.userData.muzzle.position.x);
@@ -276,7 +284,7 @@ test('blueprint-resolved mount sides retain source provenance', () => {
     'fr_char_b1bis',
     'ger_panzer2'
   ]) {
-    const vehicle = UnitFactory.createTankMesh(type);
+    const vehicle = createVehicleMesh(type);
     const marker = vehicle.userData.weaponMuzzles.coax;
     assert.equal(marker.userData.mountSide, 'right');
     assert.match(marker.userData.placementQuality, /blueprint|museum/);

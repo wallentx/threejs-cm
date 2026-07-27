@@ -490,3 +490,14 @@ export function getVehicleTextureCacheStats() {
     textureCount: TEXTURE_BUNDLES.size * 3
   });
 }
+
+/**
+ * Runtime provider for the current procedural vehicle surface implementation.
+ * Family asset manifests bind this implementation to a stable logical ID.
+ */
+export const PROCEDURAL_VEHICLE_SURFACE_PACK = Object.freeze({
+  id: VEHICLE_TEXTURE_PACK_ID,
+  kind: 'vehicle-surface-pack',
+  apply: applyVehicleMaterialPack,
+  getCacheStats: getVehicleTextureCacheStats
+});

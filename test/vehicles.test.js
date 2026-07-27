@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { Unit } from '../src/game/Unit.js';
+import {
+  FRANCE_1940_VEHICLE_MESH_FACTORIES
+} from '../src/content/france1940/render/index.js';
+import { Unit } from './helpers/France1940TestUnit.js';
 import { UnitFactory } from '../src/world/UnitFactory.js';
 import { getVehicle, VEHICLES } from '../src/game/VehicleCatalog.js';
 import { getWeapon } from '../src/game/WeaponCatalog.js';
@@ -25,6 +28,11 @@ import {
   createSectionedHullGeometry,
   enhanceVehicleModel
 } from '../src/world/vehicles/VehicleModelEnhancer.js';
+
+const createVehicleMesh = modelId => UnitFactory.createTankMesh(
+  modelId,
+  FRANCE_1940_VEHICLE_MESH_FACTORIES
+);
 import {
   applyVehicleMaterialPack,
   VEHICLE_TEXTURE_PACK_ID,
@@ -205,7 +213,7 @@ test('blueprint-calibrated vehicles preserve measured envelopes and running-gear
     },
     {
       name: 'SOMUA S35',
-      mesh: UnitFactory.createTankMesh('fr_somua'),
+      mesh: createVehicleMesh('fr_somua'),
       dimensions: { length: 5.38, width: 2.12, height: 2.62 },
       wheelPrefix: null
     },
@@ -217,7 +225,7 @@ test('blueprint-calibrated vehicles preserve measured envelopes and running-gear
     },
     {
       name: 'Panzer III Ausf. D',
-      mesh: UnitFactory.createTankMesh('ger_panzer3'),
+      mesh: createVehicleMesh('ger_panzer3'),
       dimensions: { length: 5.38, width: 2.91, height: 2.50 },
       wheelPrefix: null
     }

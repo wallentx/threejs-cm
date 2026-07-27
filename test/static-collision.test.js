@@ -5,11 +5,28 @@ import {
   StaticCollisionWorld,
   createCapsuleOffsets
 } from '../src/simulation/collision/StaticCollisionWorld.js';
-import { Unit } from '../src/game/Unit.js';
+import { Unit } from './helpers/France1940TestUnit.js';
 import { BuildingInteractionSystem } from '../src/game/BuildingInteractionSystem.js';
 import { BuildingSystem } from '../src/simulation/buildings/index.js';
-import { TerrainBuilder } from '../src/world/TerrainBuilder.js';
-import { TERRAIN_SCALE } from '../src/world/TerrainScale.js';
+import { TerrainBuilder } from './helpers/France1940TestTerrain.js';
+import { STONNE_1940_MAP } from '../src/maps/france/stonne.js';
+import { FR_HOUSE_12X9_2F } from '../src/maps/france/FranceHouse12x9_2F.js';
+import {
+  createFrenchHouseVisualAdapter
+} from '../src/world/buildings/FrenchHouse.js';
+
+const STRUCTURE_ADAPTERS = Object.freeze({
+  [FR_HOUSE_12X9_2F.id]: createFrenchHouseVisualAdapter(FR_HOUSE_12X9_2F)
+});
+
+function createTerrain(buildingSystem = new BuildingSystem()) {
+  buildingSystem.registerDescriptor(FR_HOUSE_12X9_2F);
+  return new TerrainBuilder(new THREE.Scene(), {
+    mapDescriptor: STONNE_1940_MAP,
+    buildingSystem,
+    structureAdapters: STRUCTURE_ADAPTERS
+  });
+}
 
 const WALL = Object.freeze({
   id: 'wall',
@@ -129,10 +146,10 @@ test('static navigation deterministically routes around a long wall', () => {
 
 test('authored wall-end route lets a live squad occupy the upper floor', () => {
   const buildings = new BuildingSystem();
-  const terrain = new TerrainBuilder(new THREE.Scene(), { buildingSystem: buildings });
+  const terrain = createTerrain(buildings);
   terrain.buildRiverAndBridge();
   terrain.buildStoneWalls();
-  terrain.buildFrenchVillage();
+  terrain.buildStructures();
   const unit = new Unit({
     id: 'authored_wall_route_squad',
     faction: 'french',
@@ -210,10 +227,10 @@ test('authored wall-end route lets a live squad occupy the upper floor', () => {
 });
 
 test('terrain publishes bridge, abutment, river exclusion, wall, and building records', () => {
-  const terrain = new TerrainBuilder(new THREE.Scene());
+  const terrain = createTerrain();
   terrain.buildRiverAndBridge();
   terrain.buildStoneWalls();
-  terrain.buildFrenchVillage();
+  terrain.buildStructures();
   const types = new Set(terrain.colliderRecords.map(record => record.type));
 
   for (const type of [
@@ -226,19 +243,19 @@ test('terrain publishes bridge, abutment, river exclusion, wall, and building re
     assert.ok(types.has(type), `missing ${type} collider records`);
   }
   assert.equal(
-    terrain.getMovementHeightAt(0, TERRAIN_SCALE.river.centerZ),
+    terrain.getMovementHeightAt(0, STONNE_1940_MAP.river.centerZ),
     terrain.bridgeSurface.deckTop
   );
   assert.equal(
-    terrain.getMovementHeightAt(20, TERRAIN_SCALE.river.centerZ),
-    TERRAIN_SCALE.river.bedLevel
+    terrain.getMovementHeightAt(20, STONNE_1940_MAP.river.centerZ),
+    STONNE_1940_MAP.river.bedLevel
   );
 });
 
 test('river exclusion blocks off-bridge travel while bridge roadway remains open', () => {
-  const terrain = new TerrainBuilder(new THREE.Scene());
+  const terrain = createTerrain();
   terrain.buildRiverAndBridge();
-  const river = TERRAIN_SCALE.river;
+  const river = STONNE_1940_MAP.river;
   const offBridge = terrain.collisionWorld.resolveCircleMotion(
     { x: 20, z: river.centerZ - 30 },
     { x: 0, z: 60 },
@@ -259,7 +276,7 @@ test('river exclusion blocks off-bridge travel while bridge roadway remains open
 });
 
 test('vehicle orders deterministically route through the bridge opening', () => {
-  const terrain = new TerrainBuilder(new THREE.Scene());
+  const terrain = createTerrain();
   terrain.buildRiverAndBridge();
   const unit = new Unit({
     id: 'bridge_vehicle',
@@ -286,9 +303,9 @@ test('vehicle orders deterministically route through the bridge opening', () => 
 });
 
 test('near-bank destinations route from actual river exclusion edges', () => {
-  const terrain = new TerrainBuilder(new THREE.Scene());
+  const terrain = createTerrain();
   terrain.buildRiverAndBridge();
-  const river = TERRAIN_SCALE.river;
+  const river = STONNE_1940_MAP.river;
   const goal = new THREE.Vector3(
     18,
     0,
@@ -321,9 +338,9 @@ test('near-bank destinations route from actual river exclusion edges', () => {
 });
 
 test('static navigation path preserves bridge crossing stages', () => {
-  const terrain = new TerrainBuilder(new THREE.Scene());
+  const terrain = createTerrain();
   terrain.buildRiverAndBridge();
-  const river = TERRAIN_SCALE.river;
+  const river = STONNE_1940_MAP.river;
   const start = { x: 18, z: river.centerZ - river.cutWidth * 0.5 - 8 };
   const goal = { x: 18, z: river.centerZ + river.cutWidth * 0.5 + 8 };
   const path = terrain.collisionWorld.getNavigationPath(
@@ -352,7 +369,7 @@ test('static navigation path preserves bridge crossing stages', () => {
 });
 
 test('soldier stages at wall stand-off and uses tangential space without clipping', () => {
-  const terrain = new TerrainBuilder(new THREE.Scene());
+  const terrain = createTerrain();
   terrain.addColliderRecord(WALL);
   const unit = new Unit({
     id: 'wall_staging_squad',
@@ -382,7 +399,7 @@ test('soldier stages at wall stand-off and uses tangential space without clippin
 });
 
 test('infantry anchor cannot complete through a wall', () => {
-  const terrain = new TerrainBuilder(new THREE.Scene());
+  const terrain = createTerrain();
   terrain.addColliderRecord({
     ...WALL,
     id: 'wall:impassable',
@@ -405,7 +422,7 @@ test('infantry anchor cannot complete through a wall', () => {
 });
 
 test('infantry waypoint completion waits for every living soldier to arrive', () => {
-  const terrain = new TerrainBuilder(new THREE.Scene());
+  const terrain = createTerrain();
   const unit = new Unit({
     id: 'catchup_squad',
     faction: 'french',
@@ -429,7 +446,7 @@ test('infantry waypoint completion waits for every living soldier to arrive', ()
 });
 
 test('collision continuation is identical after unit capture and restore', () => {
-  const terrain = new TerrainBuilder(new THREE.Scene());
+  const terrain = createTerrain();
   terrain.addColliderRecord(WALL);
   const unit = new Unit({
     id: 'rollback_vehicle',
@@ -454,7 +471,7 @@ test('collision continuation is identical after unit capture and restore', () =>
 });
 
 test('destroyed bunker rubble admits infantry but continues to block vehicles', () => {
-  const terrain = new TerrainBuilder(new THREE.Scene());
+  const terrain = createTerrain();
   const bunker = new Unit({
     id: 'collision_bunker',
     faction: 'german',

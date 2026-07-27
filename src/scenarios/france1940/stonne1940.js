@@ -1,4 +1,6 @@
 // Pure family scenario data. Runtime and Three.js imports are intentionally absent.
+import { STONNE_1940_MAP } from '../../maps/france/stonne.js';
+
 const freezeUnit = unit => Object.freeze({
   experience: 'Regular',
   ...unit,
@@ -26,7 +28,7 @@ export const STONNE_1940_SCENARIO = Object.freeze({
   gameFamilyId: 'france-1940',
   title: 'Battle of Stonne, 1940',
   defaultSeed: 19400516,
-  mapId: 'stonne-1940',
+  mapId: STONNE_1940_MAP.id,
   communicationNets: Object.freeze([
     Object.freeze({
       id: 'french-stonne',
@@ -39,22 +41,6 @@ export const STONNE_1940_SCENARIO = Object.freeze({
       dataQuality: 'scenario command-net grouping is a gameplay approximation'
     })
   ]),
-  deploymentZones: Object.freeze({
-    french: Object.freeze({
-      minX: -80,
-      maxX: 80,
-      minZ: 60,
-      maxZ: 100,
-      color: 0x3b82f6
-    }),
-    german: Object.freeze({
-      minX: -80,
-      maxX: 80,
-      minZ: -100,
-      maxZ: -60,
-      color: 0xef4444
-    })
-  }),
   initialSelectionUnitId: 'fr_hq',
   cameraTargetUnitId: 'fr_hq',
   units: Object.freeze([

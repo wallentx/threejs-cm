@@ -1,9 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {
+  FRANCE_1940_INFANTRY_MESH_FACTORIES,
+  FRANCE_1940_VEHICLE_MESH_FACTORIES
+} from '../src/content/france1940/render/index.js';
 import { UnitFactory } from '../src/world/UnitFactory.js';
 import { WORLD_SCALE, getAuthoredMeshBounds } from '../src/world/WorldScale.js';
 import { VEHICLE_TEXTURE_PACK_ID } from '../src/world/vehicles/VehicleMaterialLibrary.js';
 import { getVehicleVisualProfile } from '../src/world/vehicles/VehicleVisualProfiles.js';
+
+const createVehicleMesh = modelId => UnitFactory.createTankMesh(
+  modelId,
+  FRANCE_1940_VEHICLE_MESH_FACTORIES
+);
 
 function materialsOf(mesh) {
   return Array.isArray(mesh.material) ? mesh.material : [mesh.material];
@@ -11,7 +20,7 @@ function materialsOf(mesh) {
 
 test('SOMUA standalone model exposes its registered blueprint datums', () => {
   const profile = getVehicleVisualProfile('fr_somua');
-  const vehicle = UnitFactory.createTankMesh('fr_somua');
+  const vehicle = createVehicleMesh('fr_somua');
   const hull = vehicle.getObjectByName('S35_CastPrimaryHull');
   const turret = vehicle.userData.turret;
   const barrel = vehicle.userData.barrel;
@@ -39,7 +48,11 @@ test('SOMUA standalone model exposes its registered blueprint datums', () => {
 });
 
 test('authored infantry uses metre standing-height scale without moving formation slots', () => {
-  const squad = UnitFactory.createInfantrySquadMesh('french', 6);
+  const squad = UnitFactory.createInfantrySquadMesh(
+    'french_1940_chasseur',
+    6,
+    FRANCE_1940_INFANTRY_MESH_FACTORIES
+  );
   const expectedSlots = [
     [-1.35, 0, -0.85], [0, 0, -0.85], [1.35, 0, -0.85],
     [-1.35, 0, 0.85], [0, 0, 0.85], [1.35, 0, 0.85]
@@ -62,7 +75,7 @@ for (const [type, requiredSlots, expectedProxyMeshes] of [
   ['ger_panzer3', ['paint', 'track', 'metal'], 10]
 ]) {
   test(`${type} standalone model has explicit mapped PBR detail and cheap textured proxy`, () => {
-    const vehicle = UnitFactory.createTankMesh(type);
+    const vehicle = createVehicleMesh(type);
     const metadata = vehicle.userData.modelMetadata;
     assert.equal(metadata.materialPack.id, VEHICLE_TEXTURE_PACK_ID);
     assert.equal(metadata.materialPack.inferenceFallbackCount, 0);

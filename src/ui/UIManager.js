@@ -1,19 +1,18 @@
 import * as THREE from 'three';
 import { Minimap } from './Minimap.js';
-import { getWeapon } from '../game/WeaponCatalog.js';
 import { buildVehicleStatusView } from './VehicleStatusPresenter.js';
 
 const scratchPos = new THREE.Vector3();
 const iconOffset = new THREE.Vector3(0, 3.5, 0);
 
 export class UIManager {
-  constructor(game) {
-    this.game = game;
+  constructor(runtimePort) {
+    this.runtime = runtimePort;
     this.activeTab = 'move';
     
     const mapCanvas = document.getElementById('minimap-canvas');
     if (mapCanvas) {
-      this.minimap = new Minimap(mapCanvas, game);
+      this.minimap = new Minimap(mapCanvas, runtimePort);
     } else {
       this.minimap = { render: () => {} };
     }
@@ -28,11 +27,8 @@ export class UIManager {
     this.initDOM();
     this.initHotkeys();
 
-    if (this.game.commands) {
-      this.game.commands.onBuildingMoveClick = (unit, pointVec3, buildingId, orderType) => {
-        return this.showFloorSelectorModal(unit, pointVec3, buildingId, orderType);
-      };
-    }
+    this.runtime.onBuildingMoveRequested((unit, pointVec3, buildingId, orderType) =>
+      this.showFloorSelectorModal(unit, pointVec3, buildingId, orderType));
   }
 
   bindClick(id, fn) {
@@ -49,25 +45,25 @@ export class UIManager {
     });
 
     this.bindClick('btn-go', () => {
-      if (this.game.wego.playMode === 'realtime') this.game.wego.togglePlayPause();
-      else this.game.wego.executeTurn();
+      if (this.runtime.playMode === 'realtime') this.runtime.togglePlayPause();
+      else this.runtime.executeTurn();
     });
-    this.bindClick('vcr-play', () => this.game.wego.togglePlayPause());
-    this.bindClick('vcr-rewind', () => this.game.wego.rewindTurn());
-    this.bindClick('vcr-back', () => this.game.wego.stepTime(-5));
-    this.bindClick('vcr-next', () => this.game.wego.stepTime(5));
-    this.bindClick('vcr-speed', () => this.game.wego.toggleFastSpeed());
+    this.bindClick('vcr-play', () => this.runtime.togglePlayPause());
+    this.bindClick('vcr-rewind', () => this.runtime.rewindTurn());
+    this.bindClick('vcr-back', () => this.runtime.stepTime(-5));
+    this.bindClick('vcr-next', () => this.runtime.stepTime(5));
+    this.bindClick('vcr-speed', () => this.runtime.toggleFastSpeed());
 
     const timeline = document.getElementById('timeline-slider');
     if (timeline) {
       timeline.addEventListener('change', (e) => {
-        this.game.wego.seekTime(Number(e.target.value));
+        this.runtime.seekTime(Number(e.target.value));
       });
     }
 
     document.querySelectorAll('input[name="playmode"]').forEach(radio => {
       radio.addEventListener('change', (e) => {
-        if (e.target.checked) this.game.wego.setPlayMode(e.target.value);
+        if (e.target.checked) this.runtime.setPlayMode(e.target.value);
       });
     });
 
@@ -79,14 +75,11 @@ export class UIManager {
     this.bindClick('toggle-paths', (e) => {
       this.showPaths = !this.showPaths;
       e.target.classList.toggle('active', this.showPaths);
-      if (this.game.commands && this.game.commands.pathLinesGroup) {
-        this.game.commands.pathLinesGroup.visible = this.showPaths;
-        this.game.commands.targetLinesGroup.visible = this.showPaths;
-      }
+      this.runtime.setPathsVisible(this.showPaths);
     });
 
     this.bindClick('btn-cancel-cmd', () => this.cancelOrDeselect(false));
-    this.bindClick('btn-deselect-unit', () => this.game.deselectUnit());
+    this.bindClick('btn-deselect-unit', () => this.runtime.deselectUnit());
 
     // Fullscreen Toggle
     this.bindClick('btn-fullscreen', () => {
@@ -107,11 +100,11 @@ export class UIManager {
     });
 
     this.bindClick('btn-sound-toggle', () => {
-      this.game.sound.enabled = !this.game.sound.enabled;
-      this.showToast(`Audio ${this.game.sound.enabled ? 'Enabled' : 'Disabled'}`, 'info');
+      const enabled = this.runtime.toggleSound();
+      this.showToast(`Audio ${enabled ? 'Enabled' : 'Disabled'}`, 'info');
     });
     this.bindClick('btn-clear-shot-trajectory', () => {
-      this.game.shotTrajectoryOverlay?.clear();
+      this.runtime.clearShotTrajectory();
     });
 
     // Lock UI touch events so dragging over UI doesn't scroll/zoom page
@@ -138,11 +131,11 @@ export class UIManager {
       }
       if (e.code === 'KeyX') {
         e.preventDefault();
-        this.game.deselectUnit();
+        this.runtime.deselectUnit();
         return;
       }
       if (/^Digit[1-9]$/.test(e.code)) {
-        this.game.cameraManager.setHeightPreset(Number(e.code.slice(-1)));
+        this.runtime.setCameraHeight(Number(e.code.slice(-1)));
         return;
       }
 
@@ -153,8 +146,8 @@ export class UIManager {
 
       if (e.code === 'Space') {
         e.preventDefault();
-        if (this.game.wego.phase === 'COMMAND_PHASE') this.game.wego.executeTurn();
-        else this.game.wego.togglePlayPause();
+        if (this.runtime.phase === 'COMMAND_PHASE') this.runtime.executeTurn();
+        else this.runtime.togglePlayPause();
       }
 
       if (e.code === 'KeyF') this.triggerCommand('FAST');
@@ -178,7 +171,7 @@ export class UIManager {
     const grid = document.getElementById('command-grid');
     if (!grid) return;
     grid.innerHTML = '';
-    const hasSelection = Boolean(this.game.selectedUnit);
+    const hasSelection = Boolean(this.runtime.selectedUnit);
     const commandPanel = document.getElementById('panel-commands');
     const rosterPanel = document.getElementById('panel-team-roster');
     for (const panel of [commandPanel, rosterPanel]) {
@@ -211,7 +204,7 @@ export class UIManager {
       special: [
         { label: 'HIDE', action: 'HIDE', key: 'H' },
         { label: 'DEPLOY', action: 'DEPLOY', key: 'D' },
-        ...(this.game.selectedUnit?.soldierAI?.agents.some(
+        ...(this.runtime.selectedUnit?.soldierAI?.agents.some(
           agent => Boolean(agent.buildingLocation)
         )
           ? [{ label: 'DISMOUNT / EXIT', action: 'EXIT_BUILDING', key: 'E' }]
@@ -231,7 +224,7 @@ export class UIManager {
     currentBtns.forEach(btnDef => {
       const btn = document.createElement('button');
       btn.className = 'btn-cmd';
-      if (btnDef.mode === this.game.commands.activeMode) btn.classList.add('active');
+      if (btnDef.mode === this.runtime.commandMode) btn.classList.add('active');
       btn.innerHTML = `
         <span class="cmd-hotkey">${btnDef.key || ''}</span>
         <span class="cmd-label">${btnDef.label}</span>
@@ -243,7 +236,7 @@ export class UIManager {
           return;
         }
         if (btnDef.mode) {
-          const activeMode = this.game.commands.setCommandMode(btnDef.mode);
+          const activeMode = this.runtime.setCommandMode(btnDef.mode);
           this.renderCommandGrid();
           this.showToast(
             activeMode ? `Order: ${btnDef.label} (Tap map/target)` : 'Command tool cancelled',
@@ -264,76 +257,70 @@ export class UIManager {
       return;
     }
     if (action === 'DESELECT') {
-      this.game.deselectUnit();
+      this.runtime.deselectUnit();
       return;
     }
     if (!this.canIssueOrders()) {
       this.showToast('Orders are locked during WEGO action playback', 'warn');
       return;
     }
-    const unit = this.game.selectedUnit;
+    const unit = this.runtime.selectedUnit;
     if (!unit) return;
 
     switch (action) {
       case 'PAUSE':
-        unit.addPause(15);
-        this.game.commands.renderOverlays();
+        this.runtime.addPause(15);
         this.showToast('15s Waypoint Pause Added', 'info');
         break;
       case 'CLEAR_PATHS':
-        unit.clearWaypoints();
-        this.game.commands.renderOverlays();
+        this.runtime.clearPaths();
         this.showToast('Waypoints Cleared', 'info');
         break;
       case 'CLEAR_TARGET':
-        unit.targetUnit = null;
-        unit.targetPos = null;
-        this.game.commands.renderOverlays();
+        this.runtime.clearTarget();
         this.showToast('Target Cleared', 'info');
         break;
-      case 'HIDE':
-        unit.isHiding = !unit.isHiding;
-        unit.stance = unit.isHiding ? 'PRONE' : 'STANDING';
-        unit.updateStanceVisuals();
-        this.showToast(`Unit Stance: ${unit.isHiding ? 'Hiding (Prone)' : 'Normal'}`, 'info');
+      case 'HIDE': {
+        const hiding = this.runtime.toggleHiding();
+        this.showToast(`Unit Stance: ${hiding ? 'Hiding (Prone)' : 'Normal'}`, 'info');
         break;
-      case 'DEPLOY':
-        unit.isDeployed = !unit.isDeployed;
-        unit.stance = unit.isDeployed ? 'KNEELING' : 'STANDING';
-        unit.updateStanceVisuals();
-        this.showToast(`Weapon Team ${unit.isDeployed ? 'Deployed' : 'Packed Up'}`, 'info');
+      }
+      case 'DEPLOY': {
+        const deployed = this.runtime.toggleDeployment();
+        this.showToast(`Weapon Team ${deployed ? 'Deployed' : 'Packed Up'}`, 'info');
         break;
+      }
       case 'SPLIT':
-        this.game.splitUnit(unit);
+        this.runtime.splitSelectedUnit();
         break;
       case 'EXIT_BUILDING':
-        this.game.issueBuildingExit(unit);
+        this.runtime.exitSelectedBuilding();
         break;
     }
   }
 
   cancelOrDeselect(deselectWhenIdle = true) {
-    const cancelled = this.game.commands.cancelActiveMode();
+    const cancelled = this.runtime.cancelCommandMode();
     if (cancelled) {
       this.renderCommandGrid();
       this.showToast('Command tool cancelled', 'info');
     } else if (deselectWhenIdle) {
-      this.game.deselectUnit();
+      this.runtime.deselectUnit();
     }
   }
 
   triggerCommand(commandName) {
     if (!this.canIssueOrders()) return;
-    if (commandName === 'FAST') this.game.commands.setCommandMode('MOVE_FAST');
-    if (commandName === 'QUICK') this.game.commands.setCommandMode('MOVE_QUICK');
-    if (commandName === 'HUNT') this.game.commands.setCommandMode('MOVE_HUNT');
-    if (commandName === 'TARGET') this.game.commands.setCommandMode('TARGET');
-    if (commandName === 'FACE') this.game.commands.setCommandMode('FACE');
+    if (commandName === 'FAST') this.runtime.setCommandMode('MOVE_FAST');
+    if (commandName === 'QUICK') this.runtime.setCommandMode('MOVE_QUICK');
+    if (commandName === 'HUNT') this.runtime.setCommandMode('MOVE_HUNT');
+    if (commandName === 'TARGET') this.runtime.setCommandMode('TARGET');
+    if (commandName === 'FACE') this.runtime.setCommandMode('FACE');
     this.renderCommandGrid();
   }
 
   canIssueOrders() {
-    return this.game.wego.playMode === 'realtime' || this.game.wego.phase === 'COMMAND_PHASE';
+    return this.runtime.canIssueOrders();
   }
 
   updateUnitHUD(unit) {
@@ -355,7 +342,9 @@ export class UIManager {
     }
 
     const flagEl = document.getElementById('unit-flag');
-    if (flagEl) flagEl.innerText = unit.faction === 'french' ? '🇫🇷' : '🇩🇪';
+    if (flagEl) {
+      flagEl.innerText = this.runtime.getFactionPresentation(unit.faction)?.flagGlyph ?? '⚔️';
+    }
 
     const nameEl = document.getElementById('unit-name');
     if (nameEl) nameEl.innerText = unit.name;
@@ -374,12 +363,13 @@ export class UIManager {
     if (txtSupp) txtSupp.innerText = unit.suppression > 50 ? 'HIGH' : (unit.suppression > 10 ? 'MED' : 'NONE');
 
     const rosterGrid = document.getElementById('roster-grid');
+    const weaponLookup = unit.catalogPorts.weapons.get;
     if (rosterGrid) {
       rosterGrid.innerHTML = '';
       unit.roster.forEach(s => {
         const slot = document.createElement('div');
         slot.className = `soldier-slot ${s.status.toLowerCase()}`;
-        const weapon = getWeapon(s.weaponId ?? s.weapon);
+        const weapon = weaponLookup(s.weaponId ?? s.weapon);
         const ammoText = weapon
           ? `${s.magazineAmmo ?? 0}/${s.reserveAmmo ?? 0}${s.reloadTimer > 0 ? ` · reload ${s.reloadTimer.toFixed(1)}s` : ''}`
           : '';
@@ -412,10 +402,12 @@ export class UIManager {
     } else {
       const agents = unit.soldierAI?.agents ?? [];
       const rifleAmmo = agents
-        .filter(agent => getWeapon(agent.weaponId)?.kind === 'rifle')
+        .filter(agent => weaponLookup(agent.weaponId)?.kind === 'rifle')
         .reduce((sum, agent) => sum + agent.magazineAmmo + agent.reserveAmmo, 0);
       const automaticAmmo = agents
-        .filter(agent => ['machine_gun', 'submachine_gun'].includes(getWeapon(agent.weaponId)?.kind))
+        .filter(agent => (
+          ['machine_gun', 'submachine_gun'].includes(weaponLookup(agent.weaponId)?.kind)
+        ))
         .reduce((sum, agent) => sum + agent.magazineAmmo + agent.reserveAmmo, 0);
       if (rifleEl) rifleEl.innerText = `RIFLES: ${rifleAmmo}`;
       if (barEl) barEl.innerText = `AUTOMATIC: ${automaticAmmo}`;
@@ -486,11 +478,11 @@ export class UIManager {
   }
 
   updatePhaseDisplay(phase, turnNum, turnTime) {
-    const realtime = this.game.wego?.playMode === 'realtime';
+    const realtime = this.runtime.playMode === 'realtime';
     const badge = document.getElementById('phase-badge');
     if (badge) {
       badge.innerText = realtime
-        ? (this.game.wego.isPlaying ? 'REALTIME' : 'REALTIME PAUSED')
+        ? (this.runtime.isPlaying ? 'REALTIME' : 'REALTIME PAUSED')
         : (phase === 'COMMAND_PHASE' ? 'COMMAND PHASE' : 'ACTION PHASE');
       badge.className = `phase-badge ${realtime || phase === 'ACTION_PHASE' ? 'action-phase' : 'command-phase'}`;
     }
@@ -528,7 +520,7 @@ export class UIManager {
     }
     const speed = document.getElementById('vcr-speed');
     if (speed) speed.innerText = `${playbackSpeed}x`;
-    if (this.game.wego.playMode === 'realtime') {
+    if (this.runtime.playMode === 'realtime') {
       const goText = document.querySelector('#btn-go .go-text');
       if (goText) goText.innerText = isPlaying ? 'PAUSE' : 'RUN';
     }
@@ -549,7 +541,7 @@ export class UIManager {
     const goText = document.querySelector('#btn-go .go-text');
     if (goText) {
       goText.innerText = realtime
-        ? (this.game.wego.isPlaying ? 'PAUSE' : 'RUN')
+        ? (this.runtime.isPlaying ? 'PAUSE' : 'RUN')
         : 'GO!';
     }
     document.body.dataset.playMode = mode;
@@ -584,7 +576,7 @@ export class UIManager {
       entry.tabIndex = 0;
       entry.setAttribute('role', 'button');
       entry.title = 'Select or clear this trajectory in the 3D view';
-      const toggleTrajectory = () => this.game.shotTrajectoryOverlay?.toggle(record);
+      const toggleTrajectory = () => this.runtime.toggleShotTrajectory(record);
       entry.addEventListener('click', toggleTrajectory);
       entry.addEventListener('keydown', event => {
         if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -755,7 +747,7 @@ export class UIManager {
         iconDiv.className = 'unit-floating-icon';
         iconDiv.addEventListener('click', (e) => {
           e.stopPropagation();
-          this.game.selectUnit(u);
+          this.runtime.selectUnit(u);
         });
         this.iconPool.set(u.id, iconDiv);
         overlay.appendChild(iconDiv);
@@ -765,19 +757,20 @@ export class UIManager {
       iconDiv.style.top = `${screenY}px`;
       iconDiv.style.display = 'block';
 
-      const isSelected = this.game.selectedUnit && this.game.selectedUnit.id === u.id;
-      const isFrench = u.faction === 'french';
+      const isSelected = this.runtime.selectedUnit?.id === u.id;
+      const isPlayer = this.runtime.isPlayerFaction(u.faction);
+      const presentation = this.runtime.getFactionPresentation(u.faction);
       const vehicleStatus = isSelected ? buildVehicleStatusView(u) : null;
       const damagedLabels = vehicleStatus?.damagedComponents
         .slice(0, 3)
         .map(component => `${component.label}:${component.status}`)
         .join(' · ');
 
-      const contentKey = `${isFrench}:${isSelected}:${u.name}:${vehicleStatus ? vehicleStatus.health : 'none'}:${damagedLabels || ''}`;
+      const contentKey = `${u.faction}:${presentation?.selectionColor}:${isPlayer}:${isSelected}:${u.name}:${vehicleStatus ? vehicleStatus.health : 'none'}:${damagedLabels || ''}`;
       if (iconDiv.dataset.contentKey !== contentKey) {
         iconDiv.dataset.contentKey = contentKey;
         iconDiv.innerHTML = `
-          <div class="icon-badge ${isFrench ? 'french' : 'german'} ${isSelected ? 'selected' : ''}">
+          <div class="icon-badge faction ${isPlayer ? 'friendly' : 'hostile'} ${isSelected ? 'selected' : ''}">
             ${u.vehicleSpec ? '🛡️' : '⚔️'}
           </div>
           <div class="icon-label">${u.name}</div>
@@ -789,6 +782,10 @@ export class UIManager {
             ${damagedLabels ? `<div class="vehicle-floating-damage">${damagedLabels}</div>` : ''}
           ` : ''}
         `;
+        iconDiv.querySelector('.icon-badge')?.style.setProperty(
+          '--faction-color',
+          presentation?.selectionColor ?? '#64748b'
+        );
       }
     });
 
@@ -834,11 +831,11 @@ export class UIManager {
     const close = () => modal.remove();
     modal.querySelector('#btn-floor-ground')?.addEventListener('click', () => {
       close();
-      const result = this.game.commands.onBuildingOrder?.(
+      const result = this.runtime.issueBuildingOrder(
         unit, 'ENTER_GROUND', pointVec3, buildingId
       );
       if (result?.accepted) {
-        this.game.commands.cancelActiveMode();
+        this.runtime.cancelCommandMode();
         this.renderCommandGrid();
         this.showToast('Ordered to Ground Floor', 'info');
       } else {
@@ -847,11 +844,11 @@ export class UIManager {
     });
     modal.querySelector('#btn-floor-upper')?.addEventListener('click', () => {
       close();
-      const result = this.game.commands.onBuildingOrder?.(
+      const result = this.runtime.issueBuildingOrder(
         unit, 'ENTER_UPPER', pointVec3, buildingId
       );
       if (result?.accepted) {
-        this.game.commands.cancelActiveMode();
+        this.runtime.cancelCommandMode();
         this.renderCommandGrid();
         this.showToast('Ordered to Upper Floor', 'info');
       } else {
@@ -867,10 +864,10 @@ export class UIManager {
     if (this.minimap && this.minimap.render) {
       this.minimap.render(units, cameraManager);
     }
-    this.updateShotInspector(this.game.combat?.telemetry?.impacts ?? []);
+    this.updateShotInspector(this.runtime.getImpacts());
     const now = performance.now();
-    if (this.game.selectedUnit && now - this.lastHudUpdate >= 100) {
-      this.updateUnitHUD(this.game.selectedUnit);
+    if (this.runtime.selectedUnit && now - this.lastHudUpdate >= 100) {
+      this.updateUnitHUD(this.runtime.selectedUnit);
       this.lastHudUpdate = now;
     }
   }

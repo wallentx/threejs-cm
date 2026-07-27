@@ -7,7 +7,7 @@ import {
   worldToLocalPoint
 } from '../src/simulation/buildings/index.js';
 import { BuildingInteractionSystem } from '../src/game/BuildingInteractionSystem.js';
-import { Unit } from '../src/game/Unit.js';
+import { Unit } from './helpers/France1940TestUnit.js';
 import { FR_HOUSE_12X9_2F } from '../src/maps/france/FranceHouse12x9_2F.js';
 import { StaticCollisionWorld } from '../src/simulation/collision/StaticCollisionWorld.js';
 

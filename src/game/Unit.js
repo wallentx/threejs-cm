@@ -1,8 +1,6 @@
 import * as THREE from 'three';
 import { UnitFactory } from '../world/UnitFactory.js';
 import { SoldierAI } from './SoldierAI.js';
-import { getVehicle, vehicleIdForFaction } from './VehicleCatalog.js';
-import { getWeapon } from './WeaponCatalog.js';
 import { getStructure } from './StructureCatalog.js';
 import {
   applyStructureDamage,
@@ -44,15 +42,54 @@ function cloneRoster(roster) {
 
 export class Unit {
   constructor(config) {
-    this.id = config.id || `unit_${Math.floor(Math.random() * 10000)}`;
-    this.name = config.name || 'French Infantry Squad';
-    this.faction = config.faction || 'french'; // 'french' or 'german'
-    this.type = config.type || 'infantry_squad'; // 'infantry_squad', 'tank', 'vehicle', 'bunker'
+    if (!config || typeof config !== 'object') {
+      throw new TypeError('Unit requires a configuration record');
+    }
+    this.catalogPorts = config.catalogPorts;
+    if (
+      typeof this.catalogPorts?.weapons?.get !== 'function'
+      || typeof this.catalogPorts?.weapons?.idFromName !== 'function'
+      || typeof this.catalogPorts?.vehicles?.get !== 'function'
+      || typeof this.catalogPorts?.vehicles?.defaultIdForFaction !== 'function'
+    ) {
+      throw new Error('Unit requires weapon and vehicle catalog ports');
+    }
+    this.weaponLookup = this.catalogPorts.weapons.get;
+    this.visualFactories = config.visualFactories;
+    if (!this.visualFactories || typeof this.visualFactories !== 'object') {
+      throw new Error('Unit requires visual factories');
+    }
+    if (typeof config.id !== 'string' || config.id.length === 0) {
+      throw new Error('Unit requires a stable id');
+    }
+    this.id = config.id;
+    this.name = config.name || this.id;
+    if (typeof config.faction !== 'string' || config.faction.length === 0) {
+      throw new Error('Unit requires a faction');
+    }
+    if (typeof config.type !== 'string' || config.type.length === 0) {
+      throw new Error('Unit requires a type');
+    }
+    this.faction = config.faction;
+    this.type = config.type;
+    this.visualPresentation = this.visualFactories.factionPresentation?.[this.faction];
+    if (!this.visualPresentation) {
+      throw new Error(`Unit requires visual presentation for faction ${this.faction}`);
+    }
     this.vehicleId = config.vehicleId
-      ?? (['tank', 'vehicle'].includes(this.type) ? vehicleIdForFaction(this.faction) : null);
-    this.vehicleSpec = getVehicle(this.vehicleId);
-    this.structureSpec = getStructure(config.structureId)
-      ?? (this.type === 'bunker' ? getStructure('GERMAN_MG34_BUNKER') : null);
+      ?? (
+        ['tank', 'vehicle'].includes(this.type)
+          ? this.catalogPorts.vehicles.defaultIdForFaction(this.faction)
+          : null
+      );
+    this.vehicleSpec = this.catalogPorts.vehicles.get(this.vehicleId);
+    this.structureSpec = getStructure(config.structureId);
+    if (config.structureId && !this.structureSpec) {
+      throw new Error(`Unit ${this.id} references unknown structure ${config.structureId}`);
+    }
+    if (this.type === 'bunker' && !this.structureSpec) {
+      throw new Error(`Unit ${this.id} bunker requires structureId`);
+    }
     this.collisionWorld = null;
     const vehicleDimensions = this.vehicleSpec?.dimensionsMeters;
     this.collisionRadius = vehicleDimensions
@@ -82,10 +119,13 @@ export class Unit {
     const resolvedRoster = Array.isArray(config.roster)
       ? cloneRoster(config.roster)
       : null;
+    if (this.type === 'infantry_squad' && (!resolvedRoster || resolvedRoster.length === 0)) {
+      throw new Error(`Infantry unit ${this.id} requires a resolved roster`);
+    }
     this.squadSize = config.squadSize
       ?? resolvedRoster?.length
       ?? this.vehicleSpec?.crew.length
-      ?? (['tank', 'vehicle'].includes(this.type) ? 3 : 6);
+      ?? 0;
     this.roster = resolvedRoster ?? this.initRoster();
 
     // Read-only compatibility summary. Soldier and vehicle weapon states own ammunition.
@@ -144,30 +184,13 @@ export class Unit {
         health: 100
       }));
     }
-
-    const roster = [];
-    const weapons = this.faction === 'french'
-      ? ['MAS-36 Rifle', 'MAS-36 Rifle', 'FM 24/29 LMG', 'MAS-36 Rifle', 'MAS-36 Rifle', 'MAS-38 SMG']
-      : ['Kar98k', 'Kar98k', 'MG34 LMG', 'Kar98k', 'Kar98k', 'MP40'];
-    const roles = ['Squad Leader', 'Rifleman', 'Automatic Rifleman', 'Rifleman', 'Assistant Gunner', 'Assistant Leader'];
-
-    for (let i = 0; i < this.squadSize; i++) {
-      roster.push({
-        id: i,
-        name: `${this.faction === 'french' ? 'Chasseur' : 'Grenadier'} ${i + 1}`,
-        role: roles[i % roles.length],
-        weapon: weapons[i % weapons.length],
-        status: 'OK',
-        health: 100
-      });
-    }
-    return roster;
+    return [];
   }
 
   initVehicleWeapon(state = null) {
     if (state) {
       const loadedWeapon = state.loadedType
-        ? getWeapon(this.vehicleSpec?.mainGun?.[state.loadedType])
+        ? this.weaponLookup(this.vehicleSpec?.mainGun?.[state.loadedType])
         : null;
       return {
         ...state,
@@ -181,7 +204,7 @@ export class Unit {
       };
     }
     const initialType = this.vehicleSpec.mainGun.ap ? 'ap' : 'he';
-    const weapon = getWeapon(this.vehicleSpec.mainGun[initialType]);
+    const weapon = this.weaponLookup(this.vehicleSpec.mainGun[initialType]);
     const ammunition = { ap: 0, he: 0, ...this.vehicleSpec.ammunition };
     const feedAmmo = Math.min(weapon?.magazineSize ?? 1, ammunition[initialType] ?? 0);
     ammunition[initialType] = Math.max(0, ammunition[initialType] - feedAmmo);
@@ -207,21 +230,34 @@ export class Unit {
     if (!this.vehicleSpec) return {};
     return Object.fromEntries((this.vehicleSpec.weaponMounts ?? []).map(mount => [
       mount.id,
-      createVehicleMountState(mount, saved?.[mount.id])
+      createVehicleMountState(mount, saved?.[mount.id], this.weaponLookup)
     ]));
   }
 
   initMesh() {
     if (this.vehicleSpec) {
-      this.mesh = UnitFactory.createTankMesh(this.vehicleSpec.modelId);
-    } else if (this.type === 'bunker') {
-      this.mesh = UnitFactory.createBunkerMesh();
+      this.mesh = UnitFactory.createTankMesh(
+        this.vehicleSpec.modelId,
+        this.visualFactories.vehicleMeshes,
+        this.visualPresentation.selectionColor
+      );
+    } else if (this.structureSpec) {
+      this.mesh = UnitFactory.createStructureMesh(
+        this.structureSpec.id,
+        this.visualFactories.structureMeshes
+      );
     } else {
-      this.mesh = UnitFactory.createInfantrySquadMesh(this.faction, this.roster);
+      this.mesh = UnitFactory.createInfantrySquadMesh(
+        this.visualPresentation.infantryModelId,
+        this.roster,
+        this.visualFactories.infantryMeshes
+      );
     }
 
     this.mesh.position.copy(this.position);
     this.mesh.rotation.y = this.rotation;
+    this.mesh.userData.unitId = this.id;
+    this.mesh.userData.unitRoot = true;
   }
 
   replaceRoster(roster) {
@@ -333,7 +369,7 @@ export class Unit {
       this.ammo.rifle = 0;
       this.ammo.bar = 0;
       for (const agent of this.soldierAI.agents) {
-        const weapon = getWeapon(agent.weaponId);
+        const weapon = this.weaponLookup(agent.weaponId);
         const rounds = agent.magazineAmmo + agent.reserveAmmo;
         if (weapon?.kind === 'rifle') this.ammo.rifle += rounds;
         else this.ammo.bar += rounds;
@@ -507,7 +543,7 @@ export class Unit {
   beginVehicleMountReload(mountId) {
     const mount = this.getVehicleMountSpec(mountId);
     const state = this.vehicleMounts?.[mountId];
-    const weapon = getWeapon(mount?.weaponId);
+    const weapon = this.weaponLookup(mount?.weaponId);
     if (!mount || !state || !weapon || state.feedAmmo > 0 || state.reloadTimer > 0
         || state.reserveAmmo <= 0 || !this.isVehicleMountOperational(mountId)
         || !this.isCrewRoleAlive(mount.loaderRoles)
@@ -605,7 +641,7 @@ export class Unit {
   beginVehicleReload(ammoType = 'ap') {
     if (!this.vehicleWeapon || this.vehicleWeapon.loadedType || this.vehicleWeapon.reloadTimer > 0) return false;
     const weaponId = this.vehicleSpec.mainGun[ammoType];
-    const weapon = getWeapon(weaponId);
+    const weapon = this.weaponLookup(weaponId);
     if (!weapon || !this.hasOperationalLoader()
         || this.getVehicleAmmunitionHandlingFactor() <= 0
         || (this.vehicleWeapon.ammunition[ammoType] ?? 0) <= 0) return false;
@@ -656,7 +692,7 @@ export class Unit {
           );
           if (this.vehicleWeapon.reloadTimer === 0) {
             const type = this.vehicleWeapon.pendingType;
-            const weapon = getWeapon(this.vehicleSpec.mainGun[type]);
+            const weapon = this.weaponLookup(this.vehicleSpec.mainGun[type]);
             const rounds = Math.min(
               weapon?.magazineSize ?? 1,
               this.vehicleWeapon.ammunition[type] ?? 0
@@ -682,7 +718,7 @@ export class Unit {
 
     for (const mount of this.vehicleSpec.weaponMounts ?? []) {
       const state = this.vehicleMounts[mount.id];
-      const weapon = getWeapon(mount.weaponId);
+      const weapon = this.weaponLookup(mount.weaponId);
       if (!state || !weapon) continue;
       state.isFiring = false;
       if (state.reloadTimer <= 0) {
@@ -763,7 +799,9 @@ export class Unit {
       if (!this.vehicleWeapon.loadedType) {
         this.beginVehicleReload(desiredAmmoType);
       } else if (this.canVehicleFire() && Math.abs(yawError) <= 0.06) {
-        const weapon = getWeapon(this.vehicleSpec.mainGun[this.vehicleWeapon.loadedType]);
+        const weapon = this.weaponLookup(
+          this.vehicleSpec.mainGun[this.vehicleWeapon.loadedType]
+        );
         const experienceDispersion = { Green: 1.45, Regular: 1.15, Veteran: 0.9, Crack: 0.76 };
         const opticsFactor = this.vehicleComponents.optics.status === 'DAMAGED' ? 1.7 : 1;
         const gunDamageFactor = this.vehicleComponents.main_gun.status === 'DAMAGED' ? 1.35 : 1;
@@ -810,7 +848,7 @@ export class Unit {
     let firedAny = false;
     for (const mount of this.vehicleSpec.weaponMounts ?? []) {
       const state = this.vehicleMounts[mount.id];
-      const weapon = getWeapon(mount.weaponId);
+      const weapon = this.weaponLookup(mount.weaponId);
       if (!state || !weapon) continue;
       state.targetUnitId = aiming.target?.id ?? null;
       state.targetPos = aiming.targetPosition.toArray();

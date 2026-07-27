@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 
 export class MapEditor {
-  constructor(game) {
-    this.game = game;
+  constructor(editorPort) {
+    this.editorPort = editorPort;
     this.activeTab = 'terrain';
     this.brushSize = 2;
     this.terrainMode = 'raise';
@@ -45,7 +45,7 @@ export class MapEditor {
 
     if (this.activeTab === 'terrain') {
       if (this.terrainMode === 'bocage') {
-        this.game.terrain.bocageObstacles.push({
+        this.editorPort.addBocageObstacle({
           minX: x - 5, maxX: x + 5,
           minZ: z - 1.2, maxZ: z + 1.2,
           height: 3.0,
@@ -55,11 +55,11 @@ export class MapEditor {
         const bocageGeo = new THREE.BoxGeometry(10, 2.5, 2.4);
         const bocageMat = new THREE.MeshStandardMaterial({ color: '#203314', roughness: 0.9 });
         const mesh = new THREE.Mesh(bocageGeo, bocageMat);
-        mesh.position.set(x, 1.25 + this.game.terrain.getHeightAt(x, z), z);
+        mesh.position.set(x, 1.25 + this.editorPort.getTerrainHeight(x, z), z);
         mesh.castShadow = true;
-        this.game.scene.add(mesh);
+        this.editorPort.addSceneObject(mesh);
 
-        this.game.ui.showToast('Bocage Hedgerow Placed', 'info');
+        this.editorPort.notify('Bocage Hedgerow Placed', 'info');
       }
     } else if (this.activeTab === 'objects') {
       const objSelect = document.getElementById('ed-object-type');
@@ -69,10 +69,10 @@ export class MapEditor {
         const houseGeo = new THREE.BoxGeometry(12, 7, 10);
         const houseMat = new THREE.MeshStandardMaterial({ color: '#a39b8b' });
         const house = new THREE.Mesh(houseGeo, houseMat);
-        house.position.set(x, 3.5 + this.game.terrain.getHeightAt(x, z), z);
+        house.position.set(x, 3.5 + this.editorPort.getTerrainHeight(x, z), z);
         house.castShadow = true;
-        this.game.scene.add(house);
-        this.game.ui.showToast('Building Placed', 'info');
+        this.editorPort.addSceneObject(house);
+        this.editorPort.notify('Building Placed', 'info');
       }
     }
   }

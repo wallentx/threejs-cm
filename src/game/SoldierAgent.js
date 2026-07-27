@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { getWeapon, weaponIdFromName } from './WeaponCatalog.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const MAX_INFANTRY_ROUNDS_PER_STEP = 64;
@@ -18,6 +17,8 @@ function hash01(value) {
 export class SoldierAgent {
   constructor(unit, record, mesh, index) {
     this.unit = unit;
+    this.weaponLookup = unit.catalogPorts.weapons.get;
+    this.weaponIdFromName = unit.catalogPorts.weapons.idFromName;
     this.record = record;
     this.mesh = mesh;
     this.index = index;
@@ -34,8 +35,8 @@ export class SoldierAgent {
     this.reactionDelay = record.reactionDelay ?? variation * 0.65;
     this.stridePhase = record.stridePhase ?? variation * Math.PI * 2;
     this.fireCooldown = record.fireCooldown ?? variation * 1.4;
-    this.weaponId = record.weaponId ?? weaponIdFromName(record.weapon);
-    const weapon = getWeapon(this.weaponId);
+    this.weaponId = record.weaponId ?? this.weaponIdFromName(record.weapon);
+    const weapon = this.weaponLookup(this.weaponId);
     this.magazineAmmo = record.magazineAmmo ?? weapon?.magazineSize ?? 0;
     this.reserveAmmo = record.reserveAmmo
       ?? Math.max(0, (weapon?.carriedAmmo ?? 0) - this.magazineAmmo);
@@ -110,8 +111,10 @@ export class SoldierAgent {
     this.reactionDelay = record.reactionDelay ?? this.reactionDelay;
     this.stridePhase = record.stridePhase ?? this.stridePhase;
     this.fireCooldown = record.fireCooldown ?? this.fireCooldown;
-    this.weaponId = record.weaponId ?? weaponIdFromName(record.weapon) ?? this.weaponId;
-    const weapon = getWeapon(this.weaponId);
+    this.weaponId = record.weaponId
+      ?? this.weaponIdFromName(record.weapon)
+      ?? this.weaponId;
+    const weapon = this.weaponLookup(this.weaponId);
     this.magazineAmmo = record.magazineAmmo ?? weapon?.magazineSize ?? 0;
     this.reserveAmmo = record.reserveAmmo
       ?? Math.max(0, (weapon?.carriedAmmo ?? 0) - this.magazineAmmo);
@@ -362,7 +365,7 @@ export class SoldierAgent {
   }
 
   startReload() {
-    const weapon = getWeapon(this.weaponId);
+    const weapon = this.weaponLookup(this.weaponId);
     if (!weapon || this.reloadTimer > 0 || this.reserveAmmo <= 0) return false;
     this.reloadTimer = weapon.reloadSeconds;
     this.burstRemaining = 0;
@@ -372,7 +375,7 @@ export class SoldierAgent {
   }
 
   completeReload() {
-    const weapon = getWeapon(this.weaponId);
+    const weapon = this.weaponLookup(this.weaponId);
     if (!weapon || this.magazineAmmo >= weapon.magazineSize || this.reserveAmmo <= 0) return false;
     const rounds = Math.min(weapon.magazineSize - this.magazineAmmo, this.reserveAmmo);
     this.magazineAmmo += rounds;
@@ -384,7 +387,7 @@ export class SoldierAgent {
 
   updateCombat(delta, context) {
     const elapsed = Math.max(delta, 0);
-    const weapon = getWeapon(this.weaponId);
+    const weapon = this.weaponLookup(this.weaponId);
     if (!weapon || !this.isAlive) return false;
 
     this.fireCooldown = Math.max(-elapsed, this.fireCooldown - elapsed);

@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { Unit } from '../src/game/Unit.js';
+import { Unit } from './helpers/France1940TestUnit.js';
 import { CombatSystem } from '../src/game/CombatSystem.js';
 import { selectNearbyCover } from '../src/game/SoldierAI.js';
 import { getWeapon } from '../src/game/WeaponCatalog.js';
 import {
-  createInfantryWeaponRig,
-  INFANTRY_WEAPON_VISUALS
-} from '../src/world/infantry/index.js';
+  createFrance1940InfantryWeaponRig,
+  FRANCE_1940_INFANTRY_WEAPON_VISUALS
+} from '../src/content/france1940/render/index.js';
 
 const flatTerrain = {
   bocageObstacles: [],
@@ -63,8 +63,8 @@ test('six 1940 infantry weapons expose dimensioned semantic silhouettes and true
   };
   const signatures = new Set();
 
-  for (const [weaponName, spec] of Object.entries(INFANTRY_WEAPON_VISUALS)) {
-    const rig = createInfantryWeaponRig(weaponName, makeWeaponMaterials());
+  for (const [weaponName, spec] of Object.entries(FRANCE_1940_INFANTRY_WEAPON_VISUALS)) {
+    const rig = createFrance1940InfantryWeaponRig(weaponName, makeWeaponMaterials());
     const model = rig.userData.weaponModel;
     const parts = model.userData.parts;
 

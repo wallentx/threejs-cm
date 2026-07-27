@@ -1,5 +1,6 @@
 // Renderer-neutral game-family records. This module owns validation only;
 // callers inject content catalogs and decide where registrations live.
+import { validateAssetManifest } from '../assets/AssetManifest.js';
 
 function assertRecordMap(label, records) {
   if (!records || typeof records !== 'object' || Array.isArray(records)) {
@@ -98,6 +99,14 @@ export function validateFamilyDefinition(family) {
 
   const { factions, formations, presentation } = family;
   const { weapons, vehicles } = family.catalogs;
+  if (family.assetManifest) {
+    validateAssetManifest(family.assetManifest);
+    if (family.assetManifest.familyId !== family.id) {
+      throw new Error(
+        `family ${family.id} cannot own asset manifest for ${family.assetManifest.familyId}`
+      );
+    }
+  }
 
   for (const [factionId, faction] of Object.entries(factions)) {
     if (!Object.hasOwn(presentation, faction.presentationId)) {

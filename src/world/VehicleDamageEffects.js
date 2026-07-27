@@ -1,4 +1,9 @@
 import * as THREE from 'three';
+import {
+  PROCEDURAL_BATTLEFIELD_VFX_PROVIDER,
+  validateBattlefieldVfxProvider,
+  validateVehicleDamageVfxResourceSet
+} from './vfx/ProceduralBattlefieldVfxProvider.js';
 
 const FIRE_COMPONENTS = Object.freeze(['engine', 'fuel', 'ammunition']);
 const DESTROYED_STATES = new Set(['DESTROYED', 'DISABLED', 'KNOCKED_OUT']);
@@ -132,49 +137,18 @@ function effectAnchor(dimensions) {
 }
 
 export class VehicleDamageEffects {
-  constructor() {
+  constructor({ vfxProvider = PROCEDURAL_BATTLEFIELD_VFX_PROVIDER } = {}) {
     this.records = new Map();
     this.processedImpacts = new Set();
     this.elapsedSeconds = 0;
-
-    this.geometries = {
-      smoke: new THREE.SphereGeometry(0.34, 7, 6),
-      flame: new THREE.ConeGeometry(0.19, 0.72, 6, 1),
-      spark: new THREE.TetrahedronGeometry(0.055, 0),
-      scorch: new THREE.SphereGeometry(0.13, 7, 5),
-      blast: new THREE.IcosahedronGeometry(1, 2)
-    };
-    this.materials = {
-      smoke: new THREE.MeshBasicMaterial({
-        color: 0x262522,
-        transparent: true,
-        opacity: 0.42,
-        depthWrite: false
-      }),
-      flame: new THREE.MeshBasicMaterial({
-        color: 0xff641c,
-        transparent: true,
-        opacity: 0.9,
-        toneMapped: false,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending
-      }),
-      spark: new THREE.MeshBasicMaterial({
-        color: 0xffc35a,
-        transparent: true,
-        opacity: 0.95,
-        toneMapped: false,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending
-      }),
-      scorch: new THREE.MeshStandardMaterial({
-        color: 0x15130f,
-        roughness: 1,
-        metalness: 0,
-        transparent: true,
-        opacity: 0.88
-      })
-    };
+    this.vfxProvider = validateBattlefieldVfxProvider(vfxProvider);
+    this.vfxResources = validateVehicleDamageVfxResourceSet(
+      this.vfxProvider.createVehicleDamageResources()
+    );
+    this.vfxAssetBinding = this.vfxResources.assetBinding ?? null;
+    this.geometries = this.vfxResources.geometries;
+    this.materials = this.vfxResources.materials;
+    this.capacities = this.vfxResources.capacities;
   }
 
   register(unit) {
@@ -188,11 +162,16 @@ export class VehicleDamageEffects {
     const root = new THREE.Group();
     root.name = `${unit.id}_VehicleDamageEffects`;
     root.userData.effectOwner = unit.id;
+    if (this.vfxAssetBinding) {
+      root.userData.assetBinding = this.vfxAssetBinding;
+      unit.mesh.userData.assetBindings ??= {};
+      unit.mesh.userData.assetBindings.vehicleDamageVfx = this.vfxAssetBinding;
+    }
 
     const smoke = disableRaycast(new THREE.InstancedMesh(
       this.geometries.smoke,
       this.materials.smoke,
-      9
+      this.capacities.smoke
     ));
     smoke.name = 'EngineSmoke';
     smoke.count = 0;
@@ -200,7 +179,7 @@ export class VehicleDamageEffects {
     const flames = disableRaycast(new THREE.InstancedMesh(
       this.geometries.flame,
       this.materials.flame,
-      7
+      this.capacities.flame
     ));
     flames.name = 'VehicleFire';
     flames.count = 0;
@@ -208,7 +187,7 @@ export class VehicleDamageEffects {
     const sparks = disableRaycast(new THREE.InstancedMesh(
       this.geometries.spark,
       this.materials.spark,
-      14
+      this.capacities.spark
     ));
     sparks.name = 'DamageSparks';
     sparks.count = 0;
@@ -216,19 +195,15 @@ export class VehicleDamageEffects {
     const scorch = disableRaycast(new THREE.InstancedMesh(
       this.geometries.scorch,
       this.materials.scorch,
-      8
+      this.capacities.scorch
     ));
     scorch.name = 'ArmorScorchMarks';
     scorch.count = 0;
 
-    const blastMaterial = new THREE.MeshBasicMaterial({
-      color: 0xff8a24,
-      transparent: true,
-      opacity: 0,
-      toneMapped: false,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending
-    });
+    const blastMaterial = this.vfxResources.createBlastMaterial();
+    if (!blastMaterial?.isMaterial) {
+      throw new TypeError('vehicle-damage VFX blast material must be a Three.js material');
+    }
     const blast = disableRaycast(new THREE.Mesh(this.geometries.blast, blastMaterial));
     blast.name = 'VehicleSecondaryExplosion';
     blast.position.copy(effectAnchor(dimensions));
@@ -268,6 +243,12 @@ export class VehicleDamageEffects {
     record.blastMaterial?.dispose();
     if (record.mesh?.userData.damageEffects === record.root) {
       delete record.mesh.userData.damageEffects;
+    }
+    if (
+      this.vfxAssetBinding
+      && record.mesh?.userData.assetBindings?.vehicleDamageVfx === this.vfxAssetBinding
+    ) {
+      delete record.mesh.userData.assetBindings.vehicleDamageVfx;
     }
   }
 
@@ -316,10 +297,14 @@ export class VehicleDamageEffects {
       || damage.destroyed
       || DAMAGED_STATES.has(damage.components.engine.state);
     const smokeCount = shouldSmoke
-      ? (record.unit.currentLOD === 'low' ? 4 : 9)
+      ? (record.unit.currentLOD === 'low'
+          ? Math.min(4, this.capacities.smoke)
+          : this.capacities.smoke)
       : 0;
     const flameCount = damage.burning
-      ? (record.unit.currentLOD === 'low' ? 3 : 7)
+      ? (record.unit.currentLOD === 'low'
+          ? Math.min(3, this.capacities.flame)
+          : this.capacities.flame)
       : 0;
 
     record.smoke.count = smokeCount;
@@ -394,7 +379,7 @@ export class VehicleDamageEffects {
     const exploding = record.explosionTimer > record.impactTimer;
     const duration = exploding ? 1.05 : 0.42;
     const progress = THREE.MathUtils.clamp(1 - activeTimer / duration, 0, 1);
-    const count = exploding ? 14 : 8;
+    const count = Math.min(this.capacities.spark, exploding ? 14 : 8);
     const origin = exploding ? record.anchor : record.impactLocal;
     record.sparks.count = count;
     for (let index = 0; index < count; index++) {
@@ -459,7 +444,6 @@ export class VehicleDamageEffects {
   dispose() {
     for (const record of this.records.values()) this.removeRecord(record);
     this.records.clear();
-    Object.values(this.geometries).forEach(geometry => geometry.dispose());
-    Object.values(this.materials).forEach(material => material.dispose());
+    this.vfxResources.dispose();
   }
 }

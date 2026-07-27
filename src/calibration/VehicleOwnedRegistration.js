@@ -52,7 +52,7 @@ function sourceObjects(metadata, calibration) {
   return result;
 }
 
-function sourceImageUrl(modelId, metadata, calibration) {
+function sourceImageUrl(metadata, calibration) {
   for (const source of sourceObjects(metadata, calibration)) {
     for (const field of ['imageUrl', 'originalFileUrl', 'previewUrl']) {
       const url = rasterUrl(source?.[field]);
@@ -63,8 +63,21 @@ function sourceImageUrl(modelId, metadata, calibration) {
     const url = rasterUrl(source?.url);
     if (url) return url;
   }
-  if (modelId === 'fr_somua') return '/s35-compare.jpg';
   return null;
+}
+
+function referenceImageUrl(referenceRegistry, modelId, view) {
+  if (!referenceRegistry) return null;
+  if (typeof referenceRegistry.get !== 'function') {
+    throw new TypeError('calibration reference registry requires get(modelId, view)');
+  }
+  const reference = referenceRegistry.get(modelId, view);
+  if (reference == null) return null;
+  const imageUrl = rasterUrl(reference.imageUrl);
+  if (!imageUrl) {
+    throw new Error(`calibration reference ${modelId}:${view} requires a raster imageUrl`);
+  }
+  return imageUrl;
 }
 
 function registrationRoot(calibration) {
@@ -237,7 +250,11 @@ function cloneRegistration(registration) {
  * Converts renderer-owned source metadata into the jig's editable schema.
  * Unavailable or qualitative views remain explicitly empty.
  */
-export function createVehicleOwnedRegistrations(model, record) {
+export function createVehicleOwnedRegistrations(
+  model,
+  record,
+  { referenceRegistry = null } = {}
+) {
   const metadata = model?.userData?.modelMetadata ?? {};
   const calibration = metadata.blueprintCalibration
     ?? metadata.calibration
@@ -247,10 +264,12 @@ export function createVehicleOwnedRegistrations(model, record) {
     ?? null;
   const registration = registrationRoot(calibration);
   const dimensions = findDimensions(calibration, registration);
-  const imageUrl = sourceImageUrl(record.modelId, metadata, calibration);
+  const modelImageUrl = sourceImageUrl(metadata, calibration);
   const views = {};
 
   for (const view of VIEW_NAMES) {
+    const imageUrl = referenceImageUrl(referenceRegistry, record.modelId, view)
+      ?? modelImageUrl;
     const fallback = cloneRegistration(record.views[view]);
     const viewData = viewRegistration(registration, view);
     const crop = normalizedCrop(viewData.crop, dimensions, viewData.cropMode);

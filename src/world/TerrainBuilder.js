@@ -1,11 +1,6 @@
 import * as THREE from 'three';
 import { TERRAIN_SCALE } from './TerrainScale.js';
 import { StaticCollisionWorld } from '../simulation/collision/StaticCollisionWorld.js';
-import { FR_HOUSE_12X9_2F } from '../maps/france/FranceHouse12x9_2F.js';
-import {
-  applyFrenchHouseVisualState,
-  createFrenchHouseVisual
-} from './buildings/FrenchHouse.js';
 
 const QUAD_UVS = [
   0, 0,
@@ -224,12 +219,27 @@ function createTerrainConformingFoundationGeometry({
 }
 
 export class TerrainBuilder {
-  constructor(scene, { deploymentZones = {}, buildingSystem = null } = {}) {
+  constructor(scene, {
+    mapDescriptor,
+    buildingSystem = null,
+    structureAdapters = {},
+    terrainSurfaceProvider
+  } = {}) {
+    if (!mapDescriptor?.id || !mapDescriptor?.dimensions) {
+      throw new Error('TerrainBuilder requires a validated mapDescriptor');
+    }
+    if (
+      !terrainSurfaceProvider
+      || typeof terrainSurfaceProvider.create !== 'function'
+    ) {
+      throw new Error('TerrainBuilder requires an injected terrain surface provider');
+    }
     this.scene = scene;
-    this.deploymentZoneDefinitions = deploymentZones;
-    this.width = 240;
-    this.depth = 240;
-    this.segments = 60;
+    this.mapDescriptor = mapDescriptor;
+    this.deploymentZoneDefinitions = mapDescriptor.deploymentZones;
+    this.width = mapDescriptor.dimensions.width;
+    this.depth = mapDescriptor.dimensions.depth;
+    this.segments = mapDescriptor.dimensions.segments;
     this.terrainMesh = null;
     this.heightData = new Float32Array((this.segments + 1) * (this.segments + 1));
     this.bocageObstacles = [];
@@ -239,6 +249,9 @@ export class TerrainBuilder {
     this.collisionWorld = new StaticCollisionWorld();
     this.bridgeSurface = null;
     this.buildingSystem = buildingSystem;
+    this.structureAdapters = structureAdapters;
+    this.terrainSurfaceProvider = terrainSurfaceProvider;
+    this.surfaceAssets = null;
   }
 
   buildScenarioMap() {
@@ -257,23 +270,23 @@ export class TerrainBuilder {
     }
     geometry.computeVertexNormals();
 
-    // 2. High Visibility Ground Material
-    const groundTex = this.generateGroundTexture();
-    const material = new THREE.MeshStandardMaterial({
-      map: groundTex,
-      color: 0x667b4a,
-      roughness: 0.94,
-      metalness: 0.0
-    });
+    // 2. Family-owned surface material
+    const surfaceAssets = this.getSurfaceAssets();
+    const material = surfaceAssets.materials.ground;
 
     this.terrainMesh = new THREE.Mesh(geometry, material);
-    this.terrainMesh.name = "TerrainMesh";
+    this.terrainMesh.name = 'TerrainMesh';
+    if (surfaceAssets.assetBinding) {
+      this.terrainMesh.userData.assetBindings = {
+        terrainSurface: surfaceAssets.assetBinding
+      };
+    }
     this.scene.add(this.terrainMesh);
 
     // 3. Environment Features
     this.buildRiverAndBridge();
     this.buildStoneWalls();
-    this.buildFrenchVillage();
+    this.buildStructures();
     this.buildFoliage();
     this.buildSetupZones();
 
@@ -281,11 +294,17 @@ export class TerrainBuilder {
   }
 
   getOpenGroundHeightAt(x, z) {
-    return Math.sin(x * 0.025) * 3.5 + Math.cos(z * 0.02) * 2.8;
+    const elevation = this.mapDescriptor.elevation;
+    return elevation.waves.reduce((height, wave) => {
+      const coordinate = wave.axis === 'x' ? x : z;
+      const angle = coordinate * wave.frequency + (wave.phase ?? 0);
+      const sample = wave.function === 'sin' ? Math.sin(angle) : Math.cos(angle);
+      return height + sample * wave.amplitude;
+    }, elevation.baseHeight ?? 0);
   }
 
   getHeightAt(x, z) {
-    const river = TERRAIN_SCALE.river;
+    const river = this.mapDescriptor.river;
     const openGround = this.getOpenGroundHeightAt(x, z);
     const distanceFromCenter = Math.abs(z - river.centerZ);
     const waterHalfWidth = river.waterWidth * 0.5;
@@ -332,114 +351,48 @@ export class TerrainBuilder {
     for (const unit of units ?? []) unit.bindCollisionWorld?.(this.collisionWorld);
   }
 
-  generateGroundTexture() {
-    const canvas = document.createElement('canvas');
-    canvas.width = 1024;
-    canvas.height = 1024;
-    const ctx = canvas.getContext('2d');
-
-    // Base French Grass
-    ctx.fillStyle = '#4c6b2f';
-    ctx.fillRect(0, 0, 1024, 1024);
-
-    // Wheat Fields
-    ctx.fillStyle = '#b09943';
-    ctx.fillRect(60, 60, 400, 400);
-
-    ctx.fillStyle = '#567a3a';
-    ctx.fillRect(560, 60, 400, 400);
-
-    ctx.fillStyle = '#9e893c';
-    ctx.fillRect(60, 560, 400, 400);
-
-    // Dirt Road (Brown)
-    ctx.fillStyle = '#92704a';
-    ctx.fillRect(480, 0, 64, 1024);
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-    texture.needsUpdate = true;
-    return texture;
+  getSurfaceAssets() {
+    if (this.surfaceAssets) return this.surfaceAssets;
+    const surfaceAssets = this.terrainSurfaceProvider.create(
+      this.mapDescriptor.surfaces
+    );
+    const requiredMaterials = [
+      'ground',
+      'water',
+      'bridgeRoad',
+      'masonry',
+      'foliageTrunk',
+      'foliageLeaves',
+      'foliageLeavesDark'
+    ];
+    if (
+      !surfaceAssets
+      || !surfaceAssets.materials
+      || typeof surfaceAssets.dispose !== 'function'
+    ) {
+      throw new TypeError('Terrain surface provider must create materials and dispose');
+    }
+    for (const role of requiredMaterials) {
+      if (!surfaceAssets.materials[role]?.isMaterial) {
+        throw new TypeError(`Terrain surface provider requires material ${role}`);
+      }
+    }
+    this.surfaceAssets = surfaceAssets;
+    return surfaceAssets;
   }
 
   createMasonryMaterial() {
-    if (this.masonryMaterial) return this.masonryMaterial;
-    let masonryTexture = null;
-    let masonryBumpTexture = null;
-    if (typeof document !== 'undefined') {
-      const canvas = document.createElement('canvas');
-      const bumpCanvas = document.createElement('canvas');
-      canvas.width = 256;
-      canvas.height = 128;
-      bumpCanvas.width = canvas.width;
-      bumpCanvas.height = canvas.height;
-      const ctx = canvas.getContext('2d');
-      const bumpCtx = bumpCanvas.getContext('2d');
-      ctx.fillStyle = '#aaa39a';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      bumpCtx.fillStyle = '#202020';
-      bumpCtx.fillRect(0, 0, bumpCanvas.width, bumpCanvas.height);
-
-      // Four exact courses/columns keep RepeatWrapping seamless.
-      const courseHeight = 32;
-      const stoneWidth = 64;
-      const colors = ['#77736c', '#8a857c', '#696761', '#918b80'];
-      const heights = ['#b8b8b8', '#d0d0d0', '#a8a8a8', '#c4c4c4'];
-      for (let row = 0; row < 4; row++) {
-        const y = row * courseHeight + 3;
-        const offset = row % 2 === 0 ? -stoneWidth * 0.5 : 0;
-        for (let column = -1; column < 5; column++) {
-          const x = offset + column * stoneWidth + 3;
-          const wrappedColumn = (
-            (column % colors.length) + colors.length
-          ) % colors.length;
-          const stoneIndex = (row * 3 + wrappedColumn) % colors.length;
-          ctx.fillStyle = colors[stoneIndex];
-          ctx.fillRect(x, y, stoneWidth - 6, courseHeight - 6);
-          bumpCtx.fillStyle = heights[stoneIndex];
-          bumpCtx.fillRect(x, y, stoneWidth - 6, courseHeight - 6);
-        }
-      }
-
-      masonryTexture = new THREE.CanvasTexture(canvas);
-      masonryTexture.colorSpace = THREE.SRGBColorSpace;
-      masonryTexture.wrapS = THREE.RepeatWrapping;
-      masonryTexture.wrapT = THREE.RepeatWrapping;
-      masonryTexture.needsUpdate = true;
-
-      // Color and scalar data need different color-space declarations.
-      masonryBumpTexture = new THREE.CanvasTexture(bumpCanvas);
-      masonryBumpTexture.name = 'StoneMasonryBump';
-      masonryBumpTexture.colorSpace = THREE.NoColorSpace;
-      masonryBumpTexture.wrapS = THREE.RepeatWrapping;
-      masonryBumpTexture.wrapT = THREE.RepeatWrapping;
-      masonryBumpTexture.needsUpdate = true;
-    }
-
-    this.masonryMaterial = new THREE.MeshStandardMaterial({
-      color: masonryTexture ? 0xffffff : 0x7d7971,
-      map: masonryTexture,
-      bumpMap: masonryBumpTexture,
-      bumpScale: masonryBumpTexture ? 0.045 : 0,
-      roughness: 0.96,
-      metalness: 0
-    });
-    return this.masonryMaterial;
+    return this.getSurfaceAssets().materials.masonry;
   }
 
   buildRiverAndBridge() {
-    const { river, bridge } = TERRAIN_SCALE;
+    const river = this.mapDescriptor.river;
+    const mapBridge = this.mapDescriptor.bridge;
+    const bridge = TERRAIN_SCALE.bridge;
+    const surfaceMaterials = this.getSurfaceAssets().materials;
     const waterGeo = new THREE.PlaneGeometry(this.width, river.waterWidth);
     waterGeo.rotateX(-Math.PI / 2);
-    const waterMat = new THREE.MeshStandardMaterial({
-      color: 0x2f6f91,
-      transparent: true,
-      opacity: 0.82,
-      roughness: 0.22,
-      metalness: 0.05
-    });
+    const waterMat = surfaceMaterials.water;
     const water = new THREE.Mesh(waterGeo, waterMat);
     water.name = 'RiverWater';
     water.position.set(0, river.waterLevel, river.centerZ);
@@ -452,23 +405,20 @@ export class TerrainBuilder {
     this.scene.add(water);
 
     const stoneMat = this.createMasonryMaterial();
-    const roadMat = new THREE.MeshStandardMaterial({
-      color: 0x6f6758,
-      roughness: 0.98,
-      metalness: 0
-    });
+    const roadMat = surfaceMaterials.bridgeRoad;
     const bridgeGroup = new THREE.Group();
     bridgeGroup.name = 'StoneBridge';
-    const halfSpan = river.bridgeSpan * 0.5;
+    bridgeGroup.userData.mapFeatureId = mapBridge.id;
+    const halfSpan = mapBridge.span * 0.5;
     const deckTop = Math.max(
-      this.getHeightAt(0, river.centerZ - halfSpan),
-      this.getHeightAt(0, river.centerZ + halfSpan)
+      this.getHeightAt(mapBridge.centerX, mapBridge.centerZ - halfSpan),
+      this.getHeightAt(mapBridge.centerX, mapBridge.centerZ + halfSpan)
     ) + 0.1;
     const deck = new THREE.Mesh(
       new THREE.BoxGeometry(
         bridge.roadwayWidth,
         bridge.deckThickness,
-        river.bridgeSpan
+        mapBridge.span
       ),
       roadMat
     );
@@ -481,8 +431,8 @@ export class TerrainBuilder {
     ) * 0.5;
     const parapetInnerHalfWidth = parapetCenterX - bridge.parapetThickness * 0.5;
     this.bridgeSurface = {
-      centerX: 0,
-      centerZ: river.centerZ,
+      centerX: mapBridge.centerX,
+      centerZ: mapBridge.centerZ,
       halfRoadwayWidth: parapetInnerHalfWidth,
       halfSpan,
       deckTop
@@ -491,7 +441,7 @@ export class TerrainBuilder {
     const parapetGeometry = createMeterUvBoxGeometry(
       bridge.parapetThickness,
       bridge.parapetHeight,
-      river.bridgeSpan,
+      mapBridge.span,
       bridge.masonryRepeatMeters
     );
     for (const side of [-1, 1]) {
@@ -508,10 +458,11 @@ export class TerrainBuilder {
       this.addColliderRecord({
         id: `bridge:parapet:${side < 0 ? 'west' : 'east'}`,
         type: 'bridge_parapet',
-        centerX: side * parapetCenterX,
-        centerZ: river.centerZ,
+        mapFeatureId: mapBridge.id,
+        centerX: mapBridge.centerX + side * parapetCenterX,
+        centerZ: mapBridge.centerZ,
         halfX: bridge.parapetThickness * 0.5,
-        halfZ: river.bridgeSpan * 0.5,
+        halfZ: mapBridge.span * 0.5,
         rotation: 0,
         blocks: ['vehicle', 'infantry']
       });
@@ -540,8 +491,9 @@ export class TerrainBuilder {
         this.addColliderRecord({
           id: `bridge:abutment:${side < 0 ? 'west' : 'east'}:${end < 0 ? 'south' : 'north'}`,
           type: 'bridge_abutment',
-          centerX: abutment.position.x,
-          centerZ: river.centerZ + abutment.position.z,
+          mapFeatureId: mapBridge.id,
+          centerX: mapBridge.centerX + abutment.position.x,
+          centerZ: mapBridge.centerZ + abutment.position.z,
           halfX: abutmentWidth * 0.5,
           halfZ: abutmentDepth * 0.5,
           rotation: 0,
@@ -565,38 +517,54 @@ export class TerrainBuilder {
       pier.receiveShadow = true;
       bridgeGroup.add(pier);
     }
-    bridgeGroup.position.z = river.centerZ;
+    bridgeGroup.position.set(mapBridge.centerX, 0, mapBridge.centerZ);
     bridgeGroup.userData.dimensionsMeters = {
       width: bridge.roadwayWidth,
-      length: river.bridgeSpan,
+      length: mapBridge.span,
       deckTop
     };
     this.scene.add(bridgeGroup);
 
-    const mapHalfWidth = this.width * 0.5;
     const openingHalfWidth = parapetInnerHalfWidth;
-    const exclusionHalfWidth = (mapHalfWidth - openingHalfWidth) * 0.5;
+    const mapMinX = -this.width * 0.5;
+    const mapMaxX = this.width * 0.5;
+    const openingMinX = mapBridge.centerX - openingHalfWidth;
+    const openingMaxX = mapBridge.centerX + openingHalfWidth;
+    const exclusions = [
+      {
+        side: 'west',
+        minX: mapMinX,
+        maxX: openingMinX
+      },
+      {
+        side: 'east',
+        minX: openingMaxX,
+        maxX: mapMaxX
+      }
+    ];
     const riverExclusionIds = [];
-    for (const side of [-1, 1]) {
-      const exclusionId = `river:exclusion:${side < 0 ? 'west' : 'east'}`;
+    for (const exclusion of exclusions) {
+      const exclusionId = `river:exclusion:${exclusion.side}`;
       riverExclusionIds.push(exclusionId);
       this.addColliderRecord({
         id: exclusionId,
         type: 'river_exclusion',
-        centerX: side * (openingHalfWidth + exclusionHalfWidth),
+        mapFeatureId: river.id,
+        centerX: (exclusion.minX + exclusion.maxX) * 0.5,
         centerZ: river.centerZ,
-        halfX: exclusionHalfWidth,
+        halfX: (exclusion.maxX - exclusion.minX) * 0.5,
         halfZ: river.cutWidth * 0.5,
         rotation: 0,
         blocks: ['vehicle', 'infantry']
       });
     }
     this.addNavigationRecord({
-      id: 'navigation:stone_bridge',
+      id: `navigation:${mapBridge.id}`,
       type: 'bridge_crossing',
-      centerX: 0,
-      minZ: river.centerZ - halfSpan,
-      maxZ: river.centerZ + halfSpan,
+      mapFeatureId: mapBridge.id,
+      centerX: mapBridge.centerX,
+      minZ: mapBridge.centerZ - halfSpan,
+      maxZ: mapBridge.centerZ + halfSpan,
       halfOpeningWidth: openingHalfWidth,
       barrierColliderIds: riverExclusionIds,
       blocks: ['vehicle', 'infantry']
@@ -608,7 +576,10 @@ export class TerrainBuilder {
     const wallMaterial = this.createMasonryMaterial();
     this.stoneWallSegments = [];
 
-    const createWallRun = (startX, startZ, endX, endZ, runId) => {
+    const createWallRun = (run) => {
+      const [startX, startZ] = run.start;
+      const [endX, endZ] = run.end;
+      const runId = run.id;
       const dx = endX - startX;
       const dz = endZ - startZ;
       const runLength = Math.hypot(dx, dz);
@@ -664,6 +635,7 @@ export class TerrainBuilder {
         this.addColliderRecord({
           id: `wall:${runId}:${index}`,
           type: 'stonewall',
+          mapFeatureId: runId,
           centerX: (start.x + end.x) * 0.5,
           centerZ: (start.z + end.z) * 0.5,
           halfX: dimensions.thickness * 0.5,
@@ -674,10 +646,7 @@ export class TerrainBuilder {
       }
     };
 
-    createWallRun(-75, 50, -5, 50, 'north_west');
-    createWallRun(5, 50, 75, 50, 'north_east');
-    createWallRun(-75, -40, -5, -40, 'south_west');
-    createWallRun(5, -40, 75, -40, 'south_east');
+    for (const run of this.mapDescriptor.wallRuns) createWallRun(run);
   }
 
   replaceBuildingCollisionRecords(buildingId, sourceRecords, minimumGroundY, foundationTopY) {
@@ -697,6 +666,7 @@ export class TerrainBuilder {
     for (const sourceRecord of movementRecords) {
       const record = {
         ...sourceRecord,
+        mapFeatureId: sourceRecord.mapFeatureId ?? buildingId,
         halfX: sourceRecord.halfX ?? sourceRecord.halfWidth,
         halfZ: sourceRecord.halfZ ?? sourceRecord.halfDepth
       };
@@ -735,7 +705,7 @@ export class TerrainBuilder {
     if (!building) return null;
     const runtime = this.buildingSystem.getBuildingSnapshot(buildingId);
     const descriptor = this.buildingSystem.getDescriptorForBuilding(buildingId);
-    applyFrenchHouseVisualState(building.object, descriptor, runtime, {
+    building.adapter.applyVisualState(building.object, descriptor, runtime, {
       interiorPresence: building.interiorPresence ?? 0
     });
     const footprintCorners = building.object.userData?.foundation?.footprintCorners ?? [];
@@ -773,100 +743,102 @@ export class TerrainBuilder {
     building.interiorPresence = nextPresence;
     const runtime = this.buildingSystem.getBuildingSnapshot(buildingId);
     const descriptor = this.buildingSystem.getDescriptorForBuilding(buildingId);
-    applyFrenchHouseVisualState(building.object, descriptor, runtime, {
+    building.adapter.applyVisualState(building.object, descriptor, runtime, {
       interiorPresence: nextPresence
     });
     return { buildingId, interiorPresence: nextPresence, changed: true };
   }
 
-  buildFrenchVillage() {
-    const descriptor = FR_HOUSE_12X9_2F;
-    const hx = 45;
-    const hz = 60;
-    const width = descriptor.bounds.max[0] - descriptor.bounds.min[0];
-    const depth = descriptor.bounds.max[2] - descriptor.bounds.min[2];
-    const halfWidth = width * 0.5;
-    const halfDepth = depth * 0.5;
-    const groundCorners = [
-      [hx - halfWidth, hz + halfDepth],
-      [hx + halfWidth, hz + halfDepth],
-      [hx + halfWidth, hz - halfDepth],
-      [hx - halfWidth, hz - halfDepth]
-    ].map(([x, z]) => [x, this.getHeightAt(x, z), z]);
-    const minimumGroundY = Math.min(...groundCorners.map(([, y]) => y));
-    const foundationTopY = Math.max(...groundCorners.map(([, y]) => y)) + 0.12;
-    const buildingId = 'french_village_house';
-    let runtime = null;
-    if (this.buildingSystem) {
+  buildStructures() {
+    const placements = this.mapDescriptor.structures;
+    if (placements.length > 0 && !this.buildingSystem) {
+      throw new Error(`Map ${this.mapDescriptor.id} structures require a BuildingSystem`);
+    }
+
+    for (const placement of placements) {
+      const adapter = this.structureAdapters[placement.visualAdapterId];
+      if (!adapter?.descriptor || !adapter?.createVisual || !adapter?.applyVisualState) {
+        throw new Error(
+          `Map structure ${placement.id} requires visual adapter ${placement.visualAdapterId}`
+        );
+      }
+      if (adapter.descriptor.id !== placement.descriptorId) {
+        throw new Error(
+          `Map structure ${placement.id} descriptor ${placement.descriptorId} does not match adapter ${adapter.descriptor.id}`
+        );
+      }
+
+      const descriptor = adapter.descriptor;
+      const [centerX, centerZ] = placement.position;
+      const rotationY = placement.rotationY ?? 0;
+      const cosine = Math.cos(rotationY);
+      const sine = Math.sin(rotationY);
+      const localCorners = [
+        [descriptor.bounds.min[0], descriptor.bounds.max[2]],
+        [descriptor.bounds.max[0], descriptor.bounds.max[2]],
+        [descriptor.bounds.max[0], descriptor.bounds.min[2]],
+        [descriptor.bounds.min[0], descriptor.bounds.min[2]]
+      ];
+      const groundCorners = localCorners.map(([localX, localZ]) => {
+        const x = centerX + localX * cosine + localZ * sine;
+        const z = centerZ - localX * sine + localZ * cosine;
+        return [x, this.getHeightAt(x, z), z];
+      });
+      const minimumGroundY = Math.min(...groundCorners.map(([, y]) => y));
+      const foundationTopY = Math.max(...groundCorners.map(([, y]) => y))
+        + (placement.foundationClearance ?? 0);
+
+      let runtime;
       try {
-        runtime = this.buildingSystem.getBuildingSnapshot(buildingId);
+        runtime = this.buildingSystem.getBuildingSnapshot(placement.id);
       } catch {
         runtime = this.buildingSystem.addBuilding({
-          id: buildingId,
+          id: placement.id,
           descriptor,
-          transform: { position: [hx, foundationTopY, hz], rotationY: 0 }
+          transform: {
+            position: [centerX, foundationTopY, centerZ],
+            rotationY
+          }
         });
       }
-    }
-    const houseGroup = createFrenchHouseVisual({
-      descriptor,
-      runtime,
-      centerX: hx,
-      centerZ: hz,
-      foundationTopY,
-      getHeightAt: (x, z) => this.getHeightAt(x, z)
-    });
-    this.scene.add(houseGroup);
-    this.buildings.push({
-      id: buildingId,
-      descriptorId: descriptor.id,
-      object: houseGroup,
-      interiorPresence: 0,
-      runtimeEventVersion: runtime?.eventVersion ?? 0,
-      runtimeCollisionVersion: runtime?.collisionVersion ?? 0
-    });
+      const object = adapter.createVisual({
+        descriptor,
+        runtime,
+        centerX,
+        centerZ,
+        foundationTopY,
+        getHeightAt: (x, z) => this.getHeightAt(x, z)
+      });
+      this.scene.add(object);
+      this.buildings.push({
+        id: placement.id,
+        mapFeatureId: placement.id,
+        descriptorId: descriptor.id,
+        visualAdapterId: placement.visualAdapterId,
+        adapter,
+        object,
+        interiorPresence: 0,
+        runtimeEventVersion: runtime.eventVersion ?? 0,
+        runtimeCollisionVersion: runtime.collisionVersion ?? 0
+      });
 
-    // StaticCollisionWorld is intentionally X/Z-only. Publishing upper-storey
-    // walls here would turn them into a ground-level invisible blocker. Full
-    // 3D projectile/spotting queries consume the complete BuildingSystem
-    // snapshot; ground movement consumes only the ground shell.
-    const records = runtime && this.buildingSystem
-      ? this.buildingSystem.getMovementCollisionSnapshot(buildingId).records
-      : descriptor.sections
-        .filter(section => section.kind === 'wall')
-        .flatMap(section => section.colliderParts
-          .map(part => ({
-            id: `building:${buildingId}:${section.id}:${part.id}`,
-            type: 'building',
-            buildingId,
-            sectionId: section.id,
-            centerX: hx + part.center[0],
-            centerZ: hz + part.center[2],
-            minY: foundationTopY + part.center[1] - part.halfExtents[1],
-            maxY: foundationTopY + part.center[1] + part.halfExtents[1],
-            halfX: part.halfExtents[0],
-            halfZ: part.halfExtents[2],
-            rotation: part.rotationY ?? 0,
-            // All facade apertures remain physical movement blockers. Door
-            // transit is applied by BuildingInteractionSystem, never normal
-            // collision-based pathing. Projectiles/LOS use BuildingSystem's
-            // separate aperture-aware collision snapshot.
-            blocks: ['vehicle', 'infantry'],
-            movementPolicy: part.openingId ? 'portal_or_fire_port_required' : 'structural'
-          })));
-    this.replaceBuildingCollisionRecords(
-      buildingId,
-      records,
-      minimumGroundY,
-      foundationTopY
-    );
+      // BuildingSystem remains sole topology and aperture authority. Ground
+      // movement consumes only its current ground-shell/rubble snapshot.
+      this.replaceBuildingCollisionRecords(
+        placement.id,
+        this.buildingSystem.getMovementCollisionSnapshot(placement.id).records,
+        minimumGroundY,
+        foundationTopY
+      );
+    }
   }
 
   buildFoliage() {
     const treeDimensions = TERRAIN_SCALE.matureTree;
-    const trunkMat = new THREE.MeshLambertMaterial({ color: '#57534e' });
-    const leavesMat = new THREE.MeshLambertMaterial({ color: '#28723b' });
-    const leavesDarkMat = new THREE.MeshLambertMaterial({ color: '#1f5e33' });
+    const surfaceMaterials = this.getSurfaceAssets().materials;
+    const trunkMat = surfaceMaterials.foliageTrunk;
+    const leavesMat = surfaceMaterials.foliageLeaves;
+    const leavesDarkMat = surfaceMaterials.foliageLeavesDark;
     const trunkGeometry = new THREE.CylinderGeometry(
       treeDimensions.trunkRadius * 0.72,
       treeDimensions.trunkRadius,
@@ -875,13 +847,12 @@ export class TerrainBuilder {
     );
     const foliageGeometry = new THREE.IcosahedronGeometry(treeDimensions.canopyRadius, 1);
 
-    const treePositions = [
-      [-60, 40], [60, -40], [-30, -60], [40, 70], [-70, -70]
-    ];
-
-    treePositions.forEach(([x, z]) => {
+    this.mapDescriptor.foliage.forEach((entry) => {
+      const [x, z] = entry.position;
       const tree = new THREE.Group();
       tree.name = 'MatureTree';
+      tree.userData.mapFeatureId = entry.id;
+      tree.userData.profileId = entry.profileId;
       const trunk = new THREE.Mesh(trunkGeometry, trunkMat);
       trunk.position.y = treeDimensions.trunkHeight * 0.5;
       trunk.castShadow = true;

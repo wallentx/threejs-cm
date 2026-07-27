@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  applyVehicleMaterialPack,
+  PROCEDURAL_VEHICLE_SURFACE_PACK,
   setVehicleMaterialSlot
 } from './VehicleMaterialLibrary.js';
 import { createTrackedRunningGearProxy } from './TrackedRunningGear.js';
@@ -726,8 +726,33 @@ function addAuthoredDetails(root, primaryHull, dimensions, profile, metalMateria
   root.add(rivets);
 }
 
-export function enhanceVehicleModel(root) {
+function assertVehicleSurfacePack(vehicleSurfacePack) {
+  if (
+    !vehicleSurfacePack
+    || vehicleSurfacePack.kind !== 'vehicle-surface-pack'
+    || typeof vehicleSurfacePack.id !== 'string'
+    || typeof vehicleSurfacePack.apply !== 'function'
+  ) {
+    throw new TypeError('enhanceVehicleModel requires a vehicle-surface-pack provider');
+  }
+}
+
+export function enhanceVehicleModel(
+  root,
+  {
+    vehicleSurfacePack = PROCEDURAL_VEHICLE_SURFACE_PACK,
+    vehicleSurfaceBinding = null
+  } = {}
+) {
+  assertVehicleSurfacePack(vehicleSurfacePack);
   if (root.userData.vehicleEnhancementVersion === VEHICLE_ENHANCEMENT_VERSION) {
+    const existingImplementation = root.userData.assetBindings?.vehicleSurface?.implementationId;
+    if (existingImplementation && existingImplementation !== vehicleSurfacePack.id) {
+      throw new Error(
+        `vehicle ${root.name} already uses surface pack ${existingImplementation}; `
+        + `cannot rebind ${vehicleSurfacePack.id} after enhancement`
+      );
+    }
     return root;
   }
   const profile = VEHICLE_PROFILES[root.name];
@@ -812,7 +837,16 @@ export function enhanceVehicleModel(root) {
   addProxyTurret(root, dimensions, primaryHull.material, metalMaterial);
   if (!proxyGroup.parent) root.add(proxyGroup);
   addAuthoredDetails(root, primaryHull, dimensions, profile, metalMaterial);
-  const materialPack = applyVehicleMaterialPack(root);
+  const materialPack = vehicleSurfacePack.apply(root);
+  if (
+    !materialPack
+    || materialPack.id !== vehicleSurfacePack.id
+    || !Array.isArray(materialPack.slots)
+  ) {
+    throw new Error(
+      `vehicle surface pack ${vehicleSurfacePack.id} returned invalid diagnostics`
+    );
+  }
 
   root.userData.modelMetadata = {
     ...metadata,
@@ -830,6 +864,14 @@ export function enhanceVehicleModel(root) {
     materialSlots: materialPack.slots,
     lodLevels: ['high', 'medium', 'core', 'proxy'],
     lodModelCount: 4
+  };
+  root.userData.assetBindings = {
+    ...root.userData.assetBindings,
+    vehicleSurface: Object.freeze({
+      logicalId: vehicleSurfaceBinding?.logicalId ?? null,
+      sourcePackId: vehicleSurfaceBinding?.sourcePackId ?? null,
+      implementationId: vehicleSurfacePack.id
+    })
   };
   root.userData.vehicleEnhancementVersion = VEHICLE_ENHANCEMENT_VERSION;
   return root;

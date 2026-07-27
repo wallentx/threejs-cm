@@ -59,7 +59,15 @@ function countModelGeometry(root) {
 }
 
 export class VehicleCalibrationApp {
-  constructor() {
+  constructor({ vehicleMeshFactories, calibrationReferences } = {}) {
+    if (!vehicleMeshFactories || typeof vehicleMeshFactories !== 'object') {
+      throw new Error('VehicleCalibrationApp requires vehicleMeshFactories');
+    }
+    if (!calibrationReferences || typeof calibrationReferences.get !== 'function') {
+      throw new Error('VehicleCalibrationApp requires calibrationReferences');
+    }
+    this.vehicleMeshFactories = vehicleMeshFactories;
+    this.calibrationReferences = calibrationReferences;
     this.viewport = requiredElement('calibration-viewport');
     this.rendererHost = requiredElement('calibration-renderer');
     this.blueprintCanvas = requiredElement('blueprint-canvas');
@@ -375,7 +383,7 @@ export class VehicleCalibrationApp {
   selectModel(modelId) {
     if (this.currentModel) this.scene.remove(this.currentModel);
     if (!this.modelCache.has(modelId)) {
-      const model = UnitFactory.createTankMesh(modelId);
+      const model = UnitFactory.createTankMesh(modelId, this.vehicleMeshFactories);
       model.position.set(0, 0, 0);
       model.rotation.set(0, 0, 0);
       model.updateMatrixWorld(true);
@@ -391,7 +399,8 @@ export class VehicleCalibrationApp {
         modelId,
         createVehicleOwnedRegistrations(
           this.currentModel,
-          getBlueprintCalibrationRecord(modelId)
+          getBlueprintCalibrationRecord(modelId),
+          { referenceRegistry: this.calibrationReferences }
         )
       );
     }

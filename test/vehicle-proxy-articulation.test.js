@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { Unit } from '../src/game/Unit.js';
+import { Unit } from './helpers/France1940TestUnit.js';
 
 const ARMED_VEHICLES = [
   'SOMUA_S35',
@@ -69,4 +69,3 @@ test('every armed vehicle far proxy inherits authoritative turret yaw and barrel
     assert.equal(barrel.visible, true);
   }
 });
-

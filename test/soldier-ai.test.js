@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import * as THREE from 'three';
-import { Unit } from '../src/game/Unit.js';
+import { Unit } from './helpers/France1940TestUnit.js';
 import { CombatSystem } from '../src/game/CombatSystem.js';
 import { SoldierAgent } from '../src/game/SoldierAgent.js';
 

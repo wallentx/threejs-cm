@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { Unit } from '../src/game/Unit.js';
+import { Unit } from './helpers/France1940TestUnit.js';
 import { WEAPONS } from '../src/game/WeaponCatalog.js';
 import { VEHICLES } from '../src/game/VehicleCatalog.js';
 import { BallisticsSystem, resolveArmorPenetration } from '../src/game/BallisticsSystem.js';

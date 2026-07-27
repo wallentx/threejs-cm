@@ -1,5 +1,3 @@
-import { getWeapon } from './WeaponCatalog.js';
-
 const COMPONENT_SPECS = Object.freeze([
   { id: 'hull', label: 'Hull structure' },
   { id: 'main_gun', label: 'Main gun' },
@@ -364,8 +362,11 @@ export function applyPenetrationComponentDamage({
   return damageResults;
 }
 
-export function createVehicleMountState(mountSpec, saved = null) {
-  const weapon = getWeapon(mountSpec.weaponId);
+export function createVehicleMountState(mountSpec, saved = null, weaponLookup) {
+  if (typeof weaponLookup !== 'function') {
+    throw new TypeError('createVehicleMountState requires a weapon lookup port');
+  }
+  const weapon = weaponLookup(mountSpec.weaponId);
   const feedCapacity = mountSpec.feedCapacity ?? weapon?.magazineSize ?? 1;
   if (saved) {
     return {

@@ -182,26 +182,217 @@ export function resolveScenarioUnitDefinitions(scenario, familyRegistry) {
   return scenario.units.map(definition => resolveFamilyUnitDefinition(definition, family));
 }
 
-export function instantiateScenarioUnits(scenario, UnitType = Unit, familyRegistry = null) {
+function validateVisualFactories(scenario, familyRegistry, visualFactories) {
+  if (!visualFactories) return null;
+  if (typeof visualFactories !== 'object' || Array.isArray(visualFactories)) {
+    throw new TypeError('visualFactories must be a record');
+  }
+  if (visualFactories.familyId !== scenario.gameFamilyId) {
+    throw new Error(
+      `Scenario ${scenario.id} requires visual factories for ${scenario.gameFamilyId}, `
+      + `received ${visualFactories.familyId ?? 'missing'}`
+    );
+  }
+  for (const registryName of [
+    'factionPresentation',
+    'infantryMeshes',
+    'structureMeshes',
+    'vehicleMeshes'
+  ]) {
+    const registry = visualFactories[registryName];
+    if (!registry || typeof registry !== 'object' || Array.isArray(registry)) {
+      throw new TypeError(
+        `Visual factories for ${visualFactories.familyId} require ${registryName}`
+      );
+    }
+  }
+  const family = familyRegistry?.require?.(scenario.gameFamilyId);
+  if (!family) {
+    throw new Error(
+      `Scenario ${scenario.id} requires a family registry for visual factories`
+    );
+  }
+  for (const [factionId, faction] of Object.entries(family.factions)) {
+    const registeredPresentation = family.presentation?.[faction.presentationId];
+    if (!registeredPresentation) {
+      throw new Error(
+        `Game family ${family.id} faction ${factionId} requires presentation ${faction.presentationId}`
+      );
+    }
+    if (visualFactories.factionPresentation[factionId] !== registeredPresentation) {
+      throw new Error(
+        `Visual factories for ${visualFactories.familyId} do not match registered `
+        + `presentation for faction ${factionId}`
+      );
+    }
+  }
+  for (const definition of scenario.units) {
+    const presentation = visualFactories.factionPresentation[definition.faction];
+    if (definition.type === 'infantry_squad') {
+      const modelId = presentation?.infantryModelId;
+      if (typeof modelId !== 'string' || modelId.length === 0) {
+        throw new Error(
+          `Scenario unit ${definition.id} faction ${definition.faction} requires infantryModelId`
+        );
+      }
+      if (typeof visualFactories.infantryMeshes[modelId] !== 'function') {
+        throw new Error(
+          `Visual factories for ${visualFactories.familyId} require infantry model ${modelId}`
+        );
+      }
+    } else if (definition.type === 'tank' || definition.type === 'vehicle') {
+      const vehicle = family.catalogs?.vehicles?.[definition.vehicleId];
+      const modelId = vehicle?.modelId;
+      if (typeof modelId !== 'string' || modelId.length === 0) {
+        throw new Error(
+          `Scenario unit ${definition.id} vehicle ${definition.vehicleId} requires modelId`
+        );
+      }
+      if (typeof visualFactories.vehicleMeshes[modelId] !== 'function') {
+        throw new Error(
+          `Visual factories for ${visualFactories.familyId} require vehicle model ${modelId}`
+        );
+      }
+    }
+    if (
+      definition.structureId
+      && typeof visualFactories.structureMeshes[definition.structureId] !== 'function'
+    ) {
+      throw new Error(
+        `Visual factories for ${visualFactories.familyId} require structure model `
+        + definition.structureId
+      );
+    }
+  }
+  return visualFactories;
+}
+
+function validateCatalogPorts(scenario, familyRegistry, catalogPorts) {
+  if (!catalogPorts) return null;
+  if (typeof catalogPorts !== 'object' || Array.isArray(catalogPorts)) {
+    throw new TypeError('catalogPorts must be a record');
+  }
+  if (catalogPorts.familyId !== scenario.gameFamilyId) {
+    throw new Error(
+      `Scenario ${scenario.id} requires catalog ports for ${scenario.gameFamilyId}, `
+      + `received ${catalogPorts.familyId ?? 'missing'}`
+    );
+  }
+  const family = familyRegistry?.require?.(scenario.gameFamilyId);
+  if (!family) {
+    throw new Error(
+      `Scenario ${scenario.id} requires a family registry for catalog ports`
+    );
+  }
+  for (const [name, requiredFunctions] of Object.entries({
+    weapons: ['get', 'idFromName'],
+    vehicles: ['get', 'defaultIdForFaction']
+  })) {
+    const port = catalogPorts[name];
+    if (!port || typeof port !== 'object') {
+      throw new TypeError(`Catalog ports for ${catalogPorts.familyId} require ${name}`);
+    }
+    if (port.records !== family.catalogs[name]) {
+      throw new Error(
+        `Catalog ports for ${catalogPorts.familyId} do not match registered ${name}`
+      );
+    }
+    for (const functionName of requiredFunctions) {
+      if (typeof port[functionName] !== 'function') {
+        throw new TypeError(
+          `Catalog port ${name}.${functionName} must be a function`
+        );
+      }
+    }
+    for (const [recordId, record] of Object.entries(port.records)) {
+      if (port.get(recordId) !== record) {
+        throw new Error(
+          `Catalog port ${name}.get must return registered record ${recordId}`
+        );
+      }
+    }
+  }
+  for (const [factionId, faction] of Object.entries(family.factions)) {
+    if (!Array.isArray(faction.vehicleIds) || faction.vehicleIds.length === 0) continue;
+    const vehicleId = catalogPorts.vehicles.defaultIdForFaction(factionId);
+    if (!faction.vehicleIds.includes(vehicleId)) {
+      throw new Error(
+        `Catalog port vehicles.defaultIdForFaction returned invalid ${factionId} vehicle ${vehicleId}`
+      );
+    }
+    if (catalogPorts.vehicles.get(vehicleId) !== family.catalogs.vehicles[vehicleId]) {
+      throw new Error(
+        `Catalog port vehicles.defaultIdForFaction must resolve registered vehicle ${vehicleId}`
+      );
+    }
+  }
+  return catalogPorts;
+}
+
+export function instantiateScenarioUnits(
+  scenario,
+  UnitType = Unit,
+  familyRegistry = null,
+  {
+    visualFactories = null,
+    catalogPorts = null
+  } = {}
+) {
   const definitions = resolveScenarioUnitDefinitions(scenario, familyRegistry);
+  const resolvedCatalogPorts = validateCatalogPorts(
+    scenario,
+    familyRegistry,
+    catalogPorts
+  );
+  const resolvedVisualFactories = validateVisualFactories(
+    scenario,
+    familyRegistry,
+    visualFactories
+  );
   return definitions.map(definition => new UnitType({
     ...definition,
+    ...(resolvedCatalogPorts ? { catalogPorts: resolvedCatalogPorts } : {}),
+    ...(resolvedVisualFactories ? { visualFactories: resolvedVisualFactories } : {}),
     position: new THREE.Vector3(...definition.position)
   }));
+}
+
+function assertScenarioMap(scenario, mapDescriptor) {
+  if (typeof scenario.mapId !== 'string' || scenario.mapId.length === 0) {
+    throw new Error(`Scenario ${scenario.id} requires mapId`);
+  }
+  if (!mapDescriptor?.id) {
+    throw new Error(`Scenario ${scenario.id} requires map descriptor ${scenario.mapId}`);
+  }
+  if (scenario.mapId !== mapDescriptor.id) {
+    throw new Error(
+      `Scenario ${scenario.id} requires map ${scenario.mapId}, received ${mapDescriptor.id}`
+    );
+  }
+  if (!mapDescriptor.deploymentZones || typeof mapDescriptor.deploymentZones !== 'object') {
+    throw new Error(`Map ${mapDescriptor.id} requires deploymentZones`);
+  }
 }
 
 export function loadScenario(scenario, {
   terrain,
   scene,
+  mapDescriptor,
   agentDebug = false,
   UnitType = Unit,
-  familyRegistry = null
+  familyRegistry = null,
+  visualFactories = null,
+  catalogPorts = null
 }) {
   if (!terrain || !scene) throw new Error('Scenario runtime requires terrain and scene');
-  const units = instantiateScenarioUnits(scenario, UnitType, familyRegistry);
+  assertScenarioMap(scenario, mapDescriptor);
+  const units = instantiateScenarioUnits(scenario, UnitType, familyRegistry, {
+    visualFactories,
+    catalogPorts
+  });
   const invalidDeployments = findUnitsOutsideDeploymentZones(
     units,
-    scenario.deploymentZones
+    mapDescriptor.deploymentZones
   );
   if (invalidDeployments.length > 0) {
     throw new Error(
@@ -221,5 +412,11 @@ export function loadScenario(scenario, {
   const unitsById = new Map(units.map(unit => [unit.id, unit]));
   const initialSelection = unitsById.get(scenario.initialSelectionUnitId) ?? null;
   const cameraTarget = unitsById.get(scenario.cameraTargetUnitId) ?? initialSelection;
-  return { units, unitsById, initialSelection, cameraTarget };
+  return {
+    units,
+    unitsById,
+    initialSelection,
+    cameraTarget,
+    mapDescriptor
+  };
 }

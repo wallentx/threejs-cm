@@ -11,6 +11,7 @@ import {
   getWeapon,
   weaponIdFromName
 } from '../src/game/WeaponCatalog.js';
+import { VEHICLES } from '../src/game/VehicleCatalog.js';
 import { createFrance1940Family } from '../src/content/france1940/index.js';
 
 const CANONICAL_IDS = Object.freeze([
@@ -70,14 +71,15 @@ test('legacy aliases and unknown lookup behavior remain unchanged', () => {
   assert.equal(getWeapon(null), null);
 });
 
-test('France 1940 family always owns canonical weapons and only adapts vehicles', () => {
+test('France 1940 family always owns canonical catalogs and ignores obsolete adapters', () => {
   const vehicles = { TEST: { id: 'TEST' } };
   const obsoleteWeaponsAdapter = { TEST: { id: 'TEST' } };
   const family = createFrance1940Family({ vehicles, weapons: obsoleteWeaponsAdapter });
 
   assert.equal(family.catalogs.weapons, FRANCE_1940_WEAPONS);
-  assert.equal(family.catalogs.vehicles, vehicles);
+  assert.equal(family.catalogs.vehicles, VEHICLES);
   assert.notEqual(family.catalogs.weapons, obsoleteWeaponsAdapter);
+  assert.notEqual(family.catalogs.vehicles, vehicles);
 });
 
 test('France 1940 weapon content stays renderer, runtime, and legacy-game independent', async () => {

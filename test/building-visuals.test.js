@@ -3,13 +3,30 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { FR_HOUSE_12X9_2F } from '../src/maps/france/FranceHouse12x9_2F.js';
 import { BuildingSystem } from '../src/simulation/buildings/index.js';
-import { TerrainBuilder } from '../src/world/TerrainBuilder.js';
+import { TerrainBuilder } from './helpers/France1940TestTerrain.js';
+import { STONNE_1940_MAP } from '../src/maps/france/stonne.js';
 import {
   applyFrenchHouseVisualState,
+  createFrenchHouseVisualAdapter,
   createFrenchHouseVisual,
   disposeFrenchHouseVisual,
   FRENCH_HOUSE_LOD_DISTANCES
 } from '../src/world/buildings/FrenchHouse.js';
+
+const STRUCTURE_ADAPTERS = Object.freeze({
+  [FR_HOUSE_12X9_2F.id]: createFrenchHouseVisualAdapter(FR_HOUSE_12X9_2F)
+});
+
+function createTerrain(buildingSystem = new BuildingSystem()) {
+  if (!buildingSystem.descriptors.has(FR_HOUSE_12X9_2F.id)) {
+    buildingSystem.registerDescriptor(FR_HOUSE_12X9_2F);
+  }
+  return new TerrainBuilder(new THREE.Scene(), {
+    mapDescriptor: STONNE_1940_MAP,
+    buildingSystem,
+    structureAdapters: STRUCTURE_ADAPTERS
+  });
+}
 
 function roundedBounds(object) {
   object.updateMatrixWorld(true);
@@ -155,8 +172,8 @@ test('door leaves hide when open and appear when closed at every LOD', () => {
 });
 
 test('terrain publishes segmented movement shell; windows and doors require building interaction', () => {
-  const terrain = new TerrainBuilder(new THREE.Scene());
-  terrain.buildFrenchVillage();
+  const terrain = createTerrain();
+  terrain.buildStructures();
   const records = terrain.colliderRecords.filter(record => record.buildingId === 'french_village_house');
   assert.ok(records.length >= 7, 'descriptor wall pieces become individual colliders');
   assert.ok(records.every(record => record.sectionId === 'ground-shell' || record.sectionId === 'upper-shell'));
@@ -179,8 +196,8 @@ test('terrain publishes segmented movement shell; windows and doors require buil
 test('runtime building movement shell cannot bypass open door or window apertures', () => {
   const buildings = new BuildingSystem();
   buildings.registerDescriptor(FR_HOUSE_12X9_2F);
-  const terrain = new TerrainBuilder(new THREE.Scene(), { buildingSystem: buildings });
-  terrain.buildFrenchVillage();
+  const terrain = createTerrain(buildings);
+  terrain.buildStructures();
 
   const movementRecords = terrain.colliderRecords
     .filter(record => record.buildingId === 'french_village_house');
@@ -349,7 +366,7 @@ test('restoring an intact building state rehydrates all authored visual parts af
 
 test('terrain runtime sync replaces only house movement colliders and LOS obstacles', () => {
   const buildings = new BuildingSystem();
-  const terrain = new TerrainBuilder(new THREE.Scene(), { buildingSystem: buildings });
+  const terrain = createTerrain(buildings);
   terrain.addColliderRecord({
     id: 'sentinel:bridge',
     type: 'bridge',
@@ -370,7 +387,7 @@ test('terrain runtime sync replaces only house movement colliders and LOS obstac
     maxY: 2,
     height: 2
   });
-  terrain.buildFrenchVillage();
+  terrain.buildStructures();
   const buildingId = 'french_village_house';
   const breachedColliderId = `${buildingId}:ground-shell:ground-back`;
   assert.ok(terrain.collisionWorld.getCollider(breachedColliderId));
@@ -404,8 +421,8 @@ test('terrain runtime sync replaces only house movement colliders and LOS obstac
 
 test('terrain projects interior presence without republishing collision records', () => {
   const buildings = new BuildingSystem();
-  const terrain = new TerrainBuilder(new THREE.Scene(), { buildingSystem: buildings });
-  terrain.buildFrenchVillage();
+  const terrain = createTerrain(buildings);
+  terrain.buildStructures();
   const before = terrain.colliderRecords.map(record => record.id).sort();
   const faded = terrain.setBuildingInteriorPresence('french_village_house', 2);
   assert.deepEqual(faded, {

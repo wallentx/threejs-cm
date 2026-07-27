@@ -17,15 +17,6 @@ export const TERRAIN_SCALE = Object.freeze({
     eavesHeight: 6,
     roofHeight: 3.2
   }),
-  river: Object.freeze({
-    centerZ: 10,
-    waterWidth: 12,
-    bankWidth: 6,
-    cutWidth: 24,
-    waterLevel: -0.9,
-    bedLevel: -1.55,
-    bridgeSpan: 28
-  }),
   bridge: Object.freeze({
     roadwayWidth: 6.5,
     deckThickness: 0.55,

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { CombatSystem } from '../src/game/CombatSystem.js';
-import { Unit } from '../src/game/Unit.js';
+import { Unit } from './helpers/France1940TestUnit.js';
 import { getWeapon } from '../src/game/WeaponCatalog.js';
 import { VehicleDamageEffects } from '../src/world/VehicleDamageEffects.js';
 

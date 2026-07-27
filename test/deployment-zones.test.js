@@ -6,8 +6,8 @@ import {
   isPositionInsideDeploymentZone
 } from '../src/scenario/DeploymentRules.js';
 import { CommandSystem } from '../src/game/CommandSystem.js';
-import { TerrainBuilder } from '../src/world/TerrainBuilder.js';
-import { STONNE_1940_SCENARIO } from '../src/scenarios/france1940/stonne1940.js';
+import { TerrainBuilder } from './helpers/France1940TestTerrain.js';
+import { STONNE_1940_MAP } from '../src/maps/france/stonne.js';
 
 function deploymentUnit(faction, x, z, width = 4, length = 6) {
   return {
@@ -25,7 +25,7 @@ function deploymentUnit(faction, x, z, width = 4, length = 6) {
 }
 
 test('deployment zones contain complete unit footprints, not only center points', () => {
-  const zones = STONNE_1940_SCENARIO.deploymentZones;
+  const zones = STONNE_1940_MAP.deploymentZones;
   const french = zones.french;
   const german = zones.german;
   assert.equal(isUnitInsideDeploymentZone(deploymentUnit('french', 0, 80), zones), true);
@@ -54,7 +54,7 @@ test('deployment zones contain complete unit footprints, not only center points'
 });
 
 test('deployment footprint accounts for rotation', () => {
-  const zones = STONNE_1940_SCENARIO.deploymentZones;
+  const zones = STONNE_1940_MAP.deploymentZones;
   const unit = deploymentUnit('french', 0, 0, 8, 4);
   unit.rotation = Math.PI / 2;
   assert.equal(
@@ -86,7 +86,7 @@ test('setup movement relocates the full squad immediately and rejects an escapin
   };
   let rejected = 0;
   const commands = new CommandSystem(scene, {
-    deploymentZones: STONNE_1940_SCENARIO.deploymentZones,
+    deploymentZones: STONNE_1940_MAP.deploymentZones,
     terrain,
     isSetupPhase: () => true,
     onInvalidDeployment: () => { rejected++; }
@@ -154,7 +154,7 @@ test('infantry MOVE click delegates an occupied building footprint to floor sele
 test('setup-zone mesh follows sampled terrain and never accepts raycasts', () => {
   const scene = new THREE.Scene();
   const terrain = new TerrainBuilder(scene, {
-    deploymentZones: STONNE_1940_SCENARIO.deploymentZones
+    mapDescriptor: STONNE_1940_MAP
   });
   terrain.buildSetupZones();
   const zone = terrain.deploymentZones.french;

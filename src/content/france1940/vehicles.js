@@ -689,7 +689,8 @@ export const FRANCE_1940_VEHICLES = Object.freeze({
     dataQuality: {
       crewArmorArmament: 'historical',
       ammunitionSplit: 'gameplay approximation',
-      movement: 'gameplay approximation'
+      movement: 'gameplay approximation',
+      referenceUrl: GERMAN_ARMAMENT_REFERENCE
     }
   }),
   PANZER_II_C: freezeVehicle({

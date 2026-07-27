@@ -1,6 +1,23 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import * as THREE from 'three';
+import {
+  createFrance1940CalibrationReferenceRegistry,
+  FRANCE_1940_ASSET_RESOLVER,
+  FRANCE_1940_CALIBRATION_REFERENCES,
+  FRANCE_1940_RUNTIME_ASSET_PACK,
+  FRANCE_1940_VEHICLE_MESH_FACTORIES
+} from '../src/content/france1940/render/index.js';
+import {
+  FRANCE_1940_ASSET_IDS,
+  FRANCE_1940_ASSET_MANIFEST
+} from '../src/content/france1940/assets/index.js';
+import {
+  createAssetResolver,
+  createRuntimeAssetPack,
+  defineAssetManifest
+} from '../src/assets/AssetManifest.js';
 import { VEHICLES } from '../src/game/VehicleCatalog.js';
 import {
   BLUEPRINT_CALIBRATION_RECORDS
@@ -30,6 +47,11 @@ import {
   createVehicleOwnedRegistrations
 } from '../src/calibration/VehicleOwnedRegistration.js';
 import { UnitFactory } from '../src/world/UnitFactory.js';
+
+const createVehicleMesh = modelId => UnitFactory.createTankMesh(
+  modelId,
+  FRANCE_1940_VEHICLE_MESH_FACTORIES
+);
 
 test('every catalog vehicle has a reusable side, front, and top calibration record', () => {
   const modelIds = Object.values(VEHICLES).map(vehicle => vehicle.modelId).sort();
@@ -68,10 +90,11 @@ test('SOMUA calibration exposes mechanical datums beyond its rigid envelope', ()
 });
 
 test('jig defaults consume vehicle-owned SOMUA crop, mirror, and rigid landmarks', () => {
-  const model = UnitFactory.createTankMesh('fr_somua');
+  const model = createVehicleMesh('fr_somua');
   const views = createVehicleOwnedRegistrations(
     model,
-    BLUEPRINT_CALIBRATION_RECORDS.fr_somua
+    BLUEPRINT_CALIBRATION_RECORDS.fr_somua,
+    { referenceRegistry: FRANCE_1940_CALIBRATION_REFERENCES }
   );
   assert.equal(views.side.imageUrl, '/s35-compare.jpg');
   assert.equal(views.side.mirrorX, false);
@@ -88,9 +111,91 @@ test('jig defaults consume vehicle-owned SOMUA crop, mirror, and rigid landmarks
   assert.equal(views.top.imageUrl, null, 'qualitative top view must remain unavailable');
 });
 
+test('replacement asset pack reaches SOMUA jig defaults through logical reference identity', () => {
+  const replacementManifest = defineAssetManifest({
+    id: 'france1940-test-calibration-assets',
+    familyId: 'france-1940',
+    replaces: [FRANCE_1940_ASSET_MANIFEST.id],
+    assets: {
+      [FRANCE_1940_ASSET_IDS.somuaSideCalibrationReference]: {
+        id: FRANCE_1940_ASSET_IDS.somuaSideCalibrationReference,
+        kind: 'calibration-reference-image',
+        source: {
+          type: 'url',
+          url: '/replacement-somua-side.png'
+        },
+        provenance: 'test replacement reference'
+      }
+    }
+  });
+  const resolver = createAssetResolver([
+    FRANCE_1940_RUNTIME_ASSET_PACK,
+    createRuntimeAssetPack(replacementManifest)
+  ]);
+  const references = createFrance1940CalibrationReferenceRegistry(resolver);
+  const reference = references.get('fr_somua', 'side');
+  const views = createVehicleOwnedRegistrations(
+    createVehicleMesh('fr_somua'),
+    BLUEPRINT_CALIBRATION_RECORDS.fr_somua,
+    { referenceRegistry: references }
+  );
+
+  assert.equal(FRANCE_1940_ASSET_RESOLVER.familyId, 'france-1940');
+  assert.deepEqual(reference, {
+    logicalId: FRANCE_1940_ASSET_IDS.somuaSideCalibrationReference,
+    sourcePackId: replacementManifest.id,
+    modelId: 'fr_somua',
+    views: ['side'],
+    imageUrl: '/replacement-somua-side.png',
+    provenance: 'test replacement reference'
+  });
+  assert.equal(references.get('fr_somua', 'front'), null);
+  assert.equal(views.side.imageUrl, '/replacement-somua-side.png');
+  assert.equal(views.front.imageUrl, null);
+  assert.equal(views.top.imageUrl, null);
+});
+
+test('generic calibration code contains no family-owned model or raster fallback', async () => {
+  const [registrationSource, appSource] = await Promise.all([
+    readFile(
+      new URL('../src/calibration/VehicleOwnedRegistration.js', import.meta.url),
+      'utf8'
+    ),
+    readFile(
+      new URL('../src/calibration/VehicleCalibrationApp.js', import.meta.url),
+      'utf8'
+    )
+  ]);
+
+  assert.doesNotMatch(registrationSource, /\bfr_somua\b|s35-compare\.jpg/);
+  assert.doesNotMatch(appSource, /content\/france1940|s35-compare\.jpg/);
+  assert.match(appSource, /VehicleCalibrationApp requires calibrationReferences/);
+  assert.match(appSource, /referenceRegistry: this\.calibrationReferences/);
+
+  assert.throws(
+    () => createVehicleOwnedRegistrations(
+      createVehicleMesh('fr_somua'),
+      BLUEPRINT_CALIBRATION_RECORDS.fr_somua,
+      {
+        referenceRegistry: {
+          get: () => ({ imageUrl: 'https://example.invalid/reference-page' })
+        }
+      }
+    ),
+    /requires a raster imageUrl/
+  );
+  assert.throws(
+    () => createFrance1940CalibrationReferenceRegistry({
+      familyId: 'wrong-family',
+      require() {}
+    }),
+    /require a France 1940 asset resolver/
+  );
+});
+
 test('jig defaults normalize multiview crops, rotation, and source URLs', () => {
   const panzer3 = createVehicleOwnedRegistrations(
-    UnitFactory.createTankMesh('ger_panzer3'),
+    createVehicleMesh('ger_panzer3'),
     BLUEPRINT_CALIBRATION_RECORDS.ger_panzer3
   );
   assert.equal(panzer3.side.mirrorX, true);
@@ -99,7 +204,7 @@ test('jig defaults normalize multiview crops, rotation, and source URLs', () => 
   assert.ok(Math.abs(panzer3.top.crop.top - 450 / 1345) < 1e-12);
 
   const sdkfz = createVehicleOwnedRegistrations(
-    UnitFactory.createTankMesh('ger_sdkfz231'),
+    createVehicleMesh('ger_sdkfz231'),
     BLUEPRINT_CALIBRATION_RECORDS.ger_sdkfz231
   );
   assert.match(sdkfz.side.imageUrl, /Sdkfz231%286-Rad%29-plan\.gif$/);
@@ -110,7 +215,7 @@ test('jig defaults normalize multiview crops, rotation, and source URLs', () => 
 
 test('jig defaults do not pretend a source page is a directly loadable raster', () => {
   const views = createVehicleOwnedRegistrations(
-    UnitFactory.createTankMesh('fr_renault_r35'),
+    createVehicleMesh('fr_renault_r35'),
     BLUEPRINT_CALIBRATION_RECORDS.fr_renault_r35
   );
   for (const view of Object.values(views)) {

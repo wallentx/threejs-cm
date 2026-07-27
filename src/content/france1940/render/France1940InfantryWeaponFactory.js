@@ -1,9 +1,9 @@
 import * as THREE from 'three';
-import { lateralX } from '../LocalFrame.js';
+import { lateralX } from '../../../world/LocalFrame.js';
 
 // Visual dimensions are metres. Overall lengths are historical nominal values;
 // the smaller sectional dimensions are inferred visual proportions.
-export const INFANTRY_WEAPON_VISUALS = Object.freeze({
+export const FRANCE_1940_INFANTRY_WEAPON_VISUALS = Object.freeze({
   'MAS-36 Rifle': Object.freeze({
     id: 'mas36',
     designation: 'MAS-36',
@@ -413,8 +413,9 @@ function buildWeaponModel(spec, materials) {
   return model;
 }
 
-export function createInfantryWeaponRig(weaponName, materials) {
-  const spec = INFANTRY_WEAPON_VISUALS[weaponName] ?? INFANTRY_WEAPON_VISUALS['MAS-36 Rifle'];
+export function createFrance1940InfantryWeaponRig(weaponName, materials) {
+  const spec = FRANCE_1940_INFANTRY_WEAPON_VISUALS[weaponName]
+    ?? FRANCE_1940_INFANTRY_WEAPON_VISUALS['MAS-36 Rifle'];
   const rig = new THREE.Group();
   rig.name = 'TwoHandWeaponRig';
 

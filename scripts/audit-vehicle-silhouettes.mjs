@@ -1,5 +1,8 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
+import {
+  FRANCE_1940_VEHICLE_MESH_FACTORIES
+} from '../src/content/france1940/render/index.js';
 import { UnitFactory } from '../src/world/UnitFactory.js';
 import {
   VEHICLE_VISUAL_PROFILES
@@ -24,7 +27,10 @@ const report = {
 };
 
 for (const [modelId, profile] of Object.entries(VEHICLE_VISUAL_PROFILES)) {
-  const model = UnitFactory.createTankMesh(modelId);
+  const model = UnitFactory.createTankMesh(
+    modelId,
+    FRANCE_1940_VEHICLE_MESH_FACTORIES
+  );
   detachNestedProxyMeshes(model);
   const vehicle = {
     designation: profile.designation,

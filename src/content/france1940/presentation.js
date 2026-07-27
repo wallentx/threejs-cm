@@ -1,6 +1,6 @@
 const PROVENANCE = Object.freeze({
   source: 'Current prototype faction colors and procedural infantry identity.',
-  dataQuality: 'presentation-only migration record; not yet consumed by runtime systems'
+  dataQuality: 'presentation-only migration record consumed by family visual and UI registries'
 });
 
 export const FRANCE_1940_PRESENTATION = Object.freeze({

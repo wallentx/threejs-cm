@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { Unit } from '../src/game/Unit.js';
+import { Unit } from './helpers/France1940TestUnit.js';
 
 function makeVehicle(vehicleId, faction) {
   return new Unit({
@@ -44,4 +44,3 @@ test('modeled commander-loader loss blocks Panhard coax reload without inventing
   assert.equal(panhard.isVehicleMountOperational('coax'), true);
   assert.equal(panhard.beginVehicleMountReload('coax'), false);
 });
-

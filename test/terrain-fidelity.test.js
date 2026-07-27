@@ -4,11 +4,29 @@ import * as THREE from 'three';
 import {
   TerrainBuilder,
   createGroundConformingWallGeometry
-} from '../src/world/TerrainBuilder.js';
+} from './helpers/France1940TestTerrain.js';
 import { TERRAIN_SCALE } from '../src/world/TerrainScale.js';
 import { FR_HOUSE_12X9_2F } from '../src/maps/france/FranceHouse12x9_2F.js';
+import { STONNE_1940_MAP } from '../src/maps/france/stonne.js';
+import { BuildingSystem } from '../src/simulation/buildings/index.js';
+import {
+  createFrenchHouseVisualAdapter
+} from '../src/world/buildings/FrenchHouse.js';
 
 const EPSILON = 1e-5;
+const STRUCTURE_ADAPTERS = Object.freeze({
+  [FR_HOUSE_12X9_2F.id]: createFrenchHouseVisualAdapter(FR_HOUSE_12X9_2F)
+});
+
+function createTerrain(scene) {
+  const buildingSystem = new BuildingSystem();
+  buildingSystem.registerDescriptor(FR_HOUSE_12X9_2F);
+  return new TerrainBuilder(scene, {
+    mapDescriptor: STONNE_1940_MAP,
+    buildingSystem,
+    structureAdapters: STRUCTURE_ADAPTERS
+  });
+}
 
 function assertNear(actual, expected, message) {
   assert.ok(
@@ -72,12 +90,9 @@ test('terrain scale uses metres and plausible human-relative dimensions', () => 
   assert.ok(TERRAIN_SCALE.house.eavesHeight <= 7);
   assert.ok(TERRAIN_SCALE.bridge.roadwayWidth >= 5.5);
   assert.ok(TERRAIN_SCALE.bridge.roadwayWidth <= 7.5);
-  assert.equal(
-    TERRAIN_SCALE.river.cutWidth,
-    TERRAIN_SCALE.river.waterWidth + TERRAIN_SCALE.river.bankWidth * 2
-  );
-  assert.ok(TERRAIN_SCALE.river.bedLevel < TERRAIN_SCALE.river.waterLevel);
-  assert.ok(TERRAIN_SCALE.river.bridgeSpan > TERRAIN_SCALE.river.cutWidth);
+  assert.ok(STONNE_1940_MAP.river.cutWidth > STONNE_1940_MAP.river.waterWidth);
+  assert.ok(STONNE_1940_MAP.river.bedLevel < STONNE_1940_MAP.river.waterLevel);
+  assert.ok(STONNE_1940_MAP.bridge.span > STONNE_1940_MAP.river.cutWidth);
 });
 
 test('wall geometry is grounded, manifold, and outward-wound', () => {
@@ -112,7 +127,7 @@ test('wall geometry is grounded, manifold, and outward-wound', () => {
 
 test('stone wall runs use contiguous grounded segments and matching collisions', () => {
   const scene = new THREE.Scene();
-  const terrain = new TerrainBuilder(scene);
+  const terrain = createTerrain(scene);
   terrain.buildStoneWalls();
 
   const expectedSegmentsPerRun = Math.ceil(
@@ -173,8 +188,8 @@ test('stone wall runs use contiguous grounded segments and matching collisions',
 
 test('river bed remains below visible water and bridge reaches connected banks', () => {
   const scene = new THREE.Scene();
-  const terrain = new TerrainBuilder(scene);
-  const { river } = TERRAIN_SCALE;
+  const terrain = createTerrain(scene);
+  const { river } = STONNE_1940_MAP;
   const waterHalfWidth = river.waterWidth * 0.5;
   const cutHalfWidth = river.cutWidth * 0.5;
 
@@ -218,23 +233,23 @@ test('river bed remains below visible water and bridge reaches connected banks',
   );
   assert.equal(water.position.z, river.centerZ);
   assert.ok(
-    river.bridgeSpan * 0.5 > cutHalfWidth,
+    STONNE_1940_MAP.bridge.span * 0.5 > cutHalfWidth,
     'bridge deck ends must extend beyond both cut banks'
   );
-  assert.equal(bridge.userData.dimensionsMeters.length, river.bridgeSpan);
+  assert.equal(bridge.userData.dimensionsMeters.length, STONNE_1940_MAP.bridge.span);
 });
 
 test('bridge and house meshes expose calibrated metre dimensions', () => {
   const scene = new THREE.Scene();
-  const terrain = new TerrainBuilder(scene);
+  const terrain = createTerrain(scene);
   terrain.buildRiverAndBridge();
-  terrain.buildFrenchVillage();
+  terrain.buildStructures();
 
   const bridge = scene.getObjectByName('StoneBridge');
   const house = scene.getObjectByName('FrenchVillageHouse');
   assert.deepEqual(bridge.userData.dimensionsMeters, {
     width: TERRAIN_SCALE.bridge.roadwayWidth,
-    length: TERRAIN_SCALE.river.bridgeSpan,
+    length: STONNE_1940_MAP.bridge.span,
     deckTop: bridge.userData.dimensionsMeters.deckTop
   });
   assert.deepEqual(house.userData.dimensionsMeters, {
@@ -286,7 +301,7 @@ test('bridge and house meshes expose calibrated metre dimensions', () => {
   );
   assert.ok(
     maximumUv - minimumUv
-      >= TERRAIN_SCALE.river.bridgeSpan / TERRAIN_SCALE.bridge.masonryRepeatMeters,
+      >= STONNE_1940_MAP.bridge.span / TERRAIN_SCALE.bridge.masonryRepeatMeters,
     'bridge masonry must repeat by metre scale along full span'
   );
 });

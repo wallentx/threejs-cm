@@ -11,6 +11,8 @@ steps are listed explicitly.
 src/
 |-- main.js                         # Composition root; wiring only
 |-- app/
+|   |-- ApplicationPorts.js         # Explicit UI/editor query and command ports
+|   |-- FactionRosterIndex.js       # Pure deterministic side scheduling views
 |   `-- GameApp.js                  # Browser lifecycle and top-level facade
 |-- engine/                         # Generic Three.js, camera, audio, input
 |-- simulation/                     # Renderer-neutral tactical state and rules
@@ -28,6 +30,8 @@ src/
 |       |-- factions.js
 |       |-- formations.js
 |       |-- presentation.js
+|       |-- catalogPorts.js        # Read-only runtime catalog boundary
+|       |-- assets/manifest.js     # Plain logical family asset records
 |       |-- weapons.js
 |       |-- vehicles.js
 |       `-- render/                 # Family-specific mesh factories
@@ -40,8 +44,7 @@ src/
 |-- ui/                             # HUD and minimap; runtime facade client
 |-- editor/                         # Scenario/map authoring clients
 |-- assets/
-|   |-- manifest.js                 # Logical asset IDs to URLs or generators
-|   `-- france1940/                 # Family-owned external assets
+|   `-- AssetManifest.js            # Generic validation and pack resolution
 `-- styles/
 
 test/
@@ -75,22 +78,80 @@ The first boundary slice now exists:
   registrations. It checks stable record IDs, faction presentation and vehicle
   ownership, unique stable formation-member IDs, and every weapon reference without
   importing Three.js, the browser, a concrete family, or a global singleton.
-- `src/content/france1940/` now owns frozen faction, vehicle-affiliation,
-  formation, presentation, and weapon records. Its entry point receives only
-  the existing vehicle catalog from composition as a migration adapter rather
-  than importing the legacy game layer. Scenario equipment and radio records
-  address stable formation-member IDs, not array positions.
+- `src/content/france1940/` now owns frozen faction, formation, presentation,
+  weapon, vehicle, armor-shape, provenance, internal-layout, and logical asset
+  records.
+  Scenario equipment and radio records address stable formation-member IDs,
+  not array positions.
 - `src/content/france1940/weapons.js` owns the single frozen 26-record weapon
   map, default materialization, legacy display-name aliases, and lookup.
-  `src/game/WeaponCatalog.js` is a narrow strict-identity re-export, so current
-  consumers and rollback weapon IDs continue to resolve the same objects while
-  catalog-port injection remains staged work.
+  `src/game/WeaponCatalog.js` remains a narrow strict-identity compatibility
+  re-export for external and test callers.
+- `src/content/france1940/vehicles.js` owns the single frozen 14-record vehicle
+  map and every vehicle-owned internal-layout module.
+  `src/game/VehicleCatalog.js` is a narrow strict-identity compatibility
+  re-export. Generic line-of-fire armor math now lives under
+  `src/simulation/ballistics/ArmorMath.js`.
+- `src/content/france1940/catalogPorts.js` exposes frozen weapon and vehicle
+  lookup ports over those exact registered records. Composition injects the
+  ports through `ScenarioRuntime`; the loader validates family identity,
+  canonical record identity, every ID lookup, and faction vehicle defaults
+  before constructing any unit. `Unit`, `SoldierAgent`, `VehicleSystems`,
+  `CombatSystem`, and `UIManager` consume those ports instead of importing
+  France-specific catalogs. Projectile restore resolves a saved weapon through
+  the restored attacker's port.
+- `src/content/france1940/render/` owns faction-to-presentation binding plus
+  infantry, structure, and vehicle mesh-factory registrations. Composition
+  injects matching visual factories through `ScenarioRuntime` and `Unit` into
+  generic `UnitFactory`; scenario loading validates exact registered
+  presentation identity and rejects missing infantry, structure, or vehicle
+  renderers before constructing any unit. Calibration and silhouette tools
+  inject the vehicle registry directly.
+- `src/assets/AssetManifest.js` validates and deeply freezes portable logical
+  asset records, binds runtime providers outside those records, and composes
+  immutable base/replacement packs. Replacement is explicit, ordered,
+  family-scoped, kind-preserving, and dependency-validated; there is no global
+  asset singleton.
+- `src/content/france1940/assets/manifest.js` owns stable logical IDs for
+  procedural unit/terrain surfaces and calibration reference media. Its
+  renderer-side runtime pack binds deterministic procedural providers, while
+  URL records remain portable data. Composition resolves those bindings into
+  vehicle/unit factories, terrain surfaces, and a family calibration-reference
+  registry. Tests replace the core pack and verify alternate providers and
+  reference URLs reach live consumers.
+- `src/app/GameApp.js` owns browser startup, system construction, scenario
+  loading, the fixed-step loop, rollback hooks, interaction, and diagnostics
+  behind one injected application boundary. It imports no concrete family,
+  map, or scenario. Player faction, family/catalog/visual ports, map,
+  structures, and scenario all arrive from composition.
+- `src/app/FactionRosterIndex.js` builds immutable faction and opposition views
+  in registered family order while retaining live unit insertion order. It is
+  browser-free and rebuilt only when the runtime roster changes, keeping combat
+  sequencing deterministic without per-step faction filtering.
+- `src/app/ApplicationPorts.js` exposes frozen named UI queries, commands, and
+  the building-move event subscription without leaking `GameApp`, `WegoManager`,
+  `CommandSystem`, renderer objects, or mutable subsystem records to UI clients.
+  A separate editor port limits authoring access to height queries, obstacle
+  publication, scene-object insertion, and notifications.
+- `UIManager`, `Minimap`, and `MapEditor` consume those ports. Faction flags and
+  colors resolve through family presentation records, and minimap projection
+  uses injected map dimensions instead of Stonne constants.
+- `src/maps/MapDescriptor.js` defines and validates renderer-neutral, deeply
+  frozen map records, including bounded surface recipes, material values,
+  globally stable feature IDs, bridge/channel alignment, map extents, and
+  deployment-zone bounds. `src/maps/france/stonne.js` owns the selected map
+  extent, elevation waves, surfaces, river, bridge, wall runs, structure
+  placement, foliage, and deployment zones.
 - `src/scenario/DeploymentRules.js` validates complete unit footprints against
   injected setup-zone records.
 - `src/scenarios/france1940/stonne1940.js` owns the Stonne roster, positions,
-  setup zones, startup selection, camera target, family ID, and seed.
-- `TerrainBuilder` receives setup-zone records. It no longer exports a
-  Stonne-specific deployment constant or deployment rule.
+  startup selection, camera target, map/family IDs, and seed.
+- `ScenarioRuntime` validates the selected map ID before constructing units and
+  validates deployment against that map's zones.
+- `TerrainBuilder` receives one map descriptor plus narrow structure visual
+  adapters. It derives rendering, terrain height, collision, navigation, and
+  setup-zone meshes from the same feature records without importing Stonne or
+  a concrete building descriptor.
 - `src/world/WorldScale.js` owns the shared metre and standing-infantry
   reference; `TerrainScale.js` owns bounded environmental dimensions.
 - `src/world/vehicles/VehicleMaterialLibrary.js` owns cached procedural vehicle
@@ -143,9 +204,9 @@ The first boundary slice now exists:
   It never decides damage.
 - `src/ui/VehicleStatusPresenter.js` converts plain vehicle snapshots into HUD
   view data. `UIManager` renders that view without becoming simulation state.
-- `main.js` selects a scenario and composes the runtime. It no longer contains
-  the Stonne order of battle. It constructs the selected family registry and
-  injects it into scenario loading.
+- `main.js` is now composition-only. It selects the scenario/map/family,
+  constructs catalog, asset, visual, and structure adapters, declares the
+  player faction, installs error handling, and constructs `GameApp`.
 
 ## Current vertical-slice seams
 
@@ -154,8 +215,9 @@ These seams are usable now, before the staged directory migration is complete:
 | Concern | Authoritative owner | Read-only consumer |
 | --- | --- | --- |
 | Family identity, faction vehicle ownership, formations, presentation records | `content/france1940/*`, injected `FamilyRegistry` | Scenario resolution; future UI/render consumers |
-| France 1940 weapon definitions and aliases | `content/france1940/weapons.js` | Family registry and legacy `WeaponCatalog` compatibility consumers |
-| Legacy vehicle definitions | `VehicleCatalog` through the France 1940 family adapter | Scenario validation, Unit initialization, HUD labels |
+| France 1940 weapon definitions and aliases | `content/france1940/weapons.js` | Injected `catalogPorts.weapons`; legacy compatibility re-export |
+| France 1940 vehicle, armor, crew, mount, and internal-layout definitions | `content/france1940/vehicles.js`, `content/france1940/vehicleData/*` | Injected `catalogPorts.vehicles`; legacy compatibility re-export |
+| Stonne terrain and placement records | `maps/france/stonne.js`, validated by `maps/MapDescriptor.js` | Scenario loader, `TerrainBuilder`, command/deployment systems |
 | Individual infantry state and choices | `SoldierAgent`, `SoldierAI` | Infantry pose renderer, roster HUD |
 | Vehicle crew, components, mounts, ammo, damage events | `Unit`, `VehicleSystems` | Combat telemetry, damage report |
 | Static movement collision and bridge routing | `StaticCollisionWorld`, plain terrain collider records | `Unit`, `SoldierAgent`, terrain height adapter |
@@ -165,11 +227,17 @@ These seams are usable now, before the staged directory migration is complete:
 | Projectile and armor resolution | `CombatSystem`, `BallisticsSystem` | Telemetry, VFX, shot inspector |
 | Renderer-neutral projectile impact mechanics | `simulation/ballistics/*` | `BallisticsSystem`, deterministic replay |
 | Shot trajectory presentation | `world/debug/ShotTrajectoryOverlay` | `UIManager`, resolved telemetry only |
-| Infantry meshes, weapons, grip/muzzle markers | `UnitFactory`, `world/infantry/*` | Soldier pose animation |
-| Vehicle meshes, articulated markers, LOD | `UnitFactory`, `world/vehicles/*` | Unit animation, damage VFX |
-| Vehicle blueprint source transforms | Vehicle model metadata, `VehicleOwnedRegistration` adapter | Calibration jig only |
-| Vehicle armor collision and named impact plates | `VehicleCatalog`, `simulation/vehicles/VehicleArmorCollision` | Ballistics, telemetry, component damage |
-| Vehicle internal crew/module collision, penetration paths, and direct HE effects | `VehicleCatalog`, `simulation/vehicles/VehicleInternalCollision`, `simulation/ballistics/VehicleExplosiveEffects`, `Unit`, `VehicleSystems` | Ballistics telemetry, shot inspector |
+| Infantry body meshes, faction presentation, and bunker mesh | `content/france1940/render/*` | Injected `UnitFactory`, Soldier pose animation |
+| Period infantry weapons and grip/muzzle markers | `content/france1940/render/France1940InfantryWeaponFactory.js` | Family infantry mesh factories |
+| Family-neutral infantry pose solving | `world/infantry/InfantryPoseAnimator.js` | `SoldierAI` |
+| Vehicle visual selection | `content/france1940/render/*` | Injected `UnitFactory`, calibration and silhouette tools |
+| Logical asset identity and pack replacement | `assets/AssetManifest.js`, `content/france1940/assets/*` | Composition-bound family render providers |
+| Browser lifecycle and faction scheduling | `app/GameApp.js`, `app/FactionRosterIndex.js` | Composition, scenario runtime, UI/editor clients |
+| UI/editor application boundary | `app/ApplicationPorts.js` | `UIManager`, `Minimap`, `MapEditor` |
+| Vehicle meshes, articulated markers, LOD | `world/vehicles/*` during staged source migration | Family visual registry, Unit animation, damage VFX |
+| Vehicle blueprint source transforms and reference URLs | Vehicle model metadata, family asset manifest, calibration-reference registry, `VehicleOwnedRegistration` adapter | Calibration jig only |
+| Vehicle armor collision and named impact plates | France 1940 vehicle content, `simulation/vehicles/VehicleArmorCollision` | Ballistics, telemetry, component damage |
+| Vehicle internal crew/module collision, penetration paths, and direct HE effects | France 1940 vehicle content, `simulation/vehicles/VehicleInternalCollision`, `simulation/ballistics/VehicleExplosiveEffects`, `Unit`, `VehicleSystems` | Ballistics telemetry, shot inspector |
 | Vehicle damage presentation | `VehicleDamageEffects` | Three.js scene only |
 | Vehicle status projection | `VehicleStatusPresenter` | `UIManager` only |
 | Individual observations and relayed contacts | `SpottingSystem`, `simulation/observation/*` | Targeting cues, visibility/contact presentation |
@@ -178,7 +246,7 @@ These seams are usable now, before the staged directory migration is complete:
 State flows one way:
 
 ```text
-family registry / catalog data
+family registry / injected catalog ports
     |
     v
 Unit / SoldierAgent / VehicleSystems
@@ -252,7 +320,7 @@ is deliberately unoccluded: compartment partitions, local shielding, fragment
 cones, pressure, explosive filler, and fuze behavior remain explicit future
 work rather than hidden precision.
 Per-vehicle records live under
-`game/vehicleData/internalLayouts/` so one vehicle can be refined without
+`content/france1940/vehicleData/internalLayouts/` so one vehicle can be refined without
 editing generic collision or damage code. All 14 current catalog vehicles own
 separate layouts: SOMUA, Renault R35, Hotchkiss H39, AMC 35, Panhard 178,
 Laffly S20TL, Char B1 bis, Panzer II, Panzer III, Panzer 35(t), Panzer 38(t),
@@ -397,32 +465,43 @@ belong in `test/integration/`.
 
 These are tolerated migration inputs, not patterns to copy:
 
-- `src/main.js` currently combines composition, browser lifecycle, deterministic
-  RNG, simulation sequencing, and save/restore. The Stonne roster has moved to
-  its scenario descriptor.
-- `src/world/TerrainBuilder.js` combines Three.js terrain rendering, Stonne map
-  authorship, and obstacle metadata. Setup-zone data and validation have moved
-  out, but map geometry remains hard-coded.
+- `src/app/GameApp.js` remains a high-fan-out integration class even though
+  browser lifecycle has left `main.js` and UI/editor now consume explicit
+  ports. Subsystem construction and orchestration can be split further without
+  widening client access.
+- `src/world/TerrainBuilder.js` still combines Three.js terrain presentation
+  with plain collider publication, but Stonne authorship is now injected
+  through `MapDescriptor` and family terrain materials arrive through a
+  replaceable surface provider. Structure meshes remain temporary world-layer
+  adapters selected by composition.
 - `src/game/Unit.js` imports `UnitFactory` and Three.js, combining mutable
   tactical state with scene and mesh ownership.
 - Several `src/game/**` systems use Three.js vectors or scene objects directly.
   This includes commands, spotting, combat effects, support, ballistics, and
   soldier agents.
-- `VehicleCatalog.js` still places France 1940 family data inside the nominally
-  generic game layer. The family registration receives it as an explicit
-  legacy adapter. `WeaponCatalog.js` remains only as a compatibility re-export;
-  direct consumer injection has not replaced that shim yet.
-- `src/world/UnitFactory.js` and `src/world/vehicles/**` combine content
-  selection with procedural rendering. They are the source for the future
-  `content/france1940/render/` boundary.
-- `UIManager` reads catalog data and receives the full `Game` object;
-  `MapEditor` also receives the full game and mutates scene state.
+- `VehicleCatalog.js` and `WeaponCatalog.js` remain strict-identity
+  compatibility re-exports for external and test callers. Production
+  composition injects family catalog ports. Generic `Unit` now requires a
+  stable ID, faction, type, resolved infantry roster, catalog ports, and visual
+  factories; it owns no France 1940 defaults.
+- `src/world/UnitFactory.js` consumes injected infantry, structure, and vehicle
+  factory maps. It owns only registry dispatch and a generic family-colored
+  vehicle selection disc. France 1940 infantry-body and bunker construction now
+  live under `content/france1940/render/`, alongside all six period infantry
+  weapon visual contracts and rigs. Procedural vehicle modules/profiles still
+  live under `src/world/vehicles/**` during staged migration.
+- `UIManager` still renders live `Unit` records supplied through its query port;
+  immutable HUD view models are a future seam. `MapEditor` still authors
+  temporary Three.js boxes, but publishes them only through its explicit
+  editor port.
 - `window.__CMBN_GAME__`, DOM data attributes, and direct DOM logging expose
   runtime internals for debugging and capture automation.
-- No scenario registry, map data package, or asset manifest exists yet. A
-  bounded family registry and scenario resolver exist, while presentation
-  records, the vehicle catalog, and family visual factories still lack injected
-  runtime consumers.
+- No scenario registry exists yet. Logical asset manifests and replacement
+  resolution now cover vehicle surfaces, both infantry mesh models, and the
+  MG 34 bunker plus ground, water, bridge, masonry, and foliage materials.
+  VFX, audio, calibration references, external media loading, and
+  VFX, audio, external media loading, and disposal/fallback policy still lack
+  asset-pack coverage.
 
 Do not block useful work solely to remove these exceptions. New code should use
 the target boundary, while touched legacy code should move one dependency at a
@@ -433,24 +512,32 @@ time.
 1. **Stabilize contracts.** Continue the existing family-registry and scenario
    resolver foundation with a scenario schema, scenario registry, runtime
    facade, and boundary tests without changing visible behavior.
-2. **Extract family data.** Faction, vehicle-affiliation, formation,
-   presentation, and weapon records now live in `content/france1940/`. Move
-   vehicle records next; keep temporary re-exports from legacy catalogs so
-   existing callers continue to work.
-3. **Extract Stonne data.** Move terrain parameters and deployment zones into
-   `maps/france/stonne.js`; move forces and setup into
-   `scenarios/france1940/stonne-1940.js`.
-4. **Introduce the loader and runtime.** Resolve scenario IDs through injected
-   registries, construct units from loaded records, and move RNG, step
-   sequencing, and save/restore out of `main.js`.
+2. **Extract family data.** Faction, formation, presentation, weapon, vehicle,
+   armor-shape, provenance, internal-layout, and vehicle visual-registration
+   records now live in `content/france1940/`. Injected strict-identity catalog
+   ports serve production consumers. Temporary catalog re-exports remain for
+   external and test imports, while all `Unit` construction now receives
+   explicit catalog and visual dependencies.
+3. **Extract Stonne data.** Terrain parameters, surfaces, features, structures,
+   foliage, and deployment zones now live in `maps/france/stonne.js`; forces
+   and setup live in `scenarios/france1940/stonne1940.js`.
+4. **Introduce the loader and runtime.** Scenario IDs now resolve through
+   injected registries, units construct from loaded records, and browser
+   lifecycle, RNG, fixed-step sequencing, and save/restore now live behind
+   `GameApp`. Next split its UI/editor-facing surface into narrow ports.
 5. **Separate state from presentation.** Split tactical unit/agent state from
-   meshes and effects. Adapt Three.js vectors at the engine boundary and move
-   family mesh factories under France 1940 content.
+   meshes and effects. Adapt Three.js vectors at the engine boundary. France
+   1940 infantry-body, bunker, period infantry-weapon, and factory-registration
+   ownership has moved under family content; vehicle geometry/profiles remain
+   staged world-layer migrations.
 6. **Narrow UI and editor access.** Replace full-game references with runtime
    queries, commands, and events. Route map edits through map/scenario authoring
    services.
-7. **Add the asset service.** Introduce logical IDs and a manifest before adding
-   external media; keep procedural fallbacks deterministic.
+7. **Add the asset service.** The renderer-neutral manifest, provider binding,
+   explicit replacement resolver, vehicle-surface consumer, infantry mesh
+   providers, bunker mesh provider, terrain-surface provider, and replaceable
+   calibration-reference registry now exist. Extend that same boundary to VFX,
+   audio, and external media while keeping procedural fallbacks deterministic.
 8. **Remove shims.** Delete legacy re-exports and globals only after imports,
    focused tests, integration tests, and the production build confirm no
    remaining consumers.

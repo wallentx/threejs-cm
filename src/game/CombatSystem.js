@@ -1,7 +1,11 @@
 import * as THREE from 'three';
 import { BallisticsSystem } from './BallisticsSystem.js';
-import { getWeapon } from './WeaponCatalog.js';
 import { worldToLocalPoint } from '../simulation/buildings/BuildingTransforms.js';
+import {
+  PROCEDURAL_BATTLEFIELD_VFX_PROVIDER,
+  validateBattlefieldVfxProvider,
+  validateCombatVfxResourceSet
+} from '../world/vfx/ProceduralBattlefieldVfxProvider.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const scratchAim = new THREE.Vector3();
@@ -224,12 +228,16 @@ export class CombatSystem {
     this.projectiles = [];
     this.effects = [];
     this.projectileResources = new Map();
+    this.vfxProvider = validateBattlefieldVfxProvider(
+      options.vfxProvider ?? PROCEDURAL_BATTLEFIELD_VFX_PROVIDER
+    );
+    this.vfxResources = validateCombatVfxResourceSet(
+      this.vfxProvider.createCombatResources()
+    );
+    this.vfxAssetBinding = this.vfxResources.assetBinding ?? null;
     this.effectPools = { impact: [], explosion: [] };
-    this.effectGeometries = {
-      impact: new THREE.SphereGeometry(0.16, 6, 5),
-      explosion: new THREE.SphereGeometry(2.5, 12, 12)
-    };
-    this.effectCaps = { impact: 48, explosion: 12 };
+    this.effectGeometries = this.vfxResources.effectGeometries;
+    this.effectCaps = this.vfxResources.effectCaps;
     this.shotSequence = 0;
     this.impactSequence = 0;
     this.telemetry = createTelemetry();
@@ -247,9 +255,10 @@ export class CombatSystem {
   }
 
   fireWeapon(attacker, targetUnit, targetPos, options = {}) {
+    const weaponLookup = attacker?.catalogPorts?.weapons?.get;
     const weapon = options.weapon
-      ?? getWeapon(options.weaponId)
-      ?? getWeapon(options.shooter?.weapon);
+      ?? weaponLookup?.(options.weaponId)
+      ?? weaponLookup?.(options.shooter?.weaponId ?? options.shooter?.weapon);
     if (!attacker || !weapon || (!targetUnit && !targetPos)) return false;
 
     const fromPos = options.muzzlePosition?.clone()
@@ -377,8 +386,8 @@ export class CombatSystem {
       : createTelemetry();
 
     for (const saved of state?.projectiles ?? []) {
-      const weapon = getWeapon(saved.weaponId);
       const attacker = unitMap.get(saved.attackerId) ?? null;
+      const weapon = attacker?.catalogPorts?.weapons?.get?.(saved.weaponId);
       if (!weapon || !attacker) continue;
 
       const projectile = {
@@ -768,16 +777,15 @@ export class CombatSystem {
     const pool = this.effectPools[kind];
     let effect = pool.find(candidate => !candidate.active);
     if (!effect && pool.length < this.effectCaps[kind]) {
-      const material = new THREE.MeshBasicMaterial({
-        color: kind === 'explosion' ? 0xff4500 : 0xffb347,
-        transparent: true,
-        opacity: 0,
-        toneMapped: false,
-        depthWrite: false
-      });
+      const material = this.vfxResources.createEffectMaterial(kind);
+      if (!material?.isMaterial) {
+        throw new TypeError(`combat VFX ${kind} material must be a Three.js material`);
+      }
+      const mesh = new THREE.Mesh(this.effectGeometries[kind], material);
+      if (this.vfxAssetBinding) mesh.userData.assetBinding = this.vfxAssetBinding;
       effect = {
         kind,
-        mesh: new THREE.Mesh(this.effectGeometries[kind], material),
+        mesh,
         material,
         active: false,
         lifetime: 0,
@@ -801,7 +809,8 @@ export class CombatSystem {
     effect.lifetime = 0;
     effect.maxLife = maxLife;
     effect.material.color.setHex(color);
-    effect.material.opacity = 0.9;
+    effect.material.opacity =
+      this.vfxResources.styles[kind]?.initialOpacity ?? 0.9;
     effect.mesh.position.copy(pos);
     effect.mesh.scale.setScalar(scale);
     effect.mesh.visible = true;
@@ -818,13 +827,23 @@ export class CombatSystem {
     if (effect.mesh.parent) effect.mesh.parent.remove(effect.mesh);
   }
 
-  createImpactEffect(pos, color = 0xffb347) {
-    this.startEffect('impact', pos, { color, scale: 1, maxLife: 0.18 });
+  createImpactEffect(pos, color = null) {
+    const style = this.vfxResources.styles.impact;
+    this.startEffect('impact', pos, {
+      color: color ?? style.color,
+      scale: 1,
+      maxLife: style.maxLife
+    });
   }
 
   createExplosionEffect(pos, scale = 1) {
     this.sound?.playExplosion?.();
-    this.startEffect('explosion', pos, { color: 0xff4500, scale, maxLife: 0.6 });
+    const style = this.vfxResources.styles.explosion;
+    this.startEffect('explosion', pos, {
+      color: style.color,
+      scale,
+      maxLife: style.maxLife
+    });
   }
 
   update(delta) {
@@ -916,7 +935,9 @@ export class CombatSystem {
       const effect = this.effects[i];
       effect.lifetime += delta;
       const progress = effect.lifetime / effect.maxLife;
-      effect.mesh.scale.multiplyScalar(1 + delta * 2.4);
+      const growthPerSecond =
+        this.vfxResources.styles[effect.kind]?.growthPerSecond ?? 2.4;
+      effect.mesh.scale.multiplyScalar(1 + delta * growthPerSecond);
       effect.material.opacity = 1 - progress;
       if (effect.lifetime >= effect.maxLife) {
         this.retireEffect(effect);
@@ -934,7 +955,7 @@ export class CombatSystem {
     for (const pool of Object.values(this.effectPools)) {
       for (const effect of pool) effect.material.dispose();
     }
-    Object.values(this.effectGeometries).forEach(geometry => geometry.dispose());
+    this.vfxResources.dispose();
     this.disposeProjectileResources();
   }
 

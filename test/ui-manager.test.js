@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { UIManager } from '../src/ui/UIManager.js';
+import { createUIRuntimePort } from '../src/app/ApplicationPorts.js';
 
 function createHarness() {
   const calls = {
@@ -22,30 +23,67 @@ function createHarness() {
     targetUnit: null,
     targetPos: null
   };
-  const ui = Object.create(UIManager.prototype);
-  ui.game = {
-    selectedUnit: unit,
-    wego: { playMode: 'wego', phase: 'COMMAND_PHASE' },
-    commands: {
-      activeMode: null,
-      renderOverlays() { calls.overlays++; },
-      cancelActiveMode() {
-        const previous = this.activeMode;
-        this.activeMode = null;
-        if (previous) calls.cancelled++;
-        return previous;
-      }
-    },
-    deselectUnit() { calls.deselect++; },
-    splitUnit() { calls.split++; }
+  const wego = {
+    playMode: 'wego',
+    phase: 'COMMAND_PHASE',
+    isPlaying: false,
+    executeTurn() {},
+    togglePlayPause() {},
+    rewindTurn() {},
+    stepTime() {},
+    toggleFastSpeed() {},
+    seekTime() {},
+    setPlayMode() {}
   };
+  const commands = {
+    activeMode: null,
+    pathLinesGroup: { visible: true },
+    targetLinesGroup: { visible: true },
+    setCommandMode(mode) {
+      this.activeMode = this.activeMode === mode ? null : mode;
+      return this.activeMode;
+    },
+    renderOverlays() { calls.overlays++; },
+    cancelActiveMode() {
+      const previous = this.activeMode;
+      this.activeMode = null;
+      if (previous) calls.cancelled++;
+      return previous;
+    }
+  };
+  let selectedUnit = unit;
+  const ui = Object.create(UIManager.prototype);
+  ui.runtime = createUIRuntimePort({
+    wego,
+    commands,
+    sound: { enabled: true },
+    cameraManager: { setHeightPreset() {} },
+    shotTrajectoryOverlay: { clear() {}, toggle() {} },
+    mapDimensions: { width: 240, depth: 240 },
+    factionPresentation: {
+      blue: { flagGlyph: 'B', selectionColor: '#0000ff' },
+      red: { flagGlyph: 'R', selectionColor: '#ff0000' }
+    },
+    playerFactionId: 'blue',
+    getSelectedUnit: () => selectedUnit,
+    getVisibilityProjection: () => null,
+    getBocageObstacles: () => [],
+    getImpacts: () => [],
+    selectUnit: unitToSelect => { selectedUnit = unitToSelect; },
+    deselectUnit: () => {
+      calls.deselect++;
+      selectedUnit = null;
+    },
+    splitUnit: () => { calls.split++; },
+    issueBuildingExit: () => {}
+  });
   ui.showToast = () => {};
   ui.renderCommandGrid = () => {};
-  return { ui, unit, calls };
+  return { ui, unit, calls, wego, commands };
 }
 
 test('UI manager preserves command actions and WEGO order locking', () => {
-  const { ui, unit, calls } = createHarness();
+  const { ui, unit, calls, wego } = createHarness();
 
   ui.handleDirectAction('PAUSE');
   assert.equal(calls.pause, 1);
@@ -59,23 +97,23 @@ test('UI manager preserves command actions and WEGO order locking', () => {
   ui.handleDirectAction('SPLIT');
   assert.equal(calls.split, 1);
 
-  ui.game.wego.phase = 'ACTION_PHASE';
+  wego.phase = 'ACTION_PHASE';
   ui.handleDirectAction('PAUSE');
   assert.equal(calls.pause, 1);
 
-  ui.game.wego.playMode = 'realtime';
+  wego.playMode = 'realtime';
   ui.handleDirectAction('PAUSE');
   assert.equal(calls.pause, 2);
 });
 
 test('cancel and deselect remain available outside order-entry phases', () => {
-  const { ui, calls } = createHarness();
-  ui.game.wego.phase = 'ACTION_PHASE';
-  ui.game.commands.activeMode = 'TARGET';
+  const { ui, calls, wego, commands } = createHarness();
+  wego.phase = 'ACTION_PHASE';
+  commands.activeMode = 'TARGET';
 
   ui.handleDirectAction('CANCEL_ACTION');
   assert.equal(calls.cancelled, 1);
-  assert.equal(ui.game.commands.activeMode, null);
+  assert.equal(commands.activeMode, null);
 
   ui.handleDirectAction('DESELECT');
   assert.equal(calls.deselect, 1);
@@ -135,7 +173,7 @@ test('shot inspector distinguishes ricochet continuation from a stopped projecti
   try {
     const ui = Object.create(UIManager.prototype);
     ui.lastImpactKey = null;
-    ui.game = {};
+    ui.runtime = { toggleShotTrajectory() {} };
     ui.updateShotInspector([{
       id: 7,
       shooterId: 'gunner',
@@ -203,7 +241,7 @@ test('shot inspector exposes ordered internal penetration path and all crew casu
   try {
     const ui = Object.create(UIManager.prototype);
     ui.lastImpactKey = null;
-    ui.game = {};
+    ui.runtime = { toggleShotTrajectory() {} };
     ui.updateShotInspector([{
       id: 8,
       impactId: 9,
@@ -276,7 +314,7 @@ test('shot inspector exposes the complete residual-energy chain for a penetratin
   try {
     const ui = Object.create(UIManager.prototype);
     ui.lastImpactKey = null;
-    ui.game = {};
+    ui.runtime = { toggleShotTrajectory() {} };
     ui.updateShotInspector([{
       id: 10,
       shooterId: 'gunner',
@@ -345,7 +383,7 @@ test('shot inspector identifies a vehicle detonation without showing an intact p
   try {
     const ui = Object.create(UIManager.prototype);
     ui.lastImpactKey = null;
-    ui.game = {};
+    ui.runtime = { toggleShotTrajectory() {} };
     ui.updateShotInspector([{
       id: 11,
       shooterId: 'gunner',
@@ -416,7 +454,7 @@ test('empty selection keeps command and roster cells but makes them inert before
 
   try {
     const ui = Object.create(UIManager.prototype);
-    ui.game = { selectedUnit: null };
+    ui.runtime = { selectedUnit: null };
     ui.renderCommandGrid();
     assert.equal(panels['command-grid'].innerHTML, '');
     assert.equal(panels['panel-commands'].hidden, false);
@@ -469,9 +507,10 @@ test('selection-dependent HUD restores content and interactivity after reselecti
   try {
     const ui = Object.create(UIManager.prototype);
     ui.activeTab = 'move';
-    ui.game = {
-      selectedUnit: { id: 'unit_a' },
-      commands: { activeMode: null }
+    let selectedUnit = { id: 'unit_a' };
+    ui.runtime = {
+      get selectedUnit() { return selectedUnit; },
+      commandMode: null
     };
 
     ui.renderCommandGrid();
@@ -479,13 +518,13 @@ test('selection-dependent HUD restores content and interactivity after reselecti
     assert.equal(panels['panel-commands'].inert, false);
     assert.equal(panels['panel-team-roster'].inert, false);
 
-    ui.game.selectedUnit = null;
+    selectedUnit = null;
     ui.renderCommandGrid();
     assert.equal(commandGrid.children.length, 0);
     assert.equal(panels['panel-commands'].inert, true);
     assert.equal(panels['panel-team-roster'].inert, true);
 
-    ui.game.selectedUnit = { id: 'unit_b' };
+    selectedUnit = { id: 'unit_b' };
     ui.renderCommandGrid();
     assert.ok(commandGrid.children.length > 0);
     assert.equal(panels['panel-commands'].inert, false);
@@ -560,7 +599,7 @@ test('realtime mode hides WEGO time sliders, step buttons, and GO execution butt
   };
   try {
     const ui = Object.create(UIManager.prototype);
-    ui.game = { wego: { isPlaying: true } };
+    ui.runtime = { isPlaying: true };
     ui.updatePlayModeDisplay('realtime');
     assert.equal(dataset.playMode, 'realtime');
   } finally {

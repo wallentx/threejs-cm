@@ -8,8 +8,17 @@ import {
 } from '../src/scenario/ScenarioRuntime.js';
 import { createFamilyRegistry } from '../src/scenario/FamilyRegistry.js';
 import { STONNE_1940_SCENARIO } from '../src/scenarios/france1940/stonne1940.js';
+import { STONNE_1940_MAP } from '../src/maps/france/stonne.js';
 import { createFrance1940Family } from '../src/content/france1940/index.js';
-import { VEHICLES } from '../src/game/VehicleCatalog.js';
+import {
+  FRANCE_1940_CATALOG_PORTS
+} from '../src/content/france1940/catalogPorts.js';
+import {
+  FRANCE_1940_VISUAL_FACTORIES
+} from '../src/content/france1940/render/index.js';
+import {
+  FRANCE_1940_PRESENTATION
+} from '../src/content/france1940/presentation.js';
 import {
   OBSERVATION_EQUIPMENT,
   observerHasEquipment
@@ -19,7 +28,7 @@ import {
 } from '../src/simulation/observation/CommunicationNetwork.js';
 
 const PRODUCTION_FAMILY_REGISTRY = createFamilyRegistry([
-  createFrance1940Family({ vehicles: VEHICLES })
+  createFrance1940Family()
 ]);
 
 class ScenarioTestUnit {
@@ -53,9 +62,16 @@ const FRENCH_MEMBER_ORDER = Object.freeze([
 const FAMILY_FIXTURE = Object.freeze({
   id: 'france-1940',
   factions: Object.freeze({
-    french: Object.freeze({ id: 'french' }),
-    german: Object.freeze({ id: 'german' })
+    french: Object.freeze({
+      id: 'french',
+      presentationId: 'france_1940_french'
+    }),
+    german: Object.freeze({
+      id: 'german',
+      presentationId: 'france_1940_german'
+    })
   }),
+  presentation: FRANCE_1940_PRESENTATION,
   formations: Object.freeze({
     FRENCH_SECTION: Object.freeze({
       factionId: 'french',
@@ -86,8 +102,8 @@ const FAMILY_FIXTURE = Object.freeze({
       KAR98K: Object.freeze({ name: 'Kar98k' })
     }),
     vehicles: Object.freeze({
-      SOMUA_S35: Object.freeze({ factionId: 'french' }),
-      PANZER_III_D: Object.freeze({ factionId: 'german' })
+      SOMUA_S35: Object.freeze({ factionId: 'french', modelId: 'fr_somua' }),
+      PANZER_III_D: Object.freeze({ factionId: 'german', modelId: 'ger_panzer3' })
     })
   })
 });
@@ -132,9 +148,11 @@ function scenarioFixture(units = null) {
   };
 }
 
-test('Stonne scenario owns setup, roster, startup selection, and camera target as plain data', () => {
+test('Stonne scenario owns roster, startup selection, camera target, and map reference as plain data', () => {
   assert.equal(STONNE_1940_SCENARIO.id, 'stonne-1940');
   assert.equal(STONNE_1940_SCENARIO.gameFamilyId, 'france-1940');
+  assert.equal(STONNE_1940_SCENARIO.mapId, STONNE_1940_MAP.id);
+  assert.equal(Object.hasOwn(STONNE_1940_SCENARIO, 'deploymentZones'), false);
   assert.equal(STONNE_1940_SCENARIO.units.length, 18);
   assert.equal(
     new Set(STONNE_1940_SCENARIO.units.map(unit => unit.id)).size,
@@ -299,7 +317,7 @@ test('family validation rejects bad descriptors before any Unit construction', (
   );
 });
 
-test('resolved rosters reach constructors without sharing formation data, while no-registry Units retain legacy roster behavior', () => {
+test('resolved rosters are isolated and generic Units reject unported construction', () => {
   class MutatingUnit {
     constructor(definition) {
       this.receivedRoster = definition.roster;
@@ -312,13 +330,181 @@ test('resolved rosters reach constructors without sharing formation data, while 
   assert.equal(FAMILY_FIXTURE.formations.FRENCH_SECTION.members[0].weaponId, 'MAS36');
   assert.equal(resolveScenarioUnitDefinitions(scenario, familyRegistry())[0].roster[0].health, 100);
 
-  const [legacyUnit] = instantiateScenarioUnits({
-    ...scenario,
-    gameFamilyId: undefined,
-    units: [{ ...scenario.units[0], formationId: undefined }]
-  });
-  assert.equal(legacyUnit.roster.length, 6);
-  assert.equal(legacyUnit.roster[0].weapon, 'MAS-36 Rifle');
+  assert.throws(
+    () => instantiateScenarioUnits({
+      ...scenario,
+      gameFamilyId: undefined,
+      units: [{ ...scenario.units[0], formationId: undefined }]
+    }),
+    /Unit requires weapon and vehicle catalog ports/
+  );
+});
+
+test('scenario construction injects matching family visual factories before Unit creation', () => {
+  const received = [];
+  class PortAwareUnit {
+    constructor(definition) {
+      received.push(definition.visualFactories);
+    }
+  }
+
+  instantiateScenarioUnits(
+    scenarioFixture(),
+    PortAwareUnit,
+    familyRegistry(),
+    { visualFactories: FRANCE_1940_VISUAL_FACTORIES }
+  );
+  assert.equal(received.length, scenarioFixture().units.length);
+  assert.ok(received.every(value => value === FRANCE_1940_VISUAL_FACTORIES));
+
+  const assertRejectedBeforeConstruction = (visualFactories, pattern) => {
+    received.length = 0;
+    assert.throws(
+      () => instantiateScenarioUnits(
+        scenarioFixture(),
+        PortAwareUnit,
+        familyRegistry(),
+        { visualFactories }
+      ),
+      pattern
+    );
+    assert.equal(received.length, 0);
+  };
+
+  assertRejectedBeforeConstruction(
+    {
+      ...FRANCE_1940_VISUAL_FACTORIES,
+      familyId: 'different-family'
+    },
+    /requires visual factories for france-1940, received different-family/
+  );
+  assertRejectedBeforeConstruction(
+    {
+      ...FRANCE_1940_VISUAL_FACTORIES,
+      factionPresentation: {
+        ...FRANCE_1940_VISUAL_FACTORIES.factionPresentation,
+        french: {
+          ...FRANCE_1940_VISUAL_FACTORIES.factionPresentation.french
+        }
+      }
+    },
+    /do not match registered presentation for faction french/
+  );
+  assertRejectedBeforeConstruction(
+    {
+      ...FRANCE_1940_VISUAL_FACTORIES,
+      infantryMeshes: {}
+    },
+    /require infantry model french_1940_chasseur/
+  );
+  assertRejectedBeforeConstruction(
+    {
+      ...FRANCE_1940_VISUAL_FACTORIES,
+      vehicleMeshes: {}
+    },
+    /require vehicle model fr_somua/
+  );
+  assertRejectedBeforeConstruction(
+    {
+      ...FRANCE_1940_VISUAL_FACTORIES,
+      structureMeshes: {}
+    },
+    /require structure model GERMAN_MG34_BUNKER/
+  );
+});
+
+test('scenario construction injects identity-matched catalog ports before Unit creation', () => {
+  const received = [];
+  class PortAwareUnit {
+    constructor(definition) {
+      received.push(definition.catalogPorts);
+    }
+  }
+
+  instantiateScenarioUnits(
+    STONNE_1940_SCENARIO,
+    PortAwareUnit,
+    PRODUCTION_FAMILY_REGISTRY,
+    { catalogPorts: FRANCE_1940_CATALOG_PORTS }
+  );
+  assert.equal(received.length, STONNE_1940_SCENARIO.units.length);
+  assert.ok(received.every(value => value === FRANCE_1940_CATALOG_PORTS));
+
+  received.length = 0;
+  assert.throws(
+    () => instantiateScenarioUnits(
+      STONNE_1940_SCENARIO,
+      PortAwareUnit,
+      PRODUCTION_FAMILY_REGISTRY,
+      {
+        catalogPorts: {
+          ...FRANCE_1940_CATALOG_PORTS,
+          familyId: 'different-family'
+        }
+      }
+    ),
+    /requires catalog ports for france-1940, received different-family/
+  );
+  assert.equal(received.length, 0);
+
+  assert.throws(
+    () => instantiateScenarioUnits(
+      STONNE_1940_SCENARIO,
+      PortAwareUnit,
+      PRODUCTION_FAMILY_REGISTRY,
+      {
+        catalogPorts: {
+          ...FRANCE_1940_CATALOG_PORTS,
+          weapons: {
+            ...FRANCE_1940_CATALOG_PORTS.weapons,
+            records: {}
+          }
+        }
+      }
+    ),
+    /do not match registered weapons/
+  );
+  assert.equal(received.length, 0);
+
+  assert.throws(
+    () => instantiateScenarioUnits(
+      STONNE_1940_SCENARIO,
+      PortAwareUnit,
+      PRODUCTION_FAMILY_REGISTRY,
+      {
+        catalogPorts: {
+          ...FRANCE_1940_CATALOG_PORTS,
+          weapons: {
+            ...FRANCE_1940_CATALOG_PORTS.weapons,
+            get: id => ({
+              ...FRANCE_1940_CATALOG_PORTS.weapons.get(id)
+            })
+          }
+        }
+      }
+    ),
+    /weapons\.get must return registered record/
+  );
+  assert.equal(received.length, 0);
+
+  assert.throws(
+    () => instantiateScenarioUnits(
+      STONNE_1940_SCENARIO,
+      PortAwareUnit,
+      PRODUCTION_FAMILY_REGISTRY,
+      {
+        catalogPorts: {
+          ...FRANCE_1940_CATALOG_PORTS,
+          vehicles: {
+            ...FRANCE_1940_CATALOG_PORTS.vehicles,
+            defaultIdForFaction: () => 'NOT_A_VEHICLE'
+          }
+        }
+      }
+    ),
+    /defaultIdForFaction returned invalid french vehicle NOT_A_VEHICLE/
+  );
+  assert.equal(received.length, 0);
 });
 
 test('scenario runtime instantiates, validates, grounds, and indexes units generically', () => {
@@ -330,7 +516,10 @@ test('scenario runtime instantiates, validates, grounds, and indexes units gener
     scene,
     agentDebug: true,
     UnitType: ScenarioTestUnit,
-    familyRegistry: PRODUCTION_FAMILY_REGISTRY
+    mapDescriptor: STONNE_1940_MAP,
+    familyRegistry: PRODUCTION_FAMILY_REGISTRY,
+    catalogPorts: FRANCE_1940_CATALOG_PORTS,
+    visualFactories: FRANCE_1940_VISUAL_FACTORIES
   });
 
   assert.equal(loaded.units.length, STONNE_1940_SCENARIO.units.length);
@@ -338,6 +527,11 @@ test('scenario runtime instantiates, validates, grounds, and indexes units gener
   assert.equal(loaded.initialSelection.id, STONNE_1940_SCENARIO.initialSelectionUnitId);
   assert.equal(loaded.cameraTarget.id, STONNE_1940_SCENARIO.cameraTargetUnitId);
   assert.ok(loaded.units.every(unit => unit.debugEnabled));
+  assert.ok(
+    loaded.units.every(unit => unit.visualFactories === FRANCE_1940_VISUAL_FACTORIES)
+  );
+  assert.ok(loaded.units.every(unit => unit.catalogPorts === FRANCE_1940_CATALOG_PORTS));
+  assert.equal(loaded.mapDescriptor, STONNE_1940_MAP);
   assert.ok(loaded.units.every(unit => unit.position.y === terrain.getHeightAt(
     unit.position.x,
     unit.position.z
@@ -348,17 +542,43 @@ test('Stonne descriptor instantiates every production Unit model', () => {
   const units = instantiateScenarioUnits(
     STONNE_1940_SCENARIO,
     undefined,
-    PRODUCTION_FAMILY_REGISTRY
+    PRODUCTION_FAMILY_REGISTRY,
+    {
+      catalogPorts: FRANCE_1940_CATALOG_PORTS,
+      visualFactories: FRANCE_1940_VISUAL_FACTORIES
+    }
   );
   assert.equal(units.length, 18);
-  assert.equal(units.find(unit => unit.id === 'fr_tank').mesh.name, 'fr_somua');
-  assert.equal(units.find(unit => unit.id === 'ger_panzer4').mesh.name, 'ger_panzer4');
+  const frenchTank = units.find(unit => unit.id === 'fr_tank');
+  const germanTank = units.find(unit => unit.id === 'ger_panzer4');
+  const frenchInfantry = units.find(unit => unit.id === 'fr_hq');
+  const germanInfantry = units.find(unit => unit.id === 'ger_sq1');
+  const bunker = units.find(unit => unit.structureSpec);
+  assert.equal(frenchTank.mesh.name, 'fr_somua');
+  assert.equal(germanTank.mesh.name, 'ger_panzer4');
+  assert.equal(
+    frenchTank.mesh.userData.selectionDisc.material.color.getHexString(),
+    '3b82f6'
+  );
+  assert.equal(
+    germanTank.mesh.userData.selectionDisc.material.color.getHexString(),
+    'ef4444'
+  );
+  assert.equal(
+    frenchInfantry.mesh.userData.selectionDisc.material.color.getHexString(),
+    '3b82f6'
+  );
+  assert.equal(
+    germanInfantry.mesh.userData.selectionDisc.material.color.getHexString(),
+    'ef4444'
+  );
+  assert.equal(bunker.mesh.name, 'ger_Bunker');
   assert.deepEqual(
-    units.find(unit => unit.id === 'fr_hq').roster.map(member => member.name),
+    frenchInfantry.roster.map(member => member.name),
     ['Chasseur 1', 'Chasseur 2', 'Chasseur 3', 'Chasseur 4', 'Chasseur 5', 'Chasseur 6']
   );
   assert.deepEqual(
-    units.find(unit => unit.id === 'fr_hq').roster.map(member => member.id),
+    frenchInfantry.roster.map(member => member.id),
     [
       'squad-leader',
       'rifleman-1',
@@ -369,7 +589,7 @@ test('Stonne descriptor instantiates every production Unit model', () => {
     ]
   );
   assert.deepEqual(
-    units.find(unit => unit.id === 'ger_sq1').roster.map(member => member.weaponId),
+    germanInfantry.roster.map(member => member.weaponId),
     ['KAR98K', 'KAR98K', 'MG34', 'KAR98K', 'KAR98K', 'MP40']
   );
   const headquarters = units.find(unit => unit.id === 'fr_hq');
@@ -406,6 +626,8 @@ test('Stonne descriptor instantiates every production Unit model', () => {
   );
   assert.ok(units.every(unit => unit.mesh));
   assert.ok(units.every(unit => unit.mesh.rotation.y === unit.rotation));
+  assert.ok(units.every(unit => unit.mesh.userData.unitRoot === true));
+  assert.ok(units.every(unit => unit.mesh.userData.unitId === unit.id));
 });
 
 test('production family ownership rejects cross-faction Stonne vehicles before construction', () => {
@@ -442,11 +664,41 @@ test('scenario runtime rejects duplicate IDs before constructing units', () => {
   );
 });
 
+test('scenario runtime rejects missing and mismatched maps before constructing units', () => {
+  let constructions = 0;
+  class CountingUnit extends ScenarioTestUnit {
+    constructor(definition) {
+      super(definition);
+      constructions += 1;
+    }
+  }
+  const options = {
+    terrain: { getHeightAt: () => 0 },
+    scene: { add() {} },
+    UnitType: CountingUnit,
+    familyRegistry: PRODUCTION_FAMILY_REGISTRY
+  };
+
+  assert.throws(
+    () => loadScenario(STONNE_1940_SCENARIO, options),
+    /requires map descriptor stonne-1940/
+  );
+  assert.equal(constructions, 0);
+  assert.throws(
+    () => loadScenario(STONNE_1940_SCENARIO, {
+      ...options,
+      mapDescriptor: { ...STONNE_1940_MAP, id: 'wrong-map' }
+    }),
+    /requires map stonne-1940, received wrong-map/
+  );
+  assert.equal(constructions, 0);
+});
+
 test('scenario descriptor stays independent from Three.js and runtime modules', async () => {
   const source = await readFile(
     new URL('../src/scenarios/france1940/stonne1940.js', import.meta.url),
     'utf8'
   );
-  assert.doesNotMatch(source, /^import\s/m);
   assert.doesNotMatch(source, /THREE|UnitFactory|TerrainBuilder/);
+  assert.match(source, /STONNE_1940_MAP/);
 });
