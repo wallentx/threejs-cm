@@ -16,6 +16,8 @@ import { WegoManager } from './game/WegoManager.js';
 import { UIManager } from './ui/UIManager.js';
 import { MapEditor } from './editor/MapEditor.js';
 import { loadScenario } from './scenario/ScenarioRuntime.js';
+import { createFamilyRegistry } from './scenario/FamilyRegistry.js';
+import { createFrance1940Family } from './content/france1940/index.js';
 import { STONNE_1940_SCENARIO } from './scenarios/france1940/stonne1940.js';
 import { FixedStepAccumulator } from './simulation/FixedStepAccumulator.js';
 import { BuildingSystem } from './simulation/buildings/index.js';
@@ -25,6 +27,9 @@ import { FR_HOUSE_12X9_2F } from './maps/france/FranceHouse12x9_2F.js';
 // corners add it to the live formation extent so advancing early cannot cut
 // the squad back through the obstacle the corner is intended to clear.
 const ENTER_ROUTE_WAYPOINT_TOLERANCE = 0.8;
+const FAMILY_REGISTRY = createFamilyRegistry([
+  createFrance1940Family()
+]);
 
 // Deduplicated Logger to prevent 60 FPS console flooding
 let lastLoggedMsg = '';
@@ -220,7 +225,8 @@ class Game {
     const loaded = loadScenario(scenario, {
       terrain: this.terrain,
       scene: this.scene,
-      agentDebug: this.visualDebugMode === 'agents'
+      agentDebug: this.visualDebugMode === 'agents',
+      familyRegistry: FAMILY_REGISTRY
     });
     this.units = loaded.units;
     this.terrain.registerUnitColliders(this.units);

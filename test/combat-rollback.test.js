@@ -53,7 +53,10 @@ function createBattle() {
 }
 
 function advanceUntilResolved(combat) {
-  for (let step = 0; step < 240 && combat.projectiles.length > 0; step++) {
+  // A perforating round remains authoritative after exiting the first vehicle.
+  // Allow enough simulated time for that residual projectile to reach its
+  // catalog max lifetime when no second collider or terrain is present.
+  for (let step = 0; step < 1200 && combat.projectiles.length > 0; step++) {
     combat.update(1 / 240);
   }
   assert.equal(combat.projectiles.length, 0, 'projectile must resolve during test window');
@@ -82,8 +85,16 @@ test('in-flight projectile, sequence, references, and telemetry replay determini
     randomState: random.capture()
   };
   assert.equal(firstOutcome.combat.telemetry.impacts.length, 1);
-  assert.equal(firstOutcome.combat.telemetry.impacts[0].impactNormal.length, 3);
-  assert.equal(firstOutcome.combat.telemetry.impacts[0].localImpactPoint.length, 3);
+  const terminalImpact = firstOutcome.combat.telemetry.impacts[0];
+  assert.equal(terminalImpact.impactNormal.length, 3);
+  assert.equal(terminalImpact.localImpactPoint.length, 3);
+  assert.equal(terminalImpact.continuationKind, 'penetrator');
+  assert.equal(terminalImpact.penetrationCount, 1);
+  assert.equal(terminalImpact.exitPosition.length, 3);
+  assert.equal(terminalImpact.exitResult.point.length, 3);
+  assert.equal(terminalImpact.residualVelocity.length, 3);
+  assert.ok(terminalImpact.residualEnergyJ > 0);
+  assert.ok(terminalImpact.residualEnergyJ < terminalImpact.impactEnergyJ);
   assert.notEqual(
     firstOutcome.combat.telemetry.impacts[0].impactNormal,
     combat.telemetry.impacts[0].impactNormal
@@ -236,6 +247,15 @@ test('internal penetration paths and multiple crew results deep-copy through tel
     point: target.position.clone()
   }, {
     penetrated: true,
+    penetrationReferenceUrls: ['https://example.test/terminal-ballistics'],
+    plateResidualVelocity: [0, 0, 300],
+    residualVelocity: [0, 0, 240],
+    exitPosition: [1, 2, 1],
+    exitResult: {
+      plateId: 'hull-positiveZ',
+      point: [1, 2, 1],
+      normal: [0, 0, 1]
+    },
     internalPathHits: [pathHit],
     crewResult: {
       penetrated: true,
@@ -251,19 +271,49 @@ test('internal penetration paths and multiple crew results deep-copy through tel
   combat.telemetry.impacts[0].internalPathHits[0].entryPoint[0] = 999;
   combat.telemetry.impacts[0].crewResult.internalPathHits[0].exitPoint[2] = 999;
   combat.telemetry.impacts[0].crewResult.casualties[0].health = 999;
+  combat.telemetry.impacts[0].penetrationReferenceUrls[0] = 'mutated';
+  combat.telemetry.impacts[0].plateResidualVelocity[2] = 999;
+  combat.telemetry.impacts[0].residualVelocity[2] = 999;
+  combat.telemetry.impacts[0].exitPosition[2] = 999;
+  combat.telemetry.impacts[0].exitResult.point[2] = 999;
+  combat.telemetry.impacts[0].exitResult.normal[2] = 999;
   assert.deepEqual(capturedImpact.internalPathHits[0].entryPoint, [1, 2, 3]);
   assert.deepEqual(capturedImpact.crewResult.internalPathHits[0].exitPoint, [1, 2, 2]);
   assert.equal(capturedImpact.crewResult.casualties[0].health, 35);
+  assert.deepEqual(
+    capturedImpact.penetrationReferenceUrls,
+    ['https://example.test/terminal-ballistics']
+  );
+  assert.deepEqual(capturedImpact.plateResidualVelocity, [0, 0, 300]);
+  assert.deepEqual(capturedImpact.residualVelocity, [0, 0, 240]);
+  assert.deepEqual(capturedImpact.exitPosition, [1, 2, 1]);
+  assert.deepEqual(capturedImpact.exitResult.point, [1, 2, 1]);
+  assert.deepEqual(capturedImpact.exitResult.normal, [0, 0, 1]);
 
   combat.restoreState(captured, unitMap);
   capturedImpact.internalPathHits[0].entryPoint[0] = -999;
   capturedImpact.crewResult.internalPathHits[0].exitPoint[2] = -999;
   capturedImpact.crewResult.casualties[0].health = -999;
+  capturedImpact.penetrationReferenceUrls[0] = 'mutated-after-restore';
+  capturedImpact.plateResidualVelocity[2] = -999;
+  capturedImpact.residualVelocity[2] = -999;
+  capturedImpact.exitPosition[2] = -999;
+  capturedImpact.exitResult.point[2] = -999;
+  capturedImpact.exitResult.normal[2] = -999;
   assert.deepEqual(combat.telemetry.impacts[0].internalPathHits[0].entryPoint, [1, 2, 3]);
   assert.deepEqual(
     combat.telemetry.impacts[0].crewResult.internalPathHits[0].exitPoint,
     [1, 2, 2]
   );
   assert.equal(combat.telemetry.impacts[0].crewResult.casualties[0].health, 35);
+  assert.deepEqual(
+    combat.telemetry.impacts[0].penetrationReferenceUrls,
+    ['https://example.test/terminal-ballistics']
+  );
+  assert.deepEqual(combat.telemetry.impacts[0].plateResidualVelocity, [0, 0, 300]);
+  assert.deepEqual(combat.telemetry.impacts[0].residualVelocity, [0, 0, 240]);
+  assert.deepEqual(combat.telemetry.impacts[0].exitPosition, [1, 2, 1]);
+  assert.deepEqual(combat.telemetry.impacts[0].exitResult.point, [1, 2, 1]);
+  assert.deepEqual(combat.telemetry.impacts[0].exitResult.normal, [0, 0, 1]);
   combat.reset();
 });

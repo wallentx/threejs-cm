@@ -10,6 +10,7 @@ import {
   structureDamageReport
 } from './StructureSystems.js';
 import {
+  applyExplosiveComponentDamage,
   applyPathComponentDamage,
   applyPenetrationComponentDamage,
   captureVehicleMountState,
@@ -28,6 +29,18 @@ function wrapAngle(angle) {
 
 const MAX_VEHICLE_MOUNT_ROUNDS_PER_STEP = 64;
 const VEHICLE_MOUNT_CADENCE_EPSILON = 1e-9;
+
+function cloneRoster(roster) {
+  return roster.map(soldier => ({
+    ...soldier,
+    worldPosition: soldier.worldPosition ? [...soldier.worldPosition] : undefined,
+    velocity: soldier.velocity ? [...soldier.velocity] : undefined,
+    slotOffset: soldier.slotOffset ? [...soldier.slotOffset] : undefined,
+    buildingLocation: soldier.buildingLocation
+      ? JSON.parse(JSON.stringify(soldier.buildingLocation))
+      : soldier.buildingLocation
+  }));
+}
 
 export class Unit {
   constructor(config) {
@@ -66,8 +79,14 @@ export class Unit {
     this.hqUnit = config.hqUnit || null;
 
     // Squad Roster
-    this.squadSize = config.squadSize || this.vehicleSpec?.crew.length || (['tank', 'vehicle'].includes(this.type) ? 3 : 6);
-    this.roster = this.initRoster();
+    const resolvedRoster = Array.isArray(config.roster)
+      ? cloneRoster(config.roster)
+      : null;
+    this.squadSize = config.squadSize
+      ?? resolvedRoster?.length
+      ?? this.vehicleSpec?.crew.length
+      ?? (['tank', 'vehicle'].includes(this.type) ? 3 : 6);
+    this.roster = resolvedRoster ?? this.initRoster();
 
     // Read-only compatibility summary. Soldier and vehicle weapon states own ammunition.
     this.ammo = config.ammo || {
@@ -207,12 +226,7 @@ export class Unit {
 
   replaceRoster(roster) {
     const previousMesh = this.mesh;
-    this.roster = roster.map(soldier => ({
-      ...soldier,
-      worldPosition: soldier.worldPosition ? [...soldier.worldPosition] : undefined,
-      velocity: soldier.velocity ? [...soldier.velocity] : undefined,
-      slotOffset: soldier.slotOffset ? [...soldier.slotOffset] : undefined
-    }));
+    this.roster = cloneRoster(roster);
     this.squadSize = this.roster.length;
     this.initMesh();
     this.soldierAI = new SoldierAI(this);
@@ -855,6 +869,86 @@ export class Unit {
     return firedAny;
   }
 
+  applyVehicleExplosiveHit({
+    explosiveEffect,
+    penetrated,
+    random
+  }) {
+    if (!explosiveEffect) {
+      return { penetrated: Boolean(penetrated), casualty: null };
+    }
+
+    recordVehicleEvent(this.vehicleDamageState, 'explosive_detonation', {
+      cause: explosiveEffect.cause,
+      modelVersion: explosiveEffect.modelVersion,
+      protectionResult: explosiveEffect.protectionResult,
+      interiorExposed: explosiveEffect.interiorExposed,
+      armorPart: explosiveEffect.externalIntent?.armorPart ?? null,
+      detonationPoint: [...explosiveEffect.detonationPoint],
+      dataQuality: explosiveEffect.dataQuality
+    });
+
+    const casualties = [];
+    const affectedCrewIds = new Set();
+    for (const intent of explosiveEffect.crewIntents ?? []) {
+      const crewman = this.getLivingCrew().find(candidate =>
+        intent.crewRoles.includes(candidate.role)
+          && !affectedCrewIds.has(candidate.id));
+      if (!crewman || !(intent.damageAmount > 0)) continue;
+      affectedCrewIds.add(crewman.id);
+      crewman.health = Math.max(0, crewman.health - intent.damageAmount);
+      crewman.status = crewman.health <= 0 ? 'KIA' : 'WOUNDED';
+      casualties.push(crewman);
+      recordVehicleEvent(this.vehicleDamageState, 'crew_hit', {
+        crewmanId: crewman.id,
+        role: crewman.role,
+        status: crewman.status,
+        health: crewman.health,
+        cause: explosiveEffect.cause,
+        explosiveModelVersion: explosiveEffect.modelVersion,
+        internalVolumeId: intent.volumeIds[0] ?? null,
+        internalVolumeIds: intent.volumeIds.join(','),
+        distanceMeters: intent.distanceMeters,
+        falloff: intent.falloff,
+        layoutVersion: intent.layoutVersion,
+        dataQuality: intent.dataQuality,
+        referenceUrl: intent.referenceUrl ?? null
+      });
+    }
+
+    const hadSecondaryExplosion = this.vehicleDamageState.secondaryExplosion;
+    const componentResults = applyExplosiveComponentDamage({
+      components: this.vehicleComponents,
+      damageState: this.vehicleDamageState,
+      explosiveEffect,
+      random
+    });
+    if (!hadSecondaryExplosion && this.vehicleDamageState.secondaryExplosion) {
+      this.destroyVehicleAmmunitionStores();
+    }
+    if (this.getLivingCrew().length === 0) {
+      this.vehicleDamageState.destroyed = true;
+      setVehicleComponentHealth(this.vehicleComponents, 'hull', 0);
+      recordVehicleEvent(this.vehicleDamageState, 'vehicle_destroyed', {
+        cause: 'crew_loss'
+      });
+    }
+    this.syncLegacyVehicleDamage();
+    return {
+      penetrated: Boolean(penetrated),
+      casualty: casualties[0] ?? null,
+      casualties,
+      internalPathHits: [],
+      explosiveEffect,
+      damage: this.vehicleDamage,
+      components: componentResults,
+      burning: this.vehicleDamageState.burning,
+      destroyed: this.vehicleDamageState.destroyed,
+      secondaryExplosion: this.vehicleDamageState.secondaryExplosion,
+      eventVersion: this.vehicleDamageState.eventVersion
+    };
+  }
+
   applyArmorHit(result) {
     if (!result.penetrated) {
       if (result.weapon?.kind?.startsWith('cannon') && result.random() < 0.08) {
@@ -886,8 +980,10 @@ export class Unit {
           hit.crewRoles.includes(candidate.role) && !affectedCrew.has(candidate));
         if (!crewman) continue;
         affectedCrew.add(crewman);
-        const damage = (65 + result.random() * 75)
-          * Math.min(1.5, result.residualRatio);
+        const damage = Number.isFinite(hit.damageSeverity)
+          ? hit.damageSeverity * 100
+          : (65 + result.random() * 75)
+            * Math.min(1.5, result.residualRatio);
         crewman.health = Math.max(0, crewman.health - damage);
         crewman.status = crewman.health <= 0 ? 'KIA' : 'WOUNDED';
         casualties.push(crewman);
@@ -899,6 +995,9 @@ export class Unit {
           cause: 'model_local_penetration_path',
           internalVolumeId: hit.id,
           pathDistanceMeters: hit.entryDistanceMeters,
+          entryEnergyJ: hit.entryEnergyJ ?? null,
+          energyDepositedJ: hit.energyDepositedJ ?? null,
+          exitEnergyJ: hit.exitEnergyJ ?? null,
           layoutVersion: hit.layoutVersion,
           dataQuality: hit.dataQuality
         });
@@ -1022,10 +1121,7 @@ export class Unit {
       vehicleComponents: Object.fromEntries(
         Object.entries(this.vehicleComponents).map(([id, component]) => [id, { ...component }])
       ),
-      vehicleDamageState: {
-        ...this.vehicleDamageState,
-        events: this.vehicleDamageState.events.map(event => ({ ...event }))
-      },
+      vehicleDamageState: createVehicleDamageState(this.vehicleDamageState),
       structureState: this.structureState
         ? { ...this.structureState, events: this.structureState.events.map(event => ({ ...event })) }
         : null,

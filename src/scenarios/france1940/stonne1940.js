@@ -63,17 +63,18 @@ export const STONNE_1940_SCENARIO = Object.freeze({
       name: 'French 3e DLM Platoon HQ',
       faction: 'french',
       type: 'infantry_squad',
+      formationId: 'FRENCH_CHASSEURS_PORTES_SQUAD',
       position: [-18, 0, 70],
       rotation: Math.PI,
       experience: 'Veteran',
       leadership: 1,
       communications: {
         radioInstalled: true,
-        radioOperatorSoldierIds: [5]
+        radioOperatorSoldierIds: ['assistant-leader']
       },
       soldierEquipment: {
-        0: ['BINOCULARS'],
-        5: ['RADIO']
+        'squad-leader': ['BINOCULARS'],
+        'assistant-leader': ['RADIO']
       }
     }),
     freezeUnit({
@@ -81,15 +82,17 @@ export const STONNE_1940_SCENARIO = Object.freeze({
       name: 'Chasseurs Portés Squad 1',
       faction: 'french',
       type: 'infantry_squad',
+      formationId: 'FRENCH_CHASSEURS_PORTES_SQUAD',
       position: [-42, 0, 70],
       rotation: Math.PI,
-      soldierEquipment: { 0: ['BINOCULARS'] }
+      soldierEquipment: { 'squad-leader': ['BINOCULARS'] }
     }),
     freezeUnit({
       id: 'fr_tank',
       name: 'SOMUA S35 (47mm)',
       faction: 'french',
       type: 'tank',
+      vehicleId: 'SOMUA_S35',
       position: [6, 0, 70],
       rotation: Math.PI,
       experience: 'Veteran'
@@ -99,16 +102,18 @@ export const STONNE_1940_SCENARIO = Object.freeze({
       name: '1940 Grenadier Squad',
       faction: 'german',
       type: 'infantry_squad',
+      formationId: 'GERMAN_GRENADIER_SQUAD_1940',
       position: [42, 0, -70],
       experience: 'Veteran',
       rotation: 0,
-      soldierEquipment: { 0: ['BINOCULARS'] }
+      soldierEquipment: { 'squad-leader': ['BINOCULARS'] }
     }),
     freezeUnit({
       id: 'ger_tank',
       name: 'Panzer III Ausf. D',
       faction: 'german',
       type: 'tank',
+      vehicleId: 'PANZER_III_D',
       position: [-6, 0, -70],
       rotation: 0
     }),

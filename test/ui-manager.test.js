@@ -250,6 +250,151 @@ test('shot inspector exposes ordered internal penetration path and all crew casu
   }
 });
 
+test('shot inspector exposes the complete residual-energy chain for a penetrating exit', () => {
+  const previousDocument = globalThis.document;
+  const list = {
+    children: [],
+    get childElementCount() { return this.children.length; },
+    replaceChildren() { this.children = []; },
+    appendChild(child) { this.children.push(child); }
+  };
+  const element = () => ({
+    className: '',
+    textContent: '',
+    children: [],
+    attributes: {},
+    append(...children) { this.children.push(...children); },
+    appendChild(child) { this.children.push(child); },
+    setAttribute(name, value) { this.attributes[name] = value; },
+    addEventListener() {}
+  });
+  globalThis.document = {
+    getElementById: id => id === 'shot-inspector-list' ? list : null,
+    createElement: element
+  };
+
+  try {
+    const ui = Object.create(UIManager.prototype);
+    ui.lastImpactKey = null;
+    ui.game = {};
+    ui.updateShotInspector([{
+      id: 10,
+      shooterId: 'gunner',
+      targetId: 'somua',
+      kind: 'vehicle',
+      weaponId: 'KWK36_AP',
+      ammoId: 'KWK36_AP',
+      rangeMeters: 60,
+      impactSpeed: 700,
+      flightTime: 0.09,
+      muzzlePosition: [0, 1.8, 60],
+      impactPosition: [0, 1.2, 2.5],
+      zone: 'hull_front',
+      nominalArmorMm: 40,
+      effectiveArmorMm: 40,
+      penetrationMm: 45,
+      impactAngleDegrees: 0,
+      impactCosine: 1,
+      penetrated: true,
+      impactEnergyJ: 360000,
+      plateResidualEnergyJ: 280000,
+      internalEnergySpentJ: 90000,
+      preExitResidualEnergyJ: 190000,
+      exitArmorEnergySpentJ: 60000,
+      residualEnergyJ: 130000,
+      residualVelocity: [0, 0, 510],
+      continuationReason: 'residual_energy',
+      exitResult: { plateId: 'somua-hull-rear', residualSpeed: 500 },
+      crewResult: null
+    }]);
+
+    const text = collectText(list.children[0]);
+    assert.match(text, /energy entry 360\.0 kJ -> after entry 280\.0 kJ/);
+    assert.match(text, /inside -90\.0 kJ \| pre-exit 190\.0 kJ/);
+    assert.match(text, /exit armor -60\.0 kJ \| exit somua-hull-rear/);
+    assert.match(text, /residual 130\.0 kJ \/ 500 m\/s \| residual_energy/);
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  }
+});
+
+test('shot inspector identifies a vehicle detonation without showing an intact penetration chain', () => {
+  const previousDocument = globalThis.document;
+  const list = {
+    children: [],
+    get childElementCount() { return this.children.length; },
+    replaceChildren() { this.children = []; },
+    appendChild(child) { this.children.push(child); }
+  };
+  const element = () => ({
+    className: '',
+    textContent: '',
+    children: [],
+    attributes: {},
+    append(...children) { this.children.push(...children); },
+    appendChild(child) { this.children.push(child); },
+    setAttribute(name, value) { this.attributes[name] = value; },
+    addEventListener() {}
+  });
+  globalThis.document = {
+    getElementById: id => id === 'shot-inspector-list' ? list : null,
+    createElement: element
+  };
+
+  try {
+    const ui = Object.create(UIManager.prototype);
+    ui.lastImpactKey = null;
+    ui.game = {};
+    ui.updateShotInspector([{
+      id: 11,
+      shooterId: 'gunner',
+      targetId: 'opel',
+      kind: 'vehicle',
+      weaponId: 'SA35_HE',
+      ammoId: 'SA35_HE',
+      rangeMeters: 20,
+      impactSpeed: 590,
+      flightTime: 0.04,
+      muzzlePosition: [0, 1.4, 66],
+      impactPosition: [0, 1.4, 63],
+      zone: 'hull_front',
+      nominalArmorMm: 0,
+      effectiveArmorMm: 0,
+      penetrationMm: 7,
+      impactAngleDegrees: 0,
+      impactCosine: 1,
+      penetrated: true,
+      ricocheted: false,
+      explosiveEffect: {
+        interiorExposed: true,
+        protectionResult: 'unarmored_compartment',
+        internalRadiusMeters: 1.925,
+        coupling: 0.75,
+        crewIntents: [{ crewRoles: ['DRIVER'] }],
+        componentIntents: [{ componentId: 'engine' }],
+        modelVersion: 'vehicle-explosive-direct-v1'
+      },
+      crewResult: {
+        casualties: [{ role: 'DRIVER', status: 'WOUNDED', health: 55 }],
+        components: [{ id: 'engine', status: 'DAMAGED', health: 60 }]
+      }
+    }]);
+
+    const text = collectText(list.children[0]);
+    assert.match(text, /DETONATED/);
+    assert.match(text, /blast unarmored_compartment/);
+    assert.match(text, /internal radius 1\.93 m/);
+    assert.match(text, /coupling 75%/);
+    assert.match(text, /crew roles 1/);
+    assert.match(text, /modules 1/);
+    assert.doesNotMatch(text, /energy entry/);
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  }
+});
+
 test('empty selection keeps command and roster cells but makes them inert before creating actions', () => {
   const previousDocument = globalThis.document;
   const panels = {

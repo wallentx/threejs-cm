@@ -19,15 +19,17 @@ src/
 |   `-- ports/
 |-- scenario/
 |   |-- ScenarioRuntime.js          # Runs one loaded scenario
-|   |-- loadScenario.js             # Validates and resolves scenario data
-|   |-- schema.js                   # Stable data contracts
-|   `-- registries.js               # Registry types, not family registrations
+|   |-- FamilyRegistry.js           # Registry type and content validation
+|   |-- loadScenario.js             # Future dedicated loader boundary
+|   `-- schema.js                   # Future stable data contracts
 |-- content/
 |   `-- france1940/
 |       |-- index.js                # Family registration surface
+|       |-- factions.js
+|       |-- formations.js
+|       |-- presentation.js
 |       |-- weapons.js
 |       |-- vehicles.js
-|       |-- formations.js
 |       `-- render/                 # Family-specific mesh factories
 |-- maps/
 |   `-- france/
@@ -65,7 +67,24 @@ The first boundary slice now exists:
   `three/webgpu` through one exact Vite alias so core classes and addons share
   one Three.js instance. Simulation state and outcomes remain CPU-authoritative.
 - `src/scenario/ScenarioRuntime.js` validates and instantiates plain scenario
-  records without knowing Stonne.
+  records without knowing Stonne. With an injected family registry, it resolves
+  ordered infantry rosters and validates vehicle ownership before any live
+  `Unit` exists. Family-tagged scenarios require that registry; the no-registry
+  compatibility path is restricted to untagged legacy descriptors.
+- `src/scenario/FamilyRegistry.js` validates isolated, composition-owned family
+  registrations. It checks stable record IDs, faction presentation and vehicle
+  ownership, unique stable formation-member IDs, and every weapon reference without
+  importing Three.js, the browser, a concrete family, or a global singleton.
+- `src/content/france1940/` now owns frozen faction, vehicle-affiliation,
+  formation, presentation, and weapon records. Its entry point receives only
+  the existing vehicle catalog from composition as a migration adapter rather
+  than importing the legacy game layer. Scenario equipment and radio records
+  address stable formation-member IDs, not array positions.
+- `src/content/france1940/weapons.js` owns the single frozen 26-record weapon
+  map, default materialization, legacy display-name aliases, and lookup.
+  `src/game/WeaponCatalog.js` is a narrow strict-identity re-export, so current
+  consumers and rollback weapon IDs continue to resolve the same objects while
+  catalog-port injection remains staged work.
 - `src/scenario/DeploymentRules.js` validates complete unit footprints against
   injected setup-zone records.
 - `src/scenarios/france1940/stonne1940.js` owns the Stonne roster, positions,
@@ -125,7 +144,8 @@ The first boundary slice now exists:
 - `src/ui/VehicleStatusPresenter.js` converts plain vehicle snapshots into HUD
   view data. `UIManager` renders that view without becoming simulation state.
 - `main.js` selects a scenario and composes the runtime. It no longer contains
-  the Stonne order of battle.
+  the Stonne order of battle. It constructs the selected family registry and
+  injects it into scenario loading.
 
 ## Current vertical-slice seams
 
@@ -133,7 +153,9 @@ These seams are usable now, before the staged directory migration is complete:
 
 | Concern | Authoritative owner | Read-only consumer |
 | --- | --- | --- |
-| Weapon and vehicle definitions | `WeaponCatalog`, `VehicleCatalog` | Unit initialization, HUD labels |
+| Family identity, faction vehicle ownership, formations, presentation records | `content/france1940/*`, injected `FamilyRegistry` | Scenario resolution; future UI/render consumers |
+| France 1940 weapon definitions and aliases | `content/france1940/weapons.js` | Family registry and legacy `WeaponCatalog` compatibility consumers |
+| Legacy vehicle definitions | `VehicleCatalog` through the France 1940 family adapter | Scenario validation, Unit initialization, HUD labels |
 | Individual infantry state and choices | `SoldierAgent`, `SoldierAI` | Infantry pose renderer, roster HUD |
 | Vehicle crew, components, mounts, ammo, damage events | `Unit`, `VehicleSystems` | Combat telemetry, damage report |
 | Static movement collision and bridge routing | `StaticCollisionWorld`, plain terrain collider records | `Unit`, `SoldierAgent`, terrain height adapter |
@@ -147,7 +169,7 @@ These seams are usable now, before the staged directory migration is complete:
 | Vehicle meshes, articulated markers, LOD | `UnitFactory`, `world/vehicles/*` | Unit animation, damage VFX |
 | Vehicle blueprint source transforms | Vehicle model metadata, `VehicleOwnedRegistration` adapter | Calibration jig only |
 | Vehicle armor collision and named impact plates | `VehicleCatalog`, `simulation/vehicles/VehicleArmorCollision` | Ballistics, telemetry, component damage |
-| Vehicle internal crew/module collision and penetration paths | `VehicleCatalog`, `simulation/vehicles/VehicleInternalCollision`, `Unit`, `VehicleSystems` | Ballistics telemetry, shot inspector |
+| Vehicle internal crew/module collision, penetration paths, and direct HE effects | `VehicleCatalog`, `simulation/vehicles/VehicleInternalCollision`, `simulation/ballistics/VehicleExplosiveEffects`, `Unit`, `VehicleSystems` | Ballistics telemetry, shot inspector |
 | Vehicle damage presentation | `VehicleDamageEffects` | Three.js scene only |
 | Vehicle status projection | `VehicleStatusPresenter` | `UIManager` only |
 | Individual observations and relayed contacts | `SpottingSystem`, `simulation/observation/*` | Targeting cues, visibility/contact presentation |
@@ -156,7 +178,7 @@ These seams are usable now, before the staged directory migration is complete:
 State flows one way:
 
 ```text
-catalog data
+family registry / catalog data
     |
     v
 Unit / SoldierAgent / VehicleSystems
@@ -173,26 +195,73 @@ UIManager
 ```
 
 Armor deflection policy lives under `simulation/ballistics/` as plain numeric
-state. `BallisticsSystem` supplies resolved plate geometry and penetration;
+state. `BallisticsSystem` supplies resolved plate geometry and penetration.
+`ArmorTerminalEffects` converts the current penetration curve into a labeled
+first-order ballistic-limit energy budget, then depletes that finite energy
+through ordered internal intersections. It is pure, renderer-neutral, and does
+not mutate units. This model covers intact rigid-projectile residual velocity;
+projectile breakup, plug mass, and armor debris remain separate future work.
+`VehicleExplosiveEffects` separately converts a direct HE detonation into
+plain exterior, crew, and component damage intents. It never feeds HE into the
+intact-projectile energy path.
+
 `CombatSystem` owns projectile continuation, unique impact-event ordering,
-presentation events, and capture/restore. A ricochet remains the same
-authoritative projectile and may generate multiple independently identified
-impacts. VFX and the shot inspector consume those records without changing
-flight or damage. Projectiles retain a bounded, sampled world-space trajectory
-in capture/restore state. Each impact snapshots the path up to that event;
-`ShotTrajectoryOverlay` projects a selected snapshot through reusable line
-buffers and clears on rewind.
+presentation events, and capture/restore. A ricochet or intact perforator
+remains the same authoritative projectile and may generate multiple
+independently identified impacts. An intact perforator resumes beyond the true
+far face of the entered armor volume only after its computed interior transit
+time has elapsed; post-exit velocity, traveled distance, penetration count,
+delay, and temporary same-volume ignore state survive rollback. Explosive
+projectiles detonate at the first vehicle impact and never enter or resume the
+intact-penetrator path. Direct vehicle HE uses the catalog's coarse
+`armored_enclosed`, `unarmored_enclosed`, or `open` protection class. A stopped
+burst on enclosed armor may damage only the struck exterior plate or named
+track/mantlet component. An open, unarmored, or armor-penetrated compartment
+queries nearby authored internal volumes and applies bounded distance falloff.
+Crew and component selection is stable; only existing fire/ammunition
+secondary-effect checks consume the injected deterministic RNG. The result,
+including every intent and its approximation provenance, is deep-copied into
+telemetry and capture/restore. VFX and the shot inspector consume those records
+without changing flight or damage. Projectiles retain a bounded, sampled
+world-space trajectory in capture/restore state. Each impact snapshots the path
+up to that event; `ShotTrajectoryOverlay` projects a selected snapshot through
+reusable line buffers and clears on rewind.
 
 Vehicles with an authored `internalLayout` use a second renderer-neutral swept
 query after a successful armor penetration. The external named armor plate
 remains the authoritative entry point. `VehicleInternalCollision` casts inward
 along the projectile direction, transforms immutable model-local crew/module
 boxes with hull and turret yaw, and returns intersections ordered by distance
-and stable volume ID. `Unit` and `VehicleSystems` damage only those intersected
-crewmen and installed components. Vehicles without an internal layout retain
-the labeled zone-weighted fallback. Current SOMUA compartment bounds are
-explicit gameplay approximations; this slice does not claim residual-energy
-depletion, projectile breakup, or behind-armor spall.
+and stable volume ID. The terminal-energy resolver assigns every reached volume
+an entry energy, deposited energy, exit energy, deterministic damage severity,
+and approximation provenance; downstream volumes disappear once the round
+stops. `VehicleArmorCollision` separately finds the true exit face of the same
+armor volume. Closed hull, turret, and cupola shells declare
+`exitArmorPolicy: opposite_face`, so an outgoing round must defeat the named far
+plate. Single-resistance auxiliary envelopes such as a track run or mantlet
+declare `exitArmorPolicy: none`; their entry resistance is charged once and
+their far geometric boundary adds no duplicate armor demand. A penetrator that
+falls below its continuation threshold deposits the remaining terminal energy
+at its stopping point and exposes zero residual energy.
+`Unit` and `VehicleSystems` damage only reached crewmen and installed
+components, aggregating duplicate component volumes before mutation. Vehicles
+without an internal layout retain the labeled zone-weighted fallback.
+For direct HE, `VehicleInternalCollision` also measures point-to-oriented-box
+surface distance and returns stable radial candidates. This first blast model
+is deliberately unoccluded: compartment partitions, local shielding, fragment
+cones, pressure, explosive filler, and fuze behavior remain explicit future
+work rather than hidden precision.
+Per-vehicle records live under
+`game/vehicleData/internalLayouts/` so one vehicle can be refined without
+editing generic collision or damage code. All 14 current catalog vehicles own
+separate layouts: SOMUA, Renault R35, Hotchkiss H39, AMC 35, Panhard 178,
+Laffly S20TL, Char B1 bis, Panzer II, Panzer III, Panzer 35(t), Panzer 38(t),
+Sd.Kfz. 231, Opel Blitz, and Panzer IV. Compartment bounds remain explicit
+gameplay approximations; this slice does not claim projectile breakup or
+behind-armor spall. A layout may reference only
+components installed by `VehicleSystems`; visible but not yet simulated
+armament, such as the Char B1 bis hull 75 mm, must not gain a nonfunctional
+damage component through geometry data alone.
 
 Rendering helpers may expose named markers and consume state. They must not
 write combat outcomes back into simulation objects. UI presenters may summarize
@@ -339,8 +408,10 @@ These are tolerated migration inputs, not patterns to copy:
 - Several `src/game/**` systems use Three.js vectors or scene objects directly.
   This includes commands, spotting, combat effects, support, ballistics, and
   soldier agents.
-- `VehicleCatalog.js` and `WeaponCatalog.js` place France 1940 family data inside
-  the nominally generic game layer.
+- `VehicleCatalog.js` still places France 1940 family data inside the nominally
+  generic game layer. The family registration receives it as an explicit
+  legacy adapter. `WeaponCatalog.js` remains only as a compatibility re-export;
+  direct consumer injection has not replaced that shim yet.
 - `src/world/UnitFactory.js` and `src/world/vehicles/**` combine content
   selection with procedural rendering. They are the source for the future
   `content/france1940/render/` boundary.
@@ -348,8 +419,10 @@ These are tolerated migration inputs, not patterns to copy:
   `MapEditor` also receives the full game and mutates scene state.
 - `window.__CMBN_GAME__`, DOM data attributes, and direct DOM logging expose
   runtime internals for debugging and capture automation.
-- No scenario registry, map data package, content registry, or asset manifest
-  exists yet. A bounded scenario runtime/loader now exists.
+- No scenario registry, map data package, or asset manifest exists yet. A
+  bounded family registry and scenario resolver exist, while presentation
+  records, the vehicle catalog, and family visual factories still lack injected
+  runtime consumers.
 
 Do not block useful work solely to remove these exceptions. New code should use
 the target boundary, while touched legacy code should move one dependency at a
@@ -357,10 +430,12 @@ time.
 
 ## Staged migration
 
-1. **Stabilize contracts.** Add scenario schema, registry interfaces, runtime
+1. **Stabilize contracts.** Continue the existing family-registry and scenario
+   resolver foundation with a scenario schema, scenario registry, runtime
    facade, and boundary tests without changing visible behavior.
-2. **Extract family data.** Move weapon, vehicle, and formation records into
-   `content/france1940/`. Keep temporary re-exports from legacy catalogs so
+2. **Extract family data.** Faction, vehicle-affiliation, formation,
+   presentation, and weapon records now live in `content/france1940/`. Move
+   vehicle records next; keep temporary re-exports from legacy catalogs so
    existing callers continue to work.
 3. **Extract Stonne data.** Move terrain parameters and deployment zones into
    `maps/france/stonne.js`; move forces and setup into

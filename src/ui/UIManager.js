@@ -613,11 +613,17 @@ export class UIManager {
 
       if (record.kind === 'vehicle') {
         const armor = document.createElement('div');
-        const outcome = record.penetrated
-          ? 'PENETRATED'
-          : (record.ricocheted ? 'RICOCHET' : 'STOPPED');
+        const explosive = record.explosiveEffect;
+        const outcome = explosive
+          ? 'DETONATED'
+          : (record.penetrated
+              ? 'PENETRATED'
+              : (record.ricocheted ? 'RICOCHET' : 'STOPPED'));
+        const outcomeClass = explosive
+          ? (explosive.interiorExposed ? 'penetrated' : 'stopped')
+          : (record.penetrated ? 'penetrated' : (record.ricocheted ? 'ricocheted' : 'stopped'));
         armor.className = `shot-outcome ${
-          record.penetrated ? 'penetrated' : (record.ricocheted ? 'ricocheted' : 'stopped')
+          outcomeClass
         }`;
         const nominal = Number.isFinite(record.nominalArmorMm) ? record.nominalArmorMm.toFixed(1) : '0.0';
         const effective = Number.isFinite(record.effectiveArmorMm) ? record.effectiveArmorMm.toFixed(1) : '0.0';
@@ -640,6 +646,34 @@ export class UIManager {
             : '--';
           rebound.textContent = `rebound ${postSpeed} m/s | energy ${retained} | deflection #${record.ricochetCount ?? 1} | ${record.ricochetReason ?? 'deflected'}`;
           entry.appendChild(rebound);
+        }
+
+        if (explosive) {
+          const blast = document.createElement('div');
+          blast.className = 'shot-record-energy';
+          const radius = Number.isFinite(explosive.internalRadiusMeters)
+            ? explosive.internalRadiusMeters.toFixed(2)
+            : '--';
+          const affectedCrewRoles = explosive.crewIntents?.length ?? 0;
+          const affectedModules = explosive.componentIntents?.length ?? 0;
+          blast.textContent = `blast ${explosive.protectionResult} | internal radius ${radius} m | coupling ${(100 * (explosive.coupling ?? 0)).toFixed(0)}% | crew roles ${affectedCrewRoles} | modules ${affectedModules} | ${explosive.modelVersion}`;
+          entry.appendChild(blast);
+        } else if (record.penetrated) {
+          const energy = document.createElement('div');
+          energy.className = 'shot-record-energy';
+          const formatEnergy = value => Number.isFinite(value)
+            ? `${(value / 1000).toFixed(1)} kJ`
+            : '--';
+          const finalSpeed = record.exitResult?.residualSpeed
+            ?? (Array.isArray(record.residualVelocity)
+              ? Math.hypot(...record.residualVelocity)
+              : record.postImpactSpeed);
+          const exitPlate = record.exitResult?.plateId
+            ?? record.exitResult?.armorVolumeId
+            ?? record.exitResult?.zone;
+          const exitIdentity = exitPlate ? ` | exit ${exitPlate}` : '';
+          energy.textContent = `energy entry ${formatEnergy(record.impactEnergyJ)} -> after entry ${formatEnergy(record.plateResidualEnergyJ)} | inside -${formatEnergy(record.internalEnergySpentJ)} | pre-exit ${formatEnergy(record.preExitResidualEnergyJ)} | exit armor -${formatEnergy(record.exitArmorEnergySpentJ)}${exitIdentity} | residual ${formatEnergy(record.residualEnergyJ)} / ${Number.isFinite(finalSpeed) ? `${finalSpeed.toFixed(0)} m/s` : '--'} | ${record.continuationReason ?? 'stopped'}`;
+          entry.appendChild(energy);
         }
 
         const crew = document.createElement('div');

@@ -27,6 +27,16 @@ const DAMAGE_CANDIDATES = Object.freeze({
   track_right: ['tracks']
 });
 
+function clonePlain(value) {
+  if (Array.isArray(value)) return value.map(clonePlain);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nested]) => [key, clonePlain(nested)])
+    );
+  }
+  return value;
+}
+
 function statusForHealth(health, installed = true) {
   if (!installed) return 'NOT_INSTALLED';
   if (health <= 0) return 'DESTROYED';
@@ -96,7 +106,7 @@ export function createVehicleDamageState(saved = null) {
     destroyed: Boolean(saved?.destroyed),
     secondaryExplosion: Boolean(saved?.secondaryExplosion),
     eventVersion: Math.max(0, saved?.eventVersion ?? saved?.version ?? 0),
-    events: (saved?.events ?? []).slice(-24).map(event => ({ ...event }))
+    events: (saved?.events ?? []).slice(-24).map(clonePlain)
   };
 }
 
@@ -105,7 +115,7 @@ export function recordVehicleEvent(damageState, type, detail = {}) {
   const event = {
     version: damageState.eventVersion,
     type,
-    ...detail
+    ...clonePlain(detail)
   };
   damageState.events.push(event);
   if (damageState.events.length > 24) damageState.events.shift();
@@ -150,12 +160,15 @@ export function applyDirectComponentDamage({
   damageState,
   componentId,
   residualRatio = 1,
+  damageAmount = null,
   random,
   detail = {},
   resolveSecondaryEffects = true
 }) {
-  const amount = (32 + random() * 48)
-    * Math.min(1.6, Math.max(0.5, residualRatio));
+  const amount = Number.isFinite(damageAmount)
+    ? Math.max(0, damageAmount)
+    : (32 + random() * 48)
+      * Math.min(1.6, Math.max(0.5, residualRatio));
   const result = damageOneComponent(components, componentId, amount);
   if (!result) return null;
   const detailedResult = { ...result, ...detail };
@@ -166,6 +179,95 @@ export function applyDirectComponentDamage({
   return detailedResult;
 }
 
+export function applyExplosiveComponentDamage({
+  components,
+  damageState,
+  explosiveEffect,
+  random
+}) {
+  if (!explosiveEffect) return [];
+
+  const grouped = new Map();
+  const addIntent = (componentId, damageAmount, detail) => {
+    let resolvedId = componentId;
+    if (!components[resolvedId]?.installed && resolvedId === 'main_gun') {
+      resolvedId = 'hull';
+    }
+    if (!components[resolvedId]?.installed || !(damageAmount > 0)) return;
+    const existing = grouped.get(resolvedId);
+    if (!existing) {
+      grouped.set(resolvedId, {
+        damageAmount,
+        detail,
+        volumeIds: [...(detail.internalVolumeIds ?? [])]
+      });
+      return;
+    }
+    existing.damageAmount = Math.max(existing.damageAmount, damageAmount);
+    existing.volumeIds.push(...(detail.internalVolumeIds ?? []));
+    if ((detail.distanceMeters ?? Infinity)
+        < (existing.detail.distanceMeters ?? Infinity)) {
+      existing.detail = detail;
+    }
+  };
+
+  const external = explosiveEffect.externalIntent;
+  if (external) {
+    addIntent(external.componentId, external.damageAmount, {
+      source: 'external_surface',
+      armorPart: external.armorPart ?? null,
+      distanceMeters: 0,
+      internalVolumeIds: [],
+      dataQuality: external.dataQuality
+    });
+  }
+  for (const intent of explosiveEffect.componentIntents ?? []) {
+    addIntent(intent.componentId, intent.damageAmount, {
+      source: 'internal_radial',
+      armorPart: external?.armorPart ?? null,
+      distanceMeters: intent.distanceMeters,
+      falloff: intent.falloff,
+      internalVolumeIds: [...(intent.volumeIds ?? [])],
+      layoutVersion: intent.layoutVersion,
+      dataQuality: intent.dataQuality,
+      referenceUrl: intent.referenceUrl ?? null
+    });
+  }
+
+  const results = [];
+  for (const componentId of [...grouped.keys()].sort()) {
+    const aggregate = grouped.get(componentId);
+    const volumeIds = [...new Set(aggregate.volumeIds)].sort();
+    const result = applyDirectComponentDamage({
+      components,
+      damageState,
+      componentId,
+      damageAmount: Math.min(100, aggregate.damageAmount),
+      random,
+      detail: {
+        cause: explosiveEffect.cause,
+        explosiveModelVersion: explosiveEffect.modelVersion,
+        protectionResult: explosiveEffect.protectionResult,
+        source: aggregate.detail.source,
+        armorPart: aggregate.detail.armorPart,
+        distanceMeters: aggregate.detail.distanceMeters,
+        falloff: aggregate.detail.falloff ?? null,
+        internalVolumeId: volumeIds[0] ?? null,
+        internalVolumeIds: volumeIds.join(','),
+        layoutVersion: aggregate.detail.layoutVersion ?? null,
+        dataQuality: aggregate.detail.dataQuality ?? explosiveEffect.dataQuality,
+        referenceUrl: aggregate.detail.referenceUrl ?? null
+      },
+      resolveSecondaryEffects: false
+    });
+    if (result) results.push(result);
+  }
+  if (results.length > 0) {
+    resolvePenetrationSecondaryEffects({ components, damageState, random });
+  }
+  return results;
+}
+
 export function applyPathComponentDamage({
   components,
   damageState,
@@ -174,22 +276,54 @@ export function applyPathComponentDamage({
   random
 }) {
   const damageResults = [];
-  const damagedIds = new Set();
+  const grouped = new Map();
   for (const hit of pathHits ?? []) {
     const componentId = hit.componentId;
-    if (hit.kind !== 'component' || !componentId || damagedIds.has(componentId)) continue;
-    damagedIds.add(componentId);
+    if (hit.kind !== 'component' || !componentId) continue;
+    const existing = grouped.get(componentId);
+    if (existing) {
+      if (Number.isFinite(hit.damageSeverity)) {
+        existing.damageAmount = (
+          Number.isFinite(existing.damageAmount) ? existing.damageAmount : 0
+        ) + hit.damageSeverity * 100;
+      }
+      if (Number.isFinite(hit.energyDepositedJ)) {
+        existing.energyDepositedJ = (
+          Number.isFinite(existing.energyDepositedJ) ? existing.energyDepositedJ : 0
+        ) + hit.energyDepositedJ;
+      }
+      existing.volumeIds.push(hit.id);
+      continue;
+    }
+    grouped.set(componentId, {
+      hit,
+      damageAmount: Number.isFinite(hit.damageSeverity)
+        ? hit.damageSeverity * 100
+        : null,
+      energyDepositedJ: hit.energyDepositedJ ?? null,
+      volumeIds: [hit.id]
+    });
+  }
+  for (const [componentId, aggregate] of grouped) {
+    const hit = aggregate.hit;
     const result = applyDirectComponentDamage({
       components,
       damageState,
       componentId,
       residualRatio,
+      damageAmount: aggregate.damageAmount == null
+        ? null
+        : Math.min(100, aggregate.damageAmount),
       random,
       detail: {
         cause: 'model_local_penetration_path',
         internalVolumeId: hit.id,
+        internalVolumeIds: aggregate.volumeIds.join(','),
         pathDistanceMeters: hit.entryDistanceMeters,
         pathLengthMeters: hit.pathLengthMeters,
+        entryEnergyJ: hit.entryEnergyJ ?? null,
+        energyDepositedJ: aggregate.energyDepositedJ,
+        exitEnergyJ: hit.exitEnergyJ ?? null,
         layoutVersion: hit.layoutVersion,
         dataQuality: hit.dataQuality
       },
@@ -314,6 +448,6 @@ export function vehicleDamageReport(unit) {
     secondaryExplosion: damageState.secondaryExplosion,
     version: damageState.eventVersion,
     eventVersion: damageState.eventVersion,
-    events: damageState.events.map(event => ({ ...event }))
+    events: damageState.events.map(clonePlain)
   };
 }

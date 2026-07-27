@@ -142,6 +142,29 @@ function worldNormal(localNormal, rotation) {
   return [horizontal.x, localNormal[1], horizontal.z];
 }
 
+function exitArmorMetadata(volume, surface) {
+  const exitArmorPolicy = volume.exitArmorPolicy ?? 'opposite_face';
+  if (exitArmorPolicy === 'none') {
+    return {
+      exitArmorPolicy,
+      nominalArmorMm: 0,
+      thicknessSourceZone: null,
+      thicknessDataQuality: [
+        surface.thicknessDataQuality,
+        'single-resistance auxiliary envelope; far boundary adds no armor resistance'
+      ].filter(Boolean).join('; '),
+      thicknessReferenceUrl: surface.thicknessReferenceUrl ?? null
+    };
+  }
+  return {
+    exitArmorPolicy,
+    nominalArmorMm: surface.nominalArmorMm,
+    thicknessSourceZone: surface.thicknessSourceZone,
+    thicknessDataQuality: surface.thicknessDataQuality ?? null,
+    thicknessReferenceUrl: surface.thicknessReferenceUrl ?? null
+  };
+}
+
 function triangleMeshIntersection(startInput, endInput, unit, volume) {
   const transform = worldTransform(unit, volume);
   const startWorld = vector(startInput);
@@ -192,6 +215,104 @@ function triangleMeshIntersection(startInput, endInput, unit, volume) {
     }
   }
   return closest;
+}
+
+function triangleMeshExit(startInput, endInput, unit, volume) {
+  const transform = worldTransform(unit, volume);
+  const startWorld = vector(startInput);
+  const endWorld = vector(endInput);
+  const start = vector(localPoint(startWorld, transform));
+  const end = vector(localPoint(endWorld, transform));
+  const direction = subtract(end, start);
+  const vertices = volume.vertices ?? [];
+  const interior = vector(volume.interiorPoint ?? [0, 0, 0]);
+  let closest = null;
+  for (const plate of volume.plates ?? []) {
+    for (const triangle of plate.triangles ?? []) {
+      const a = vertices[triangle[0]];
+      const b = vertices[triangle[1]];
+      const c = vertices[triangle[2]];
+      if (!a || !b || !c) continue;
+      const intersection = segmentTriangle(start, end, a, b, c);
+      if (!intersection || intersection.t <= EPSILON) continue;
+      const outward = orientOutward(intersection.normal, a, b, c, interior);
+      if (!outward || dot(outward, direction) <= EPSILON) continue;
+      const point = [
+        startWorld[0] + (endWorld[0] - startWorld[0]) * intersection.t,
+        startWorld[1] + (endWorld[1] - startWorld[1]) * intersection.t,
+        startWorld[2] + (endWorld[2] - startWorld[2]) * intersection.t
+      ];
+      const armorMetadata = exitArmorMetadata(volume, {
+        nominalArmorMm: plate.thicknessMm,
+        thicknessSourceZone: plate.thicknessSourceZone
+          ?? plate.fallbackZone
+          ?? plate.zone,
+        thicknessDataQuality: plate.thicknessDataQuality,
+        thicknessReferenceUrl: plate.thicknessReferenceUrl
+      });
+      const candidate = {
+        t: intersection.t,
+        point,
+        normal: worldNormal(outward, transform.rotation),
+        zone: plate.zone,
+        fallbackZone: plate.fallbackZone ?? plate.zone,
+        face: plate.id,
+        plateId: `${volume.id}:${plate.id}`,
+        armorVolumeId: volume.id,
+        armorPart: volume.part,
+        geometryQuality: volume.geometryQuality,
+        localPoint: localPoint(point, transform),
+        ...armorMetadata
+      };
+      if (!closest
+          || candidate.t < closest.t - EPSILON
+          || (Math.abs(candidate.t - closest.t) <= EPSILON
+            && candidate.plateId.localeCompare(closest.plateId) < 0)) {
+        closest = candidate;
+      }
+    }
+  }
+  return closest;
+}
+
+function orientedBoxExit(startInput, endInput, unit, volume) {
+  const collider = worldCollider(unit, volume);
+  const start = vector(startInput);
+  const end = vector(endInput);
+  const reverse = intersectSegmentOrientedBox3D(end, start, collider);
+  if (!reverse) return null;
+  const t = 1 - reverse.t;
+  if (t <= EPSILON || t > 1 + EPSILON) return null;
+  const face = classifyFace(reverse.normal, collider.rotation);
+  const zone = volume.faceZones?.[face] ?? null;
+  if (!zone) return null;
+  const fallbackZone = volume.fallbackZones?.[face] ?? zone;
+  const armorMetadata = exitArmorMetadata(volume, {
+    nominalArmorMm: volume.thicknessMm ?? null,
+    thicknessSourceZone: volume.thicknessSourceZone ?? fallbackZone,
+    thicknessDataQuality: volume.thicknessDataQuality,
+    thicknessReferenceUrl: volume.thicknessReferenceUrl
+  });
+  return {
+    t,
+    point: reverse.point,
+    normal: reverse.normal,
+    zone,
+    fallbackZone,
+    face,
+    plateId: `${volume.id}:${face}`,
+    armorVolumeId: volume.id,
+    armorPart: volume.part,
+    geometryQuality: volume.geometryQuality
+      ?? unit.vehicleSpec.armorCollision.quality
+      ?? 'unspecified',
+    ...armorMetadata,
+    localPoint: toLocalVector([
+      reverse.point[0] - collider.centerX,
+      reverse.point[1] - collider.centerY,
+      reverse.point[2] - collider.centerZ
+    ], collider.rotation)
+  };
 }
 
 /**
@@ -250,4 +371,60 @@ export function intersectVehicleArmor(start, end, unit) {
     }
   }
   return closest;
+}
+
+/**
+ * Finds the outward plate reached after a projectile has entered one named
+ * armor volume. Unlike the ordinary segment query, an OBB start-inside result
+ * resolves its far face instead of returning t=0 at the entry point.
+ */
+export function traceVehicleArmorExit({
+  unit,
+  armorVolumeId,
+  entryPoint,
+  direction,
+  maxDistanceMeters = null
+}) {
+  const volume = unit?.vehicleSpec?.armorCollision?.volumes
+    ?.find(candidate => candidate.id === armorVolumeId);
+  if (!volume) return null;
+  const origin = vector(entryPoint);
+  const incoming = vector(direction);
+  const magnitude = Math.hypot(...incoming);
+  if (magnitude <= EPSILON) return null;
+  const normalizedDirection = incoming.map(component => component / magnitude);
+  const dimensions = unit.vehicleSpec?.dimensionsMeters ?? {};
+  const fallbackDistance = Math.hypot(
+    finite(dimensions.length, 4),
+    finite(dimensions.width),
+    finite(dimensions.height)
+  ) + 0.5;
+  const maximum = Math.max(
+    0.05,
+    maxDistanceMeters == null
+      ? fallbackDistance
+      : finite(maxDistanceMeters, fallbackDistance)
+  );
+  const epsilon = 1e-4;
+  const start = origin.map(
+    (component, axis) => component + normalizedDirection[axis] * epsilon
+  );
+  const end = origin.map(
+    (component, axis) => component + normalizedDirection[axis] * maximum
+  );
+  const exit = volume.shape === 'triangle-mesh'
+    ? triangleMeshExit(start, end, unit, volume)
+    : orientedBoxExit(start, end, unit, volume);
+  if (!exit) return null;
+  const point = vector(exit.point);
+  return {
+    ...exit,
+    point,
+    normal: vector(exit.normal),
+    distanceMeters: Math.hypot(
+      point[0] - origin[0],
+      point[1] - origin[1],
+      point[2] - origin[2]
+    )
+  };
 }

@@ -1,9 +1,26 @@
 import * as THREE from 'three';
-import { effectiveArmorMm, penetrationAtVelocity } from './VehicleCatalog.js';
+import {
+  effectiveArmorMm,
+  penetrationAtVelocity
+} from '../simulation/ballistics/ArmorMath.js';
 import { intersectSegmentOrientedBox3D } from '../simulation/geometry/OrientedBox.js';
-import { intersectVehicleArmor } from '../simulation/vehicles/VehicleArmorCollision.js';
-import { traceVehicleInternalPath } from '../simulation/vehicles/VehicleInternalCollision.js';
+import {
+  intersectVehicleArmor,
+  traceVehicleArmorExit
+} from '../simulation/vehicles/VehicleArmorCollision.js';
+import {
+  queryVehicleInternalBlastCandidates,
+  traceVehicleInternalPath
+} from '../simulation/vehicles/VehicleInternalCollision.js';
 import { resolveArmorRicochet } from '../simulation/ballistics/ProjectileImpactPhysics.js';
+import {
+  resolveArmorPerforationEnergy,
+  resolveInternalPenetrationEnergy
+} from '../simulation/ballistics/ArmorTerminalEffects.js';
+import {
+  resolveVehicleExplosiveEffect,
+  vehicleInternalBlastRadiusMeters
+} from '../simulation/ballistics/VehicleExplosiveEffects.js';
 
 const GRAVITY = new THREE.Vector3(0, -9.81, 0);
 const UP = new THREE.Vector3(0, 1, 0);
@@ -173,9 +190,14 @@ export class BallisticsSystem {
           projectile.position,
           unit
         );
-        if (armorHit
-            && projectile.armorIgnore?.unitId === unit.id
-            && projectile.armorIgnore?.plateId === armorHit.plateId
+        const ignoresArmorHit = armorHit
+          && projectile.armorIgnore?.unitId === unit.id
+          && (
+            projectile.armorIgnore?.plateId === armorHit.plateId
+            || projectile.armorIgnore?.plateIds?.includes(armorHit.plateId)
+            || projectile.armorIgnore?.armorVolumeId === armorHit.armorVolumeId
+          );
+        if (ignoresArmorHit
             && segmentStartDistance
               + Math.hypot(
                 armorHit.point[0] - projectile.previousPosition.x,
@@ -295,6 +317,29 @@ export class BallisticsSystem {
       nominalArmorMm,
       impactCosine
     );
+    const explosiveProjectile = projectile.weapon?.kind === 'cannon_he'
+      || (projectile.weapon?.explosiveRadius ?? 0) > 0;
+    const supportsIntactPenetration = !explosiveProjectile;
+    const explosiveRadiusMeters = explosiveProjectile
+      ? vehicleInternalBlastRadiusMeters(projectile.weapon)
+      : 0;
+    const explosiveCandidates = explosiveProjectile
+      ? queryVehicleInternalBlastCandidates({
+          unit,
+          impactPoint: hit.point,
+          radiusMeters: explosiveRadiusMeters
+        })
+      : [];
+    const explosiveEffect = resolveVehicleExplosiveEffect({
+      weapon: projectile.weapon,
+      protection: unit.vehicleSpec?.explosiveProtection,
+      penetrated: result.penetrated,
+      nominalArmorMm,
+      effectiveArmorMm: result.effectiveArmorMm,
+      armorPart: hit.armorPart ?? zone.split('_')[0],
+      detonationPoint: hit.point,
+      internalCandidates: explosiveCandidates
+    });
     const impactAngleDegrees = THREE.MathUtils.radToDeg(
       Math.acos(THREE.MathUtils.clamp(impactCosine, 0, 1))
     );
@@ -306,16 +351,235 @@ export class BallisticsSystem {
       penetrated: result.penetrated,
       ricochetCount: projectile.ricochetCount ?? 0
     });
-    const internalPathHits = result.penetrated && unit.vehicleSpec?.internalLayout
-      ? traceVehicleInternalPath({
+    const penetrationEnergy = resolveArmorPerforationEnergy({
+      weapon: projectile.weapon,
+      velocity: projectile.velocity,
+      penetrationMm: result.penetrationMm,
+      effectiveArmorMm: result.effectiveArmorMm,
+      penetrated: result.penetrated && supportsIntactPenetration
+    });
+    const exitHit = result.penetrated && supportsIntactPenetration
+      ? traceVehicleArmorExit({
           unit,
-          impactPoint: hit.point,
+          armorVolumeId: hit.armorVolumeId,
+          entryPoint: hit.point,
           direction: scratchIncoming
         })
       : null;
+    const tracedInternalPath = result.penetrated
+        && supportsIntactPenetration
+        && exitHit
+        && unit.vehicleSpec?.internalLayout
+      ? traceVehicleInternalPath({
+          unit,
+          impactPoint: hit.point,
+          direction: scratchIncoming,
+          maxDistanceMeters: exitHit.distanceMeters
+        })
+      : [];
+    const internalEnergy = resolveInternalPenetrationEnergy({
+      weapon: projectile.weapon,
+      pathHits: tracedInternalPath,
+      initialEnergyJ: penetrationEnergy.plateResidualEnergyJ,
+      impactEnergyJ: penetrationEnergy.impactEnergyJ
+    });
+    const exitReached = Boolean(exitHit) && !internalEnergy.stoppedInside;
+    const exitArmorMm = unit.vehicleSpec?.armorMm ?? {};
+    const exitThicknessZone = exitHit?.exitArmorPolicy === 'none'
+      ? null
+      : (exitHit?.thicknessSourceZone
+        ?? (exitHit && Object.hasOwn(exitArmorMm, exitHit.zone)
+          ? exitHit.zone
+          : exitHit?.fallbackZone));
+    const exitNominalArmorMm = exitReached
+      ? (Number.isFinite(exitHit.nominalArmorMm)
+          ? exitHit.nominalArmorMm
+          : exitArmorMm[exitThicknessZone] ?? nominalArmorMm)
+      : null;
+    const exitImpactCosine = exitReached
+      ? Math.abs(scratchIncoming.dot(new THREE.Vector3(...exitHit.normal)))
+      : null;
+    const exitPenetration = exitReached
+      ? resolveArmorPenetration(
+          projectile.weapon,
+          internalEnergy.residualSpeed,
+          exitNominalArmorMm,
+          exitImpactCosine
+        )
+      : null;
+    const exitEnergy = exitPenetration
+      ? resolveArmorPerforationEnergy({
+          weapon: projectile.weapon,
+          velocity: scratchIncoming.clone().multiplyScalar(internalEnergy.residualSpeed),
+          penetrationMm: exitPenetration.penetrationMm,
+          effectiveArmorMm: exitPenetration.effectiveArmorMm,
+          penetrated: exitPenetration.penetrated
+        })
+      : null;
+    const penetratorContinues = penetrationEnergy.continuationKind === 'penetrator'
+      && !internalEnergy.stoppedInside
+      && Boolean(exitHit)
+      && Boolean(exitPenetration?.penetrated)
+      && exitEnergy?.continuationKind === 'penetrator';
+    const finalResidualEnergyJ = exitEnergy?.plateResidualEnergyJ ?? 0;
+    const finalResidualSpeed = exitEnergy?.plateResidualSpeed ?? 0;
+    const residualVelocity = penetratorContinues
+      ? scratchIncoming.clone().multiplyScalar(finalResidualSpeed).toArray()
+      : null;
+    const internalPathHits = result.penetrated && supportsIntactPenetration
+      ? internalEnergy.hits
+      : (explosiveProjectile ? [] : null);
+    const continuationStartOffsetMeters = Math.max(
+      0.015,
+      (projectile.weapon?.caliberMm ?? 0) / 1000 * 0.6
+    );
+    const unitClearanceDistanceMeters = exitReached
+      ? exitHit.distanceMeters + continuationStartOffsetMeters
+      : 0;
+    const internalTransitDistanceMeters = internalEnergy.stoppedInside
+      ? internalEnergy.terminalDistanceMeters
+      : (exitHit?.distanceMeters ?? internalEnergy.terminalDistanceMeters);
+    const internalTransitSpeedSum = penetrationEnergy.plateResidualSpeed
+      + internalEnergy.residualSpeed;
+    const internalTransitSeconds = internalTransitDistanceMeters > 0
+        && internalTransitSpeedSum > IMPACT_EPSILON
+      ? (2 * internalTransitDistanceMeters) / internalTransitSpeedSum
+      : 0;
+    const exitPosition = exitReached ? [...exitHit.point] : null;
+    const continuationKind = explosiveProjectile
+      ? 'none'
+      : (ricochet.ricocheted
+      ? 'ricochet'
+      : (penetratorContinues ? 'penetrator' : 'none'));
+    const postImpactVelocity = explosiveProjectile
+      ? null
+      : (ricochet.ricocheted
+      ? ricochet.postImpactVelocity
+      : residualVelocity);
+    const postImpactSpeed = explosiveProjectile
+      ? 0
+      : (ricochet.ricocheted
+      ? ricochet.postImpactSpeed
+      : (penetratorContinues ? finalResidualSpeed : 0));
+    const outgoingEnergyJ = explosiveProjectile
+      ? 0
+      : (ricochet.ricocheted
+      ? ricochet.outgoingEnergyJ
+      : finalResidualEnergyJ);
+    const retainedEnergyRatio = penetrationEnergy.impactEnergyJ > IMPACT_EPSILON
+      ? outgoingEnergyJ / penetrationEnergy.impactEnergyJ
+      : 0;
+    const terminalEffect = explosiveProjectile
+      ? 'detonated'
+      : (ricochet.ricocheted
+      ? 'ricochet'
+      : (result.penetrated
+          ? (penetratorContinues ? 'perforated_intact' : 'perforated_stopped')
+          : 'stopped'));
+    let continuationReason = explosiveProjectile
+      ? 'explosive_detonation'
+      : penetrationEnergy.continuationReason;
+    if (!explosiveProjectile && ricochet.ricocheted) {
+      continuationReason = ricochet.ricochetReason;
+    } else if (!explosiveProjectile
+        && result.penetrated
+        && penetrationEnergy.continuationKind === 'penetrator') {
+      if (internalEnergy.stoppedInside) {
+        continuationReason = 'internal_energy_exhausted';
+      } else if (!exitHit) {
+        continuationReason = 'missing_exit_geometry';
+      } else if (!exitPenetration?.penetrated) {
+        continuationReason = 'exit_plate_stopped';
+      } else if (penetratorContinues) {
+        continuationReason = 'residual_energy';
+      } else {
+        continuationReason = exitEnergy?.continuationReason ?? 'exit_energy_exhausted';
+      }
+    }
+    const crewResult = explosiveProjectile
+      ? unit.applyVehicleExplosiveHit?.({
+          explosiveEffect,
+          penetrated: result.penetrated,
+          random: this.random
+        }) ?? null
+      : unit.applyArmorHit?.({
+          ...result,
+          zone,
+          damageZone: fallbackZone,
+          componentZone: zone,
+          internalPathHits,
+          impactEnergyJ: penetrationEnergy.impactEnergyJ,
+          residualEnergyJ: internalEnergy.residualEnergyJ,
+          weapon: projectile.weapon,
+          impactPoint: hit.point,
+          random: this.random
+        }) ?? null;
     return {
       ...result,
       ...ricochet,
+      ...penetrationEnergy,
+      ricocheted: explosiveProjectile ? false : ricochet.ricocheted,
+      ricochetReason: explosiveProjectile
+        ? 'explosive_detonation'
+        : ricochet.ricochetReason,
+      separationNormal: explosiveProjectile ? null : ricochet.separationNormal,
+      clearanceMeters: explosiveProjectile ? null : ricochet.clearanceMeters,
+      penetrationRatio: result.residualRatio,
+      residualRatio: result.residualRatio,
+      internalInitialEnergyJ: internalEnergy.internalInitialEnergyJ,
+      internalEnergySpentJ: internalEnergy.internalEnergySpentJ,
+      preExitResidualEnergyJ: internalEnergy.residualEnergyJ,
+      exitArmorEnergySpentJ: exitEnergy?.armorEnergySpentJ ?? 0,
+      residualEnergyJ: finalResidualEnergyJ,
+      residualVelocity,
+      postImpactVelocity,
+      postImpactSpeed,
+      outgoingEnergyJ,
+      retainedEnergyRatio,
+      continuationKind,
+      penetrationCount: (projectile.penetrationCount ?? 0)
+        + (penetratorContinues ? 1 : 0),
+      continuationReason,
+      terminalEffect,
+      explosiveEffect,
+      continuationStartOffsetMeters,
+      unitClearanceDistanceMeters,
+      exitPosition,
+      exitResult: exitReached
+        ? {
+            plateId: exitHit.plateId,
+            armorVolumeId: exitHit.armorVolumeId,
+            armorPart: exitHit.armorPart,
+            exitArmorPolicy: exitHit.exitArmorPolicy,
+            zone: exitHit.zone,
+            thicknessZone: exitThicknessZone,
+            nominalArmorMm: exitNominalArmorMm,
+            effectiveArmorMm: exitPenetration?.effectiveArmorMm ?? null,
+            penetrationMm: exitPenetration?.penetrationMm ?? null,
+            penetrated: Boolean(exitPenetration?.penetrated),
+            impactCosine: exitImpactCosine,
+            impactAngleDegrees: exitImpactCosine == null
+              ? null
+              : THREE.MathUtils.radToDeg(Math.acos(
+                  THREE.MathUtils.clamp(exitImpactCosine, 0, 1)
+                )),
+            distanceMeters: exitHit.distanceMeters,
+            point: [...exitHit.point],
+            normal: [...exitHit.normal],
+            thicknessDataQuality: exitHit.thicknessDataQuality ?? null,
+            thicknessReferenceUrl: exitHit.thicknessReferenceUrl ?? null,
+            geometryQuality: exitHit.geometryQuality ?? null,
+            armorEnergySpentJ: exitEnergy?.armorEnergySpentJ ?? null,
+            residualEnergyJ: exitEnergy?.plateResidualEnergyJ ?? null,
+            residualSpeed: exitEnergy?.plateResidualSpeed ?? null
+          }
+        : null,
+      internalTerminalDistanceMeters: internalEnergy.terminalDistanceMeters,
+      internalTransitDistanceMeters,
+      internalTransitSeconds,
+      stoppedInsideVehicle: supportsIntactPenetration
+        && result.penetrated
+        && internalEnergy.stoppedInside,
       zone,
       thicknessZone,
       nominalArmorMm,
@@ -330,16 +594,7 @@ export class BallisticsSystem {
       thicknessReferenceUrl: hit.thicknessReferenceUrl ?? null,
       impactAngleDegrees,
       internalPathHits,
-      crewResult: unit.applyArmorHit?.({
-        ...result,
-        zone,
-        damageZone: fallbackZone,
-        componentZone: zone,
-        internalPathHits,
-        weapon: projectile.weapon,
-        impactPoint: hit.point,
-        random: this.random
-      }) ?? null
+      crewResult
     };
   }
 

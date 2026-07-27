@@ -53,6 +53,59 @@ function pointAlong(start, direction, distance) {
   ];
 }
 
+function distanceToOrientedBox(point, collider) {
+  const dx = point[0] - collider.centerX;
+  const dy = point[1] - collider.centerY;
+  const dz = point[2] - collider.centerZ;
+  const cosine = Math.cos(collider.rotation);
+  const sine = Math.sin(collider.rotation);
+  const localX = dx * cosine - dz * sine;
+  const localZ = dx * sine + dz * cosine;
+  const outsideX = Math.max(0, Math.abs(localX) - collider.halfWidth);
+  const outsideY = Math.max(0, Math.abs(dy) - collider.halfHeight);
+  const outsideZ = Math.max(0, Math.abs(localZ) - collider.halfDepth);
+  return Math.hypot(outsideX, outsideY, outsideZ);
+}
+
+/**
+ * Returns model-local crew and module volumes reached by an unoccluded radial
+ * vehicle blast. The query is renderer-neutral; shielding and compartment
+ * partitions remain future terminal-effect layers.
+ */
+export function queryVehicleInternalBlastCandidates({
+  unit,
+  impactPoint,
+  radiusMeters
+}) {
+  const layout = unit?.vehicleSpec?.internalLayout;
+  const radius = Math.max(0, finite(radiusMeters));
+  if (!layout?.volumes?.length || radius <= EPSILON) return [];
+
+  const point = vector(impactPoint);
+  const candidates = [];
+  for (const volume of layout.volumes) {
+    const collider = worldCollider(unit, volume);
+    const distanceMeters = distanceToOrientedBox(point, collider);
+    if (distanceMeters > radius + EPSILON) continue;
+    candidates.push({
+      id: volume.id,
+      kind: volume.kind,
+      componentId: volume.componentId ?? null,
+      crewRoles: volume.crewRoles ? [...volume.crewRoles] : [],
+      distanceMeters,
+      followsTurret: Boolean(volume.followsTurret),
+      dataQuality: volume.dataQuality ?? layout.dataQuality ?? 'unspecified',
+      layoutVersion: layout.version,
+      layoutDataQuality: layout.dataQuality,
+      referenceUrl: volume.referenceUrl ?? layout.referenceUrl ?? null
+    });
+  }
+
+  return candidates.sort((a, b) =>
+    a.distanceMeters - b.distanceMeters
+      || a.id.localeCompare(b.id));
+}
+
 /**
  * Traces a successful penetration through immutable model-local crew/module
  * bounds. Geometry remains renderer-neutral and results use stable catalog IDs.
@@ -109,7 +162,10 @@ export function traceVehicleInternalPath({
       dataQuality: volume.dataQuality ?? layout.dataQuality ?? 'unspecified',
       layoutVersion: layout.version,
       layoutDataQuality: layout.dataQuality,
-      referenceUrl: volume.referenceUrl ?? layout.referenceUrl ?? null
+      referenceUrl: volume.referenceUrl ?? layout.referenceUrl ?? null,
+      energyAbsorption: volume.energyAbsorption
+        ? { ...volume.energyAbsorption }
+        : null
     });
   }
 

@@ -691,12 +691,18 @@ export class SoldierAI {
   }
 
   restoreRoster(roster) {
-    if (roster.length !== this.agents.length) {
+    const savedById = new Map(roster.map(state => [state.id, state]));
+    const identitiesMatch = roster.length === this.agents.length
+      && savedById.size === roster.length
+      && this.agents.every(agent => savedById.has(agent.id));
+    if (!identitiesMatch) {
       this.unit.roster = roster.map(copySoldier);
       this.initialize();
       return;
     }
-    roster.forEach((state, index) => this.agents[index].restore(copySoldier(state)));
+    for (const agent of this.agents) {
+      agent.restore(copySoldier(savedById.get(agent.id)));
+    }
     this.unit.roster = this.agents.map(agent => agent.record);
     this.syncMeshes();
   }

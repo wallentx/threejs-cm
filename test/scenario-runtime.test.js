@@ -3,9 +3,24 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
   instantiateScenarioUnits,
-  loadScenario
+  loadScenario,
+  resolveScenarioUnitDefinitions
 } from '../src/scenario/ScenarioRuntime.js';
+import { createFamilyRegistry } from '../src/scenario/FamilyRegistry.js';
 import { STONNE_1940_SCENARIO } from '../src/scenarios/france1940/stonne1940.js';
+import { createFrance1940Family } from '../src/content/france1940/index.js';
+import { VEHICLES } from '../src/game/VehicleCatalog.js';
+import {
+  OBSERVATION_EQUIPMENT,
+  observerHasEquipment
+} from '../src/simulation/observation/ObservationEquipment.js';
+import {
+  hasOperationalRadioEndpoint
+} from '../src/simulation/observation/CommunicationNetwork.js';
+
+const PRODUCTION_FAMILY_REGISTRY = createFamilyRegistry([
+  createFrance1940Family({ vehicles: VEHICLES })
+]);
 
 class ScenarioTestUnit {
   constructor(definition) {
@@ -24,6 +39,97 @@ class ScenarioTestUnit {
   setAgentDebug(enabled) {
     this.debugEnabled = enabled;
   }
+}
+
+const FRENCH_MEMBER_ORDER = Object.freeze([
+  ['squad-leader', 'Chasseur', 'Squad Leader', 'MAS36'],
+  ['rifleman-1', 'Chasseur', 'Rifleman', 'MAS36'],
+  ['automatic-rifleman', 'Chasseur', 'Automatic Rifleman', 'FM2429'],
+  ['rifleman-2', 'Chasseur', 'Rifleman', 'MAS36'],
+  ['assistant-gunner', 'Chasseur', 'Assistant Gunner', 'MAS36'],
+  ['assistant-leader', 'Chasseur', 'Assistant Leader', 'MAS38']
+]);
+
+const FAMILY_FIXTURE = Object.freeze({
+  id: 'france-1940',
+  factions: Object.freeze({
+    french: Object.freeze({ id: 'french' }),
+    german: Object.freeze({ id: 'german' })
+  }),
+  formations: Object.freeze({
+    FRENCH_SECTION: Object.freeze({
+      factionId: 'french',
+      members: Object.freeze(FRENCH_MEMBER_ORDER.map(([id, namePrefix, role, weaponId]) => Object.freeze({
+        id,
+        namePrefix,
+        role,
+        weaponId
+      })))
+    }),
+    GERMAN_SECTION: Object.freeze({
+      factionId: 'german',
+      members: Object.freeze([
+        Object.freeze({
+          id: 'squad-leader',
+          namePrefix: 'Grenadier',
+          role: 'Squad Leader',
+          weaponId: 'KAR98K'
+        })
+      ])
+    })
+  }),
+  catalogs: Object.freeze({
+    weapons: Object.freeze({
+      MAS36: Object.freeze({ name: 'MAS-36 Rifle' }),
+      FM2429: Object.freeze({ name: 'FM 24/29 LMG' }),
+      MAS38: Object.freeze({ name: 'MAS-38 SMG' }),
+      KAR98K: Object.freeze({ name: 'Kar98k' })
+    }),
+    vehicles: Object.freeze({
+      SOMUA_S35: Object.freeze({ factionId: 'french' }),
+      PANZER_III_D: Object.freeze({ factionId: 'german' })
+    })
+  })
+});
+
+function familyRegistry(family = FAMILY_FIXTURE) {
+  return {
+    require(id) {
+      if (id !== family.id) throw new Error(`Unknown game family ${id}`);
+      return family;
+    }
+  };
+}
+
+function scenarioFixture(units = null) {
+  return {
+    id: 'scenario-fixture',
+    gameFamilyId: 'france-1940',
+    units: units ?? [
+      {
+        id: 'fr_section',
+        faction: 'french',
+        type: 'infantry_squad',
+        formationId: 'FRENCH_SECTION',
+        position: [1, 0, 2],
+        soldierEquipment: { 'squad-leader': ['BINOCULARS'] }
+      },
+      {
+        id: 'fr_tank',
+        faction: 'french',
+        type: 'tank',
+        vehicleId: 'SOMUA_S35',
+        position: [3, 0, 4]
+      },
+      {
+        id: 'ger_bunker',
+        faction: 'german',
+        type: 'bunker',
+        structureId: 'GERMAN_MG34_BUNKER',
+        position: [5, 0, 6]
+      }
+    ]
+  };
 }
 
 test('Stonne scenario owns setup, roster, startup selection, and camera target as plain data', () => {
@@ -49,6 +155,170 @@ test('Stonne scenario owns setup, roster, startup selection, and camera target a
   );
   assert.ok(Object.isFrozen(STONNE_1940_SCENARIO));
   assert.ok(Object.isFrozen(STONNE_1940_SCENARIO.units));
+  assert.equal(STONNE_1940_SCENARIO.units.find(unit => unit.id === 'fr_hq').formationId, 'FRENCH_CHASSEURS_PORTES_SQUAD');
+  assert.equal(STONNE_1940_SCENARIO.units.find(unit => unit.id === 'fr_sq1').formationId, 'FRENCH_CHASSEURS_PORTES_SQUAD');
+  assert.equal(STONNE_1940_SCENARIO.units.find(unit => unit.id === 'ger_sq1').formationId, 'GERMAN_GRENADIER_SQUAD_1940');
+  assert.equal(STONNE_1940_SCENARIO.units.find(unit => unit.id === 'fr_tank').vehicleId, 'SOMUA_S35');
+  assert.equal(STONNE_1940_SCENARIO.units.find(unit => unit.id === 'ger_tank').vehicleId, 'PANZER_III_D');
+});
+
+test('family resolver expands an ordered formation into a fresh authoritative roster', () => {
+  const [infantry, vehicle, bunker] = resolveScenarioUnitDefinitions(
+    scenarioFixture(),
+    familyRegistry()
+  );
+
+  assert.deepEqual(
+    infantry.roster.map(member => [member.id, member.name, member.role, member.weaponId, member.weapon]),
+    [
+      ['squad-leader', 'Chasseur 1', 'Squad Leader', 'MAS36', 'MAS-36 Rifle'],
+      ['rifleman-1', 'Chasseur 2', 'Rifleman', 'MAS36', 'MAS-36 Rifle'],
+      ['automatic-rifleman', 'Chasseur 3', 'Automatic Rifleman', 'FM2429', 'FM 24/29 LMG'],
+      ['rifleman-2', 'Chasseur 4', 'Rifleman', 'MAS36', 'MAS-36 Rifle'],
+      ['assistant-gunner', 'Chasseur 5', 'Assistant Gunner', 'MAS36', 'MAS-36 Rifle'],
+      ['assistant-leader', 'Chasseur 6', 'Assistant Leader', 'MAS38', 'MAS-38 SMG']
+    ]
+  );
+  assert.ok(infantry.roster.every(member => member.status === 'OK' && member.health === 100));
+  assert.deepEqual(infantry.soldierEquipment, { 'squad-leader': ['BINOCULARS'] });
+  assert.notEqual(infantry.soldierEquipment, scenarioFixture().units[0].soldierEquipment);
+  assert.equal(vehicle.vehicleId, 'SOMUA_S35');
+  assert.equal(bunker.vehicleId, undefined, 'bunkers validate faction but do not require vehicles');
+
+  const nextResolution = resolveScenarioUnitDefinitions(scenarioFixture(), familyRegistry());
+  assert.notEqual(infantry.roster, nextResolution[0].roster);
+  infantry.roster[0].health = 1;
+  assert.equal(nextResolution[0].roster[0].health, 100);
+});
+
+test('formation reordering preserves stable soldier identity and equipment ownership', () => {
+  const section = FAMILY_FIXTURE.formations.FRENCH_SECTION;
+  const reorderedFamily = {
+    ...FAMILY_FIXTURE,
+    formations: {
+      ...FAMILY_FIXTURE.formations,
+      FRENCH_SECTION: {
+        ...section,
+        members: [
+          section.members[2],
+          section.members[0],
+          ...section.members.slice(3),
+          section.members[1]
+        ]
+      }
+    }
+  };
+  const [resolved] = resolveScenarioUnitDefinitions(
+    scenarioFixture([scenarioFixture().units[0]]),
+    familyRegistry(reorderedFamily)
+  );
+
+  assert.deepEqual(
+    resolved.roster.map(member => member.id),
+    [
+      'automatic-rifleman',
+      'squad-leader',
+      'rifleman-2',
+      'assistant-gunner',
+      'assistant-leader',
+      'rifleman-1'
+    ]
+  );
+  assert.equal(
+    resolved.roster.find(member => member.id === 'squad-leader').role,
+    'Squad Leader'
+  );
+  assert.deepEqual(resolved.soldierEquipment['squad-leader'], ['BINOCULARS']);
+});
+
+test('family validation rejects bad descriptors before any Unit construction', () => {
+  let constructions = 0;
+  class CountingUnit {
+    constructor() {
+      constructions += 1;
+    }
+  }
+  const assertRejectedBeforeConstruction = (scenario, registry, pattern) => {
+    constructions = 0;
+    assert.throws(
+      () => instantiateScenarioUnits(scenario, CountingUnit, registry),
+      pattern
+    );
+    assert.equal(constructions, 0);
+  };
+
+  assertRejectedBeforeConstruction(
+    scenarioFixture(),
+    null,
+    /requires a family registry/
+  );
+  assertRejectedBeforeConstruction(
+    { ...scenarioFixture(), gameFamilyId: 'unknown-family' },
+    familyRegistry(),
+    /Unknown game family/
+  );
+  assertRejectedBeforeConstruction(
+    scenarioFixture([{ ...scenarioFixture().units[0], faction: 'unknown' }]),
+    familyRegistry(),
+    /unknown faction/
+  );
+  assertRejectedBeforeConstruction(
+    scenarioFixture([{ ...scenarioFixture().units[0], formationId: 'UNKNOWN_FORMATION' }]),
+    familyRegistry(),
+    /unknown formation/
+  );
+  assertRejectedBeforeConstruction(
+    scenarioFixture([{ ...scenarioFixture().units[1], vehicleId: 'UNKNOWN_VEHICLE' }]),
+    familyRegistry(),
+    /unknown vehicle/
+  );
+  assertRejectedBeforeConstruction(
+    scenarioFixture([{ ...scenarioFixture().units[1], faction: 'german' }]),
+    familyRegistry(),
+    /belongs to french, not german/
+  );
+  assertRejectedBeforeConstruction(
+    scenarioFixture([{
+      ...scenarioFixture().units[0],
+      soldierEquipment: { 'squad-leadr': ['BINOCULARS'] }
+    }]),
+    familyRegistry(),
+    /equipment references unknown soldier squad-leadr/
+  );
+  assertRejectedBeforeConstruction(
+    scenarioFixture([{
+      ...scenarioFixture().units[0],
+      communications: {
+        commandNetId: 'french-test',
+        radioInstalled: true,
+        radioOperatorSoldierIds: ['assistant-leadr']
+      }
+    }]),
+    familyRegistry(),
+    /radio references unknown soldier assistant-leadr/
+  );
+});
+
+test('resolved rosters reach constructors without sharing formation data, while no-registry Units retain legacy roster behavior', () => {
+  class MutatingUnit {
+    constructor(definition) {
+      this.receivedRoster = definition.roster;
+      definition.roster[0].health = 7;
+    }
+  }
+  const scenario = scenarioFixture([scenarioFixture().units[0]]);
+  const [unit] = instantiateScenarioUnits(scenario, MutatingUnit, familyRegistry());
+  assert.equal(unit.receivedRoster.length, 6);
+  assert.equal(FAMILY_FIXTURE.formations.FRENCH_SECTION.members[0].weaponId, 'MAS36');
+  assert.equal(resolveScenarioUnitDefinitions(scenario, familyRegistry())[0].roster[0].health, 100);
+
+  const [legacyUnit] = instantiateScenarioUnits({
+    ...scenario,
+    gameFamilyId: undefined,
+    units: [{ ...scenario.units[0], formationId: undefined }]
+  });
+  assert.equal(legacyUnit.roster.length, 6);
+  assert.equal(legacyUnit.roster[0].weapon, 'MAS-36 Rifle');
 });
 
 test('scenario runtime instantiates, validates, grounds, and indexes units generically', () => {
@@ -59,7 +329,8 @@ test('scenario runtime instantiates, validates, grounds, and indexes units gener
     terrain,
     scene,
     agentDebug: true,
-    UnitType: ScenarioTestUnit
+    UnitType: ScenarioTestUnit,
+    familyRegistry: PRODUCTION_FAMILY_REGISTRY
   });
 
   assert.equal(loaded.units.length, STONNE_1940_SCENARIO.units.length);
@@ -74,12 +345,87 @@ test('scenario runtime instantiates, validates, grounds, and indexes units gener
 });
 
 test('Stonne descriptor instantiates every production Unit model', () => {
-  const units = instantiateScenarioUnits(STONNE_1940_SCENARIO);
+  const units = instantiateScenarioUnits(
+    STONNE_1940_SCENARIO,
+    undefined,
+    PRODUCTION_FAMILY_REGISTRY
+  );
   assert.equal(units.length, 18);
   assert.equal(units.find(unit => unit.id === 'fr_tank').mesh.name, 'fr_somua');
   assert.equal(units.find(unit => unit.id === 'ger_panzer4').mesh.name, 'ger_panzer4');
+  assert.deepEqual(
+    units.find(unit => unit.id === 'fr_hq').roster.map(member => member.name),
+    ['Chasseur 1', 'Chasseur 2', 'Chasseur 3', 'Chasseur 4', 'Chasseur 5', 'Chasseur 6']
+  );
+  assert.deepEqual(
+    units.find(unit => unit.id === 'fr_hq').roster.map(member => member.id),
+    [
+      'squad-leader',
+      'rifleman-1',
+      'automatic-rifleman',
+      'rifleman-2',
+      'assistant-gunner',
+      'assistant-leader'
+    ]
+  );
+  assert.deepEqual(
+    units.find(unit => unit.id === 'ger_sq1').roster.map(member => member.weaponId),
+    ['KAR98K', 'KAR98K', 'MG34', 'KAR98K', 'KAR98K', 'MP40']
+  );
+  const headquarters = units.find(unit => unit.id === 'fr_hq');
+  const headquartersProfile = STONNE_1940_SCENARIO.units.find(unit => unit.id === 'fr_hq');
+  const squadLeader = headquarters.roster.find(member => member.id === 'squad-leader');
+  assert.equal(
+    observerHasEquipment(
+      headquarters,
+      squadLeader,
+      OBSERVATION_EQUIPMENT.BINOCULARS,
+      headquartersProfile
+    ),
+    true
+  );
+  assert.equal(hasOperationalRadioEndpoint(headquarters, headquartersProfile), true);
+  const reorderedSnapshot = headquarters.soldierAI.captureRoster().reverse();
+  reorderedSnapshot.find(member => member.id === 'squad-leader').health = 17;
+  headquarters.soldierAI.restoreRoster(reorderedSnapshot);
+  assert.equal(
+    headquarters.roster.find(member => member.id === 'squad-leader').health,
+    17,
+    'rollback state follows stable member identity rather than array position'
+  );
+  assert.deepEqual(
+    headquarters.roster.map(member => member.id),
+    [
+      'squad-leader',
+      'rifleman-1',
+      'automatic-rifleman',
+      'rifleman-2',
+      'assistant-gunner',
+      'assistant-leader'
+    ]
+  );
   assert.ok(units.every(unit => unit.mesh));
   assert.ok(units.every(unit => unit.mesh.rotation.y === unit.rotation));
+});
+
+test('production family ownership rejects cross-faction Stonne vehicles before construction', () => {
+  let constructions = 0;
+  class CountingUnit {
+    constructor() {
+      constructions += 1;
+    }
+  }
+  const frenchVehicle = STONNE_1940_SCENARIO.units.find(unit => unit.id === 'fr_tank');
+  const invalid = {
+    ...STONNE_1940_SCENARIO,
+    units: [{ ...frenchVehicle, faction: 'german' }]
+  };
+
+  assert.throws(
+    () => instantiateScenarioUnits(invalid, CountingUnit, PRODUCTION_FAMILY_REGISTRY),
+    /vehicle SOMUA_S35 does not belong to german/
+  );
+  assert.equal(constructions, 0);
 });
 
 test('scenario runtime rejects duplicate IDs before constructing units', () => {

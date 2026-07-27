@@ -82,6 +82,37 @@ function createTelemetry() {
   };
 }
 
+function snapshotInternalPathHit(hit) {
+  return {
+    ...hit,
+    crewRoles: [...(hit.crewRoles ?? [])],
+    entryPoint: [...hit.entryPoint],
+    exitPoint: [...hit.exitPoint],
+    energyAbsorption: hit.energyAbsorption
+      ? { ...hit.energyAbsorption }
+      : null
+  };
+}
+
+function snapshotExplosiveEffect(effect) {
+  if (!effect) return null;
+  return {
+    ...effect,
+    detonationPoint: [...(effect.detonationPoint ?? [])],
+    protection: effect.protection ? { ...effect.protection } : null,
+    externalIntent: effect.externalIntent ? { ...effect.externalIntent } : null,
+    crewIntents: effect.crewIntents?.map(intent => ({
+      ...intent,
+      crewRoles: [...(intent.crewRoles ?? [])],
+      volumeIds: [...(intent.volumeIds ?? [])]
+    })) ?? [],
+    componentIntents: effect.componentIntents?.map(intent => ({
+      ...intent,
+      volumeIds: [...(intent.volumeIds ?? [])]
+    })) ?? []
+  };
+}
+
 function snapshotCrewResult(crewResult) {
   if (!crewResult) return null;
   const snapshotCasualty = casualty => casualty
@@ -100,12 +131,8 @@ function snapshotCrewResult(crewResult) {
     casualties: crewResult.casualties?.map(snapshotCasualty) ?? (casualty ? [casualty] : []),
     damage: crewResult.damage ? { ...crewResult.damage } : null,
     components: crewResult.components?.map(component => ({ ...component })) ?? [],
-    internalPathHits: crewResult.internalPathHits?.map(hit => ({
-      ...hit,
-      crewRoles: [...(hit.crewRoles ?? [])],
-      entryPoint: [...hit.entryPoint],
-      exitPoint: [...hit.exitPoint]
-    })) ?? null,
+    internalPathHits: crewResult.internalPathHits?.map(snapshotInternalPathHit) ?? null,
+    explosiveEffect: snapshotExplosiveEffect(crewResult.explosiveEffect),
     burning: Boolean(crewResult.burning),
     destroyed: Boolean(crewResult.destroyed),
     secondaryExplosion: Boolean(crewResult.secondaryExplosion),
@@ -121,15 +148,26 @@ function snapshotImpact(record) {
     impactNormal: record.impactNormal ? [...record.impactNormal] : null,
     impactVelocity: record.impactVelocity ? [...record.impactVelocity] : null,
     postImpactVelocity: record.postImpactVelocity ? [...record.postImpactVelocity] : null,
+    plateResidualVelocity: record.plateResidualVelocity
+      ? [...record.plateResidualVelocity]
+      : null,
+    residualVelocity: record.residualVelocity ? [...record.residualVelocity] : null,
     separationNormal: record.separationNormal ? [...record.separationNormal] : null,
+    exitPosition: record.exitPosition ? [...record.exitPosition] : null,
+    penetrationReferenceUrls: record.penetrationReferenceUrls
+      ? [...record.penetrationReferenceUrls]
+      : [],
+    exitResult: record.exitResult
+      ? {
+          ...record.exitResult,
+          point: record.exitResult.point ? [...record.exitResult.point] : null,
+          normal: record.exitResult.normal ? [...record.exitResult.normal] : null
+        }
+      : null,
     trajectoryPoints: record.trajectoryPoints?.map(point => [...point]) ?? [],
     localImpactPoint: record.localImpactPoint ? [...record.localImpactPoint] : null,
-    internalPathHits: record.internalPathHits?.map(hit => ({
-      ...hit,
-      crewRoles: [...(hit.crewRoles ?? [])],
-      entryPoint: [...hit.entryPoint],
-      exitPoint: [...hit.exitPoint]
-    })) ?? null,
+    internalPathHits: record.internalPathHits?.map(snapshotInternalPathHit) ?? null,
+    explosiveEffect: snapshotExplosiveEffect(record.explosiveEffect),
     crewResult: snapshotCrewResult(record.crewResult),
     buildingResult: record.buildingResult
       ? JSON.parse(JSON.stringify(record.buildingResult))
@@ -272,6 +310,8 @@ export class CombatSystem {
       lifetime: 0,
       maxLifetime: weapon.maxRange / Math.max(1, weapon.muzzleVelocity) + 1,
       ricochetCount: 0,
+      penetrationCount: 0,
+      continuationDelaySeconds: 0,
       armorIgnore: null,
       trajectoryPoints: [fromPos.toArray()],
       trajectoryLastSampleDistance: 0,
@@ -306,7 +346,16 @@ export class CombatSystem {
         lifetime: projectile.lifetime,
         maxLifetime: projectile.maxLifetime,
         ricochetCount: projectile.ricochetCount ?? 0,
-        armorIgnore: projectile.armorIgnore ? { ...projectile.armorIgnore } : null,
+        penetrationCount: projectile.penetrationCount ?? 0,
+        continuationDelaySeconds: projectile.continuationDelaySeconds ?? 0,
+        armorIgnore: projectile.armorIgnore
+          ? {
+              ...projectile.armorIgnore,
+              plateIds: projectile.armorIgnore.plateIds
+                ? [...projectile.armorIgnore.plateIds]
+                : undefined
+            }
+          : null,
         trajectoryPoints: projectile.trajectoryPoints.map(point => [...point]),
         trajectoryLastSampleDistance: projectile.trajectoryLastSampleDistance,
         trajectorySampleSpacing: projectile.trajectorySampleSpacing
@@ -350,7 +399,16 @@ export class CombatSystem {
         lifetime: saved.lifetime,
         maxLifetime: saved.maxLifetime,
         ricochetCount: saved.ricochetCount ?? 0,
-        armorIgnore: saved.armorIgnore ? { ...saved.armorIgnore } : null,
+        penetrationCount: saved.penetrationCount ?? 0,
+        continuationDelaySeconds: Math.max(0, saved.continuationDelaySeconds ?? 0),
+        armorIgnore: saved.armorIgnore
+          ? {
+              ...saved.armorIgnore,
+              plateIds: saved.armorIgnore.plateIds
+                ? [...saved.armorIgnore.plateIds]
+                : undefined
+            }
+          : null,
         trajectoryPoints: saved.trajectoryPoints?.map(point => [...point])
           ?? [saved.muzzlePosition.slice()],
         trajectoryLastSampleDistance: saved.trajectoryLastSampleDistance ?? 0,
@@ -396,6 +454,42 @@ export class CombatSystem {
       postImpactSpeed: result?.postImpactSpeed ?? null,
       outgoingEnergyJ: result?.outgoingEnergyJ ?? null,
       retainedEnergyRatio: result?.retainedEnergyRatio ?? null,
+      penetrationModelVersion: result?.penetrationModelVersion ?? null,
+      penetrationDataQuality: result?.penetrationDataQuality ?? null,
+      penetrationReferenceUrls: result?.penetrationReferenceUrls
+        ? [...result.penetrationReferenceUrls]
+        : [],
+      penetrationRatio: result?.penetrationRatio ?? null,
+      ballisticLimitSpeed: result?.ballisticLimitSpeed ?? null,
+      armorEnergySpentJ: result?.armorEnergySpentJ ?? null,
+      plateResidualEnergyJ: result?.plateResidualEnergyJ ?? null,
+      plateResidualEnergyRatio: result?.plateResidualEnergyRatio ?? null,
+      plateResidualSpeed: result?.plateResidualSpeed ?? null,
+      plateResidualVelocity: result?.plateResidualVelocity
+        ? [...result.plateResidualVelocity]
+        : null,
+      internalInitialEnergyJ: result?.internalInitialEnergyJ ?? null,
+      internalEnergySpentJ: result?.internalEnergySpentJ ?? null,
+      preExitResidualEnergyJ: result?.preExitResidualEnergyJ ?? null,
+      exitArmorEnergySpentJ: result?.exitArmorEnergySpentJ ?? null,
+      residualEnergyJ: result?.residualEnergyJ ?? null,
+      residualVelocity: result?.residualVelocity ? [...result.residualVelocity] : null,
+      continuationKind: result?.continuationKind ?? 'none',
+      continuationReason: result?.continuationReason ?? null,
+      terminalEffect: result?.terminalEffect ?? null,
+      penetrationCount: result?.penetrationCount ?? projectile.penetrationCount ?? 0,
+      exitPosition: result?.exitPosition ? [...result.exitPosition] : null,
+      exitResult: result?.exitResult
+        ? {
+            ...result.exitResult,
+            point: result.exitResult.point ? [...result.exitResult.point] : null,
+            normal: result.exitResult.normal ? [...result.exitResult.normal] : null
+          }
+        : null,
+      stoppedInsideVehicle: result?.stoppedInsideVehicle ?? false,
+      internalTerminalDistanceMeters: result?.internalTerminalDistanceMeters ?? null,
+      internalTransitDistanceMeters: result?.internalTransitDistanceMeters ?? null,
+      internalTransitSeconds: result?.internalTransitSeconds ?? null,
       separationNormal: result?.separationNormal ? [...result.separationNormal] : null,
       clearanceMeters: result?.clearanceMeters ?? null,
       trajectoryPoints: projectile.trajectoryPoints.map(point => [...point]),
@@ -416,12 +510,8 @@ export class CombatSystem {
       effectiveArmorMm: result?.effectiveArmorMm ?? null,
       penetrationMm: result?.penetrationMm ?? null,
       penetrated: result?.penetrated ?? null,
-      internalPathHits: result?.internalPathHits?.map(hit => ({
-        ...hit,
-        crewRoles: [...(hit.crewRoles ?? [])],
-        entryPoint: [...hit.entryPoint],
-        exitPoint: [...hit.exitPoint]
-      })) ?? null,
+      internalPathHits: result?.internalPathHits?.map(snapshotInternalPathHit) ?? null,
+      explosiveEffect: snapshotExplosiveEffect(result?.explosiveEffect),
       crewResult: snapshotCrewResult(result?.crewResult),
       buildingId: impact.buildingId ?? null,
       sectionId: impact.sectionId ?? result?.sectionId ?? null,
@@ -471,26 +561,55 @@ export class CombatSystem {
     }
   }
 
-  applyRicochetContinuation(projectile, impact, result) {
-    if (!result?.ricocheted || !result.postImpactVelocity || !result.separationNormal) {
-      return false;
+  applyProjectileContinuation(projectile, impact, result) {
+    if (!result?.postImpactVelocity) return false;
+    if (result.continuationKind === 'ricochet') {
+      if (!result.separationNormal) return false;
+      projectile.velocity.fromArray(result.postImpactVelocity);
+      scratchRicochetNormal.fromArray(result.separationNormal).normalize();
+      projectile.position.copy(impact.point).addScaledVector(
+        scratchRicochetNormal,
+        result.clearanceMeters
+      );
+      projectile.previousPosition.copy(projectile.position);
+      projectile.ricochetCount = result.ricochetCount;
+      projectile.armorIgnore = result.plateId
+        ? {
+            unitId: impact.unit?.id ?? null,
+            plateId: result.plateId,
+            untilDistance: projectile.distanceTravelled
+              + Math.max(0.25, result.clearanceMeters * 8)
+          }
+        : null;
+      return true;
     }
+    if (result.continuationKind !== 'penetrator') return false;
     projectile.velocity.fromArray(result.postImpactVelocity);
-    scratchRicochetNormal.fromArray(result.separationNormal).normalize();
-    projectile.position.copy(impact.point).addScaledVector(
-      scratchRicochetNormal,
-      result.clearanceMeters
+    scratchDirection.copy(projectile.velocity).normalize();
+    projectile.position.fromArray(result.exitPosition);
+    projectile.distanceTravelled += result.internalTransitDistanceMeters ?? 0;
+    appendTrajectoryPoint(projectile, projectile.position, true);
+    projectile.position.addScaledVector(
+      scratchDirection,
+      result.continuationStartOffsetMeters
     );
     projectile.previousPosition.copy(projectile.position);
-    projectile.ricochetCount = result.ricochetCount;
-    projectile.armorIgnore = result.plateId
-      ? {
-          unitId: impact.unit?.id ?? null,
-          plateId: result.plateId,
-          untilDistance: projectile.distanceTravelled
-            + Math.max(0.25, result.clearanceMeters * 8)
-        }
-      : null;
+    projectile.continuationDelaySeconds = Math.max(
+      0,
+      (projectile.continuationDelaySeconds ?? 0)
+        + (result.internalTransitSeconds ?? 0)
+    );
+    projectile.penetrationCount = result.penetrationCount;
+    projectile.armorIgnore = {
+      unitId: impact.unit?.id ?? null,
+      armorVolumeId: result.armorVolumeId ?? null,
+      plateIds: [
+        result.plateId,
+        result.exitResult?.plateId
+      ].filter(Boolean),
+      untilDistance: projectile.distanceTravelled
+        + Math.max(0.25, result.continuationStartOffsetMeters * 4)
+    };
     return true;
   }
 
@@ -526,7 +645,7 @@ export class CombatSystem {
       } else {
         this.createImpactEffect(impact.point, result.penetrated ? 0xff5a36 : 0xe8f0ff);
       }
-      return this.applyRicochetContinuation(projectile, impact, result);
+      return this.applyProjectileContinuation(projectile, impact, result);
     }
 
     if (impact.kind === 'structure') {
@@ -718,6 +837,24 @@ export class CombatSystem {
         let remove = false;
         let contactCount = 0;
         while (remainingStep > PROJECTILE_SUBSTEP_EPSILON && !remove) {
+          if ((projectile.continuationDelaySeconds ?? 0) > PROJECTILE_SUBSTEP_EPSILON) {
+            const delayStep = Math.min(
+              remainingStep,
+              projectile.continuationDelaySeconds
+            );
+            projectile.continuationDelaySeconds = Math.max(
+              0,
+              projectile.continuationDelaySeconds - delayStep
+            );
+            projectile.lifetime += delayStep;
+            remainingStep -= delayStep;
+            if (projectile.lifetime >= projectile.maxLifetime
+                || projectile.distanceTravelled >= projectile.weapon.maxRange) {
+              remove = true;
+              break;
+            }
+            if (remainingStep <= PROJECTILE_SUBSTEP_EPSILON) break;
+          }
           const startX = projectile.position.x;
           const startY = projectile.position.y;
           const startZ = projectile.position.z;

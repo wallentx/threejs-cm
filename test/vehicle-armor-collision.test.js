@@ -4,7 +4,10 @@ import * as THREE from 'three';
 import { BallisticsSystem } from '../src/game/BallisticsSystem.js';
 import { VEHICLES } from '../src/game/VehicleCatalog.js';
 import { WEAPONS } from '../src/game/WeaponCatalog.js';
-import { intersectVehicleArmor } from '../src/simulation/vehicles/VehicleArmorCollision.js';
+import {
+  intersectVehicleArmor,
+  traceVehicleArmorExit
+} from '../src/simulation/vehicles/VehicleArmorCollision.js';
 
 function vehicleUnit(spec = VEHICLES.PANZER_III_D, {
   position = [0, 0, 0],
@@ -45,6 +48,10 @@ test('every catalog vehicle owns immutable named model-local armor collision vol
     for (const volume of collision.volumes) {
       assert.ok(Object.isFrozen(volume));
       assert.ok(['hull', 'turret', 'mantlet', 'cupola', 'track'].includes(volume.part));
+      assert.ok(
+        ['opposite_face', 'none'].includes(volume.exitArmorPolicy),
+        `${spec.id}:${volume.id} must declare a supported exit-armor policy`
+      );
       if (volume.shape === 'triangle-mesh') {
         assert.ok(Object.isFrozen(volume.vertices));
         assert.ok(Object.isFrozen(volume.plates));
@@ -97,6 +104,77 @@ test('SOMUA uses shared sloped station plates plus mantlet, cupola, and track zo
 
   const oldBoxFalsePositive = segment([1.04, 1.60, -1.2], [-1.04, 1.60, -1.2], unit);
   assert.equal(oldBoxFalsePositive, null);
+});
+
+test('SOMUA auxiliary envelopes charge track and mantlet resistance only on entry', () => {
+  const unit = vehicleUnit(VEHICLES.SOMUA_S35);
+  unit.applyArmorHit = result => ({ internalPathHits: result.internalPathHits });
+  const weapon = {
+    ...WEAPONS.KWK36_AP,
+    penetrationMmAt100m: 120
+  };
+  const ballistics = new BallisticsSystem({ random: () => 0.5 });
+
+  for (const fixture of [
+    {
+      label: 'track',
+      start: [5, 0.55, 0],
+      end: [-5, 0.55, 0],
+      expectedZone: 'track_left'
+    },
+    {
+      label: 'mantlet',
+      start: [0.04, 2.03, 10],
+      end: [0.04, 2.03, -10],
+      expectedZone: 'mantlet'
+    }
+  ]) {
+    const hit = segment(fixture.start, fixture.end, unit);
+    const direction = new THREE.Vector3(...fixture.end)
+      .sub(new THREE.Vector3(...fixture.start))
+      .normalize();
+    const exit = traceVehicleArmorExit({
+      unit,
+      armorVolumeId: hit.armorVolumeId,
+      entryPoint: hit.point,
+      direction
+    });
+    assert.equal(hit.zone, fixture.expectedZone, fixture.label);
+    assert.equal(exit.exitArmorPolicy, 'none', fixture.label);
+    assert.equal(exit.nominalArmorMm, 0, fixture.label);
+    assert.match(exit.thicknessDataQuality, /far boundary adds no armor resistance/);
+
+    const result = ballistics.resolveVehicleImpact({
+      weapon,
+      velocity: direction.clone().multiplyScalar(weapon.muzzleVelocity)
+    }, {
+      kind: 'vehicle',
+      unit,
+      point: new THREE.Vector3(...hit.point),
+      normal: new THREE.Vector3(...hit.normal),
+      zone: hit.zone,
+      fallbackZone: hit.fallbackZone,
+      plateId: hit.plateId,
+      armorVolumeId: hit.armorVolumeId,
+      armorPart: hit.armorPart,
+      armorGeometryQuality: hit.geometryQuality,
+      nominalArmorMm: hit.nominalArmorMm,
+      thicknessSourceZone: hit.thicknessSourceZone,
+      thicknessDataQuality: hit.thicknessDataQuality,
+      thicknessReferenceUrl: hit.thicknessReferenceUrl,
+      localImpactPoint: [hit.localPoint.x, hit.localPoint.y, hit.localPoint.z]
+    });
+
+    assert.equal(result.penetrated, true, fixture.label);
+    assert.equal(result.exitResult.exitArmorPolicy, 'none', fixture.label);
+    assert.equal(result.exitResult.nominalArmorMm, 0, fixture.label);
+    assert.equal(result.exitArmorEnergySpentJ, 0, fixture.label);
+    assert.equal(
+      result.residualEnergyJ,
+      result.preExitResidualEnergyJ,
+      fixture.label
+    );
+  }
 });
 
 test('swept armor collision reports named front, side, rear, and top plates', () => {
@@ -205,6 +283,9 @@ test('resolved SOMUA track hits use authored track thickness and localized compo
   assert.equal(result.thicknessZone, 'track_left');
   assert.equal(result.nominalArmorMm, 20);
   assert.match(result.thicknessDataQuality, /gameplay approximation/);
+  assert.equal(result.exitResult.exitArmorPolicy, 'none');
+  assert.equal(result.exitResult.nominalArmorMm, 0);
+  assert.equal(result.exitArmorEnergySpentJ, 0);
   assert.equal(result.crewResult.damageZone, 'hull_side');
   assert.equal(result.crewResult.componentZone, 'track_left');
 });
@@ -255,6 +336,290 @@ test('resolved SOMUA penetration traces ordered internal model-local volumes', (
   assert.match(result.internalPathHits[0].layoutDataQuality, /gameplay approximations/);
 });
 
+test('resolved Panzer III front penetration routes through transmission and rear engine', () => {
+  const unit = vehicleUnit(VEHICLES.PANZER_III_D);
+  unit.applyArmorHit = result => ({
+    internalPathHits: result.internalPathHits
+  });
+  const hit = segment([0, 0.9, 10], [0, 0.9, -10], unit);
+  const ballistics = new BallisticsSystem({ random: () => 0 });
+  const result = ballistics.resolveVehicleImpact({
+    weapon: WEAPONS.SA35_AP,
+    velocity: new THREE.Vector3(0, 0, -WEAPONS.SA35_AP.muzzleVelocity)
+  }, {
+    kind: 'vehicle',
+    unit,
+    point: new THREE.Vector3(...hit.point),
+    normal: new THREE.Vector3(...hit.normal),
+    zone: hit.zone,
+    fallbackZone: hit.fallbackZone,
+    plateId: hit.plateId,
+    armorVolumeId: hit.armorVolumeId,
+    armorPart: hit.armorPart,
+    armorGeometryQuality: hit.geometryQuality,
+    localImpactPoint: [hit.localPoint.x, hit.localPoint.y, hit.localPoint.z]
+  });
+
+  assert.equal(result.penetrated, true);
+  assert.deepEqual(
+    result.internalPathHits.map(pathHit => pathHit.id),
+    ['module-transmission', 'module-engine']
+  );
+  assert.deepEqual(result.crewResult.internalPathHits, result.internalPathHits);
+});
+
+test('turret penetration bounds internal damage at the turret exit armor', () => {
+  const unit = vehicleUnit(VEHICLES.PANZER_III_D);
+  unit.applyArmorHit = result => ({ internalPathHits: result.internalPathHits });
+  const hit = segment([0, 2, 10], [0, 2, -10], unit);
+  const weapon = {
+    ...WEAPONS.SA35_AP,
+    penetrationMmAt100m: 120
+  };
+  const result = new BallisticsSystem({ random: () => 0 }).resolveVehicleImpact({
+    weapon,
+    velocity: new THREE.Vector3(0, 0, -weapon.muzzleVelocity)
+  }, {
+    kind: 'vehicle',
+    unit,
+    point: new THREE.Vector3(...hit.point),
+    normal: new THREE.Vector3(...hit.normal),
+    zone: hit.zone,
+    fallbackZone: hit.fallbackZone,
+    plateId: hit.plateId,
+    armorVolumeId: hit.armorVolumeId,
+    armorPart: hit.armorPart,
+    armorGeometryQuality: hit.geometryQuality,
+    localImpactPoint: [hit.localPoint.x, hit.localPoint.y, hit.localPoint.z]
+  });
+
+  assert.equal(result.penetrated, true);
+  assert.equal(result.zone, 'turret_front');
+  assert.equal(result.exitResult.zone, 'turret_rear');
+  assert.deepEqual(
+    result.internalPathHits.map(pathHit => pathHit.id),
+    ['module-breech', 'crew-commander']
+  );
+  assert.ok(
+    result.internalPathHits.every(pathHit =>
+      pathHit.exitDistanceMeters <= result.exitResult.distanceMeters + 1e-9)
+  );
+  assert.ok(!result.internalPathHits.some(pathHit =>
+    ['module-engine', 'module-transmission'].includes(pathHit.id)));
+});
+
+test('resolved French light armor penetrations enter their vehicle-owned internal layouts', () => {
+  const weapon = {
+    ...WEAPONS.KWK36_AP,
+    penetrationMmAt100m: 120
+  };
+  for (const [spec, height] of [
+    [VEHICLES.RENAULT_R35, 0.72],
+    [VEHICLES.HOTCHKISS_H39, 0.69],
+    [VEHICLES.AMC_35, 0.75],
+    [VEHICLES.PANHARD_178, 0.76]
+  ]) {
+    const unit = vehicleUnit(spec);
+    unit.applyArmorHit = result => ({ internalPathHits: result.internalPathHits });
+    const hit = segment([0, height, 10], [0, height, -10], unit);
+    const result = new BallisticsSystem({ random: () => 0 }).resolveVehicleImpact({
+      weapon,
+      velocity: new THREE.Vector3(0, 0, -weapon.muzzleVelocity)
+    }, {
+      kind: 'vehicle',
+      unit,
+      point: new THREE.Vector3(...hit.point),
+      normal: new THREE.Vector3(...hit.normal),
+      zone: hit.zone,
+      fallbackZone: hit.fallbackZone,
+      plateId: hit.plateId,
+      armorVolumeId: hit.armorVolumeId,
+      armorPart: hit.armorPart,
+      armorGeometryQuality: hit.geometryQuality,
+      localImpactPoint: [hit.localPoint.x, hit.localPoint.y, hit.localPoint.z]
+    });
+
+    assert.equal(result.penetrated, true, spec.id);
+    assert.deepEqual(
+      result.internalPathHits.map(pathHit => pathHit.id),
+      ['module-transmission', 'module-engine'],
+      spec.id
+    );
+    assert.deepEqual(result.crewResult.internalPathHits, result.internalPathHits);
+  }
+});
+
+test('unarmored transport penetrations enter bonnet powertrains without inventing armor resistance', () => {
+  for (const [spec, height] of [
+    [VEHICLES.LAFFLY_S20TL, 1.05],
+    [VEHICLES.OPEL_BLITZ, 0.98]
+  ]) {
+    const unit = vehicleUnit(spec);
+    unit.applyArmorHit = result => ({ internalPathHits: result.internalPathHits });
+    const hit = segment([0, height, 10], [0, height, -10], unit);
+    const result = new BallisticsSystem({ random: () => 0 }).resolveVehicleImpact({
+      weapon: WEAPONS.KWK36_AP,
+      velocity: new THREE.Vector3(0, 0, -WEAPONS.KWK36_AP.muzzleVelocity)
+    }, {
+      kind: 'vehicle',
+      unit,
+      point: new THREE.Vector3(...hit.point),
+      normal: new THREE.Vector3(...hit.normal),
+      zone: hit.zone,
+      fallbackZone: hit.fallbackZone,
+      plateId: hit.plateId,
+      armorVolumeId: hit.armorVolumeId,
+      armorPart: hit.armorPart,
+      armorGeometryQuality: hit.geometryQuality,
+      localImpactPoint: [hit.localPoint.x, hit.localPoint.y, hit.localPoint.z]
+    });
+
+    assert.equal(result.penetrated, true, spec.id);
+    assert.equal(result.nominalArmorMm, 0, spec.id);
+    assert.deepEqual(
+      result.internalPathHits.map(pathHit => pathHit.id),
+      ['module-engine', 'module-transmission'],
+      spec.id
+    );
+  }
+});
+
+test('early German light-tank penetrations enter distinct front- and rear-drive layouts', () => {
+  for (const [spec, start, end, expected] of [
+    [
+      VEHICLES.PANZER_II_C,
+      [0, 0.75, 10],
+      [0, 0.75, -10],
+      ['module-transmission', 'module-engine']
+    ],
+    [
+      VEHICLES.PANZER_35T,
+      [0, 0.78, -10],
+      [0, 0.78, 10],
+      ['module-transmission', 'module-engine']
+    ]
+  ]) {
+    const unit = vehicleUnit(spec);
+    unit.applyArmorHit = result => ({ internalPathHits: result.internalPathHits });
+    const hit = segment(start, end, unit);
+    const velocity = new THREE.Vector3(...end)
+      .sub(new THREE.Vector3(...start))
+      .normalize()
+      .multiplyScalar(WEAPONS.KWK36_AP.muzzleVelocity);
+    const result = new BallisticsSystem({ random: () => 0 }).resolveVehicleImpact({
+      weapon: WEAPONS.KWK36_AP,
+      velocity
+    }, {
+      kind: 'vehicle',
+      unit,
+      point: new THREE.Vector3(...hit.point),
+      normal: new THREE.Vector3(...hit.normal),
+      zone: hit.zone,
+      fallbackZone: hit.fallbackZone,
+      plateId: hit.plateId,
+      armorVolumeId: hit.armorVolumeId,
+      armorPart: hit.armorPart,
+      armorGeometryQuality: hit.geometryQuality,
+      localImpactPoint: [hit.localPoint.x, hit.localPoint.y, hit.localPoint.z]
+    });
+
+    assert.equal(result.penetrated, true, spec.id);
+    assert.deepEqual(
+      result.internalPathHits.map(pathHit => pathHit.id),
+      expected,
+      spec.id
+    );
+  }
+});
+
+test('Panzer 38(t) and Sd.Kfz. 231 penetrations enter their distinct front systems', () => {
+  for (const [spec, height, expected] of [
+    [
+      VEHICLES.PANZER_38T,
+      0.75,
+      ['module-transmission', 'module-engine']
+    ],
+    [
+      VEHICLES.SDKFZ_231,
+      0.80,
+      ['module-engine', 'module-transmission']
+    ]
+  ]) {
+    const unit = vehicleUnit(spec);
+    unit.applyArmorHit = result => ({ internalPathHits: result.internalPathHits });
+    const hit = segment([0, height, 10], [0, height, -10], unit);
+    const result = new BallisticsSystem({ random: () => 0 }).resolveVehicleImpact({
+      weapon: WEAPONS.KWK36_AP,
+      velocity: new THREE.Vector3(0, 0, -WEAPONS.KWK36_AP.muzzleVelocity)
+    }, {
+      kind: 'vehicle',
+      unit,
+      point: new THREE.Vector3(...hit.point),
+      normal: new THREE.Vector3(...hit.normal),
+      zone: hit.zone,
+      fallbackZone: hit.fallbackZone,
+      plateId: hit.plateId,
+      armorVolumeId: hit.armorVolumeId,
+      armorPart: hit.armorPart,
+      armorGeometryQuality: hit.geometryQuality,
+      localImpactPoint: [hit.localPoint.x, hit.localPoint.y, hit.localPoint.z]
+    });
+
+    assert.equal(result.penetrated, true, spec.id);
+    assert.deepEqual(
+      result.internalPathHits.map(pathHit => pathHit.id),
+      expected,
+      spec.id
+    );
+  }
+});
+
+test('Char B1 bis and Panzer IV penetrations enter their distinct rear- and front-drive systems', () => {
+  const testProjectile = {
+    ...WEAPONS.KWK36_AP,
+    penetrationMmAt100m: 120
+  };
+  for (const [spec, height, expected] of [
+    [
+      VEHICLES.CHAR_B1_BIS,
+      0.83,
+      ['module-engine', 'module-transmission']
+    ],
+    [
+      VEHICLES.PANZER_IV_D,
+      0.84,
+      ['module-transmission', 'module-engine']
+    ]
+  ]) {
+    const unit = vehicleUnit(spec);
+    unit.applyArmorHit = result => ({ internalPathHits: result.internalPathHits });
+    const hit = segment([0, height, 10], [0, height, -10], unit);
+    const result = new BallisticsSystem({ random: () => 0 }).resolveVehicleImpact({
+      weapon: testProjectile,
+      velocity: new THREE.Vector3(0, 0, -testProjectile.muzzleVelocity)
+    }, {
+      kind: 'vehicle',
+      unit,
+      point: new THREE.Vector3(...hit.point),
+      normal: new THREE.Vector3(...hit.normal),
+      zone: hit.zone,
+      fallbackZone: hit.fallbackZone,
+      plateId: hit.plateId,
+      armorVolumeId: hit.armorVolumeId,
+      armorPart: hit.armorPart,
+      armorGeometryQuality: hit.geometryQuality,
+      localImpactPoint: [hit.localPoint.x, hit.localPoint.y, hit.localPoint.z]
+    });
+
+    assert.equal(result.penetrated, true, spec.id);
+    assert.deepEqual(
+      result.internalPathHits.map(pathHit => pathHit.id),
+      expected,
+      spec.id
+    );
+  }
+});
+
 test('fast projectiles cannot tunnel through named armor volumes', () => {
   const unit = vehicleUnit();
   const hit = segment([0, 1, 1000], [0, 1, -1000], unit);
@@ -264,4 +629,50 @@ test('fast projectiles cannot tunnel through named armor volumes', () => {
 
   const replay = segment([0, 1, 1000], [0, 1, -1000], unit);
   assert.deepEqual(replay, hit);
+});
+
+test('armor-exit trace crosses an OBB to its far named plate instead of re-hitting entry', () => {
+  const unit = vehicleUnit(VEHICLES.PANZER_III_D);
+  const entry = segment([0, 1, 10], [0, 1, -10], unit);
+  const exit = traceVehicleArmorExit({
+    unit,
+    armorVolumeId: entry.armorVolumeId,
+    entryPoint: entry.point,
+    direction: [0, 0, -1],
+    maxDistanceMeters: 10
+  });
+
+  assert.equal(entry.plateId, 'hull-primary:positiveZ');
+  assert.ok(exit);
+  assert.equal(exit.armorVolumeId, entry.armorVolumeId);
+  assert.equal(exit.plateId, 'hull-primary:negativeZ');
+  assert.ok(Math.abs(exit.normal[0]) < 1e-12);
+  assert.ok(Math.abs(exit.normal[1]) < 1e-12);
+  assert.equal(exit.normal[2], -1);
+  assert.ok(Math.abs(exit.point[2] + 2.69) < 1e-9);
+  assert.ok(Math.abs(exit.distanceMeters - 5.38) < 1e-9);
+  assert.ok(exit.distanceMeters > 0.01, 'exit must not be the t=0 entry face');
+});
+
+test('armor-exit trace crosses the SOMUA triangle shell to its far named plate', () => {
+  const unit = vehicleUnit(VEHICLES.SOMUA_S35);
+  const entry = segment([0, 0.85, 10], [0, 0.85, -10], unit);
+  const exit = traceVehicleArmorExit({
+    unit,
+    armorVolumeId: entry.armorVolumeId,
+    entryPoint: entry.point,
+    direction: [0, 0, -1],
+    maxDistanceMeters: 10
+  });
+
+  assert.equal(entry.plateId, 'hull-cast-shell:front-cast-nose');
+  assert.ok(exit);
+  assert.equal(exit.armorVolumeId, entry.armorVolumeId);
+  assert.equal(exit.plateId, 'hull-cast-shell:rear-casting');
+  assert.ok(Math.abs(exit.normal[0]) < 1e-12);
+  assert.ok(Math.abs(exit.normal[1]) < 1e-12);
+  assert.equal(exit.normal[2], -1);
+  assert.ok(Math.abs(exit.point[2] + 2.69) < 1e-9);
+  assert.ok(Math.abs(exit.distanceMeters - 5.38) < 1e-9);
+  assert.ok(exit.distanceMeters > 0.01, 'exit must not be the t=0 entry face');
 });
