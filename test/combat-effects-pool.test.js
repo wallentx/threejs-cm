@@ -2,10 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { CombatSystem } from '../src/game/CombatSystem.js';
+import { TEST_VFX_PROVIDER } from './helpers/TestVfxProvider.js';
 
 test('combat impact and explosion visuals stay within reusable bounded pools', () => {
   const scene = new THREE.Scene();
-  const combat = new CombatSystem(scene, {});
+  const combat = new CombatSystem(scene, {}, () => 0.5, {
+    vfxProvider: TEST_VFX_PROVIDER
+  });
   const point = new THREE.Vector3(2, 0.4, -3);
 
   for (let index = 0; index < 96; index++) combat.createImpactEffect(point, 0xffaa33);

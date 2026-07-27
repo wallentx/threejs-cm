@@ -171,6 +171,10 @@ test('generic calibration code contains no family-owned model or raster fallback
   assert.doesNotMatch(appSource, /content\/france1940|s35-compare\.jpg/);
   assert.match(appSource, /VehicleCalibrationApp requires calibrationReferences/);
   assert.match(appSource, /referenceRegistry: this\.calibrationReferences/);
+  assert.match(appSource, /ExternalImageAssetService/);
+  assert.match(appSource, /this\.imageAssets\.load\(url/);
+  assert.match(appSource, /fallbackPolicy: \{ action: 'return-null' \}/);
+  assert.match(appSource, /this\.imageAssets\.dispose\(\)/);
 
   assert.throws(
     () => createVehicleOwnedRegistrations(

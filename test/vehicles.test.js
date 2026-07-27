@@ -538,6 +538,11 @@ test('2cm autocannon consumes a 10-round feed before crewed reload', () => {
   };
 
   assert.equal(panzerII.vehicleWeapon.feedAmmo, 10);
+  assert.equal(panzerII.updateVehicleCombat(2, {
+    target,
+    combat: { fireWeapon: () => false }
+  }), false);
+  assert.equal(panzerII.vehicleWeapon.feedAmmo, 10);
   for (let shot = 0; shot < 9; shot++) {
     panzerII.vehicleWeapon.cooldown = 0;
     assert.equal(panzerII.updateVehicleCombat(0.1, { target, combat }), true);

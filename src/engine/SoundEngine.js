@@ -1,55 +1,67 @@
-const VOICE_LIMITS = Object.freeze({
-  gunshot: 12,
-  cannon: 4,
-  explosion: 3,
-  ui: 2
-});
+import {
+  validateBattlefieldAudioProvider,
+  validateBattlefieldAudioResourceSet
+} from './audio/BattlefieldAudioContract.js';
 
-const NOISE_SPECS = Object.freeze({
-  gunshot_mg: { duration: 0.08, cutoff: 1200, gain: 0.32 },
-  gunshot_rifle: { duration: 0.20, cutoff: 800, gain: 0.70 },
-  cannon: { duration: 0.50, cutoff: 420, gain: 0.80 },
-  explosion: { duration: 1.20, cutoff: 400, gain: 0.92 }
-});
-
-function seededNoise(index) {
-  // Audio is presentation-only, but stable noise makes cache construction repeatable.
-  let value = (index + 1) * 747796405 + 2891336453;
+function seededNoise(index, seed = 0) {
+  // Audio is presentation-only, but stable noise keeps cached synthesis repeatable.
+  let value = (index + 1 + seed) * 747796405 + 2891336453;
   value = Math.imul(value ^ (value >>> 16), 2246822519);
   value = Math.imul(value ^ (value >>> 13), 3266489917);
   return ((value ^ (value >>> 16)) >>> 0) / 2147483648 - 1;
 }
 
 export class SoundEngine {
-  constructor({ voiceLimits = VOICE_LIMITS } = {}) {
+  constructor({ audioProvider, voiceLimits = {} } = {}) {
+    this.audioProvider = validateBattlefieldAudioProvider(audioProvider);
+    this.audioResources = validateBattlefieldAudioResourceSet(
+      this.audioProvider.createResources()
+    );
+    this.assetBinding = this.audioResources.assetBinding ?? null;
     this.ctx = null;
     this.masterGain = null;
     this.enabled = true;
-    this.voiceLimits = { ...VOICE_LIMITS, ...voiceLimits };
+    this.disposed = false;
+    this.voiceLimits = {
+      ...this.audioResources.voiceLimits,
+      ...voiceLimits
+    };
     this.activeVoices = new Map();
     this.noiseBuffers = new Map();
+    this.lastEventId = null;
   }
 
   init() {
+    if (this.disposed) return false;
     if (!this.ctx) {
       const scope = globalThis.window ?? globalThis;
       const AudioCtx = scope.AudioContext || scope.webkitAudioContext;
       if (!AudioCtx) return false;
       this.ctx = new AudioCtx();
       this.masterGain = this.ctx.createGain();
-      this.masterGain.gain.setValueAtTime(0.74, this.ctx.currentTime);
+      this.masterGain.gain.setValueAtTime(
+        this.audioResources.masterGain,
+        this.ctx.currentTime
+      );
       this.masterGain.connect(this.ctx.destination);
     }
     if (this.ctx.state === 'suspended') this.ctx.resume?.();
     return true;
   }
 
-  reserveVoice(category, sourceCount) {
+  reserveVoice(category, sourceCount, eventId) {
     const limit = this.voiceLimits[category] ?? 1;
     const active = this.activeVoices.get(category);
     if (active?.size >= limit) return null;
 
-    const voice = { category, remaining: sourceCount, sources: [], nodes: [] };
+    const voice = {
+      category,
+      eventId,
+      assetBinding: this.assetBinding,
+      remaining: sourceCount,
+      sources: [],
+      nodes: []
+    };
     if (active) active.add(voice);
     else this.activeVoices.set(category, new Set([voice]));
     return voice;
@@ -77,90 +89,106 @@ export class SoundEngine {
     source.stop(stopAt);
   }
 
-  getNoiseBuffer(id) {
-    const cached = this.noiseBuffers.get(id);
+  getNoiseBuffer(eventId, layerIndex, layer) {
+    const key = `${eventId}:${layerIndex}`;
+    const cached = this.noiseBuffers.get(key);
     if (cached) return cached;
-    const spec = NOISE_SPECS[id];
-    const size = Math.ceil(this.ctx.sampleRate * spec.duration);
+    const size = Math.ceil(this.ctx.sampleRate * layer.durationSeconds);
     const buffer = this.ctx.createBuffer(1, size, this.ctx.sampleRate);
     const channel = buffer.getChannelData(0);
-    for (let index = 0; index < channel.length; index++) channel[index] = seededNoise(index);
-    this.noiseBuffers.set(id, buffer);
+    for (let index = 0; index < channel.length; index++) {
+      channel[index] = seededNoise(index, layer.seed ?? 0);
+    }
+    this.noiseBuffers.set(key, buffer);
     return buffer;
   }
 
-  playNoise(voice, id, startAt, duration = NOISE_SPECS[id].duration) {
-    const spec = NOISE_SPECS[id];
+  playNoiseLayer(voice, eventId, layer, layerIndex, startAt) {
     const source = this.ctx.createBufferSource();
     const filter = this.ctx.createBiquadFilter();
     const gain = this.ctx.createGain();
-    source.buffer = this.getNoiseBuffer(id);
+    source.buffer = this.getNoiseBuffer(eventId, layerIndex, layer);
     filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(spec.cutoff, startAt);
-    filter.frequency.exponentialRampToValueAtTime(Math.max(32, spec.cutoff * 0.11), startAt + duration);
-    gain.gain.setValueAtTime(spec.gain, startAt);
-    gain.gain.exponentialRampToValueAtTime(0.001, startAt + duration);
+    filter.frequency.setValueAtTime(layer.cutoffStartHz, startAt);
+    filter.frequency.exponentialRampToValueAtTime(
+      layer.cutoffEndHz,
+      startAt + layer.durationSeconds
+    );
+    gain.gain.setValueAtTime(layer.gain, startAt);
+    gain.gain.exponentialRampToValueAtTime(
+      0.001,
+      startAt + layer.durationSeconds
+    );
     source.connect(filter);
     filter.connect(gain);
     gain.connect(this.masterGain);
-    this.attachSource(voice, source, [source, filter, gain], startAt + duration + 0.01);
+    this.attachSource(
+      voice,
+      source,
+      [source, filter, gain],
+      startAt + layer.durationSeconds + 0.01
+    );
   }
 
-  playGunshot(type = 'garand') {
-    if (!this.enabled || !this.init()) return false;
-    const voice = this.reserveVoice('gunshot', 1);
-    if (!voice) return false;
-    const id = type === 'mg42' ? 'gunshot_mg' : 'gunshot_rifle';
-    this.playNoise(voice, id, this.ctx.currentTime);
-    return true;
-  }
-
-  playCannon() {
-    if (!this.enabled || !this.init()) return false;
-    const voice = this.reserveVoice('cannon', 2);
-    if (!voice) return false;
-    const startAt = this.ctx.currentTime;
+  playOscillatorLayer(voice, layer, startAt) {
     const oscillator = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
-    oscillator.type = 'sine';
-    oscillator.frequency.setValueAtTime(120, startAt);
-    oscillator.frequency.exponentialRampToValueAtTime(30, startAt + 0.6);
-    gain.gain.setValueAtTime(0.72, startAt);
-    gain.gain.exponentialRampToValueAtTime(0.001, startAt + 0.7);
+    oscillator.type = layer.waveform;
+    oscillator.frequency.setValueAtTime(layer.startHz, startAt);
+    oscillator.frequency.exponentialRampToValueAtTime(
+      layer.endHz,
+      startAt + layer.durationSeconds
+    );
+    gain.gain.setValueAtTime(layer.gain, startAt);
+    gain.gain.exponentialRampToValueAtTime(
+      0.001,
+      startAt + layer.durationSeconds
+    );
     oscillator.connect(gain);
     gain.connect(this.masterGain);
-    this.attachSource(voice, oscillator, [oscillator, gain], startAt + 0.71);
-    this.playNoise(voice, 'cannon', startAt);
-    return true;
+    this.attachSource(
+      voice,
+      oscillator,
+      [oscillator, gain],
+      startAt + layer.durationSeconds + 0.01
+    );
   }
 
-  playExplosion() {
+  playEvent(eventId) {
     if (!this.enabled || !this.init()) return false;
-    const voice = this.reserveVoice('explosion', 1);
-    if (!voice) return false;
-    this.playNoise(voice, 'explosion', this.ctx.currentTime);
-    return true;
-  }
-
-  playUIClick() {
-    if (!this.enabled || !this.init()) return false;
-    const voice = this.reserveVoice('ui', 1);
+    const event = this.audioResources.events[eventId];
+    if (!event) {
+      throw new Error(`battlefield audio provider resolved unknown event ${eventId}`);
+    }
+    const voice = this.reserveVoice(event.category, event.layers.length, eventId);
     if (!voice) return false;
     const startAt = this.ctx.currentTime;
-    const oscillator = this.ctx.createOscillator();
-    const gain = this.ctx.createGain();
-    oscillator.type = 'triangle';
-    oscillator.frequency.setValueAtTime(800, startAt);
-    oscillator.frequency.exponentialRampToValueAtTime(400, startAt + 0.05);
-    gain.gain.setValueAtTime(0.2, startAt);
-    gain.gain.exponentialRampToValueAtTime(0.001, startAt + 0.05);
-    oscillator.connect(gain);
-    gain.connect(this.masterGain);
-    this.attachSource(voice, oscillator, [oscillator, gain], startAt + 0.06);
+    event.layers.forEach((layer, index) => {
+      if (layer.type === 'noise') {
+        this.playNoiseLayer(voice, eventId, layer, index, startAt);
+      } else {
+        this.playOscillatorLayer(voice, layer, startAt);
+      }
+    });
+    this.lastEventId = eventId;
     return true;
+  }
+
+  playWeapon(weapon) {
+    return this.playEvent(this.audioResources.resolveWeaponEvent(weapon));
+  }
+
+  playExplosion(context = {}) {
+    return this.playEvent(this.audioResources.resolveExplosionEvent(context));
+  }
+
+  playUIClick(context = {}) {
+    return this.playEvent(this.audioResources.resolveUiEvent(context));
   }
 
   dispose() {
+    if (this.disposed) return false;
+    this.disposed = true;
     for (const voices of this.activeVoices.values()) {
       for (const voice of [...voices]) {
         for (const source of voice.sources) {
@@ -177,5 +205,7 @@ export class SoundEngine {
     const context = this.ctx;
     this.ctx = null;
     context?.close?.();
+    this.audioResources.dispose();
+    return true;
   }
 }

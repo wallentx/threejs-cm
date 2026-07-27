@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { CombatSystem } from '../src/game/CombatSystem.js';
 import { Unit } from './helpers/France1940TestUnit.js';
+import { TEST_VFX_PROVIDER } from './helpers/TestVfxProvider.js';
 import { getWeapon } from '../src/game/WeaponCatalog.js';
 import {
   ARMOR_RICOCHET_MODEL,
@@ -27,7 +28,8 @@ function createRicochetBattle() {
   const scene = new THREE.Scene();
   scene.add(attacker.mesh, target.mesh);
   const combat = new CombatSystem(scene, {}, () => 0.5, {
-    getUnits: () => [attacker, target]
+    getUnits: () => [attacker, target],
+    vfxProvider: TEST_VFX_PROVIDER
   });
   const muzzle = new THREE.Vector3(1.1, 1.25, -2.5);
   assert.equal(combat.fireWeapon(attacker, target, target.position, {
@@ -75,7 +77,8 @@ function createPenetrationBattle() {
   const scene = new THREE.Scene();
   scene.add(attacker.mesh, firstTarget.mesh, secondTarget.mesh);
   const combat = new CombatSystem(scene, {}, () => 0.5, {
-    getUnits: () => [attacker, firstTarget, secondTarget]
+    getUnits: () => [attacker, firstTarget, secondTarget],
+    vfxProvider: TEST_VFX_PROVIDER
   });
   assert.equal(combat.fireWeapon(attacker, firstTarget, firstTarget.position, {
     weapon: getWeapon('SA35_AP'),
@@ -200,7 +203,8 @@ test('vehicle-impact HE detonates once and never enters the intact-penetrator pa
   const scene = new THREE.Scene();
   scene.add(attacker.mesh, firstTarget.mesh, secondTarget.mesh);
   const combat = new CombatSystem(scene, {}, () => 0.5, {
-    getUnits: () => [attacker, firstTarget, secondTarget]
+    getUnits: () => [attacker, firstTarget, secondTarget],
+    vfxProvider: TEST_VFX_PROVIDER
   });
   const muzzle = new THREE.Vector3(0, 1, 54);
   assert.equal(combat.fireWeapon(attacker, firstTarget, firstTarget.position, {

@@ -21,7 +21,12 @@ test('vehicle status presenter exposes component health and independent weapon m
             fireState: 'FIRING',
             operational: true,
             feedAmmo: 34,
-            reserveAmmo: 1200
+            reserveAmmo: 1200,
+            fireControl: {
+              aimProgressSeconds: 0.4,
+              aimRequiredSeconds: 0.8,
+              estimatedRangeMeters: 123
+            }
           },
           {
             id: 'hull_mg',
@@ -47,6 +52,8 @@ test('vehicle status presenter exposes component health and independent weapon m
   assert.equal(view.mounts.length, 2);
   assert.equal(view.mounts[0].feed, 34);
   assert.equal(view.mounts[0].status, 'FIRING');
+  assert.equal(view.mounts[0].aimProgressRatio, 0.5);
+  assert.equal(view.mounts[0].estimatedRangeMeters, 123);
   assert.equal(view.mounts[1].operational, false);
   assert.equal(view.mounts[1].status, 'DISABLED');
 });

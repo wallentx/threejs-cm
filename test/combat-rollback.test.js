@@ -5,6 +5,7 @@ import { CombatSystem } from '../src/game/CombatSystem.js';
 import { Unit } from './helpers/France1940TestUnit.js';
 import { getWeapon } from '../src/game/WeaponCatalog.js';
 import { VehicleDamageEffects } from '../src/world/VehicleDamageEffects.js';
+import { TEST_VFX_PROVIDER } from './helpers/TestVfxProvider.js';
 
 function createDeterministicRandom(seed = 0x7f4a7c15) {
   let state = seed >>> 0;
@@ -43,7 +44,8 @@ function createBattle() {
   scene.add(attacker.mesh, target.mesh);
   const random = createDeterministicRandom();
   const combat = new CombatSystem(scene, {}, () => random.next(), {
-    getUnits: () => [attacker, target]
+    getUnits: () => [attacker, target],
+    vfxProvider: TEST_VFX_PROVIDER
   });
   const unitMap = new Map([
     [attacker.id, attacker],
@@ -165,7 +167,7 @@ test('in-flight projectile, sequence, references, and telemetry replay determini
 test('restore before and after impact removes future scorch then rehydrates restored telemetry once', () => {
   const battle = createBattle();
   const { attacker, target, combat, random, unitMap } = battle;
-  const effects = new VehicleDamageEffects();
+  const effects = new VehicleDamageEffects({ vfxProvider: TEST_VFX_PROVIDER });
   effects.update(0, [target], []);
   const record = effects.records.get(target.id);
 

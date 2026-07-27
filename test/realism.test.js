@@ -6,6 +6,7 @@ import { WEAPONS } from '../src/game/WeaponCatalog.js';
 import { VEHICLES } from '../src/game/VehicleCatalog.js';
 import { BallisticsSystem, resolveArmorPenetration } from '../src/game/BallisticsSystem.js';
 import { CombatSystem } from '../src/game/CombatSystem.js';
+import { TEST_VFX_PROVIDER } from './helpers/TestVfxProvider.js';
 
 const flatTerrain = { getHeightAt: () => 0 };
 const sound = {
@@ -62,7 +63,9 @@ test('individual soldier consumes own magazine and dead soldier cannot fire', ()
     random: () => 0.34
   };
 
-  assert.equal(agent.updateCombat(0.1, context), true);
+  assert.equal(agent.updateCombat(0.1, context), false);
+  assert.equal(agent.fireControl.phase, 'AIMING');
+  assert.equal(agent.updateCombat(2, context), true);
   assert.equal(agent.magazineAmmo, 1);
   assert.equal(agent.roundsFired, 1);
   assert.equal(shots, 1);
@@ -111,7 +114,7 @@ test('individual fire requires a stationary shooter, LOS, range, aperture permis
 
   agent.state = 'MOVING';
   agent.fireCooldown = 0;
-  assert.equal(agent.updateCombat(0.1, context), false);
+  assert.equal(agent.updateCombat(2, context), false);
 
   agent.state = 'READY';
   agent.fireCooldown = 0;
@@ -130,7 +133,7 @@ test('individual fire requires a stationary shooter, LOS, range, aperture permis
   acceptsShot = false;
   const ammoBefore = agent.magazineAmmo;
   const roundsBefore = agent.roundsFired;
-  assert.equal(agent.updateCombat(0.1, context), false);
+  assert.equal(agent.updateCombat(2, context), false);
   assert.equal(calls, 1);
   assert.equal(agent.magazineAmmo, ammoBefore);
   assert.equal(agent.roundsFired, roundsBefore);
@@ -316,6 +319,10 @@ test('vehicle main gun fires loaded round from modeled muzzle then begins crewed
     position: new THREE.Vector3(0, 0, 100)
   });
   let shot = null;
+  somua.updateVehicleCombat(3, {
+    target: panzer,
+    combat: { fireWeapon: () => false }
+  });
   const fired = somua.updateVehicleCombat(0.1, {
     target: panzer,
     combat: {
@@ -370,7 +377,8 @@ test('projectile starts at visible soldier muzzle and resolves swept hit', () =>
   const scene = new THREE.Scene();
   scene.add(attacker.mesh, target.mesh);
   const combat = new CombatSystem(scene, sound, () => 0, {
-    getUnits: () => [attacker, target]
+    getUnits: () => [attacker, target],
+    vfxProvider: TEST_VFX_PROVIDER
   });
   const muzzle = shooter.getMuzzleWorldPosition();
   assert.equal(combat.fireWeapon(attacker, target, victim.position, {
@@ -500,7 +508,8 @@ test('inspectable shot telemetry records detailed impact fields', () => {
   const scene = new THREE.Scene();
   scene.add(attacker.mesh, target.mesh);
   const combat = new CombatSystem(scene, sound, () => 0.5, {
-    getUnits: () => [attacker, target]
+    getUnits: () => [attacker, target],
+    vfxProvider: TEST_VFX_PROVIDER
   });
 
   combat.fireWeapon(attacker, target, target.position, {
@@ -531,7 +540,9 @@ test('inspectable shot telemetry records detailed impact fields', () => {
 
 test('shot telemetry distinguishes stopped and penetrating armor records', () => {
   const scene = new THREE.Scene();
-  const combat = new CombatSystem(scene, sound, () => 0.5);
+  const combat = new CombatSystem(scene, sound, () => 0.5, {
+    vfxProvider: TEST_VFX_PROVIDER
+  });
   const ballistics = new BallisticsSystem({ random: () => 0.5 });
   const makeTarget = (id, armor) => ({
     id,

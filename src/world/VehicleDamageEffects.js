@@ -1,9 +1,8 @@
 import * as THREE from 'three';
 import {
-  PROCEDURAL_BATTLEFIELD_VFX_PROVIDER,
   validateBattlefieldVfxProvider,
   validateVehicleDamageVfxResourceSet
-} from './vfx/ProceduralBattlefieldVfxProvider.js';
+} from './vfx/BattlefieldVfxContract.js';
 
 const FIRE_COMPONENTS = Object.freeze(['engine', 'fuel', 'ammunition']);
 const DESTROYED_STATES = new Set(['DESTROYED', 'DISABLED', 'KNOCKED_OUT']);
@@ -137,7 +136,7 @@ function effectAnchor(dimensions) {
 }
 
 export class VehicleDamageEffects {
-  constructor({ vfxProvider = PROCEDURAL_BATTLEFIELD_VFX_PROVIDER } = {}) {
+  constructor({ vfxProvider } = {}) {
     this.records = new Map();
     this.processedImpacts = new Set();
     this.elapsedSeconds = 0;

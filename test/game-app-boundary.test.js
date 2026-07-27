@@ -33,6 +33,11 @@ test('main is a composition-only entrypoint and GameApp owns browser runtime orc
     appSource,
     /terrainSurfaceProvider: this\.visualFactories\.terrainSurfaceProvider/
   );
+  assert.match(appSource, /vfxProvider: this\.visualFactories\.vfxProvider/);
+  assert.match(
+    appSource,
+    /audioProvider: this\.visualFactories\.audioProvider/
+  );
   assert.match(appSource, /structureAdapters: this\.structureAdapters/);
   assert.match(appSource, /buildFactionRosterIndex\(this\.factionOrder, this\.units\)/);
   assert.match(appSource, /createUIRuntimePort\(\{/);

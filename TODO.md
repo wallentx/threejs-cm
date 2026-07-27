@@ -43,7 +43,11 @@ Status:
     - [x] Move ground, river, bridge-road, masonry, and foliage material ownership behind one replaceable France 1940 terrain-surface provider; inject it through `GameApp`; keep generic terrain geometry/collision map-driven; bind live source identity; and validate idempotent material disposal.
     - [ ] Add logical records and replaceable providers for VFX, audio, calibration references, and future external model/texture files; add external load/dispose lifecycle and missing-asset fallback policy.
       - [x] Calibration-reference slice: move the SOMUA side-sheet URL behind a stable family asset ID; resolve it through a replaceable pack-owned registry; inject that registry into the jig; and remove the hardcoded model/path fallback from generic calibration code.
-      - [ ] Add VFX and audio providers plus external model/texture loading, disposal, and missing-asset fallback policy.
+      - [x] Battlefield-VFX slice: move projectile/tracer meshes, pooled impacts and explosions, vehicle smoke/fire/sparks/scorch/blasts, capacity/style records, and GPU-resource disposal behind one replaceable family provider; inject it into combat and damage presentation without moving hit or damage authority.
+      - [ ] Add audio providers plus external model/texture loading, disposal, and missing-asset fallback policy.
+        - [x] Battlefield-audio slice: replace generic `garand`/`mg42` labels and hardcoded synthesis with a logical France 1940 audio provider; resolve rifle, machine-gun, submachine-gun, light-cannon, medium-cannon, explosion, and UI events from actual weapon class/caliber; inject the provider into `SoundEngine`; preserve bounded voices and cached deterministic noise; bind source-pack identity; and dispose provider, WebAudio graph, buffers, and context on page exit.
+        - [x] External-image lifecycle slice: route logical calibration-reference URLs through a generic deduplicating image service; retain logical/source-pack identity; reject unsafe URL schemes; support explicit throw, unavailable, and fallback-URL policies; permit retry after failure; cancel pending loads; release cached images; revoke owned blob URLs; and dispose the calibration runtime on page exit.
+        - [ ] Add external model/texture/audio loading, ownership-aware disposal, and equivalent explicit missing-asset fallback policies.
 - [ ] Move browser lifecycle and simulation orchestration from `main.js` into a narrow application/runtime facade.
   - [x] Extract browser startup, renderer/system construction, scenario loading, fixed-step orchestration, rollback hooks, interaction, and diagnostics into injected `GameApp`; keep `main.js` composition-only; remove concrete faction, weapon, and mesh-name assumptions from the facade; and isolate deterministic faction scheduling in a browser-free tested index.
   - [x] Replace full-`GameApp` UI/editor access with frozen explicit query, command, and building-event ports; route selected-unit actions through named commands; inject family presentation and map dimensions into the HUD/minimap; and restrict editor world mutation to an explicit authoring port.
@@ -78,6 +82,8 @@ Status:
   - [ ] Add projectile breakup, behind-armor spall interaction, partition- and shielding-aware blast, fuze and fragment models, and component repair/abandonment rules.
 - [ ] Add crew task reassignment, replacement-gunner delays, bailout decisions, and abandoned vehicles.
 - [ ] Add weapon sighting, target acquisition, aim time, range estimation, and fire-control delays.
+  - [x] Deterministic first slice: give every infantryman, vehicle main gun, and auxiliary mount persistent target, phase, aim-progress, required-time, estimated-range, and range-error state; derive aim work from weapon/platform, range, experience, stance, suppression, wounds, target motion, optics, traverse, crew availability, and measured shooter motion; reset on target change; retain tracking through automatic bursts and feeds; apply the estimate to physical holdover and dispersion; expose read-only HUD/telemetry state; and preserve deep WEGO capture/restore with frame-partition, target-switch, cadence, and rollback tests.
+  - [ ] Add historical sight, reticle, optic, and rangefinder records; angular target tracking and lead; explicit stabilization behavior; crew target handoff and command delay; and vehicle-specific ranging methods.
 - [ ] Add per-soldier spotting, last-known contacts, and command-and-control relay.
   - [x] Renderer-neutral first slice: living-observer acquisition with stance, motion, concealment, and range factors; explicit binocular equipment; frozen/decaying contacts; deterministic same-unit, voice, and operational same-net radio relay; vehicle radio damage; projection and deep capture/restore APIs.
   - [x] Wire one authoritative post-movement spotting step, direct-only precision targeting, contact-based HUNT cueing, hidden live enemy meshes, frozen uncertainty markers on the tactical map, and WEGO capture/restore.
@@ -166,9 +172,11 @@ Status:
   - [x] Enforce the shared `+Z`-forward local frame (`-X` right, `+X` left); correct infantry limbs, firing grips, rifle actions, vehicle MGs/visors, and track-side semantics; retain blueprint or museum provenance for resolved asymmetric mounts.
   - [ ] Replace procedural paint approximations with vehicle-specific, historically sourced liveries, markings, UV atlases, and damage variants.
 - [ ] Add deterministic visual capture coverage for high/medium/low LOD, ballistic impacts, and vehicle damage states.
+  - [ ] Add a reproducible CPU silhouette manifest and reviewed baseline for every vehicle, side/front/top view, and high/medium/core/proxy tier.
+  - [ ] Add deterministic browser captures for representative ballistic impacts and authoritative vehicle damage states.
 - [ ] Remove the remaining 500 kB production chunk warning.
   - [x] Split application code from the Three.js vendor chunk; the application bundle is about 250 kB, while the minified Three.js chunk remains about 501 kB.
-  - [ ] Reassess code splitting after the WebGPU renderer migration; the r185 WebGPU vendor chunk is about 806 kB minified and the application chunk is about 384 kB.
+  - [ ] Reassess code splitting after the WebGPU renderer migration; the current r185 WebGPU vendor chunk is about 806 kB minified and the application chunk is about 467 kB.
   - [x] Keep the warning visible during reassessment instead of suppressing it by raising Vite's warning threshold.
 
 ## Completed

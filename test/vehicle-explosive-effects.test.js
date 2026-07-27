@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { CombatSystem } from '../src/game/CombatSystem.js';
 import { Unit } from './helpers/France1940TestUnit.js';
 import { getWeapon } from '../src/game/WeaponCatalog.js';
+import { TEST_VFX_PROVIDER } from './helpers/TestVfxProvider.js';
 
 function createBattle({
   attackerVehicleId,
@@ -29,7 +30,8 @@ function createBattle({
   const scene = new THREE.Scene();
   scene.add(attacker.mesh, target.mesh);
   const combat = new CombatSystem(scene, {}, () => 0.5, {
-    getUnits: () => [attacker, target]
+    getUnits: () => [attacker, target],
+    vfxProvider: TEST_VFX_PROVIDER
   });
   const unitMap = new Map([
     [attacker.id, attacker],

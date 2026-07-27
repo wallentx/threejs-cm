@@ -1,263 +1,268 @@
-# Antigravity Handoff
+# Antigravity Work Packet
 
-Safe, bounded work packet for a fast Antigravity pass.
+Packet owner: coordinating Codex agent.
 
-Read `AGENTS.md` and `TODO.md` first. Work only on items listed here. Do not commit or push.
+Only Packet A below is authorized. Complete it, write the results, and stop for
+review. Do not begin another `TODO.md` item. Do not commit, push, create a
+branch, or modify this packet's scope.
 
-## Scope rules
+Read `AGENTS.md`, `TODO.md`, and `docs/ARCHITECTURE.md` before editing. The
+worktree is intentionally dirty and contains user-owned reference images plus
+other validated work. Preserve all unrelated changes.
 
-- May complete these items independently or as one visual/diagnostic pass.
-- Preserve all simulation behavior and public state shapes.
-- Do not change weapon, projectile, penetration, damage, crew, ammunition, AI, movement, WEGO, or realtime equations.
-- Do not change historical numeric values in `WeaponCatalog.js` or `VehicleCatalog.js`.
-- Do not add runtime dependencies.
-- Do not rename or remove existing `userData` references, muzzle markers, turret references, barrel references, LOD bands, diagnostic datasets, or test-visible metadata.
-- A rough pass does not close a broad `TODO.md` item. Add an indented `[x] Rough pass: ...` beneath the remaining unchecked parent.
-- Stop and leave a note under **Questions / blockers** if a task requires breaking these boundaries.
+## Packet A: deterministic vehicle silhouette baseline
 
-## Approved items
+### Goal
 
-### 1. Authored medium and far LOD models
+Complete one honest, reviewable slice of this unchecked parent:
 
-- [x] Improve infantry medium/far representation.
-- [x] Improve SOMUA S35 medium/far representation.
-- [x] Improve Panzer III medium/far representation.
-- [x] Reduce obvious popping between high, medium, and low bands.
+```markdown
+- [ ] Add deterministic visual capture coverage for high/medium/low LOD,
+  ballistic impacts, and vehicle damage states.
+```
 
-Allowed files:
+This packet covers only CPU-rendered vehicle LOD silhouettes. It does not cover
+ballistic impacts or vehicle damage-state captures. The parent must remain
+unchecked.
 
-- `src/world/UnitFactory.js`
-- `src/game/Unit.js`, only for visual LOD selection or transition state
-- `test/realism.test.js`
+Build a reusable, GPU-free audit that covers:
 
-Requirements:
+- all 14 registered France 1940 vehicles;
+- `side`, `front`, and `top` orthographic views;
+- `high`, `medium`, `core`, and `proxy` authored tiers;
+- 14 x 3 x 4 = 168 deterministic capture records.
 
-- Keep `+Y` up, `+Z` forward, and dimensions in metres.
-- Preserve high-detail silhouettes.
-- Preserve `core`, `medium`, `high`, `proxy`, and `ui` LOD meanings.
-- Preserve actual muzzle, turret, and barrel transforms.
-- Selection and diagnostic geometry must remain visible when appropriate.
-- Far models must be cheaper than high models.
-- Do not change combat hit volumes or armor zones.
-- Add or extend structural tests for LOD visibility and required model references.
+`proxy` is the cheap runtime low-distance representation. Keep its authored
+name in manifests instead of relabeling it `low`.
 
-Acceptance:
+### Existing seam to reuse
 
-- Near view uses authored high geometry.
-- Mid view removes high-only detail but preserves unit identity.
-- Far view uses proxy geometry.
-- No unit becomes invisible during a transition.
-- Existing LOD tests pass.
+- `scripts/audit-vehicle-silhouettes.mjs`
+- `src/calibration/SoftwareSilhouette.js`
+- `src/calibration/CalibrationModel.js`
+- `src/world/vehicles/VehicleVisualProfiles.js`
+- `src/content/france1940/render/index.js`
+- `FRANCE_1940_VEHICLE_MESH_FACTORIES`
+- `UnitFactory.createTankMesh`
 
-### 2. State-driven animation polish
+Inspect those producers and their tests first. Extract reusable audit logic;
+do not duplicate the current CLI loop in a test.
 
-- [x] Improve infantry aiming pose.
-- [x] Improve rifle, SMG, and LMG recoil differences.
-- [x] Improve weapon-specific reload poses.
-- [x] Improve standing, kneeling, prone, wounded, pinned, and casualty transitions.
-- [x] Improve vehicle barrel recoil and turret motion readability.
+### Required implementation
 
-Allowed files:
+Create one pure reusable audit module. Suggested public shape:
 
-- `src/world/UnitFactory.js`
-- `src/game/SoldierAI.js`
-- `src/game/Unit.js`, only for rendering existing animation state
-- `test/soldier-ai.test.js`
-- `test/realism.test.js`
+```js
+createVehicleSilhouetteManifest({
+  profiles,
+  meshFactories,
+  width,
+  height
+})
+```
 
-Requirements:
+Exact naming may differ. Required behavior:
 
-- Read existing state; do not invent a second animation-owned combat state.
-- Do not change fire cadence, reload duration, ammunition consumption, damage, movement speed, or AI decisions.
-- Dead soldiers remain unable to act.
-- Animation must not move muzzle markers away from the visible weapon.
-- Restore a stable base pose every frame before applying state-specific offsets.
-- Keep animation frame-rate independent where time interpolation is added.
+1. Require injected profiles and vehicle mesh factories. Do not import a
+   concrete family from the reusable module.
+2. Sort model IDs, views, and LOD tiers explicitly. Do not rely on object
+   insertion order, scene traversal order from a map/set, or filesystem order.
+3. Build one model per vehicle, detach nested proxy meshes through the existing
+   helper, select each LOD through the existing visibility helper, and render
+   through `renderVehicleSilhouetteSvg`.
+4. Use one fixed render configuration for every capture. Keep width, height,
+   view list, LOD list, and envelope-visibility policy in manifest metadata.
+5. Emit one record per model/view/LOD containing at least:
+   - stable key: `modelId:view:lod`;
+   - model ID and designation;
+   - view and LOD;
+   - triangle count;
+   - finite projected bounds in metres;
+   - projected width and height in metres;
+   - SHA-256 of normalized SVG content.
+6. Normalize only platform-neutral serialization details such as CRLF versus
+   LF and final trailing whitespace. Do not round away geometry differences or
+   strip path data before hashing.
+7. Round serialized floating-point metrics at one documented precision only
+   after all calculations. Use the same precision in generation and tests.
+8. Include a schema version. Do not include timestamps, random IDs, absolute
+   paths, process IDs, machine names, or elapsed durations.
+9. Reject duplicate keys, missing tiers, empty silhouettes, non-finite bounds,
+   zero/negative extents, and records outside a documented registered-envelope
+   epsilon. Reuse existing dimension/calibration contracts; do not invent a
+   permissive tolerance to make current output pass.
+10. Return plain serializable data. No DOM, WebGPU, WebGL, canvas, browser, or
+    network dependency.
 
-Acceptance:
+### Reviewed baseline
 
-- Existing simulation tests remain unchanged and pass.
-- Reload animation corresponds to `reloadTimer`.
-- Recoil corresponds to existing recoil state.
-- Casualty pose cannot be mistaken for an active firing pose.
-- Weapon muzzle remains colocated with the rendered barrel.
+Add a compact checked-in JSON baseline for all 168 records.
 
-### 3. Read-only shot inspection diagnostics
+- Store hashes and audit metrics, not 168 raster images or full SVG documents.
+- Keep entries in deterministic sorted order.
+- Baseline generation must be an explicit opt-in command.
+- Normal `npm test` must compare against the baseline and must never rewrite it.
+- A changed hash, triangle count, projected bound, missing key, or extra key
+  must fail with the exact model/view/LOD key and old/new values.
+- Initial baseline generation is a proposal for Codex review. Summarize all
+  model IDs, capture count, triangle-count ranges by LOD, and any envelope
+  warnings in the results section.
+- Future intended model edits require a human-reviewed baseline diff. Never
+  regenerate the file merely to turn a failing test green.
 
-- [x] Expand impact telemetry with inspectable ballistic inputs and results.
-- [x] Add a compact debug view for the latest shots.
-- [x] Show projectile, armor, and crew/module outcome without changing resolution.
-
-Allowed files:
-
-- `src/game/CombatSystem.js`, telemetry and reporting only
-- `src/game/BallisticsSystem.js`, copying already-computed values only
-- `src/ui/UIManager.js`
-- `index.html`
-- `src/styles/main.css`
-- `test/realism.test.js`
-
-Desired fields:
-
-- projectile ID
-- shooter and target IDs
-- weapon and ammunition ID
-- muzzle position
-- impact position
-- flight time
-- range travelled
-- impact speed
-- hit kind
-- vehicle armor zone
-- nominal armor
-- impact cosine or angle
-- effective armor
-- available penetration
-- penetrated or stopped
-- crew or module result
-
-Requirements:
-
-- Diagnostics are read-only.
-- Do not recompute the outcome in the UI.
-- Do not alter random-number call count or ordering.
-- Do not add random calls while collecting telemetry.
-- Bound retained history.
-- Debug UI must not cover core mobile controls.
-- Existing `data-ballistics-stats` remains available.
-
-Acceptance:
-
-- Given the same seed and orders, enabling diagnostics does not change outcomes.
-- Telemetry history stays bounded.
-- Missing vehicle-only fields render safely for infantry or terrain impacts.
-- Tests cover at least one infantry hit, one stopped armor hit, and one penetration record.
-
-### 4. Responsive control and HUD polish
-
-- [x] Verify command tabs, realtime/WEGO selector, CANCEL TOOL, DESELECT, timeline, and roster at narrow widths.
-- [x] Fix overflow, touch-target, and text-collision issues.
-- [x] Preserve desktop layout.
-
-Allowed files:
-
-- `index.html`
-- `src/styles/main.css`
-- `src/ui/UIManager.js`, presentation only
-- UI-oriented tests
-
-Requirements:
-
-- Do not hide simulation mode controls on mobile.
-- Do not remove cancellation or deselection paths.
-- Do not restore the right-side camera-control strip.
-- Do not change command, turn, or simulation behavior.
-- Minimum interactive target should remain practical for touch.
-
-Acceptance:
-
-- Core controls remain usable at 360, 640, and 1280 CSS-pixel widths.
-- Roster remains scrollable.
-- Canvas remains the primary interaction area.
-- No horizontal page scroll caused by HUD content.
-
-### 5. Production bundle split
-
-- [x] Separate stable vendor code from game code.
-- [x] Remove or materially reduce the current 500 kB chunk warning without changing runtime behavior.
-
-Allowed files:
-
-- `vite.config.js`
-- `package.json`, scripts only if necessary
-- build-oriented tests or documentation
-
-Requirements:
-
-- No dependency additions.
-- No source-level rewrite solely for chunking.
-- Preserve local Vite development behavior.
-- Preserve production asset loading.
-- Minimum interactive target should remain practical for touch.
-
-Acceptance:
-
-- `npm run build` passes.
-- Main game chunk is below the current warning threshold, or remaining warning is documented with measured reason.
-- Browser runtime reaches `data-game-status="ready"`.
-
-## Explicitly out of scope
-
-- Weapon-stat changes
-- Historical penetration-table changes
-- Armor collision geometry or armor equations
-- Ricochet, spall, and residual-energy mechanics
-- Internal vehicle modules
-- Crew reassignment or bailout logic
-- Ammunition transfer
-- Coaxial or hull machine-gun simulation
-- Infantry tactical decision-making
-- Vehicle tactical decision-making
-- Projectile collision with terrain structures
-- ammo.js integration
-- Save/load, networking, authentication, access tokens, or cloud services
-- Changes to WEGO snapshots, realtime timing, order queues, or command semantics
-
-## Required validation
-
-Run after the pass:
+Keep the existing positional CLI behavior:
 
 ```sh
+node scripts/audit-vehicle-silhouettes.mjs "$TMPDIR/vehicle-silhouette-audit.json"
+```
+
+It must still write a deterministic audit report and return nonzero for audit
+failures. An additional explicit flag or a separate allowed package script may
+write the reviewed baseline. The updater must refuse an ambiguous destination
+and print the exact written path and record count.
+
+### Required tests
+
+Add focused behavioral coverage that:
+
+- asserts exactly 14 vehicles, 3 views, 4 LODs, and 168 unique records;
+- asserts every registered model appears and no unregistered model appears;
+- asserts every record is nonempty, finite, and inside the documented envelope
+  check;
+- runs manifest generation twice in one process and deep-compares the complete
+  output;
+- compares generated output with the checked-in baseline;
+- proves one altered in-memory expected hash or metric produces a keyed,
+  readable comparison failure;
+- does not replace execution with source-string or grep assertions.
+
+Also run the CLI twice in fresh Node processes and compare the two generated
+reports byte-for-byte. Use `$TMPDIR`; do not assume `/tmp`.
+
+### Allowed files
+
+Only these paths may be changed:
+
+- `scripts/audit-vehicle-silhouettes.mjs`
+- `src/calibration/VehicleSilhouetteAudit.js` (new)
+- `test/vehicle-silhouette-audit.test.js` (new)
+- `test/fixtures/vehicle-silhouette-baseline.json` (new)
+- `package.json`, only to add clearly named audit/update scripts; no dependency
+  or existing-script changes
+- `TODO.md`, only the deterministic visual-capture item and its children
+- `HANDOFF.md`, only **Results** and **Questions or blockers**
+
+If a different helper filename is materially better, record the proposed path
+under **Questions or blockers** and stop before creating it.
+
+### Explicitly forbidden
+
+- Any edit under `src/game/`, `src/simulation/`, `src/world/vehicles/`,
+  `src/content/`, `src/engine/`, `src/ui/`, `src/app/`, or `src/styles/`.
+- Any edit to `SoftwareSilhouette.js`, `CalibrationModel.js`,
+  `VehicleVisualProfiles.js`, model geometry, materials, textures, markers,
+  LOD visibility semantics, catalogs, scenarios, maps, renderer, or runtime UI.
+- Any weapon, ballistics, damage, AI, movement, spotting, crew, ammunition,
+  WEGO, realtime, or RNG behavior change.
+- Any model correction discovered while auditing. Report it; do not fix it in
+  this packet.
+- Any baseline-update path that runs automatically from tests, install hooks,
+  build hooks, or the default audit command.
+- Giant generated SVG/raster collections, external downloads, network access,
+  new dependencies, authentication, access tokens, cloud services, or external
+  dashboards.
+- Test deletion, skipped tests, snapshot auto-update, relaxed model contracts,
+  or tolerance inflation.
+- Formatting or cleanup outside the allowed files.
+
+### Stop conditions
+
+Stop and report instead of expanding scope when:
+
+- current models fail an existing envelope, LOD, winding, or marker contract;
+- deterministic output requires changing an existing production helper;
+- a hash differs between identical fresh-process runs;
+- an allowed file overlaps unrelated edits that cannot be preserved;
+- full tests or build fail outside this packet;
+- generated baseline review reveals suspiciously empty, identical, or
+  implausible tiers;
+- completion would require a dependency or another allowed path.
+
+### Acceptance gates
+
+Run after the final edit:
+
+```sh
+git status --short --branch
+node --test test/vehicle-silhouette-audit.test.js test/vehicle-calibration.test.js test/vehicles.test.js
+node scripts/audit-vehicle-silhouettes.mjs "$TMPDIR/vehicle-silhouette-audit-a.json"
+node scripts/audit-vehicle-silhouettes.mjs "$TMPDIR/vehicle-silhouette-audit-b.json"
+cmp "$TMPDIR/vehicle-silhouette-audit-a.json" "$TMPDIR/vehicle-silhouette-audit-b.json"
 npm test
 npm run build
 git diff --check
 ```
 
-For UI or runtime work, also verify:
+Expected:
 
-```text
-?quality=low&mode=realtime
-?quality=high&mode=wego
+- focused tests pass;
+- exactly 168 sorted capture records;
+- fresh-process audit files compare byte-for-byte;
+- full suite passes with an exact reported count;
+- production build passes; known bundle-size warning is reported, not hidden;
+- `git diff --check` emits no errors;
+- no browser runtime check is required because packet is CPU-only and runtime
+  files are forbidden.
+
+Update `TODO.md` only after all gates pass:
+
+```markdown
+- [ ] Add deterministic visual capture coverage ...
+  - [x] Add a reproducible CPU silhouette manifest and reviewed baseline for
+    every vehicle, side/front/top view, and high/medium/core/proxy tier.
+  - [ ] Add deterministic browser captures for representative ballistic
+    impacts and authoritative vehicle damage states.
 ```
 
-Both must reach:
+## Not authorized yet
 
-```text
-data-game-status="ready"
-```
+Possible later packets, after Codex review:
 
-Record test/build/runtime results below. Do not check off an item that was not validated.
+- browser capture harness for ballistic impacts and vehicle damage states;
+- vehicle-source migration from `src/world/vehicles/` into family render
+  content;
+- historical fire-control sights and rangefinders;
+- tactical AI, crew reassignment, bailout, spall, or damage repair.
 
-## Handoff results
+Do not begin these.
 
-- Tests: 31/31 tests passing cleanly.
-- Build: Successful clean build (game chunk 118.67 kB, Three.js vendor chunk 469.03 kB, default 500 kB warning threshold, 0 warnings).
-- Runtime: `?quality=low&mode=realtime` and `?quality=high&mode=wego` reach `data-game-status="ready"` with correct mode controls.
-- Interaction: CANCEL TOOL, DESELECT, Escape/right-click path, realtime/WEGO switching, WEGO locking, PAUSE, DEPLOY, SPLIT, rewind, seek, and playback-speed handlers restored.
-- Responsive: 360, 640, and 1280 CSS-pixel viewports have no top-bar, WEGO-bar, or document horizontal overflow; all five utility controls stay within the viewport.
-- Diagnostics: Latest-five shot viewer renders bounded infantry, stopped-armor, and penetrating-armor records without adding RNG calls.
-- LOD: Near and medium infantry views expose zero proxy meshes; far views expose proxy meshes and no non-proxy combat geometry.
-- Visual matrix: Fixed seed `19400516` reaches ready at near/design/far high-quality cameras and no-shadows diagnostic; stress seed `4294967291` reaches ready in low-quality realtime agent-debug mode.
-- Files changed: `src/world/UnitFactory.js`, `src/game/Unit.js`, `src/game/SoldierAI.js`, `src/game/BallisticsSystem.js`, `src/game/CombatSystem.js`, `src/ui/UIManager.js`, `src/styles/main.css`, `index.html`, `vite.config.js`, `test/realism.test.js`, `test/soldier-ai.test.js`, `test/ui-manager.test.js`, `HANDOFF.md`, `TODO.md`.
-- TODO items updated: Recorded completed rough passes and left trajectory overlays, transition smoothing, and automated image comparisons open.
+## Results
 
-## Questions / blockers
+Fill this section only. Do not rewrite scope above.
 
-- None.
+- Status: NOT STARTED
+- Baseline before edits:
+  - Branch:
+  - Existing dirty allowed files:
+  - Focused command:
+  - Result:
+- Implementation:
+  - Files changed:
+  - Manifest schema/version:
+  - Capture count:
+  - Vehicle IDs:
+  - Triangle-count range by LOD:
+  - Envelope warnings:
+  - Baseline update command:
+- Validation after final edit:
+  - Focused tests:
+  - Fresh-process byte comparison:
+  - Full `npm test`:
+  - `npm run build`:
+  - `git diff --check`:
+- Deliberately incomplete:
+- Review risks:
 
-## Post-handoff vehicle integration
+## Questions or blockers
 
-- [x] Routed all 12 authored vehicle modules through `UnitFactory` and playable `Unit` construction.
-- [x] Added scenario spawns, selection rings, crew layouts, armor zones, movement rates, armament, ammunition stores, and unarmed transport behavior.
-- [x] Added 10-round 2cm autocannon feed state with crewed reload and snapshot compatibility.
-- [x] Validated 35/35 tests, production build, `git diff --check`, and ready-state runtime in low/realtime and high/WEGO modes.
-- [ ] Replace explicitly labeled gameplay approximations with cited archival gun tables and vehicle manuals.
-
-## Post-handoff morale and UI updates
-
-- [x] Automated 5-tier morale & reaction system for pixeltruppen (`READY`, `CAUTIOUS`, `DUCKING`, `TAKING_COVER`, `PINNED`/`COWERING`, `ROUTED`/`FLEEING`).
-- [x] Rate-based suppression decay out of direct fire with cover (+8 pts/sec) and leadership (+6 pts/sec) bonuses.
-- [x] Real-time control bar UI cleanup: WEGO timeline sliders, step/rewind buttons, and GO turn execution buttons automatically hidden in Real-Time mode.
-- [x] All 187 unit tests pass cleanly (`npm test`).
-- [x] Vite production build succeeds and `git diff --check` passes with zero errors.
-- [x] Background Vite dev server stopped.
+- None recorded.

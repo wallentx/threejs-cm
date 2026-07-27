@@ -2,7 +2,7 @@ import {
   validateBattlefieldVfxProvider,
   validateCombatVfxResourceSet,
   validateVehicleDamageVfxResourceSet
-} from '../../../world/vfx/ProceduralBattlefieldVfxProvider.js';
+} from '../../../world/vfx/BattlefieldVfxContract.js';
 import { FRANCE_1940_ASSET_IDS } from '../assets/index.js';
 import { FRANCE_1940_ASSET_RESOLVER } from './assetPack.js';
 
@@ -25,6 +25,15 @@ function bindCombatResources(provider, assetBinding) {
         throw new TypeError(`battlefield VFX ${kind} material must be a Three.js material`);
       }
       return stampResource(material, assetBinding);
+    },
+    createProjectileMesh(weapon) {
+      const mesh = resources.createProjectileMesh(weapon);
+      if (!mesh?.isMesh || !mesh.geometry?.isBufferGeometry || !mesh.material?.isMaterial) {
+        throw new TypeError('battlefield VFX projectile factory must create a Three.js mesh');
+      }
+      stampResource(mesh.geometry, assetBinding);
+      stampResource(mesh.material, assetBinding);
+      return stampResource(mesh, assetBinding);
     }
   });
 }

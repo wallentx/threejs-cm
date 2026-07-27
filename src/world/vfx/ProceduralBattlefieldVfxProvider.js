@@ -3,102 +3,11 @@ import * as THREE from 'three';
 export const PROCEDURAL_BATTLEFIELD_VFX_IMPLEMENTATION_ID =
   'procedural-battlefield-vfx-v1';
 
-const COMBAT_EFFECT_ROLES = Object.freeze(['impact', 'explosion']);
-const VEHICLE_GEOMETRY_ROLES = Object.freeze([
-  'smoke',
-  'flame',
-  'spark',
-  'scorch',
-  'blast'
-]);
-const VEHICLE_MATERIAL_ROLES = Object.freeze([
-  'smoke',
-  'flame',
-  'spark',
-  'scorch'
-]);
-
 function markResource(resource, role) {
   resource.userData.vfxRole = role;
   resource.userData.vfxImplementationId =
     PROCEDURAL_BATTLEFIELD_VFX_IMPLEMENTATION_ID;
   return resource;
-}
-
-function positiveInteger(value) {
-  return Number.isInteger(value) && value > 0;
-}
-
-export function validateCombatVfxResourceSet(resourceSet) {
-  if (!resourceSet || resourceSet.kind !== 'combat-vfx-resources') {
-    throw new TypeError('battlefield VFX provider must create combat VFX resources');
-  }
-  for (const role of COMBAT_EFFECT_ROLES) {
-    if (!resourceSet.effectGeometries?.[role]?.isBufferGeometry) {
-      throw new TypeError(`combat VFX resources require ${role} geometry`);
-    }
-    if (!positiveInteger(resourceSet.effectCaps?.[role])) {
-      throw new TypeError(`combat VFX resources require positive ${role} cap`);
-    }
-    const style = resourceSet.styles?.[role];
-    if (
-      !style
-      || !Number.isFinite(style.color)
-      || !Number.isFinite(style.maxLife)
-      || style.maxLife <= 0
-    ) {
-      throw new TypeError(`combat VFX resources require ${role} style`);
-    }
-  }
-  if (typeof resourceSet.createEffectMaterial !== 'function') {
-    throw new TypeError('combat VFX resources require createEffectMaterial');
-  }
-  if (typeof resourceSet.dispose !== 'function') {
-    throw new TypeError('combat VFX resources require dispose');
-  }
-  return resourceSet;
-}
-
-export function validateVehicleDamageVfxResourceSet(resourceSet) {
-  if (!resourceSet || resourceSet.kind !== 'vehicle-damage-vfx-resources') {
-    throw new TypeError(
-      'battlefield VFX provider must create vehicle-damage VFX resources'
-    );
-  }
-  for (const role of VEHICLE_GEOMETRY_ROLES) {
-    if (!resourceSet.geometries?.[role]?.isBufferGeometry) {
-      throw new TypeError(`vehicle-damage VFX resources require ${role} geometry`);
-    }
-  }
-  for (const role of VEHICLE_MATERIAL_ROLES) {
-    if (!resourceSet.materials?.[role]?.isMaterial) {
-      throw new TypeError(`vehicle-damage VFX resources require ${role} material`);
-    }
-    if (!positiveInteger(resourceSet.capacities?.[role])) {
-      throw new TypeError(`vehicle-damage VFX resources require positive ${role} capacity`);
-    }
-  }
-  if (typeof resourceSet.createBlastMaterial !== 'function') {
-    throw new TypeError('vehicle-damage VFX resources require createBlastMaterial');
-  }
-  if (typeof resourceSet.dispose !== 'function') {
-    throw new TypeError('vehicle-damage VFX resources require dispose');
-  }
-  return resourceSet;
-}
-
-export function validateBattlefieldVfxProvider(provider) {
-  if (
-    !provider
-    || provider.kind !== 'battlefield-vfx-provider'
-    || typeof provider.createCombatResources !== 'function'
-    || typeof provider.createVehicleDamageResources !== 'function'
-  ) {
-    throw new TypeError(
-      'battlefield VFX provider requires combat and vehicle-damage resource factories'
-    );
-  }
-  return provider;
 }
 
 function createCombatResources() {
@@ -124,6 +33,7 @@ function createCombatResources() {
     })
   });
   const effectCaps = Object.freeze({ impact: 48, explosion: 12 });
+  const projectileResources = new Map();
   let disposed = false;
   return Object.freeze({
     kind: 'combat-vfx-resources',
@@ -141,10 +51,51 @@ function createCombatResources() {
         depthWrite: false
       }), `combat-${kind}`);
     },
+    createProjectileMesh(weapon) {
+      const isCannon = weapon.kind.startsWith('cannon');
+      const key = `${isCannon ? 'cannon' : 'small-arm'}:${weapon.caliberMm}`;
+      let resource = projectileResources.get(key);
+      if (!resource) {
+        const geometry = isCannon
+          ? new THREE.SphereGeometry(
+              Math.max(0.07, weapon.caliberMm / 450),
+              6,
+              5
+            )
+          : new THREE.CylinderGeometry(0.014, 0.014, 0.44, 5);
+        if (!isCannon) geometry.rotateX(Math.PI / 2);
+        resource = Object.freeze({
+          geometry: markResource(geometry, `projectile-${key}`),
+          material: markResource(new THREE.MeshBasicMaterial({
+            color: isCannon ? 0xffd166 : 0xffb347,
+            toneMapped: false
+          }), `projectile-${key}`)
+        });
+        projectileResources.set(key, resource);
+      }
+      return markResource(
+        new THREE.Mesh(resource.geometry, resource.material),
+        `projectile-${key}`
+      );
+    },
+    resetProjectileResources() {
+      const count = projectileResources.size;
+      for (const resource of projectileResources.values()) {
+        resource.geometry.dispose();
+        resource.material.dispose();
+      }
+      projectileResources.clear();
+      return count;
+    },
     dispose() {
       if (disposed) return false;
       disposed = true;
       for (const geometry of Object.values(effectGeometries)) geometry.dispose();
+      for (const resource of projectileResources.values()) {
+        resource.geometry.dispose();
+        resource.material.dispose();
+      }
+      projectileResources.clear();
       return true;
     }
   });

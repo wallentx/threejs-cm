@@ -376,9 +376,15 @@ export class UIManager {
         const buildingText = s.buildingLocation
           ? ` · ${s.buildingLocation.phase.toUpperCase()} ${s.buildingLocation.nodeId ?? ''}`
           : '';
-        slot.title = `${s.role} | ${s.state ?? s.status}${buildingText} | Health ${Math.round(s.health ?? 0)} | Suppression ${Math.round(s.suppression ?? 0)}${ammoText ? ` | Ammo ${ammoText}` : ''}`;
+        const aimRequired = s.fireControl?.aimRequiredSeconds ?? 0;
+        const aimText = aimRequired > 0
+          ? ` · AIM ${Math.round(
+              Math.min(1, (s.fireControl.aimProgressSeconds ?? 0) / aimRequired) * 100
+            )}% @ ${Math.round(s.fireControl.estimatedRangeMeters ?? 0)}m`
+          : '';
+        slot.title = `${s.role} | ${s.state ?? s.status}${buildingText}${aimText} | Health ${Math.round(s.health ?? 0)} | Suppression ${Math.round(s.suppression ?? 0)}${ammoText ? ` | Ammo ${ammoText}` : ''}`;
         slot.innerHTML = `
-          <span>${s.name}<em>${s.role ?? ''} · HP ${Math.round(s.health ?? 0)} · ${s.state ?? s.status}${buildingText}</em></span>
+          <span>${s.name}<em>${s.role ?? ''} · HP ${Math.round(s.health ?? 0)} · ${s.state ?? s.status}${buildingText}${aimText}</em></span>
           <strong>${s.weapon ?? 'Unarmed'}${ammoText ? ` · ${ammoText}` : ''}</strong>
         `;
         rosterGrid.appendChild(slot);
@@ -469,8 +475,11 @@ export class UIManager {
         const item = document.createElement('div');
         item.className = `vehicle-mount ${mount.operational ? '' : 'disabled'}`.trim();
         const reload = mount.reloadTimer > 0 ? ` RLD ${mount.reloadTimer.toFixed(1)}s` : '';
-        item.textContent = `${mount.label} [${mount.status}]: ${mount.weaponId ?? 'UNARMED'} ${mount.feed}/${mount.reserve}${reload}`;
-        item.title = `${mount.label}: ${mount.status}`;
+        const aim = mount.aimProgressRatio == null
+          ? ''
+          : ` AIM ${Math.round(mount.aimProgressRatio * 100)}% @ ${Math.round(mount.estimatedRangeMeters ?? 0)}m`;
+        item.textContent = `${mount.label} [${mount.status}]: ${mount.weaponId ?? 'UNARMED'} ${mount.feed}/${mount.reserve}${reload}${aim}`;
+        item.title = `${mount.label}: ${mount.status}${aim}`;
         mountGrid.appendChild(item);
       }
     }
@@ -593,7 +602,10 @@ export class UIManager {
       const flightTime = Number.isFinite(record.flightTime) ? record.flightTime.toFixed(3) : '0.000';
 
       const flight = document.createElement('div');
-      flight.textContent = `${record.weaponId || 'gun'}/${record.ammoId || 'ap'} | ${range} m | ${speed} m/s | ${flightTime} s`;
+      const estimatedRange = Number.isFinite(record.estimatedRangeMeters)
+        ? ` | sight ${record.estimatedRangeMeters.toFixed(1)} m`
+        : '';
+      flight.textContent = `${record.weaponId || 'gun'}/${record.ammoId || 'ap'} | ${range} m${estimatedRange} | ${speed} m/s | ${flightTime} s`;
 
       const vectors = document.createElement('div');
       vectors.className = 'shot-record-vectors';

@@ -12,6 +12,7 @@ import {
 import { getWeapon } from '../src/game/WeaponCatalog.js';
 import { BuildingSystem } from '../src/simulation/buildings/BuildingSystem.js';
 import { FR_HOUSE_12X9_2F } from '../src/maps/france/FranceHouse12x9_2F.js';
+import { TEST_VFX_PROVIDER } from './helpers/TestVfxProvider.js';
 
 function createBuildingSystem() {
   const system = new BuildingSystem();
@@ -174,7 +175,8 @@ test('HE blast damages sections, cascades support collapse, and applies exact oc
         unit.applySoldierDamage(consequence.soldierId, consequence.damage);
         consequences.push(consequence);
       }
-    }
+    },
+    vfxProvider: TEST_VFX_PROVIDER
   });
   const weapon = {
     ...getWeapon('SA35_HE'),
@@ -207,7 +209,8 @@ test('building impact telemetry and callbacks expose renderer-neutral section re
   const combat = new CombatSystem(new THREE.Scene(), {}, () => 0.5, {
     buildingSystem,
     getUnits: () => [],
-    onBuildingChanged: change => changes.push(change)
+    onBuildingChanged: change => changes.push(change),
+    vfxProvider: TEST_VFX_PROVIDER
   });
   const weapon = {
     ...getWeapon('SA35_AP'),

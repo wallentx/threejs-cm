@@ -199,6 +199,9 @@ test('France 1940 family owns one renderer-neutral manifest and one bound core r
     [FRANCE_1940_ASSET_IDS.frenchChasseurInfantryMesh]: 'infantry-mesh-factory',
     [FRANCE_1940_ASSET_IDS.germanGrenadierInfantryMesh]: 'infantry-mesh-factory',
     [FRANCE_1940_ASSET_IDS.germanMg34BunkerMesh]: 'structure-mesh-factory',
+    [FRANCE_1940_ASSET_IDS.battlefieldVfxProvider]: 'battlefield-vfx-provider',
+    [FRANCE_1940_ASSET_IDS.battlefieldAudioProvider]:
+      'battlefield-audio-provider',
     [FRANCE_1940_ASSET_IDS.somuaSideCalibrationReference]:
       'calibration-reference-image'
   });

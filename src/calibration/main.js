@@ -9,6 +9,7 @@ const app = new VehicleCalibrationApp({
   calibrationReferences: FRANCE_1940_CALIBRATION_REFERENCES,
   vehicleMeshFactories: FRANCE_1940_VEHICLE_MESH_FACTORIES
 });
+window.addEventListener('pagehide', () => app.dispose(), { once: true });
 app.initialize().catch(error => {
   document.body.dataset.calibrationStatus = 'error';
   document.body.dataset.calibrationError = error.message;

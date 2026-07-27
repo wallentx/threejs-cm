@@ -127,6 +127,13 @@ function mountEntries(unit, report) {
           0
         );
     const feed = mount.feedAmmo ?? mount.magazineAmmo ?? mount.loadedRounds ?? 0;
+    const fireControl = mount.fireControl ?? null;
+    const aimRequiredSeconds = Number.isFinite(fireControl?.aimRequiredSeconds)
+      ? Math.max(0, fireControl.aimRequiredSeconds)
+      : 0;
+    const aimProgressSeconds = Number.isFinite(fireControl?.aimProgressSeconds)
+      ? Math.max(0, fireControl.aimProgressSeconds)
+      : 0;
     return {
       id,
       label: mount.label ?? mount.name ?? id.replaceAll('_', ' ').toUpperCase(),
@@ -135,7 +142,13 @@ function mountEntries(unit, report) {
       operational,
       feed,
       reserve,
-      reloadTimer: mount.reloadTimer ?? 0
+      reloadTimer: mount.reloadTimer ?? 0,
+      aimProgressRatio: aimRequiredSeconds > 0
+        ? Math.min(1, aimProgressSeconds / aimRequiredSeconds)
+        : null,
+      estimatedRangeMeters: Number.isFinite(fireControl?.estimatedRangeMeters)
+        ? fireControl.estimatedRangeMeters
+        : null
     };
   });
 
@@ -152,7 +165,17 @@ function mountEntries(unit, report) {
         (sum, count) => sum + (Number.isFinite(count) ? count : 0),
         0
       ),
-      reloadTimer: weapon.reloadTimer ?? 0
+      reloadTimer: weapon.reloadTimer ?? 0,
+      aimProgressRatio: weapon.fireControl?.aimRequiredSeconds > 0
+        ? Math.min(
+            1,
+            (weapon.fireControl.aimProgressSeconds ?? 0)
+              / weapon.fireControl.aimRequiredSeconds
+          )
+        : null,
+      estimatedRangeMeters: Number.isFinite(weapon.fireControl?.estimatedRangeMeters)
+        ? weapon.fireControl.estimatedRangeMeters
+        : null
     });
   }
   return mounts;

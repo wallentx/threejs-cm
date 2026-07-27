@@ -5,6 +5,7 @@ import {
   VehicleDamageEffects,
   getVehicleVisualDamage
 } from '../src/world/VehicleDamageEffects.js';
+import { TEST_VFX_PROVIDER } from './helpers/TestVfxProvider.js';
 
 function createVehicle() {
   const mesh = new THREE.Group();
@@ -54,7 +55,7 @@ test('vehicle damage effects translate authoritative component state into persis
   assert.equal(view.components.hullMachineGun.state, 'DISABLED');
   assert.equal(view.secondaryExplosion, true);
 
-  const effects = new VehicleDamageEffects();
+  const effects = new VehicleDamageEffects({ vfxProvider: TEST_VFX_PROVIDER });
   effects.update(1 / 30, [unit], []);
   const record = effects.records.get(unit.id);
 
@@ -73,7 +74,7 @@ test('vehicle damage effects retain bounded impact scars and lower far-LOD parti
   const unit = createVehicle();
   unit.currentLOD = 'low';
   unit.vehicleDamage.engine = 'DESTROYED';
-  const effects = new VehicleDamageEffects();
+  const effects = new VehicleDamageEffects({ vfxProvider: TEST_VFX_PROVIDER });
   const impact = {
     impactId: 1,
     id: 7,
@@ -124,7 +125,7 @@ test('restore baselines persistent damage without replaying an old destruction b
     secondaryExplosion: true,
     eventVersion: 4
   };
-  const effects = new VehicleDamageEffects();
+  const effects = new VehicleDamageEffects({ vfxProvider: TEST_VFX_PROVIDER });
 
   effects.update(1 / 30, [unit], []);
   const record = effects.records.get(unit.id);

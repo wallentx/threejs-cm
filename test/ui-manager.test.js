@@ -182,6 +182,7 @@ test('shot inspector distinguishes ricochet continuation from a stopped projecti
       weaponId: 'KWK36_AP',
       ammoId: 'KWK36_AP',
       rangeMeters: 85,
+      estimatedRangeMeters: 92,
       impactSpeed: 700,
       flightTime: 0.12,
       muzzlePosition: [0, 2, -80],
@@ -209,6 +210,7 @@ test('shot inspector distinguishes ricochet continuation from a stopped projecti
     assert.match(text, /rebound 440 m\/s/);
     assert.match(text, /energy 40%/);
     assert.match(text, /angle 82\.0 deg/);
+    assert.match(text, /sight 92\.0 m/);
   } finally {
     if (previousDocument === undefined) delete globalThis.document;
     else globalThis.document = previousDocument;

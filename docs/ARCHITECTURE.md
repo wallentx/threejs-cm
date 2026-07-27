@@ -16,6 +16,8 @@ src/
 |   `-- GameApp.js                  # Browser lifecycle and top-level facade
 |-- engine/                         # Generic Three.js, camera, audio, input
 |-- simulation/                     # Renderer-neutral tactical state and rules
+|   |-- combat/
+|   |   `-- FireControl.js          # Pure aim work and range estimation
 |   |-- model/
 |   |-- systems/
 |   `-- ports/
@@ -100,6 +102,17 @@ The first boundary slice now exists:
   `CombatSystem`, and `UIManager` consume those ports instead of importing
   France-specific catalogs. Projectile restore resolves a saved weapon through
   the restored attacker's port.
+- `src/simulation/combat/FireControl.js` owns pure, renderer-neutral target-key,
+  aim-time, aim-progress, tracking-retention, and deterministic range-estimate
+  rules. Each `SoldierAgent`, vehicle main gun, and auxiliary mount owns its
+  persistent fire-control state. `Unit` supplies crew, traverse, optics, and
+  mount alignment; `GameApp` supplies retained targets plus actual fixed-step
+  shooter motion; `CombatSystem` consumes the estimate for projectile holdover
+  and dispersion and copies the inputs into telemetry. HUD presenters remain
+  read-only. Capture/restore deep-copies this state, and partition/replay tests
+  verify that render timing does not change aim work. Version 1 is explicitly a
+  gameplay approximation: it has no historical reticle, optic, rangefinder,
+  target-lead, stabilization, or crew-handoff records yet.
 - `src/content/france1940/render/` owns faction-to-presentation binding plus
   infantry, structure, and vehicle mesh-factory registrations. Composition
   injects matching visual factories through `ScenarioRuntime` and `Unit` into
@@ -113,12 +126,17 @@ The first boundary slice now exists:
   family-scoped, kind-preserving, and dependency-validated; there is no global
   asset singleton.
 - `src/content/france1940/assets/manifest.js` owns stable logical IDs for
-  procedural unit/terrain surfaces and calibration reference media. Its
-  renderer-side runtime pack binds deterministic procedural providers, while
-  URL records remain portable data. Composition resolves those bindings into
-  vehicle/unit factories, terrain surfaces, and a family calibration-reference
-  registry. Tests replace the core pack and verify alternate providers and
-  reference URLs reach live consumers.
+  procedural unit/terrain surfaces, battlefield VFX, battlefield audio, and
+  calibration reference media. Its renderer-side runtime pack binds
+  deterministic procedural providers, while URL records remain portable data.
+  Composition resolves those bindings into vehicle/unit factories, terrain
+  surfaces, pooled combat and vehicle-damage effects, a weapon-aware audio
+  event bank, and a family calibration-reference registry. Logical reference
+  URLs load through `ExternalImageAssetService`, which deduplicates concurrent
+  requests, retains pack identity, applies explicit missing-image policy, and
+  owns cancellation, cached-image release, and blob-URL revocation. Tests
+  replace the core pack and verify alternate providers and reference URLs reach
+  live consumers.
 - `src/app/GameApp.js` owns browser startup, system construction, scenario
   loading, the fixed-step loop, rollback hooks, interaction, and diagnostics
   behind one injected application boundary. It imports no concrete family,
@@ -219,6 +237,7 @@ These seams are usable now, before the staged directory migration is complete:
 | France 1940 vehicle, armor, crew, mount, and internal-layout definitions | `content/france1940/vehicles.js`, `content/france1940/vehicleData/*` | Injected `catalogPorts.vehicles`; legacy compatibility re-export |
 | Stonne terrain and placement records | `maps/france/stonne.js`, validated by `maps/MapDescriptor.js` | Scenario loader, `TerrainBuilder`, command/deployment systems |
 | Individual infantry state and choices | `SoldierAgent`, `SoldierAI` | Infantry pose renderer, roster HUD |
+| Weapon target acquisition, aim work, tracking, and range estimation | `simulation/combat/FireControl.js` plus per-soldier and per-mount state | `GameApp` target/motion inputs, `CombatSystem` holdover/telemetry, HUD presenters |
 | Vehicle crew, components, mounts, ammo, damage events | `Unit`, `VehicleSystems` | Combat telemetry, damage report |
 | Static movement collision and bridge routing | `StaticCollisionWorld`, plain terrain collider records | `Unit`, `SoldierAgent`, terrain height adapter |
 | Building topology, occupancy, damage, collapse, consequences | `simulation/buildings/*` | Building interaction, collision, spotting, ballistics, renderer |
@@ -232,6 +251,9 @@ These seams are usable now, before the staged directory migration is complete:
 | Family-neutral infantry pose solving | `world/infantry/InfantryPoseAnimator.js` | `SoldierAI` |
 | Vehicle visual selection | `content/france1940/render/*` | Injected `UnitFactory`, calibration and silhouette tools |
 | Logical asset identity and pack replacement | `assets/AssetManifest.js`, `content/france1940/assets/*` | Composition-bound family render providers |
+| External image loading, cache, fallback, and ownership | `assets/ExternalImageAssetService.js` | Calibration-reference consumer; browser lifecycle only |
+| Projectile, impact, explosion, and vehicle-damage VFX resources | `world/vfx/ProceduralBattlefieldVfxProvider.js`, family VFX asset binding | `CombatSystem`, `VehicleDamageEffects`; presentation only |
+| Weapon, explosion, and UI audio event profiles | `content/france1940/audio/*`, family audio asset binding | Injected generic `SoundEngine`; presentation only |
 | Browser lifecycle and faction scheduling | `app/GameApp.js`, `app/FactionRosterIndex.js` | Composition, scenario runtime, UI/editor clients |
 | UI/editor application boundary | `app/ApplicationPorts.js` | `UIManager`, `Minimap`, `MapEditor` |
 | Vehicle meshes, articulated markers, LOD | `world/vehicles/*` during staged source migration | Family visual registry, Unit animation, damage VFX |
@@ -251,16 +273,22 @@ family registry / injected catalog ports
     v
 Unit / SoldierAgent / VehicleSystems
     |
-    +---> CombatSystem / BallisticsSystem ---> resolved telemetry
-    |                                             |
-    +---> plain damage report                     v
-    |                                  VehicleDamageEffects
+    +---> FireControl ---> CombatSystem / BallisticsSystem ---> resolved telemetry
+    |                           |                                  |
+    +---> plain damage report   |                                  v
+    |                           +-----------------------> VehicleDamageEffects
     v
 VehicleStatusPresenter
     |
     v
 UIManager
 ```
+
+`GameApp` may feed a unit target into fire control only after
+`SpottingSystem.canPrecisionTarget` confirms direct precision observation and
+LOS/range remain valid. A still-valid target is retained to avoid artificial
+per-step target switching. Relayed contacts remain useful presentation and
+tactical cues but do not grant precision fire.
 
 Armor deflection policy lives under `simulation/ballistics/` as plain numeric
 state. `BallisticsSystem` supplies resolved plate geometry and penetration.
@@ -498,10 +526,11 @@ These are tolerated migration inputs, not patterns to copy:
   runtime internals for debugging and capture automation.
 - No scenario registry exists yet. Logical asset manifests and replacement
   resolution now cover vehicle surfaces, both infantry mesh models, and the
-  MG 34 bunker plus ground, water, bridge, masonry, and foliage materials.
-  VFX, audio, calibration references, external media loading, and
-  VFX, audio, external media loading, and disposal/fallback policy still lack
-  asset-pack coverage.
+  MG 34 bunker plus ground, water, bridge, masonry, foliage, battlefield VFX,
+  battlefield audio, and calibration-reference media. External image loading,
+  ownership, and fallback policy now cover calibration references; external
+  Three.js models/textures and decoded audio still lack equivalent lifecycle
+  coverage.
 
 Do not block useful work solely to remove these exceptions. New code should use
 the target boundary, while touched legacy code should move one dependency at a
@@ -535,9 +564,12 @@ time.
    services.
 7. **Add the asset service.** The renderer-neutral manifest, provider binding,
    explicit replacement resolver, vehicle-surface consumer, infantry mesh
-   providers, bunker mesh provider, terrain-surface provider, and replaceable
-   calibration-reference registry now exist. Extend that same boundary to VFX,
-   audio, and external media while keeping procedural fallbacks deterministic.
+   providers, bunker mesh provider, terrain-surface provider, battlefield-VFX
+   provider, battlefield-audio provider, and replaceable
+   calibration-reference registry now exist. A bounded external-image loader
+   owns calibration URL caching, fallback, and disposal. Extend that same
+   boundary to external models, textures, and decoded audio while keeping
+   procedural fallbacks deterministic.
 8. **Remove shims.** Delete legacy re-exports and globals only after imports,
    focused tests, integration tests, and the production build confirm no
    remaining consumers.

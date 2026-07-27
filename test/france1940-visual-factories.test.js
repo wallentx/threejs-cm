@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
   createFrance1940VisualFactories,
+  FRANCE_1940_AUDIO_PROVIDER,
   FRANCE_1940_ASSET_RESOLVER,
   FRANCE_1940_FACTION_PRESENTATION,
   FRANCE_1940_INFANTRY_MESH_FACTORIES,
@@ -10,6 +11,7 @@ import {
   FRANCE_1940_STRUCTURE_MESH_FACTORIES,
   FRANCE_1940_TERRAIN_SURFACE_PROVIDER,
   FRANCE_1940_VEHICLE_MESH_FACTORIES,
+  FRANCE_1940_VFX_PROVIDER,
   FRANCE_1940_VISUAL_FACTORIES
 } from '../src/content/france1940/render/index.js';
 import {
@@ -54,8 +56,24 @@ test('France 1940 owns one complete frozen unit visual-factory registration', ()
     FRANCE_1940_VISUAL_FACTORIES.terrainSurfaceProvider,
     FRANCE_1940_TERRAIN_SURFACE_PROVIDER
   );
+  assert.equal(
+    FRANCE_1940_VISUAL_FACTORIES.vfxProvider,
+    FRANCE_1940_VFX_PROVIDER
+  );
+  assert.equal(
+    FRANCE_1940_VISUAL_FACTORIES.audioProvider,
+    FRANCE_1940_AUDIO_PROVIDER
+  );
   assert.equal(FRANCE_1940_TERRAIN_SURFACE_PROVIDER.kind, 'terrain-surface-provider');
   assert.equal(typeof FRANCE_1940_TERRAIN_SURFACE_PROVIDER.create, 'function');
+  assert.equal(FRANCE_1940_VFX_PROVIDER.kind, 'battlefield-vfx-provider');
+  assert.equal(FRANCE_1940_AUDIO_PROVIDER.kind, 'battlefield-audio-provider');
+  assert.equal(typeof FRANCE_1940_AUDIO_PROVIDER.createResources, 'function');
+  assert.equal(typeof FRANCE_1940_VFX_PROVIDER.createCombatResources, 'function');
+  assert.equal(
+    typeof FRANCE_1940_VFX_PROVIDER.createVehicleDamageResources,
+    'function'
+  );
   for (const [factionId, faction] of Object.entries(FRANCE_1940_FACTIONS)) {
     assert.equal(
       FRANCE_1940_FACTION_PRESENTATION[factionId],
@@ -89,6 +107,8 @@ test('France 1940 owns one complete frozen unit visual-factory registration', ()
   assert.equal(Object.isFrozen(FRANCE_1940_STRUCTURE_MESH_FACTORIES), true);
   assert.equal(Object.isFrozen(FRANCE_1940_TERRAIN_SURFACE_PROVIDER), true);
   assert.equal(Object.isFrozen(FRANCE_1940_VEHICLE_MESH_FACTORIES), true);
+  assert.equal(Object.isFrozen(FRANCE_1940_VFX_PROVIDER), true);
+  assert.equal(Object.isFrozen(FRANCE_1940_AUDIO_PROVIDER), true);
   assert.equal(
     FRANCE_1940_VISUAL_FACTORIES.assetPackIds,
     FRANCE_1940_ASSET_RESOLVER.packIds

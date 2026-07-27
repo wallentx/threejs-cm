@@ -1,3 +1,8 @@
+import {
+  captureFireControlState,
+  createFireControlState
+} from '../simulation/combat/FireControl.js';
+
 const COMPONENT_SPECS = Object.freeze([
   { id: 'hull', label: 'Hull structure' },
   { id: 'main_gun', label: 'Main gun' },
@@ -381,7 +386,8 @@ export function createVehicleMountState(mountSpec, saved = null, weaponLookup) {
       targetPos: saved.targetPos ? [...saved.targetPos] : null,
       targetMode: saved.targetMode ?? null,
       isFiring: Boolean(saved.isFiring),
-      fireState: saved.fireState ?? 'IDLE'
+      fireState: saved.fireState ?? 'IDLE',
+      fireControl: createFireControlState(saved.fireControl)
     };
   }
 
@@ -399,14 +405,16 @@ export function createVehicleMountState(mountSpec, saved = null, weaponLookup) {
     targetPos: null,
     targetMode: null,
     isFiring: false,
-    fireState: feedAmmo > 0 ? 'READY' : 'EMPTY'
+    fireState: feedAmmo > 0 ? 'READY' : 'EMPTY',
+    fireControl: createFireControlState()
   };
 }
 
 export function captureVehicleMountState(state) {
   return {
     ...state,
-    targetPos: state.targetPos ? [...state.targetPos] : null
+    targetPos: state.targetPos ? [...state.targetPos] : null,
+    fireControl: captureFireControlState(state.fireControl)
   };
 }
 
@@ -433,6 +441,7 @@ export function vehicleDamageReport(unit) {
       roundsFired: state?.roundsFired ?? 0,
       targetUnitId: state?.targetUnitId ?? null,
       targetPos: state?.targetPos ? [...state.targetPos] : null,
+      fireControl: captureFireControlState(state?.fireControl),
       isFiring: Boolean(state?.isFiring),
       fireState: state?.fireState ?? 'IDLE',
       operational: id === 'main'

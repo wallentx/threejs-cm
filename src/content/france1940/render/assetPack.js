@@ -20,6 +20,9 @@ import {
 import {
   PROCEDURAL_BATTLEFIELD_VFX_PROVIDER
 } from '../../../world/vfx/ProceduralBattlefieldVfxProvider.js';
+import {
+  FRANCE_1940_PROCEDURAL_AUDIO_PROVIDER
+} from '../audio/France1940ProceduralAudioProvider.js';
 
 export const FRANCE_1940_RUNTIME_ASSET_PACK = createRuntimeAssetPack(
   FRANCE_1940_ASSET_MANIFEST,
@@ -34,7 +37,9 @@ export const FRANCE_1940_RUNTIME_ASSET_PACK = createRuntimeAssetPack(
     [FRANCE_1940_ASSET_IDS.germanMg34BunkerMesh]:
       GERMAN_MG34_BUNKER_MESH_PROVIDER,
     [FRANCE_1940_ASSET_IDS.battlefieldVfxProvider]:
-      PROCEDURAL_BATTLEFIELD_VFX_PROVIDER
+      PROCEDURAL_BATTLEFIELD_VFX_PROVIDER,
+    [FRANCE_1940_ASSET_IDS.battlefieldAudioProvider]:
+      FRANCE_1940_PROCEDURAL_AUDIO_PROVIDER
   }
 );
 

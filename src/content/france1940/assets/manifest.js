@@ -7,6 +7,7 @@ export const FRANCE_1940_ASSET_IDS = Object.freeze({
   germanGrenadierInfantryMesh: 'france1940.infantry.german.grenadier.mesh',
   germanMg34BunkerMesh: 'france1940.structure.german.mg34-bunker.mesh',
   battlefieldVfxProvider: 'france1940.vfx.battlefield.default',
+  battlefieldAudioProvider: 'france1940.audio.battlefield.default',
   somuaSideCalibrationReference:
     'france1940.calibration.vehicle.fr_somua.side.reference'
 });
@@ -102,12 +103,34 @@ export const FRANCE_1940_ASSET_MANIFEST = defineAssetManifest({
       provenance: 'deterministic bounded battlefield VFX approximation',
       metadata: {
         effectRoles: [
+          'projectile-tracer',
           'projectile-impact',
           'explosion',
           'vehicle-smoke',
           'vehicle-fire',
           'vehicle-sparks',
           'vehicle-scorch'
+        ],
+        simulationAuthority: false
+      }
+    },
+    [FRANCE_1940_ASSET_IDS.battlefieldAudioProvider]: {
+      id: FRANCE_1940_ASSET_IDS.battlefieldAudioProvider,
+      kind: 'battlefield-audio-provider',
+      source: {
+        type: 'procedural',
+        generatorId: 'france-1940-procedural-battlefield-audio-v1'
+      },
+      provenance: 'procedural presentation approximation derived from weapon class and caliber',
+      metadata: {
+        eventRoles: [
+          'rifle-shot',
+          'machine-gun-shot',
+          'submachine-gun-shot',
+          'light-cannon-shot',
+          'medium-cannon-shot',
+          'explosion',
+          'ui-click'
         ],
         simulationAuthority: false
       }

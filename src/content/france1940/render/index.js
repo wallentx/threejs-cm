@@ -23,6 +23,10 @@ import {
   createFrance1940VfxProvider,
   FRANCE_1940_VFX_PROVIDER
 } from './vfxBinding.js';
+import {
+  createFrance1940AudioProvider,
+  FRANCE_1940_AUDIO_PROVIDER
+} from './audioBinding.js';
 import { FRANCE_1940_FACTIONS } from '../factions.js';
 import { FRANCE_1940_PRESENTATION } from '../presentation.js';
 import {
@@ -58,6 +62,9 @@ export function createFrance1940VisualFactories({
     assetPackIds: assetResolver.packIds,
     factionPresentation: FRANCE_1940_FACTION_PRESENTATION,
     terrainSurfaceProvider,
+    audioProvider: assetResolver === FRANCE_1940_ASSET_RESOLVER
+      ? FRANCE_1940_AUDIO_PROVIDER
+      : createFrance1940AudioProvider(assetResolver),
     vfxProvider: assetResolver === FRANCE_1940_ASSET_RESOLVER
       ? FRANCE_1940_VFX_PROVIDER
       : createFrance1940VfxProvider(assetResolver),
@@ -73,6 +80,7 @@ export const FRANCE_1940_VISUAL_FACTORIES = createFrance1940VisualFactories();
 
 export {
   createFrance1940BunkerMesh,
+  createFrance1940AudioProvider,
   createFrance1940CalibrationReferenceRegistry,
   createFrance1940InfantryWeaponRig,
   createFrance1940InfantrySquadMesh,
@@ -83,6 +91,7 @@ export {
   FRANCE_1940_INFANTRY_MESH_FACTORIES,
   FRANCE_1940_INFANTRY_WEAPON_VISUALS,
   FRANCE_1940_ASSET_RESOLVER,
+  FRANCE_1940_AUDIO_PROVIDER,
   FRANCE_1940_CALIBRATION_REFERENCES,
   FRANCE_1940_RUNTIME_ASSET_PACK,
   FRANCE_1940_STRUCTURE_MESH_FACTORIES,

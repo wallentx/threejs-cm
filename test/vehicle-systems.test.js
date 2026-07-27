@@ -12,6 +12,7 @@ import {
   applyPenetrationComponentDamage,
   setVehicleComponentHealth
 } from '../src/game/VehicleSystems.js';
+import { TEST_VFX_PROVIDER } from './helpers/TestVfxProvider.js';
 
 const vehicleIds = [
   'SOMUA_S35',
@@ -52,6 +53,13 @@ function killRole(unit, role) {
 function sequenceRandom(values, fallback = 0) {
   let index = 0;
   return () => values[index++] ?? fallback;
+}
+
+function acquireVehicleTarget(vehicle, target) {
+  vehicle.updateVehicleCombat(3, {
+    target,
+    combat: { fireWeapon: () => false }
+  });
 }
 
 test('all 14 catalog vehicles explicitly own data-driven machine-gun mount lists', () => {
@@ -127,6 +135,7 @@ test('vehicle machine gun consumes its own feed at catalog cadence from its name
   };
   const state = panzer.vehicleMounts.coax;
   const initialFeed = state.feedAmmo;
+  acquireVehicleTarget(panzer, target);
   assert.equal(panzer.updateVehicleCombat(1 / 30, context), true);
   assert.equal(shots.length, 1);
   assert.equal(shots[0].options.mountId, 'coax');
@@ -161,6 +170,7 @@ test('main gun occupies its gunner while an independently crewed hull gun may st
     hull_mg: hullMuzzle
   };
   const mountIds = [];
+  acquireVehicleTarget(panzer, target);
 
   assert.equal(panzer.updateVehicleCombat(1 / 30, {
     target,
@@ -196,6 +206,7 @@ test('machine-gun cooldown preserves substep remainder across fixed simulation s
     target,
     combat: { fireWeapon: () => { shots++; return true; } }
   };
+  acquireVehicleTarget(panzer, target);
 
   for (let step = 0; step < 60; step++) {
     panzer.updateVehicleSystems(1 / 30);
@@ -311,9 +322,11 @@ test('named vehicle mount muzzle reaches the real projectile and telemetry path'
   const scene = new THREE.Scene();
   scene.add(panzer.mesh, target.mesh);
   const combat = new CombatSystem(scene, {}, () => 0.5, {
-    getUnits: () => [panzer, target]
+    getUnits: () => [panzer, target],
+    vfxProvider: TEST_VFX_PROVIDER
   });
   const expected = panzer.getVehicleMountMuzzleWorldPosition('coax');
+  acquireVehicleTarget(panzer, target);
 
   assert.equal(panzer.updateVehicleCombat(1 / 30, { target, combat }), true);
   assert.equal(combat.projectiles.length, 1);
@@ -524,6 +537,7 @@ test('disabled ammunition stowage blocks future reloads but not an already chamb
   setVehicleComponentHealth(panzer.vehicleComponents, 'ammunition', 20);
 
   let mainShots = 0;
+  acquireVehicleTarget(panzer, target);
   const fired = panzer.updateVehicleCombat(1 / 30, {
     target,
     combat: {

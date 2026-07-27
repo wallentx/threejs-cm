@@ -1,4 +1,12 @@
 import * as THREE from 'three';
+import {
+  advanceFireControlState,
+  captureFireControlState,
+  createFireControlState,
+  createFireControlTargetKey,
+  recordFireControlShot,
+  resetFireControlState
+} from '../simulation/combat/FireControl.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const MAX_INFANTRY_ROUNDS_PER_STEP = 64;
@@ -52,6 +60,7 @@ export class SoldierAgent {
     this.moraleTier = record.moraleTier ?? 'READY';
     this.targetUnitId = record.targetUnitId ?? null;
     this.targetSoldierId = record.targetSoldierId ?? null;
+    this.fireControl = createFireControlState(record.fireControl);
     this.buildingLocation = record.buildingLocation
       ? JSON.parse(JSON.stringify(record.buildingLocation))
       : null;
@@ -89,6 +98,7 @@ export class SoldierAgent {
       worldPosition: [...this.record.worldPosition],
       velocity: [...this.record.velocity],
       slotOffset: [...this.record.slotOffset],
+      fireControl: captureFireControlState(this.fireControl),
       buildingLocation: this.record.buildingLocation
         ? JSON.parse(JSON.stringify(this.record.buildingLocation))
         : null
@@ -124,6 +134,7 @@ export class SoldierAgent {
     this.recoilTime = record.recoilTime ?? 0;
     this.targetUnitId = record.targetUnitId ?? null;
     this.targetSoldierId = record.targetSoldierId ?? null;
+    this.fireControl = createFireControlState(record.fireControl);
     this.buildingLocation = record.buildingLocation ? JSON.parse(JSON.stringify(record.buildingLocation)) : null;
     this.commandWaypoint = record.commandWaypoint ?? -1;
     this.syncRecord();
@@ -154,6 +165,7 @@ export class SoldierAgent {
       recoilTime: this.recoilTime,
       targetUnitId: this.targetUnitId,
       targetSoldierId: this.targetSoldierId,
+      fireControl: captureFireControlState(this.fireControl),
       buildingLocation: this.buildingLocation
         ? JSON.parse(JSON.stringify(this.buildingLocation))
         : null,
@@ -388,12 +400,20 @@ export class SoldierAgent {
   updateCombat(delta, context) {
     const elapsed = Math.max(delta, 0);
     const weapon = this.weaponLookup(this.weaponId);
-    if (!weapon || !this.isAlive) return false;
+    if (!weapon || !this.isAlive) {
+      resetFireControlState(this.fireControl);
+      return false;
+    }
 
     this.fireCooldown = Math.max(-elapsed, this.fireCooldown - elapsed);
-    if (this.reloadTimer > 0 || this.fireCooldown > INFANTRY_CADENCE_EPSILON) return false;
     if (this.state === 'MOVING' || this.state === 'REACTING' || this.state === 'ADVANCING'
-        || this.state === 'TAKING_COVER' || this.state === 'FLEEING') return false;
+        || this.state === 'TAKING_COVER' || this.state === 'FLEEING') {
+      resetFireControlState(this.fireControl, 'MOVING');
+      this.targetUnitId = null;
+      this.targetSoldierId = null;
+      this.syncRecord();
+      return false;
+    }
 
     if (this.magazineAmmo <= 0) {
       this.startReload();
@@ -406,10 +426,17 @@ export class SoldierAgent {
       : this.moraleTier === 'TAKING_COVER' ? 0.45
       : (['PINNED', 'COWERING', 'ROUTED', 'FLEEING'].includes(this.state) || ['PINNED', 'ROUTED'].includes(this.moraleTier)) ? 0 : 1;
 
-    if (suppressionAccuracyFactor <= 0) return false;
+    if (suppressionAccuracyFactor <= 0) {
+      resetFireControlState(this.fireControl, 'SUPPRESSED');
+      this.syncRecord();
+      return false;
+    }
 
     const checkLOS = context.spotting?.checkLOS;
-    if (typeof checkLOS !== 'function') return false;
+    if (typeof checkLOS !== 'function') {
+      resetFireControlState(this.fireControl);
+      return false;
+    }
 
     let best = null;
     const candidateUnits = this.unit.targetUnit?.isCombatEffective()
@@ -449,6 +476,7 @@ export class SoldierAgent {
     if (!best) {
       this.targetUnitId = null;
       this.targetSoldierId = null;
+      resetFireControlState(this.fireControl);
       this.syncRecord();
       return false;
     }
@@ -457,6 +485,35 @@ export class SoldierAgent {
     this.targetSoldierId = best.agent?.id ?? null;
     this.facing = Math.atan2(best.position.x - this.position.x, best.position.z - this.position.z);
     this.state = 'AIMING';
+    const targetKey = createFireControlTargetKey({
+      targetUnitId: this.targetUnitId,
+      targetSoldierId: this.targetSoldierId,
+      targetPosition: best.position
+    });
+    const targetMoving = best.agent
+      ? best.agent.velocity.lengthSq() > 0.04
+      : Math.abs(best.unit?.moveSpeed ?? 0) > 0.2;
+    const aim = advanceFireControlState(this.fireControl, {
+      deltaSeconds: elapsed,
+      shooterKey: `${this.unit.id}:${this.id}`,
+      targetKey,
+      weapon,
+      trueRangeMeters: best.distance,
+      platform: 'infantry',
+      experience: this.unit.experience,
+      stance: this.stance,
+      suppression: this.suppression,
+      wounded: this.isWounded,
+      targetMoving
+    });
+    if (aim.becameReady) {
+      this.fireCooldown = Math.max(this.fireCooldown, -aim.overshootSeconds);
+    }
+    if (!aim.ready || this.reloadTimer > 0
+        || this.fireCooldown > INFANTRY_CADENCE_EPSILON) {
+      this.syncRecord();
+      return false;
+    }
 
     const experienceDispersion = { Green: 1.5, Regular: 1.15, Veteran: 0.92, Crack: 0.78 };
     const dispersionScale = (experienceDispersion[this.unit.experience] ?? 1.15)
@@ -464,7 +521,8 @@ export class SoldierAgent {
       * (this.isWounded ? 1.45 : 1)
       * (1 + this.suppression / 85)
       * (this.unit.targetMode === 'TARGET_LIGHT' ? 1.25 : 1)
-      / suppressionAccuracyFactor;
+      / suppressionAccuracyFactor
+      * aim.dispersionScale;
     const muzzlePosition = this.getMuzzleWorldPosition();
     const cyclicRPM = weapon.cyclicRPM ?? weapon.rateOfFireRpm ?? weapon.practicalRPM ?? 600;
     const practicalRPM = weapon.practicalRPM ?? cyclicRPM;
@@ -481,9 +539,16 @@ export class SoldierAgent {
         targetSoldier: best.agent,
         weapon,
         muzzlePosition,
-        dispersionScale
+        dispersionScale,
+        estimatedRangeMeters: this.fireControl.estimatedRangeMeters,
+        fireControlModelVersion: this.fireControl.modelVersion,
+        aimRequiredSeconds: this.fireControl.aimRequiredSeconds,
+        rangeErrorMeters: this.fireControl.rangeErrorMeters
       });
-      if (!fired) break;
+      if (!fired) {
+        this.fireCooldown = Math.max(0, this.fireCooldown);
+        break;
+      }
 
       this.magazineAmmo--;
       this.roundsFired++;
@@ -506,6 +571,12 @@ export class SoldierAgent {
     if (emitted === MAX_INFANTRY_ROUNDS_PER_STEP
         && this.fireCooldown <= INFANTRY_CADENCE_EPSILON) {
       this.fireCooldown = cyclicInterval;
+    }
+    if (firedAny) {
+      recordFireControlShot(this.fireControl, weapon, {
+        platform: 'infantry',
+        burstComplete: this.burstRemaining <= 0
+      });
     }
     this.syncRecord();
     return firedAny;

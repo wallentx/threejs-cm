@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ExternalImageAssetService } from '../assets/ExternalImageAssetService.js';
 import { UnitFactory } from '../world/UnitFactory.js';
 import {
   BLUEPRINT_CALIBRATION_RECORDS,
@@ -59,15 +60,30 @@ function countModelGeometry(root) {
 }
 
 export class VehicleCalibrationApp {
-  constructor({ vehicleMeshFactories, calibrationReferences } = {}) {
+  constructor({
+    vehicleMeshFactories,
+    calibrationReferences,
+    imageAssets = new ExternalImageAssetService({
+      missingAssetPolicy: { action: 'return-null' }
+    })
+  } = {}) {
     if (!vehicleMeshFactories || typeof vehicleMeshFactories !== 'object') {
       throw new Error('VehicleCalibrationApp requires vehicleMeshFactories');
     }
     if (!calibrationReferences || typeof calibrationReferences.get !== 'function') {
       throw new Error('VehicleCalibrationApp requires calibrationReferences');
     }
+    if (
+      !imageAssets
+      || typeof imageAssets.load !== 'function'
+      || typeof imageAssets.createObjectUrl !== 'function'
+      || typeof imageAssets.dispose !== 'function'
+    ) {
+      throw new Error('VehicleCalibrationApp requires an external image asset service');
+    }
     this.vehicleMeshFactories = vehicleMeshFactories;
     this.calibrationReferences = calibrationReferences;
+    this.imageAssets = imageAssets;
     this.viewport = requiredElement('calibration-viewport');
     this.rendererHost = requiredElement('calibration-renderer');
     this.blueprintCanvas = requiredElement('blueprint-canvas');
@@ -120,8 +136,8 @@ export class VehicleCalibrationApp {
     this.frame = null;
     this.placeLandmark = false;
     this.renderQueued = false;
-    this.objectUrls = new Set();
     this.queryBlueprint = params.get('blueprint');
+    this.disposed = false;
   }
 
   async initialize() {
@@ -212,8 +228,7 @@ export class VehicleCalibrationApp {
     this.fileInput.addEventListener('change', async () => {
       const file = this.fileInput.files?.[0];
       if (!file) return;
-      const url = URL.createObjectURL(file);
-      this.objectUrls.add(url);
+      const url = this.imageAssets.createObjectUrl(file);
       const registration = this.getRegistration();
       registration.imageUrl = url;
       this.urlInput.value = file.name;
@@ -516,25 +531,45 @@ export class VehicleCalibrationApp {
 
   async loadImage(url) {
     this.setStatus('Loading blueprint image...');
-    const image = new Image();
-    // The jig only draws source pixels; it never reads or exports the canvas.
-    // Avoid anonymous CORS mode because many archival image hosts omit ACAO
-    // headers even though browsers may still display their rasters normally.
+    const registrationKey = this.getRegistrationKey();
+    const reference = this.calibrationReferences.get(this.modelId, this.view);
+    const assetBinding = reference?.imageUrl === url
+      ? {
+          logicalId: reference.logicalId,
+          sourcePackId: reference.sourcePackId
+        }
+      : null;
+    let resource;
     try {
-      await new Promise((resolve, reject) => {
-        image.addEventListener('load', resolve, { once: true });
-        image.addEventListener('error', reject, { once: true });
-        image.src = url;
+      resource = await this.imageAssets.load(url, {
+        cacheKey: assetBinding
+          ? `logical:${assetBinding.logicalId}:${assetBinding.sourcePackId}`
+          : `calibration:${url}`,
+        fallbackPolicy: { action: 'return-null' },
+        assetBinding
       });
     } catch {
       this.setStatus('Image load failed. Download remote blueprint, then use local file upload.', true);
       return;
     }
+    if (!resource) {
+      this.setStatus('Image unavailable. Use local file upload for this reference.', true);
+      return;
+    }
+    const image = resource.image;
+    this.imageCache.set(registrationKey, image);
+    if (this.getRegistrationKey() !== registrationKey) return resource;
     this.currentImage = image;
-    this.imageCache.set(this.getRegistrationKey(), image);
+    if (resource.assetBinding) {
+      document.body.dataset.calibrationReferenceAsset =
+        `${resource.assetBinding.logicalId}:${resource.assetBinding.sourcePackId}`;
+    } else {
+      delete document.body.dataset.calibrationReferenceAsset;
+    }
     this.setStatus(`Loaded ${image.naturalWidth} x ${image.naturalHeight} reference.`);
     if (this.getRegistration().autoFit) this.fitRegistrationFromLandmarks();
     else this.requestRender();
+    return resource;
   }
 
   updateSourceLink() {
@@ -899,5 +934,20 @@ export class VehicleCalibrationApp {
   setStatus(message, error = false) {
     this.statusElement.textContent = message;
     this.statusElement.classList.toggle('error', error);
+  }
+
+  dispose() {
+    if (this.disposed) return false;
+    this.disposed = true;
+    this.resizeObserver?.disconnect();
+    this.imageAssets.dispose();
+    this.renderer?.dispose();
+    this.silhouetteMaterial?.dispose();
+    this.differenceMaterial?.dispose();
+    this.wireframeMaterial?.dispose();
+    if (window.__VEHICLE_CALIBRATION__ === this) {
+      delete window.__VEHICLE_CALIBRATION__;
+    }
+    return true;
   }
 }

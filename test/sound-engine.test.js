@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SoundEngine } from '../src/engine/SoundEngine.js';
+import {
+  FRANCE_1940_AUDIO_EVENT_IDS,
+  FRANCE_1940_PROCEDURAL_AUDIO_PROVIDER
+} from '../src/content/france1940/audio/France1940ProceduralAudioProvider.js';
 
 class FakeParam {
   setValueAtTime() {}
@@ -103,18 +107,27 @@ function withFakeAudio(testFn) {
 }
 
 test('sound engine caches noise and explicitly releases completed voices', withFakeAudio(() => {
-  const sound = new SoundEngine({ voiceLimits: { gunshot: 1 } });
-  assert.equal(sound.playGunshot('mg42'), true);
+  const sound = new SoundEngine({
+    audioProvider: FRANCE_1940_PROCEDURAL_AUDIO_PROVIDER,
+    voiceLimits: { smallArms: 1 }
+  });
+  const machineGun = { kind: 'machine_gun', caliberMm: 7.92 };
+  assert.equal(sound.playWeapon(machineGun), true);
+  assert.equal(sound.lastEventId, FRANCE_1940_AUDIO_EVENT_IDS.machineGun);
   const context = sound.ctx;
   const first = context.sources.at(-1);
   assert.equal(context.bufferCreations, 1);
-  assert.equal(sound.playGunshot('mg42'), false, 'voice cap coalesces bursts instead of growing graphs');
+  assert.equal(
+    sound.playWeapon(machineGun),
+    false,
+    'voice cap coalesces bursts instead of growing graphs'
+  );
 
   first.end();
   assert.equal(sound.activeVoices.size, 0);
   assert.equal(first.disconnected, true);
 
-  assert.equal(sound.playGunshot('mg42'), true);
+  assert.equal(sound.playWeapon(machineGun), true);
   assert.equal(context.bufferCreations, 1, 'repeated bursts reuse one cached noise buffer');
   context.sources.at(-1).end();
   sound.dispose();
@@ -122,8 +135,11 @@ test('sound engine caches noise and explicitly releases completed voices', withF
 }));
 
 test('cannon and UI oscillator sources receive scheduled stops and cleanup', withFakeAudio(() => {
-  const sound = new SoundEngine();
-  sound.playCannon();
+  const sound = new SoundEngine({
+    audioProvider: FRANCE_1940_PROCEDURAL_AUDIO_PROVIDER
+  });
+  sound.playWeapon({ kind: 'cannon_ap', caliberMm: 47 });
+  assert.equal(sound.lastEventId, FRANCE_1940_AUDIO_EVENT_IDS.lightCannon);
   const cannonSources = sound.ctx.sources.slice();
   assert.equal(cannonSources.length, 2);
   assert.ok(cannonSources.every(source => source.stops.length === 1));

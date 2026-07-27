@@ -2,10 +2,9 @@ import * as THREE from 'three';
 import { BallisticsSystem } from './BallisticsSystem.js';
 import { worldToLocalPoint } from '../simulation/buildings/BuildingTransforms.js';
 import {
-  PROCEDURAL_BATTLEFIELD_VFX_PROVIDER,
   validateBattlefieldVfxProvider,
   validateCombatVfxResourceSet
-} from '../world/vfx/ProceduralBattlefieldVfxProvider.js';
+} from '../world/vfx/BattlefieldVfxContract.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const scratchAim = new THREE.Vector3();
@@ -192,27 +191,6 @@ function snapshotTelemetry(telemetry) {
   };
 }
 
-function createProjectileMesh(weapon, resources) {
-  const isCannon = weapon.kind.startsWith('cannon');
-  const key = `${isCannon ? 'cannon' : 'small-arm'}:${weapon.caliberMm}`;
-  let resource = resources.get(key);
-  if (!resource) {
-    const geometry = isCannon
-      ? new THREE.SphereGeometry(Math.max(0.07, weapon.caliberMm / 450), 6, 5)
-      : new THREE.CylinderGeometry(0.014, 0.014, 0.44, 5);
-    if (!isCannon) geometry.rotateX(Math.PI / 2);
-    resource = {
-      geometry,
-      material: new THREE.MeshBasicMaterial({
-        color: isCannon ? 0xffd166 : 0xffb347,
-        toneMapped: false
-      })
-    };
-    resources.set(key, resource);
-  }
-  return new THREE.Mesh(resource.geometry, resource.material);
-}
-
 function orientProjectileMesh(projectile) {
   projectile.mesh.position.copy(projectile.position);
   projectile.mesh.lookAt(
@@ -227,9 +205,8 @@ export class CombatSystem {
     this.random = random;
     this.projectiles = [];
     this.effects = [];
-    this.projectileResources = new Map();
     this.vfxProvider = validateBattlefieldVfxProvider(
-      options.vfxProvider ?? PROCEDURAL_BATTLEFIELD_VFX_PROVIDER
+      options.vfxProvider
     );
     this.vfxResources = validateCombatVfxResourceSet(
       this.vfxProvider.createCombatResources()
@@ -281,7 +258,10 @@ export class CombatSystem {
       : (targetUnit?.vehicleSpec ? 1.15 + this.random() * 1.25 : 1.1);
 
     const range = fromPos.distanceTo(toPos);
-    const estimatedFlightTime = range / Math.max(1, weapon.muzzleVelocity);
+    const estimatedRangeMeters = Number.isFinite(options.estimatedRangeMeters)
+      ? Math.max(0, options.estimatedRangeMeters)
+      : range;
+    const estimatedFlightTime = estimatedRangeMeters / Math.max(1, weapon.muzzleVelocity);
     toPos.y += 0.5 * 9.81 * estimatedFlightTime * estimatedFlightTime;
 
     const dispersionRadians = weapon.dispersionMOA * Math.PI / (180 * 60);
@@ -295,8 +275,7 @@ export class CombatSystem {
 
     scratchDirection.subVectors(toPos, fromPos).normalize();
     const velocity = scratchDirection.clone().multiplyScalar(weapon.muzzleVelocity);
-    const isCannon = weapon.kind.startsWith('cannon');
-    const mesh = createProjectileMesh(weapon, this.projectileResources);
+    const mesh = this.vfxResources.createProjectileMesh(weapon);
     mesh.position.copy(fromPos);
     mesh.lookAt(toPos);
     this.scene.add(mesh);
@@ -311,6 +290,15 @@ export class CombatSystem {
       targetSoldierId: options.targetSoldier?.id ?? null,
       weapon,
       ammoId: options.ammoId ?? weapon.ammunitionId ?? weapon.id,
+      targetRangeMeters: range,
+      estimatedRangeMeters,
+      rangeErrorMeters: Number.isFinite(options.rangeErrorMeters)
+        ? options.rangeErrorMeters
+        : estimatedRangeMeters - range,
+      aimRequiredSeconds: Number.isFinite(options.aimRequiredSeconds)
+        ? Math.max(0, options.aimRequiredSeconds)
+        : null,
+      fireControlModelVersion: options.fireControlModelVersion ?? null,
       muzzlePosition: fromPos.clone(),
       position: fromPos.clone(),
       previousPosition: fromPos.clone(),
@@ -329,8 +317,7 @@ export class CombatSystem {
     this.projectiles.push(projectile);
     this.telemetry.shotsFired++;
 
-    if (isCannon) this.sound?.playCannon?.();
-    else this.sound?.playGunshot?.(weapon.kind === 'machine_gun' ? 'mg42' : 'garand');
+    this.sound?.playWeapon?.(weapon);
     return true;
   }
 
@@ -347,6 +334,11 @@ export class CombatSystem {
         targetSoldierId: projectile.targetSoldierId,
         weaponId: projectile.weapon.id,
         ammoId: projectile.ammoId,
+        targetRangeMeters: projectile.targetRangeMeters,
+        estimatedRangeMeters: projectile.estimatedRangeMeters,
+        rangeErrorMeters: projectile.rangeErrorMeters,
+        aimRequiredSeconds: projectile.aimRequiredSeconds,
+        fireControlModelVersion: projectile.fireControlModelVersion,
         muzzlePosition: projectile.muzzlePosition.toArray(),
         position: projectile.position.toArray(),
         previousPosition: projectile.previousPosition.toArray(),
@@ -392,7 +384,7 @@ export class CombatSystem {
 
       const projectile = {
         id: saved.id,
-        mesh: createProjectileMesh(weapon, this.projectileResources),
+        mesh: this.vfxResources.createProjectileMesh(weapon),
         attacker,
         shooterId: saved.shooterId ?? attacker.id,
         mountId: saved.mountId ?? null,
@@ -400,6 +392,11 @@ export class CombatSystem {
         targetSoldierId: saved.targetSoldierId ?? null,
         weapon,
         ammoId: saved.ammoId ?? weapon.ammunitionId ?? weapon.id,
+        targetRangeMeters: saved.targetRangeMeters ?? null,
+        estimatedRangeMeters: saved.estimatedRangeMeters ?? saved.targetRangeMeters ?? null,
+        rangeErrorMeters: saved.rangeErrorMeters ?? null,
+        aimRequiredSeconds: saved.aimRequiredSeconds ?? null,
+        fireControlModelVersion: saved.fireControlModelVersion ?? null,
         muzzlePosition: new THREE.Vector3().fromArray(saved.muzzlePosition),
         position: new THREE.Vector3().fromArray(saved.position),
         previousPosition: new THREE.Vector3().fromArray(saved.previousPosition),
@@ -447,6 +444,11 @@ export class CombatSystem {
       targetSoldierId: impact.agent?.id ?? projectile.targetSoldierId ?? null,
       weaponId: projectile.weapon.id,
       ammoId: projectile.ammoId,
+      targetRangeMeters: projectile.targetRangeMeters ?? null,
+      estimatedRangeMeters: projectile.estimatedRangeMeters ?? null,
+      rangeErrorMeters: projectile.rangeErrorMeters ?? null,
+      aimRequiredSeconds: projectile.aimRequiredSeconds ?? null,
+      fireControlModelVersion: projectile.fireControlModelVersion ?? null,
       muzzlePosition: projectile.muzzlePosition.toArray(),
       impactPosition: impact.point.toArray(),
       flightTime: projectile.lifetime,
@@ -837,7 +839,7 @@ export class CombatSystem {
   }
 
   createExplosionEffect(pos, scale = 1) {
-    this.sound?.playExplosion?.();
+    this.sound?.playExplosion?.({ scale });
     const style = this.vfxResources.styles.explosion;
     this.startEffect('explosion', pos, {
       color: style.color,
@@ -956,14 +958,9 @@ export class CombatSystem {
       for (const effect of pool) effect.material.dispose();
     }
     this.vfxResources.dispose();
-    this.disposeProjectileResources();
   }
 
   disposeProjectileResources() {
-    for (const resource of this.projectileResources.values()) {
-      resource.geometry.dispose();
-      resource.material.dispose();
-    }
-    this.projectileResources.clear();
+    return this.vfxResources.resetProjectileResources();
   }
 }

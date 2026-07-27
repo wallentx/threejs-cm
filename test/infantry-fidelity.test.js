@@ -9,6 +9,7 @@ import {
   createFrance1940InfantryWeaponRig,
   FRANCE_1940_INFANTRY_WEAPON_VISUALS
 } from '../src/content/france1940/render/index.js';
+import { TEST_VFX_PROVIDER } from './helpers/TestVfxProvider.js';
 
 const flatTerrain = {
   bocageObstacles: [],
@@ -252,7 +253,8 @@ test('projectile impacts signal nearby soldiers independently using source and i
   for (const agent of agents) agent.syncRecord();
 
   const combat = new CombatSystem(new THREE.Scene(), {}, () => 0.5, {
-    getUnits: () => [unit]
+    getUnits: () => [unit],
+    vfxProvider: TEST_VFX_PROVIDER
   });
   const weapon = getWeapon('MAS36');
   const projectile = {

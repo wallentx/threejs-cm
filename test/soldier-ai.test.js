@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { Unit } from './helpers/France1940TestUnit.js';
 import { CombatSystem } from '../src/game/CombatSystem.js';
 import { SoldierAgent } from '../src/game/SoldierAgent.js';
+import { TEST_VFX_PROVIDER } from './helpers/TestVfxProvider.js';
 
 const flatTerrain = {
   getHeightAt() {
@@ -128,7 +129,9 @@ test('a projectile resolves against its targeted individual soldier', () => {
     playCannon() {},
     playExplosion() {}
   };
-  const combat = new CombatSystem(new THREE.Scene(), sound, () => 0);
+  const combat = new CombatSystem(new THREE.Scene(), sound, () => 0, {
+    vfxProvider: TEST_VFX_PROVIDER
+  });
 
   assert.equal(combat.fireWeapon(attacker, target, target.position, {
     shooter,
@@ -159,7 +162,9 @@ test('each infantryman owns autonomous movement, health, and attack state', () =
     playGunshot() {},
     playCannon() {},
     playExplosion() {}
-  }, () => 0);
+  }, () => 0, {
+    vfxProvider: TEST_VFX_PROVIDER
+  });
   const spotting = {
     checkLOS(from, to) {
       return { clear: true, dist: from.distanceTo(to) };
@@ -172,6 +177,13 @@ test('each infantryman owns autonomous movement, health, and attack state', () =
     agent.state = 'OBSERVING';
   });
   attacker.updateIndividualCombat(0.1, {
+    opposingUnits: [target],
+    spotting,
+    combat,
+    random: () => 0
+  });
+  assert.equal(combat.projectiles.length, 0);
+  attacker.updateIndividualCombat(2, {
     opposingUnits: [target],
     spotting,
     combat,

@@ -88,6 +88,9 @@ export class GameApp {
     ) {
       throw new Error('GameApp requires a family battlefield VFX provider');
     }
+    if (typeof visualFactories.audioProvider?.createResources !== 'function') {
+      throw new Error('GameApp requires a family battlefield audio provider');
+    }
     if (typeof playerFactionId !== 'string' || playerFactionId.length === 0) {
       throw new TypeError('GameApp requires playerFactionId');
     }
@@ -199,7 +202,12 @@ export class GameApp {
       // 2. Camera Manager
       log('Creating Camera Manager...', 'info');
       this.cameraManager = new CameraManager(this.camera, this.renderer.domElement);
-      this.sound = new SoundEngine();
+      this.sound = new SoundEngine({
+        audioProvider: this.visualFactories.audioProvider
+      });
+      window.addEventListener('pagehide', () => this.sound?.dispose(), {
+        once: true
+      });
 
       // 3. Terrain Builder
       log('Building scenario terrain...', 'info');
@@ -217,6 +225,7 @@ export class GameApp {
 
       // 4. Game Systems
       this.units = [];
+      this.movedUnitIds = new Set();
       this.selectedUnit = null;
       this.matchStarted = false;
       this.buildingInteraction = new BuildingInteractionSystem({
@@ -312,6 +321,10 @@ export class GameApp {
       document.body.dataset.mapId = this.mapDescriptor.id;
       document.body.dataset.gameFamilyId = this.scenario.gameFamilyId;
       document.body.dataset.rendererBackend = this.renderer.backendName;
+      const audioBinding = this.sound.assetBinding;
+      document.body.dataset.audioProvider = audioBinding
+        ? `${audioBinding.logicalId}:${audioBinding.sourcePackId}:${audioBinding.implementationId}`
+        : this.sound.audioProvider.id;
       document.body.dataset.captureManifest = `${this.seed}:${this.cameraBookmark}:${this.qualityTier}:${this.visualDebugMode}:${this.wego.playMode}`;
 
       // 8. Start Game Loop
@@ -550,16 +563,22 @@ export class GameApp {
   }
 
   chooseTarget(attacker, opposingUnits) {
+    const isTargetable = target => {
+      if (!target?.isCombatEffective()) return false;
+      if (!this.spotting.canPrecisionTarget(attacker, target)) return false;
+      const los = this.spotting.checkLOS(attacker.position, target.position);
+      return los.clear && los.dist <= (attacker.vehicleSpec ? 220 : 150);
+    };
     if (attacker.targetUnit?.isCombatEffective()
         && this.spotting.canPrecisionTarget(attacker, attacker.targetUnit)) {
       return attacker.targetUnit;
     }
-    const visibleTargets = opposingUnits.filter(target => {
-      if (!target.isCombatEffective()) return false;
-      if (!this.spotting.canPrecisionTarget(attacker, target)) return false;
-      const los = this.spotting.checkLOS(attacker.position, target.position);
-      return los.clear && los.dist <= (attacker.vehicleSpec ? 220 : 150);
-    });
+    const trackedTargetId = attacker.vehicleWeapon?.targetUnitId ?? null;
+    const trackedTarget = trackedTargetId
+      ? opposingUnits.find(target => target.id === trackedTargetId)
+      : null;
+    if (isTargetable(trackedTarget)) return trackedTarget;
+    const visibleTargets = opposingUnits.filter(isTargetable);
     if (visibleTargets.length === 0) return null;
     return visibleTargets[Math.floor(this.random() * visibleTargets.length)];
   }
@@ -569,11 +588,17 @@ export class GameApp {
   }
 
   simulateStep(delta) {
+    this.movedUnitIds.clear();
     this.units.forEach(unit => {
+      const previousX = unit.position.x;
+      const previousZ = unit.position.z;
       const waypoint = unit.waypoints[unit.currentWaypointIndex];
       const opposingUnits = this.factionRoster.opposingUnitsFor(unit.faction) ?? [];
       const huntStopped = waypoint?.orderType === 'HUNT' && this.hasContact(unit, opposingUnits);
       unit.update(delta, this.terrain, { haltMovement: huntStopped });
+      if (Math.hypot(unit.position.x - previousX, unit.position.z - previousZ) > 1e-5) {
+        this.movedUnitIds.add(unit.id);
+      }
     });
     this.buildingInteraction.advance(delta);
     this.syncBuildingInteriorPresentation();
@@ -600,6 +625,8 @@ export class GameApp {
         attacker.updateVehicleCombat(delta, {
           target,
           combat: this.combat,
+          shooterMoving: this.movedUnitIds.has(attacker.id),
+          targetMoving: Boolean(target && this.movedUnitIds.has(target.id)),
           random: () => this.random()
         });
         return;
