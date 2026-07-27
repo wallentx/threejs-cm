@@ -1,4 +1,8 @@
 import * as THREE from 'three';
+import {
+  SOMUA_S35_HULL_STATIONS as HULL_STATIONS,
+  SOMUA_S35_TURRET_STATIONS as TURRET_STATIONS
+} from '../../game/vehicleData/SomuaS35Shape.js';
 import { lateralX } from '../LocalFrame.js';
 import {
   createTrackedRunningGear,
@@ -120,27 +124,6 @@ export const SOMUA_S35_BLUEPRINT_CALIBRATION = Object.freeze({
     'camouflage and markings are material-system approximations, not a specific vehicle restoration'
   ])
 });
-
-const HULL_STATIONS = Object.freeze([
-  { z: -2.69, floorHalf: 0.30, floorY: 0.75, lowerHalf: 0.40, lowerY: 0.94, sideHalf: 0.45, shoulderY: 1.10, roofHalf: 0.24, roofY: 1.24 },
-  { z: -2.49, floorHalf: 0.62, floorY: 0.49, lowerHalf: 0.78, lowerY: 0.67, sideHalf: 0.82, shoulderY: 1.19, roofHalf: 0.62, roofY: 1.39 },
-  { z: -2.14, floorHalf: 0.78, floorY: 0.34, lowerHalf: 0.95, lowerY: 0.55, sideHalf: 0.98, shoulderY: 1.28, roofHalf: 0.78, roofY: 1.47 },
-  { z: -1.42, floorHalf: 0.82, floorY: 0.32, lowerHalf: 0.98, lowerY: 0.52, sideHalf: 1.00, shoulderY: 1.34, roofHalf: 0.80, roofY: 1.53 },
-  { z: -0.48, floorHalf: 0.83, floorY: 0.32, lowerHalf: 1.00, lowerY: 0.52, sideHalf: 1.02, shoulderY: 1.39, roofHalf: 0.80, roofY: 1.60 },
-  { z: 0.42, floorHalf: 0.83, floorY: 0.32, lowerHalf: 1.00, lowerY: 0.52, sideHalf: 1.02, shoulderY: 1.43, roofHalf: 0.78, roofY: 1.67 },
-  { z: 1.12, floorHalf: 0.80, floorY: 0.34, lowerHalf: 0.97, lowerY: 0.54, sideHalf: 0.99, shoulderY: 1.40, roofHalf: 0.71, roofY: 1.64 },
-  { z: 1.72, floorHalf: 0.75, floorY: 0.38, lowerHalf: 0.91, lowerY: 0.58, sideHalf: 0.94, shoulderY: 1.33, roofHalf: 0.60, roofY: 1.52 },
-  { z: 2.18, floorHalf: 0.64, floorY: 0.45, lowerHalf: 0.82, lowerY: 0.63, sideHalf: 0.85, shoulderY: 1.21, roofHalf: 0.43, roofY: 1.36 },
-  { z: 2.52, floorHalf: 0.48, floorY: 0.56, lowerHalf: 0.66, lowerY: 0.70, sideHalf: 0.69, shoulderY: 1.05, roofHalf: 0.25, roofY: 1.18 },
-  { z: 2.69, floorHalf: 0.25, floorY: 0.73, lowerHalf: 0.35, lowerY: 0.79, sideHalf: 0.38, shoulderY: 0.91, roofHalf: 0.12, roofY: 1.00 }
-]);
-
-const TURRET_STATIONS = Object.freeze([
-  { y: 0.00, halfWidth: 0.66, frontZ: 0.75, rearZ: 0.82 },
-  { y: 0.30, halfWidth: 0.68, frontZ: 0.78, rearZ: 0.84 },
-  { y: 0.58, halfWidth: 0.61, frontZ: 0.69, rearZ: 0.76 },
-  { y: 0.72, halfWidth: 0.48, frontZ: 0.52, rearZ: 0.59 }
-]);
 
 function signedVolume(positions, indices) {
   const a = new THREE.Vector3();

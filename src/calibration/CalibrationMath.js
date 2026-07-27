@@ -113,6 +113,7 @@ export function createImageTransform({
   scale = 1,
   offsetX = 0,
   offsetY = 0,
+  rotationDegrees = 0,
   mirrorX = false
 }) {
   if (!(imageWidth > 0 && imageHeight > 0 && canvasWidth > 0 && canvasHeight > 0)) {
@@ -128,7 +129,14 @@ export function createImageTransform({
   };
   const sourceWidth = imageWidth * (1 - safeCrop.left - safeCrop.right);
   const sourceHeight = imageHeight * (1 - safeCrop.top - safeCrop.bottom);
-  const containScale = Math.min(canvasWidth / sourceWidth, canvasHeight / sourceHeight);
+  const rotation = Number.isFinite(Number(rotationDegrees))
+    ? Number(rotationDegrees) * Math.PI / 180
+    : 0;
+  const cosine = Math.cos(rotation);
+  const sine = Math.sin(rotation);
+  const rotatedWidth = Math.abs(sourceWidth * cosine) + Math.abs(sourceHeight * sine);
+  const rotatedHeight = Math.abs(sourceWidth * sine) + Math.abs(sourceHeight * cosine);
+  const containScale = Math.min(canvasWidth / rotatedWidth, canvasHeight / rotatedHeight);
   const drawWidth = sourceWidth * containScale * scale;
   const drawHeight = sourceHeight * containScale * scale;
 
@@ -141,6 +149,8 @@ export function createImageTransform({
     centerY: canvasHeight * 0.5 + offsetY,
     drawWidth,
     drawHeight,
+    rotation,
+    rotationDegrees: rotation * 180 / Math.PI,
     mirrorX
   });
 }
@@ -149,15 +159,23 @@ export function sourceNormalizedToCanvas(point, transform, imageWidth, imageHeig
   let localX = ((point.x * imageWidth) - transform.sourceX) / transform.sourceWidth;
   const localY = ((point.y * imageHeight) - transform.sourceY) / transform.sourceHeight;
   if (transform.mirrorX) localX = 1 - localX;
+  const x = (localX - 0.5) * transform.drawWidth;
+  const y = (localY - 0.5) * transform.drawHeight;
+  const cosine = Math.cos(transform.rotation ?? 0);
+  const sine = Math.sin(transform.rotation ?? 0);
   return {
-    x: transform.centerX + (localX - 0.5) * transform.drawWidth,
-    y: transform.centerY + (localY - 0.5) * transform.drawHeight
+    x: transform.centerX + x * cosine - y * sine,
+    y: transform.centerY + x * sine + y * cosine
   };
 }
 
 export function canvasToSourceNormalized(point, transform, imageWidth, imageHeight) {
-  let localX = ((point.x - transform.centerX) / transform.drawWidth) + 0.5;
-  const localY = ((point.y - transform.centerY) / transform.drawHeight) + 0.5;
+  const x = point.x - transform.centerX;
+  const y = point.y - transform.centerY;
+  const cosine = Math.cos(transform.rotation ?? 0);
+  const sine = Math.sin(transform.rotation ?? 0);
+  let localX = ((x * cosine + y * sine) / transform.drawWidth) + 0.5;
+  const localY = ((-x * sine + y * cosine) / transform.drawHeight) + 0.5;
   if (transform.mirrorX) localX = 1 - localX;
   return {
     x: (transform.sourceX + localX * transform.sourceWidth) / imageWidth,

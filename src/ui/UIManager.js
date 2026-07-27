@@ -22,7 +22,7 @@ export class UIManager {
     this.showPaths = true;
     this.showHUD = true;
     this.lastHudUpdate = 0;
-    this.lastImpactId = null;
+    this.lastImpactKey = null;
     this.iconPool = new Map();
 
     this.initDOM();
@@ -109,6 +109,9 @@ export class UIManager {
     this.bindClick('btn-sound-toggle', () => {
       this.game.sound.enabled = !this.game.sound.enabled;
       this.showToast(`Audio ${this.game.sound.enabled ? 'Enabled' : 'Disabled'}`, 'info');
+    });
+    this.bindClick('btn-clear-shot-trajectory', () => {
+      this.game.shotTrajectoryOverlay?.clear();
     });
 
     // Lock UI touch events so dragging over UI doesn't scroll/zoom page
@@ -555,9 +558,12 @@ export class UIManager {
   updateShotInspector(impacts) {
     const list = document.getElementById('shot-inspector-list');
     if (!list) return;
-    const latestId = impacts[impacts.length - 1]?.id ?? null;
-    if (latestId === this.lastImpactId && list.childElementCount > 0) return;
-    this.lastImpactId = latestId;
+    const latest = impacts[impacts.length - 1] ?? null;
+    const latestKey = latest
+      ? `${impacts.length}:${latest.impactId ?? latest.id}:${latest.ricochetCount ?? 0}:${latest.impactPosition?.join(',') ?? ''}`
+      : 'empty';
+    if (latestKey === this.lastImpactKey && list.childElementCount > 0) return;
+    this.lastImpactKey = latestKey;
     list.replaceChildren();
 
     if (impacts.length === 0) {
@@ -570,11 +576,25 @@ export class UIManager {
 
     for (const record of impacts.slice(-5).reverse()) {
       const entry = document.createElement('article');
-      entry.className = `shot-record ${record.penetrated === true ? 'penetrated' : ''}`;
+      entry.className = [
+        'shot-record',
+        record.penetrated === true ? 'penetrated' : '',
+        record.ricocheted === true ? 'ricocheted' : ''
+      ].filter(Boolean).join(' ');
+      entry.tabIndex = 0;
+      entry.setAttribute('role', 'button');
+      entry.title = 'Select or clear this trajectory in the 3D view';
+      const toggleTrajectory = () => this.game.shotTrajectoryOverlay?.toggle(record);
+      entry.addEventListener('click', toggleTrajectory);
+      entry.addEventListener('keydown', event => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        toggleTrajectory();
+      });
 
       const identity = document.createElement('div');
       identity.className = 'shot-record-title';
-      identity.textContent = `#${record.id} ${record.shooterId ?? 'unknown'} -> ${record.targetId ?? record.kind}`;
+      identity.textContent = `shot #${record.id} / impact #${record.impactId ?? record.id} ${record.shooterId ?? 'unknown'} -> ${record.targetId ?? record.kind}`;
 
       const range = Number.isFinite(record.rangeMeters) ? record.rangeMeters.toFixed(1) : '0.0';
       const speed = Number.isFinite(record.impactSpeed) ? record.impactSpeed.toFixed(0) : '0';
@@ -593,25 +613,65 @@ export class UIManager {
 
       if (record.kind === 'vehicle') {
         const armor = document.createElement('div');
-        const outcome = record.penetrated ? 'PENETRATED' : 'STOPPED';
-        armor.className = `shot-outcome ${record.penetrated ? 'penetrated' : 'stopped'}`;
+        const outcome = record.penetrated
+          ? 'PENETRATED'
+          : (record.ricocheted ? 'RICOCHET' : 'STOPPED');
+        armor.className = `shot-outcome ${
+          record.penetrated ? 'penetrated' : (record.ricocheted ? 'ricocheted' : 'stopped')
+        }`;
         const nominal = Number.isFinite(record.nominalArmorMm) ? record.nominalArmorMm.toFixed(1) : '0.0';
         const effective = Number.isFinite(record.effectiveArmorMm) ? record.effectiveArmorMm.toFixed(1) : '0.0';
         const pen = Number.isFinite(record.penetrationMm) ? record.penetrationMm.toFixed(1) : '0.0';
         const cos = Number.isFinite(record.impactCosine) ? record.impactCosine.toFixed(3) : '1.000';
-        armor.textContent = `${record.zone || 'hull'} | armor ${nominal} -> ${effective} mm | pen ${pen} mm | cos ${cos} | ${outcome}`;
+        const angle = Number.isFinite(record.impactAngleDegrees)
+          ? record.impactAngleDegrees.toFixed(1)
+          : '0.0';
+        armor.textContent = `${record.zone || 'hull'} | armor ${nominal} -> ${effective} mm | pen ${pen} mm | angle ${angle} deg | cos ${cos} | ${outcome}`;
         entry.appendChild(armor);
+
+        if (record.ricocheted) {
+          const rebound = document.createElement('div');
+          rebound.className = 'shot-record-ricochet';
+          const postSpeed = Number.isFinite(record.postImpactSpeed)
+            ? record.postImpactSpeed.toFixed(0)
+            : '0';
+          const retained = Number.isFinite(record.retainedEnergyRatio)
+            ? `${(record.retainedEnergyRatio * 100).toFixed(0)}%`
+            : '--';
+          rebound.textContent = `rebound ${postSpeed} m/s | energy ${retained} | deflection #${record.ricochetCount ?? 1} | ${record.ricochetReason ?? 'deflected'}`;
+          entry.appendChild(rebound);
+        }
 
         const crew = document.createElement('div');
         crew.className = 'shot-record-crew';
-        const casualty = record.crewResult?.casualty;
+        const casualties = record.crewResult?.casualties?.length
+          ? record.crewResult.casualties
+          : (record.crewResult?.casualty ? [record.crewResult.casualty] : []);
         const damagedModules = Object.entries(record.crewResult?.damage ?? {})
           .filter(([, state]) => state !== 'OK')
           .map(([module, state]) => `${module}:${state}`);
-        crew.textContent = casualty
-          ? `crew ${casualty.role ?? casualty.name}: ${casualty.status} (${Math.round(casualty.health)} HP)`
+        const directComponents = record.crewResult?.components
+          ?.map(component => `${component.id}:${component.status ?? Math.round(component.health)}`)
+          ?? [];
+        crew.textContent = casualties.length
+          ? `crew ${casualties.map(casualty =>
+              `${casualty.role ?? casualty.name}: ${casualty.status} (${Math.round(casualty.health)} HP)`
+            ).join(', ')}`
           : `crew none${damagedModules.length ? ` | ${damagedModules.join(', ')}` : ''}`;
+        if (directComponents.length) crew.textContent += ` | modules ${directComponents.join(', ')}`;
         entry.appendChild(crew);
+
+        if (record.internalPathHits?.length) {
+          const path = document.createElement('div');
+          path.className = 'shot-record-internal-path';
+          path.textContent = `inside ${record.internalPathHits.map(hit => {
+            const distance = Number.isFinite(hit.entryDistanceMeters)
+              ? hit.entryDistanceMeters.toFixed(2)
+              : '--';
+            return `${hit.id}@${distance}m`;
+          }).join(' -> ')}`;
+          entry.appendChild(path);
+        }
       }
 
       if (record.kind === 'building') {

@@ -97,6 +97,7 @@ test('runtime markup exposes restored playback controls and shot inspector', asy
     'vcr-speed',
     'timeline-slider',
     'shot-inspector-list',
+    'btn-clear-shot-trajectory',
     'vehicle-status',
     'vehicle-system-grid',
     'vehicle-mount-grid'
@@ -106,6 +107,147 @@ test('runtime markup exposes restored playback controls and shot inspector', asy
   assert.doesNotMatch(markup, /id="app"[^>]*data-game-status="ready"/);
   assert.match(css, /grid-template-columns:\s*repeat\(5,\s*minmax\(0,\s*1fr\)\)/);
   assert.match(css, /#shot-inspector-list/);
+});
+
+test('shot inspector distinguishes ricochet continuation from a stopped projectile', () => {
+  const previousDocument = globalThis.document;
+  const list = {
+    children: [],
+    get childElementCount() { return this.children.length; },
+    replaceChildren() { this.children = []; },
+    appendChild(child) { this.children.push(child); }
+  };
+  const element = () => ({
+    className: '',
+    textContent: '',
+    children: [],
+    attributes: {},
+    append(...children) { this.children.push(...children); },
+    appendChild(child) { this.children.push(child); },
+    setAttribute(name, value) { this.attributes[name] = value; },
+    addEventListener() {}
+  });
+  globalThis.document = {
+    getElementById: id => id === 'shot-inspector-list' ? list : null,
+    createElement: element
+  };
+
+  try {
+    const ui = Object.create(UIManager.prototype);
+    ui.lastImpactKey = null;
+    ui.game = {};
+    ui.updateShotInspector([{
+      id: 7,
+      shooterId: 'gunner',
+      targetId: 'somua',
+      kind: 'vehicle',
+      weaponId: 'KWK36_AP',
+      ammoId: 'KWK36_AP',
+      rangeMeters: 85,
+      impactSpeed: 700,
+      flightTime: 0.12,
+      muzzlePosition: [0, 2, -80],
+      impactPosition: [1, 1.2, 0],
+      zone: 'hull_side',
+      nominalArmorMm: 40,
+      effectiveArmorMm: 160,
+      penetrationMm: 34,
+      impactAngleDegrees: 82,
+      impactCosine: 0.14,
+      penetrated: false,
+      ricocheted: true,
+      ricochetCount: 1,
+      ricochetReason: 'deflected',
+      postImpactSpeed: 440,
+      retainedEnergyRatio: 0.4,
+      crewResult: null
+    }]);
+
+    assert.equal(list.children.length, 1);
+    const entry = list.children[0];
+    assert.match(entry.className, /ricocheted/);
+    const text = collectText(entry);
+    assert.match(text, /RICOCHET/);
+    assert.match(text, /rebound 440 m\/s/);
+    assert.match(text, /energy 40%/);
+    assert.match(text, /angle 82\.0 deg/);
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  }
+});
+
+test('shot inspector exposes ordered internal penetration path and all crew casualties', () => {
+  const previousDocument = globalThis.document;
+  const list = {
+    children: [],
+    get childElementCount() { return this.children.length; },
+    replaceChildren() { this.children = []; },
+    appendChild(child) { this.children.push(child); }
+  };
+  const element = () => ({
+    className: '',
+    textContent: '',
+    children: [],
+    attributes: {},
+    append(...children) { this.children.push(...children); },
+    appendChild(child) { this.children.push(child); },
+    setAttribute(name, value) { this.attributes[name] = value; },
+    addEventListener() {}
+  });
+  globalThis.document = {
+    getElementById: id => id === 'shot-inspector-list' ? list : null,
+    createElement: element
+  };
+
+  try {
+    const ui = Object.create(UIManager.prototype);
+    ui.lastImpactKey = null;
+    ui.game = {};
+    ui.updateShotInspector([{
+      id: 8,
+      impactId: 9,
+      shooterId: 'gunner',
+      targetId: 'somua',
+      kind: 'vehicle',
+      weaponId: 'KWK36_AP',
+      ammoId: 'KWK36_AP',
+      rangeMeters: 60,
+      impactSpeed: 700,
+      flightTime: 0.09,
+      muzzlePosition: [0, 1.8, 60],
+      impactPosition: [0, 1.2, 2.5],
+      zone: 'hull_front',
+      nominalArmorMm: 40,
+      effectiveArmorMm: 40,
+      penetrationMm: 45,
+      impactAngleDegrees: 0,
+      impactCosine: 1,
+      penetrated: true,
+      ricocheted: false,
+      internalPathHits: [
+        { id: 'crew-driver', entryDistanceMeters: 0.78 },
+        { id: 'module-engine', entryDistanceMeters: 3.4 }
+      ],
+      crewResult: {
+        casualties: [
+          { role: 'DRIVER', status: 'WOUNDED', health: 35 },
+          { role: 'RADIO_OPERATOR', status: 'KIA', health: 0 }
+        ],
+        components: [{ id: 'engine', status: 'DAMAGED', health: 68 }]
+      }
+    }]);
+
+    const text = collectText(list.children[0]);
+    assert.match(text, /PENETRATED/);
+    assert.match(text, /DRIVER: WOUNDED/);
+    assert.match(text, /RADIO_OPERATOR: KIA/);
+    assert.match(text, /modules engine:DAMAGED/);
+    assert.match(text, /inside crew-driver@0\.78m -> module-engine@3\.40m/);
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  }
 });
 
 test('empty selection keeps command and roster cells but makes them inert before creating actions', () => {
@@ -229,6 +371,12 @@ function createPanelHarness() {
       }
     }
   };
+}
+
+function collectText(node) {
+  return [node.textContent, ...(node.children ?? []).map(collectText)]
+    .filter(Boolean)
+    .join(' ');
 }
 
 test('portrait mobile retains a stable 2 by 2 HUD including the tactical map', async () => {

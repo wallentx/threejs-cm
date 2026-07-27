@@ -297,7 +297,9 @@ export class VehicleDamageEffects {
   processImpacts(impacts) {
     for (const impact of impacts ?? []) {
       if (impact.kind !== 'vehicle' || impact.targetId == null) continue;
-      const key = `${impact.id}:${impact.targetId}`;
+      const key = impact.impactId != null
+        ? `impact:${impact.impactId}`
+        : `shot:${impact.id}:${impact.targetId}`;
       if (this.processedImpacts.has(key)) continue;
       this.processedImpacts.add(key);
       const record = this.records.get(impact.targetId);

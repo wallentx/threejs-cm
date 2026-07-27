@@ -82,6 +82,22 @@ test('in-flight projectile, sequence, references, and telemetry replay determini
     randomState: random.capture()
   };
   assert.equal(firstOutcome.combat.telemetry.impacts.length, 1);
+  assert.equal(firstOutcome.combat.telemetry.impacts[0].impactNormal.length, 3);
+  assert.equal(firstOutcome.combat.telemetry.impacts[0].localImpactPoint.length, 3);
+  assert.notEqual(
+    firstOutcome.combat.telemetry.impacts[0].impactNormal,
+    combat.telemetry.impacts[0].impactNormal
+  );
+  assert.notEqual(
+    firstOutcome.combat.telemetry.impacts[0].localImpactPoint,
+    combat.telemetry.impacts[0].localImpactPoint
+  );
+  const capturedNormalX = firstOutcome.combat.telemetry.impacts[0].impactNormal[0];
+  const capturedLocalX = firstOutcome.combat.telemetry.impacts[0].localImpactPoint[0];
+  combat.telemetry.impacts[0].impactNormal[0] = 999;
+  combat.telemetry.impacts[0].localImpactPoint[0] = 999;
+  assert.equal(firstOutcome.combat.telemetry.impacts[0].impactNormal[0], capturedNormalX);
+  assert.equal(firstOutcome.combat.telemetry.impacts[0].localImpactPoint[0], capturedLocalX);
 
   for (const saved of unitSnapshot) unitMap.get(saved.id).restoreState(saved, unitMap);
   random.restore(randomSnapshot);
@@ -109,6 +125,21 @@ test('in-flight projectile, sequence, references, and telemetry replay determini
   assert.deepEqual(target.captureState(), firstOutcome.target);
   assert.deepEqual(combat.captureState(), firstOutcome.combat);
   assert.equal(random.capture(), firstOutcome.randomState);
+
+  const restoredImpactState = combat.captureState();
+  combat.restoreState(restoredImpactState, unitMap);
+  assert.notEqual(
+    combat.telemetry.impacts[0].impactNormal,
+    restoredImpactState.telemetry.impacts[0].impactNormal
+  );
+  assert.notEqual(
+    combat.telemetry.impacts[0].localImpactPoint,
+    restoredImpactState.telemetry.impacts[0].localImpactPoint
+  );
+  restoredImpactState.telemetry.impacts[0].impactNormal[0] = 999;
+  restoredImpactState.telemetry.impacts[0].localImpactPoint[0] = 999;
+  assert.equal(combat.telemetry.impacts[0].impactNormal[0], capturedNormalX);
+  assert.equal(combat.telemetry.impacts[0].localImpactPoint[0], capturedLocalX);
 
   const nextId = firstOutcome.combat.shotSequence + 1;
   assert.equal(combat.fireWeapon(attacker, target, target.position, {
@@ -168,5 +199,71 @@ test('restore before and after impact removes future scorch then rehydrates rest
   assert.equal(effects.processedImpacts.size, 1);
 
   effects.dispose();
+  combat.reset();
+});
+
+test('internal penetration paths and multiple crew results deep-copy through telemetry restore', () => {
+  const battle = createBattle();
+  const { attacker, target, combat, unitMap } = battle;
+  combat.fireWeapon(attacker, target, target.position, {
+    weapon: getWeapon('SA35_AP'),
+    muzzlePosition: attacker.getMuzzleWorldPosition(),
+    dispersionScale: 0
+  });
+  const pathHit = {
+    id: 'module-engine',
+    kind: 'component',
+    componentId: 'engine',
+    crewRoles: [],
+    entryPoint: [1, 2, 3],
+    exitPoint: [1, 2, 2],
+    entryDistanceMeters: 0.5,
+    exitDistanceMeters: 1.5,
+    pathLengthMeters: 1,
+    layoutVersion: 'model-local-obb-path-v1',
+    dataQuality: 'gameplay approximation'
+  };
+  const casualty = {
+    id: 'crew-driver',
+    name: 'Driver',
+    role: 'DRIVER',
+    status: 'WOUNDED',
+    health: 35
+  };
+  combat.recordImpact(combat.projectiles[0], {
+    kind: 'vehicle',
+    unit: target,
+    point: target.position.clone()
+  }, {
+    penetrated: true,
+    internalPathHits: [pathHit],
+    crewResult: {
+      penetrated: true,
+      casualty,
+      casualties: [casualty],
+      components: [{ id: 'engine', health: 68 }],
+      internalPathHits: [pathHit]
+    }
+  });
+
+  const captured = combat.captureState();
+  const capturedImpact = captured.telemetry.impacts[0];
+  combat.telemetry.impacts[0].internalPathHits[0].entryPoint[0] = 999;
+  combat.telemetry.impacts[0].crewResult.internalPathHits[0].exitPoint[2] = 999;
+  combat.telemetry.impacts[0].crewResult.casualties[0].health = 999;
+  assert.deepEqual(capturedImpact.internalPathHits[0].entryPoint, [1, 2, 3]);
+  assert.deepEqual(capturedImpact.crewResult.internalPathHits[0].exitPoint, [1, 2, 2]);
+  assert.equal(capturedImpact.crewResult.casualties[0].health, 35);
+
+  combat.restoreState(captured, unitMap);
+  capturedImpact.internalPathHits[0].entryPoint[0] = -999;
+  capturedImpact.crewResult.internalPathHits[0].exitPoint[2] = -999;
+  capturedImpact.crewResult.casualties[0].health = -999;
+  assert.deepEqual(combat.telemetry.impacts[0].internalPathHits[0].entryPoint, [1, 2, 3]);
+  assert.deepEqual(
+    combat.telemetry.impacts[0].crewResult.internalPathHits[0].exitPoint,
+    [1, 2, 2]
+  );
+  assert.equal(combat.telemetry.impacts[0].crewResult.casualties[0].health, 35);
   combat.reset();
 });

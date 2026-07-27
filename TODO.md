@@ -27,12 +27,22 @@ Status:
   - [ ] Add logical asset manifests and replaceable family asset packs.
   - [ ] Move browser lifecycle and simulation orchestration from `main.js` into a narrow application/runtime facade.
 - [ ] Replace spherical vehicle hit volumes with mesh-accurate armor plates and named collision zones.
+  - [x] First deterministic slice: replace vehicle spheres with swept, model-local named hull/turret/cab/cargo volumes; rotate turret plates with turret yaw; expose stable plate/volume IDs, exact impact normals, local impact points, top/bottom zones, and explicit thickness fallbacks across all 14 vehicles.
+  - [x] SOMUA vertical slice: share renderer/collision hull and turret station contours; resolve swept triangle plates with exact slopes; add mantlet, cupola, and left/right track zones; route track penetrations to the track component; label each thickness source and approximation.
+  - [ ] Replace approximate OBB faces for the remaining 13 vehicles with vehicle-specific sloped convex plates derived from their authored hull/turret station tables; add missing wheel, deck, roof, belly, and internal zones with historical thickness provenance.
 - [ ] Add a shot-inspection debug view: trajectory, impact angle, velocity, armor thickness, penetration, and damage result.
   - [x] Rough pass: detailed inspectable impact telemetry fields (shooter, target, range, speed, angle, armor, penetration, crew result) and data-ballistics-stats DOM dataset.
+  - [x] Add stable armor plate/volume identity, model-local impact position, world impact normal, and the exact armor-thickness source zone to impact telemetry.
+  - [x] Distinguish stopped, penetrating, and continuing ricochet outcomes; show rebound speed, retained energy, angle, reason, and deflection count in the latest-shot inspector.
+  - [x] Record bounded rollback-safe flight paths and add selectable reusable 3D trajectory, impact-normal, and rebound-vector overlays with a visible clear control and GPU-resource disposal tests.
+  - [ ] Live-validate trajectory selection and clearing under native WebGPU after the devtools proxy is reduced to one active tab.
 - [ ] Add ricochet continuation, projectile breakup, behind-armor spall, and residual penetration energy.
+  - [x] Deterministic ricochet slice: continue oblique stopped cannon AP from the exact plate normal inside the remaining swept substep; apply explicit energy loss and a two-deflection limit; prevent immediate same-plate re-hits; preserve unique impact-event identity, telemetry, VFX scars, and WEGO capture/restore.
+  - [ ] Replace the labeled generic ricochet approximation with projectile-and-plate-specific critical-angle and retained-energy data; add projectile breakup, behind-armor spall, and residual penetration paths.
 - [ ] Model internal vehicle modules: engine, transmission, fuel, ammunition racks, optics, radio, turret traverse, gun breech, and tracks.
   - [x] First authoritative pass: named component health, installed/operational state, deterministic zone-weighted damage, fire and ammunition-explosion events, degraded mobility/traverse/reload/fire behavior, and WEGO capture/restore.
-  - [ ] Replace abstract zone-weighted selection with model-local module volumes, penetration paths, spall interaction, localized crew exposure, and component repair/abandonment rules.
+  - [x] SOMUA vertical slice: add immutable model-local crew and module volumes; trace successful penetrations inward from the exact armor impact; order intersections by distance and stable ID; damage only intersected crew/components; expose the path in telemetry and the shot inspector; preserve deep WEGO capture/restore; and label compartment bounds as gameplay approximations.
+  - [ ] Extend model-local internal layouts to the remaining 13 vehicles; add residual-energy depletion, projectile breakup, behind-armor spall interaction, localized blast effects, and component repair/abandonment rules.
 - [ ] Add crew task reassignment, replacement-gunner delays, bailout decisions, and abandoned vehicles.
 - [ ] Add weapon sighting, target acquisition, aim time, range estimation, and fire-control delays.
 - [ ] Add per-soldier spotting, last-known contacts, and command-and-control relay.
@@ -92,7 +102,7 @@ Status:
   - [ ] Replace provisional rectangular ground fields with scenario-authored surface layers, irregular field boundaries, roads, and riverbank materials.
   - [ ] Expand the village, vegetation, fences, rubble, and small terrain props with authored near/medium/far representations.
 - [ ] Add additional authored LOD models and measure transition popping at near, design, and far cameras.
-  - [ ] Blueprint-calibrate all 14 vehicle envelopes, profiles, running gear, turrets, and weapon projections.
+  - [x] Blueprint-calibrate all 14 vehicle envelopes, profiles, running gear, turrets, and weapon projections.
     - [x] Correct the requested vehicle identities: replace the 8-wheel Sd.Kfz. 231 with the 6-Rad and replace the Laffly V15T tractor with the Laffly S20TL 6x6 troop carrier.
     - [x] Add one provenance-backed visual contract for every catalog vehicle, centralizing historical dimensions, construction, running-gear count, and defining silhouette landmarks.
     - [x] Blueprint-calibrate the Panzer IV Ausf. D, Panzer 35(t), and Panzer 38(t) detailed envelopes, track widths, hull lengths, and turret/deck stacks.
@@ -107,10 +117,11 @@ Status:
     - [x] Blueprint-calibrate the Panzer III Ausf. D exact envelope, eight-wheel suspension, stepped hull, three-man turret/cupola, weapon projections, and articulated proxy.
     - [x] Validate all 14 rigid envelopes and model contracts automatically, then inspect representative near and formation-distance silhouettes in the live scene.
     - [x] Add an isolated orthographic calibration jig with side, front, and top blueprint registration; silhouette, wireframe, overlay, and difference modes; explicit LOD selection; landmark-error readouts in metres; resumable JSON; and deterministic GPU-free SVG silhouettes.
-    - [ ] Add per-vehicle calibration records for source image, crop, scale, origin, mirror state, ground line, axle centers, turret ring, gun axis, and defining outline landmarks.
+    - [x] Add per-vehicle calibration records for source image, crop, scale, origin, mirror state, ground line, axle centers, turret ring, gun axis, and defining outline landmarks.
       - [x] Add provenance-backed side/front/top record schemas and validated JSON import/export for all 14 vehicles.
-      - [ ] Register image transforms and vehicle-specific mechanical/outline landmarks from the selected sources.
-    - [ ] Refit every detailed vehicle against registered multi-view outlines; retain exact envelopes while reducing contour and landmark error.
+      - [x] Record selected-source transforms and vehicle-specific mechanical/outline landmarks in vehicle-owned calibration metadata, explicitly labeling exact, registered, inferred, and unavailable views.
+      - [x] Preload directly loadable vehicle-owned source rasters, crops, mirror/rotation transforms, and registered rigid landmarks into the jig's editable default state; automatically fit seeded landmarks while keeping unavailable or qualitative views explicitly empty.
+    - [x] Refit every detailed vehicle against available registered source outlines; retain exact envelopes while reducing contour and landmark error, without pretending unavailable or unregistered views are measured.
   - [x] Rough pass: authored medium & proxy LOD models for French/German infantry, SOMUA S35, and Panzer III.
   - [x] Seat R35/H39 turrets on their cast decks, keep Panzer III rear deck and period helmet/firearm silhouettes at core distance, preserve French helmet identity in the far proxy, and add per-triangle winding/LOD regressions.
   - [x] Authored all 14 standalone 1940 vehicle 3D models in `src/world/vehicles/` (SOMUA S35, R35, H39, AMC 35, Panhard 178, Laffly S20TL, Char B1 bis, Panzer II, Panzer III, Panzer 35(t), Panzer 38(t), Sd.Kfz. 231 6-Rad, Opel Blitz, and Panzer IV Ausf. D).

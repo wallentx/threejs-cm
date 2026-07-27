@@ -80,6 +80,10 @@ The first boundary slice now exists:
 - `src/world/vehicles/TrackedRunningGear.js` owns reusable, named track belts,
   wheels, sprockets, idlers, and their LOD contract. Vehicle factories supply
   dimensions and materials instead of rebuilding track logic.
+- `src/calibration/VehicleOwnedRegistration.js` adapts plain, vehicle-owned
+  blueprint metadata into editable jig defaults. The jig preloads only
+  directly loadable registered rasters and keeps unavailable or qualitative
+  views explicit instead of inventing registrations.
 - `src/world/infantry/InfantryWeaponFactory.js` owns weapon geometry and semantic
   grip/muzzle markers. `InfantryPoseAnimator.js` owns render-only pose binding;
   neither module decides whether a soldier may fire.
@@ -94,6 +98,13 @@ The first boundary slice now exists:
   plain oriented footprints from authored walls, structures, bridge parts, and
   river exclusions; rendered meshes are never queried as authoritative
   collision state.
+- `src/simulation/vehicles/VehicleArmorCollision.js` owns renderer-neutral
+  swept intersection against catalog-supplied model-local armor volumes.
+  Vehicle-owned shape tables may feed both renderer geometry and triangle-plate
+  collision descriptors; unconverted vehicles retain the named OBB fallback.
+  Stable plate IDs, normals, local impact points, thickness provenance, and
+  turret-relative rotation feed ballistics and localized component damage;
+  rendered vehicle meshes never decide a hit.
 - `src/simulation/buildings/` owns renderer-neutral building descriptors,
   portal topology, occupancy, section damage, collapse, consequences, events,
   collision snapshots, and deep capture/restore.
@@ -130,8 +141,13 @@ These seams are usable now, before the staged directory migration is complete:
 | Infantry building orders and portal transit | `BuildingInteractionSystem` | Unit movement, combat eligibility, roster HUD |
 | Authored building meshes and damage presentation | `world/buildings/*`, descriptor data | Three.js scene, LOD projection only |
 | Projectile and armor resolution | `CombatSystem`, `BallisticsSystem` | Telemetry, VFX, shot inspector |
+| Renderer-neutral projectile impact mechanics | `simulation/ballistics/*` | `BallisticsSystem`, deterministic replay |
+| Shot trajectory presentation | `world/debug/ShotTrajectoryOverlay` | `UIManager`, resolved telemetry only |
 | Infantry meshes, weapons, grip/muzzle markers | `UnitFactory`, `world/infantry/*` | Soldier pose animation |
 | Vehicle meshes, articulated markers, LOD | `UnitFactory`, `world/vehicles/*` | Unit animation, damage VFX |
+| Vehicle blueprint source transforms | Vehicle model metadata, `VehicleOwnedRegistration` adapter | Calibration jig only |
+| Vehicle armor collision and named impact plates | `VehicleCatalog`, `simulation/vehicles/VehicleArmorCollision` | Ballistics, telemetry, component damage |
+| Vehicle internal crew/module collision and penetration paths | `VehicleCatalog`, `simulation/vehicles/VehicleInternalCollision`, `Unit`, `VehicleSystems` | Ballistics telemetry, shot inspector |
 | Vehicle damage presentation | `VehicleDamageEffects` | Three.js scene only |
 | Vehicle status projection | `VehicleStatusPresenter` | `UIManager` only |
 | Individual observations and relayed contacts | `SpottingSystem`, `simulation/observation/*` | Targeting cues, visibility/contact presentation |
@@ -155,6 +171,28 @@ VehicleStatusPresenter
     v
 UIManager
 ```
+
+Armor deflection policy lives under `simulation/ballistics/` as plain numeric
+state. `BallisticsSystem` supplies resolved plate geometry and penetration;
+`CombatSystem` owns projectile continuation, unique impact-event ordering,
+presentation events, and capture/restore. A ricochet remains the same
+authoritative projectile and may generate multiple independently identified
+impacts. VFX and the shot inspector consume those records without changing
+flight or damage. Projectiles retain a bounded, sampled world-space trajectory
+in capture/restore state. Each impact snapshots the path up to that event;
+`ShotTrajectoryOverlay` projects a selected snapshot through reusable line
+buffers and clears on rewind.
+
+Vehicles with an authored `internalLayout` use a second renderer-neutral swept
+query after a successful armor penetration. The external named armor plate
+remains the authoritative entry point. `VehicleInternalCollision` casts inward
+along the projectile direction, transforms immutable model-local crew/module
+boxes with hull and turret yaw, and returns intersections ordered by distance
+and stable volume ID. `Unit` and `VehicleSystems` damage only those intersected
+crewmen and installed components. Vehicles without an internal layout retain
+the labeled zone-weighted fallback. Current SOMUA compartment bounds are
+explicit gameplay approximations; this slice does not claim residual-energy
+depletion, projectile breakup, or behind-armor spall.
 
 Rendering helpers may expose named markers and consume state. They must not
 write combat outcomes back into simulation objects. UI presenters may summarize

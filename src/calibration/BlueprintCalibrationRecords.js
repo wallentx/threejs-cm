@@ -13,6 +13,7 @@ const emptyRegistration = () => Object.freeze({
   scale: 1,
   offsetX: 0,
   offsetY: 0,
+  rotationDegrees: 0,
   mirrorX: false,
   landmarks: Object.freeze({})
 });

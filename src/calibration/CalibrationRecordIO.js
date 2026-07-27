@@ -54,6 +54,12 @@ export function normalizeImportedCalibration(payload, record) {
       scale: bounded(source.scale, fallback.scale, 0.05, 10),
       offsetX: finiteNumber(source.offsetX, fallback.offsetX),
       offsetY: finiteNumber(source.offsetY, fallback.offsetY),
+      rotationDegrees: bounded(
+        source.rotationDegrees,
+        fallback.rotationDegrees ?? 0,
+        -180,
+        180
+      ),
       mirrorX: Boolean(source.mirrorX),
       landmarks: normalizeLandmarks(source.landmarks, allowedIds)
     }];

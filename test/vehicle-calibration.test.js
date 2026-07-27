@@ -26,6 +26,10 @@ import {
 import {
   normalizeImportedCalibration
 } from '../src/calibration/CalibrationRecordIO.js';
+import {
+  createVehicleOwnedRegistrations
+} from '../src/calibration/VehicleOwnedRegistration.js';
+import { UnitFactory } from '../src/world/UnitFactory.js';
 
 test('every catalog vehicle has a reusable side, front, and top calibration record', () => {
   const modelIds = Object.values(VEHICLES).map(vehicle => vehicle.modelId).sort();
@@ -61,6 +65,58 @@ test('SOMUA calibration exposes mechanical datums beyond its rigid envelope', ()
   }
   assert.deepEqual(landmarks.get('turret-ring-center').world, [0, 1.55, 0.55]);
   assert.deepEqual(landmarks.get('turret-ring-center').views, ['side', 'top']);
+});
+
+test('jig defaults consume vehicle-owned SOMUA crop, mirror, and rigid landmarks', () => {
+  const model = UnitFactory.createTankMesh('fr_somua');
+  const views = createVehicleOwnedRegistrations(
+    model,
+    BLUEPRINT_CALIBRATION_RECORDS.fr_somua
+  );
+  assert.equal(views.side.imageUrl, '/s35-compare.jpg');
+  assert.equal(views.side.mirrorX, false);
+  assert.equal(views.side.autoFit, true);
+  assert.ok(Math.abs(views.side.crop.left - 220 / 1335) < 1e-12);
+  assert.ok(Math.abs(views.side.crop.top - 55 / 1377) < 1e-12);
+  assert.ok(Math.abs(views.side.crop.right - 50 / 1335) < 1e-12);
+  assert.ok(Math.abs(views.side.crop.bottom - 722 / 1377) < 1e-12);
+  assert.deepEqual(views.side.landmarks['rigid-front'], {
+    x: 238 / 1335,
+    y: 634 / 1377
+  });
+  assert.equal(views.front.imageUrl, null, 'qualitative front view must remain unavailable');
+  assert.equal(views.top.imageUrl, null, 'qualitative top view must remain unavailable');
+});
+
+test('jig defaults normalize multiview crops, rotation, and source URLs', () => {
+  const panzer3 = createVehicleOwnedRegistrations(
+    UnitFactory.createTankMesh('ger_panzer3'),
+    BLUEPRINT_CALIBRATION_RECORDS.ger_panzer3
+  );
+  assert.equal(panzer3.side.mirrorX, true);
+  assert.equal(panzer3.top.rotationDegrees, 90);
+  assert.ok(panzer3.side.imageUrl.endsWith('sdkfz141-pzkpfwiii-ausfd-4.png'));
+  assert.ok(Math.abs(panzer3.top.crop.top - 450 / 1345) < 1e-12);
+
+  const sdkfz = createVehicleOwnedRegistrations(
+    UnitFactory.createTankMesh('ger_sdkfz231'),
+    BLUEPRINT_CALIBRATION_RECORDS.ger_sdkfz231
+  );
+  assert.match(sdkfz.side.imageUrl, /Sdkfz231%286-Rad%29-plan\.gif$/);
+  assert.ok(Math.abs(sdkfz.side.crop.left - 17 / 600) < 1e-12);
+  assert.ok(Math.abs(sdkfz.side.crop.bottom - 544 / 800) < 1e-12);
+  assert.equal(sdkfz.top.rotationDegrees, 90);
+});
+
+test('jig defaults do not pretend a source page is a directly loadable raster', () => {
+  const views = createVehicleOwnedRegistrations(
+    UnitFactory.createTankMesh('fr_renault_r35'),
+    BLUEPRINT_CALIBRATION_RECORDS.fr_renault_r35
+  );
+  for (const view of Object.values(views)) {
+    assert.equal(view.imageUrl, null);
+    assert.equal(view.rotationDegrees, 0);
+  }
 });
 
 test('R35 record exposes side-fit mechanics without claiming absent orthographic views', () => {
@@ -265,6 +321,7 @@ test('cropped mirrored blueprint transforms preserve source coordinates', () => 
     scale: 1.35,
     offsetX: 42,
     offsetY: -18,
+    rotationDegrees: 90,
     mirrorX: true
   });
   const source = { x: 0.44, y: 0.61 };

@@ -111,6 +111,19 @@ html, body {
   color: var(--accent-gold);
   font-weight: 700;
   letter-spacing: 0.04em;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.shot-inspector-header button {
+  border: 1px solid rgba(250, 204, 21, 0.5);
+  background: rgba(15, 23, 42, 0.9);
+  color: #fde68a;
+  font: inherit;
+  font-size: 9px;
+  cursor: pointer;
 }
 
 #shot-inspector-list {
@@ -130,6 +143,12 @@ html, body {
   color: #cbd5e1;
   line-height: 1.35;
   overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.shot-record:focus-visible {
+  outline: 1px solid #38bdf8;
+  outline-offset: 1px;
 }
 
 .shot-record-title {
@@ -138,7 +157,9 @@ html, body {
 }
 
 .shot-record-vectors,
-.shot-record-crew {
+.shot-record-crew,
+.shot-record-internal-path,
+.shot-record-ricochet {
   color: var(--text-muted);
 }
 
@@ -149,6 +170,12 @@ html, body {
 
 .shot-outcome.stopped {
   color: #86efac;
+  font-weight: 700;
+}
+
+.shot-outcome.ricocheted,
+.shot-record-ricochet {
+  color: #facc15;
   font-weight: 700;
 }
 

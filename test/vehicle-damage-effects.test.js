@@ -75,6 +75,7 @@ test('vehicle damage effects retain bounded impact scars and lower far-LOD parti
   unit.vehicleDamage.engine = 'DESTROYED';
   const effects = new VehicleDamageEffects();
   const impact = {
+    impactId: 1,
     id: 7,
     kind: 'vehicle',
     targetId: unit.id,
@@ -89,9 +90,17 @@ test('vehicle damage effects retain bounded impact scars and lower far-LOD parti
   assert.equal(record.scorch.count, 1);
   assert.ok(record.impactTimer > 0);
 
+  effects.processImpacts([{
+    ...impact,
+    impactId: 2,
+    impactPosition: [0.8, 1.2, 1.4]
+  }]);
+  assert.equal(record.scorch.count, 2, 'one projectile may author multiple ricochet impacts');
+
   for (let index = 0; index < 20; index++) {
     effects.processImpacts([{
       ...impact,
+      impactId: 100 + index,
       id: 100 + index,
       impactPosition: [index * 0.01, 1, 1.5]
     }]);

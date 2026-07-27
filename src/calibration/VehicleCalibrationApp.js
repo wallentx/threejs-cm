@@ -21,6 +21,7 @@ import {
 } from './CalibrationModel.js';
 import { normalizeImportedCalibration } from './CalibrationRecordIO.js';
 import { renderVehicleSilhouetteSvg } from './SoftwareSilhouette.js';
+import { createVehicleOwnedRegistrations } from './VehicleOwnedRegistration.js';
 
 const MODES = Object.freeze(['overlay', 'difference', 'silhouette', 'wireframe', 'shaded']);
 const LOD_TIERS = Object.freeze(['high', 'medium', 'core', 'proxy']);
@@ -31,7 +32,9 @@ const cloneRegistration = registration => ({
   scale: registration.scale,
   offsetX: registration.offsetX,
   offsetY: registration.offsetY,
+  rotationDegrees: registration.rotationDegrees ?? 0,
   mirrorX: registration.mirrorX,
+  autoFit: Boolean(registration.autoFit),
   landmarks: structuredClone(registration.landmarks)
 });
 
@@ -74,6 +77,7 @@ export class VehicleCalibrationApp {
     this.scaleInput = requiredElement('blueprint-scale');
     this.offsetXInput = requiredElement('blueprint-offset-x');
     this.offsetYInput = requiredElement('blueprint-offset-y');
+    this.rotationInput = requiredElement('blueprint-rotation');
     this.cropInputs = {
       left: requiredElement('crop-left'),
       top: requiredElement('crop-top'),
@@ -99,6 +103,7 @@ export class VehicleCalibrationApp {
     this.lodTier = LOD_TIERS.includes(params.get('lod')) ? params.get('lod') : 'high';
     this.mode = MODES.includes(params.get('mode')) ? params.get('mode') : 'overlay';
     this.modelCache = new Map();
+    this.registrationDefaults = new Map();
     this.registrationState = new Map();
     this.imageCache = new Map();
     this.currentModel = null;
@@ -217,6 +222,7 @@ export class VehicleCalibrationApp {
       this.scaleInput,
       this.offsetXInput,
       this.offsetYInput,
+      this.rotationInput,
       ...Object.values(this.cropInputs)
     ]) {
       input.addEventListener('input', () => this.updateRegistrationFromControls());
@@ -359,7 +365,8 @@ export class VehicleCalibrationApp {
   getRegistration(modelId = this.modelId, view = this.view) {
     const key = this.getRegistrationKey(modelId, view);
     if (!this.registrationState.has(key)) {
-      const source = getBlueprintCalibrationRecord(modelId).views[view];
+      const source = this.registrationDefaults.get(modelId)?.[view]
+        ?? getBlueprintCalibrationRecord(modelId).views[view];
       this.registrationState.set(key, cloneRegistration(source));
     }
     return this.registrationState.get(key);
@@ -379,6 +386,15 @@ export class VehicleCalibrationApp {
       this.modelCache.set(modelId, model);
     }
     this.currentModel = this.modelCache.get(modelId);
+    if (!this.registrationDefaults.has(modelId)) {
+      this.registrationDefaults.set(
+        modelId,
+        createVehicleOwnedRegistrations(
+          this.currentModel,
+          getBlueprintCalibrationRecord(modelId)
+        )
+      );
+    }
     this.scene.add(this.currentModel);
     this.applyLodTier();
     this.updateCamera();
@@ -463,6 +479,7 @@ export class VehicleCalibrationApp {
     this.scaleInput.value = String(registration.scale);
     this.offsetXInput.value = String(registration.offsetX);
     this.offsetYInput.value = String(registration.offsetY);
+    this.rotationInput.value = String(registration.rotationDegrees ?? 0);
     this.mirrorInput.checked = registration.mirrorX;
     for (const edge of Object.keys(this.cropInputs)) {
       this.cropInputs[edge].value = String(Math.round(registration.crop[edge] * 100));
@@ -480,6 +497,7 @@ export class VehicleCalibrationApp {
     registration.scale = Number(this.scaleInput.value);
     registration.offsetX = Number(this.offsetXInput.value);
     registration.offsetY = Number(this.offsetYInput.value);
+    registration.rotationDegrees = Number(this.rotationInput.value);
     registration.mirrorX = this.mirrorInput.checked;
     for (const edge of Object.keys(this.cropInputs)) {
       registration.crop[edge] = Number(this.cropInputs[edge].value) / 100;
@@ -490,10 +508,9 @@ export class VehicleCalibrationApp {
   async loadImage(url) {
     this.setStatus('Loading blueprint image...');
     const image = new Image();
-    const resolved = new URL(url, window.location.href);
-    if (resolved.origin !== window.location.origin && resolved.protocol !== 'blob:') {
-      image.crossOrigin = 'anonymous';
-    }
+    // The jig only draws source pixels; it never reads or exports the canvas.
+    // Avoid anonymous CORS mode because many archival image hosts omit ACAO
+    // headers even though browsers may still display their rasters normally.
     try {
       await new Promise((resolve, reject) => {
         image.addEventListener('load', resolve, { once: true });
@@ -507,7 +524,8 @@ export class VehicleCalibrationApp {
     this.currentImage = image;
     this.imageCache.set(this.getRegistrationKey(), image);
     this.setStatus(`Loaded ${image.naturalWidth} x ${image.naturalHeight} reference.`);
-    this.requestRender();
+    if (this.getRegistration().autoFit) this.fitRegistrationFromLandmarks();
+    else this.requestRender();
   }
 
   updateSourceLink() {
@@ -517,7 +535,8 @@ export class VehicleCalibrationApp {
   }
 
   resetRegistration() {
-    const source = getBlueprintCalibrationRecord(this.modelId).views[this.view];
+    const source = this.registrationDefaults.get(this.modelId)?.[this.view]
+      ?? getBlueprintCalibrationRecord(this.modelId).views[this.view];
     this.registrationState.set(this.getRegistrationKey(), cloneRegistration(source));
     this.imageCache.delete(this.getRegistrationKey());
     this.currentImage = null;
@@ -564,6 +583,7 @@ export class VehicleCalibrationApp {
       scale: 1,
       offsetX: 0,
       offsetY: 0,
+      rotationDegrees: registration.rotationDegrees ?? 0,
       mirrorX: registration.mirrorX
     });
     const matching = record.landmarks.filter(landmark => (
@@ -592,6 +612,7 @@ export class VehicleCalibrationApp {
       registration.scale = fit.scale;
       registration.offsetX = fit.offsetX;
       registration.offsetY = fit.offsetY;
+      registration.autoFit = false;
       this.syncRegistrationControls();
       this.setStatus(
         `Fitted ${matching.length} landmarks; residual ${(fit.rmsPixels).toFixed(1)} px.`
@@ -650,12 +671,14 @@ export class VehicleCalibrationApp {
       scale: registration.scale,
       offsetX: registration.offsetX,
       offsetY: registration.offsetY,
+      rotationDegrees: registration.rotationDegrees ?? 0,
       mirrorX: registration.mirrorX
     });
     this.blueprintTransform = transform;
     context.save();
     context.globalAlpha = Number(this.opacityInput.value);
     context.translate(transform.centerX, transform.centerY);
+    context.rotate(transform.rotation);
     context.scale(transform.mirrorX ? -1 : 1, 1);
     context.drawImage(
       this.currentImage,
@@ -807,6 +830,7 @@ export class VehicleCalibrationApp {
         scale: registration.scale,
         offsetX: registration.offsetX,
         offsetY: registration.offsetY,
+        rotationDegrees: registration.rotationDegrees ?? 0,
         mirrorX: registration.mirrorX,
         landmarks: registration.landmarks
       };

@@ -10,6 +10,7 @@ import {
   structureDamageReport
 } from './StructureSystems.js';
 import {
+  applyPathComponentDamage,
   applyPenetrationComponentDamage,
   captureVehicleMountState,
   createVehicleComponents,
@@ -873,25 +874,67 @@ export class Unit {
       return { penetrated: false, casualty: null };
     }
 
-    const roles = this.vehicleSpec.zoneCrew[result.zone] ?? [];
-    const candidates = this.getLivingCrew().filter(crewman => roles.includes(crewman.role));
-    const crewman = candidates.length > 0
-      ? candidates[Math.floor(result.random() * candidates.length)]
-      : null;
-    if (crewman) {
-      const damage = (65 + result.random() * 75) * Math.min(1.5, result.residualRatio);
-      crewman.health = Math.max(0, crewman.health - damage);
-      crewman.status = crewman.health <= 0 ? 'KIA' : 'WOUNDED';
+    const damageZone = result.damageZone ?? result.zone;
+    const componentZone = result.componentZone ?? damageZone;
+    const usesInternalPath = Array.isArray(result.internalPathHits);
+    const casualties = [];
+    if (usesInternalPath) {
+      const affectedCrew = new Set();
+      for (const hit of result.internalPathHits) {
+        if (hit.kind !== 'crew') continue;
+        const crewman = this.getLivingCrew().find(candidate =>
+          hit.crewRoles.includes(candidate.role) && !affectedCrew.has(candidate));
+        if (!crewman) continue;
+        affectedCrew.add(crewman);
+        const damage = (65 + result.random() * 75)
+          * Math.min(1.5, result.residualRatio);
+        crewman.health = Math.max(0, crewman.health - damage);
+        crewman.status = crewman.health <= 0 ? 'KIA' : 'WOUNDED';
+        casualties.push(crewman);
+        recordVehicleEvent(this.vehicleDamageState, 'crew_hit', {
+          crewmanId: crewman.id,
+          role: crewman.role,
+          status: crewman.status,
+          health: crewman.health,
+          cause: 'model_local_penetration_path',
+          internalVolumeId: hit.id,
+          pathDistanceMeters: hit.entryDistanceMeters,
+          layoutVersion: hit.layoutVersion,
+          dataQuality: hit.dataQuality
+        });
+      }
+    } else {
+      const roles = this.vehicleSpec.zoneCrew[result.zone]
+        ?? this.vehicleSpec.zoneCrew[damageZone]
+        ?? [];
+      const candidates = this.getLivingCrew().filter(crewman => roles.includes(crewman.role));
+      const crewman = candidates.length > 0
+        ? candidates[Math.floor(result.random() * candidates.length)]
+        : null;
+      if (crewman) {
+        const damage = (65 + result.random() * 75) * Math.min(1.5, result.residualRatio);
+        crewman.health = Math.max(0, crewman.health - damage);
+        crewman.status = crewman.health <= 0 ? 'KIA' : 'WOUNDED';
+        casualties.push(crewman);
+      }
     }
 
     const hadSecondaryExplosion = this.vehicleDamageState.secondaryExplosion;
-    const componentResults = applyPenetrationComponentDamage({
-      components: this.vehicleComponents,
-      damageState: this.vehicleDamageState,
-      zone: result.zone,
-      residualRatio: result.residualRatio,
-      random: result.random
-    });
+    const componentResults = usesInternalPath
+      ? applyPathComponentDamage({
+          components: this.vehicleComponents,
+          damageState: this.vehicleDamageState,
+          pathHits: result.internalPathHits,
+          residualRatio: result.residualRatio,
+          random: result.random
+        })
+      : applyPenetrationComponentDamage({
+          components: this.vehicleComponents,
+          damageState: this.vehicleDamageState,
+          zone: componentZone,
+          residualRatio: result.residualRatio,
+          random: result.random
+        });
     if (!hadSecondaryExplosion && this.vehicleDamageState.secondaryExplosion) {
       this.destroyVehicleAmmunitionStores();
     }
@@ -903,7 +946,16 @@ export class Unit {
     this.syncLegacyVehicleDamage();
     return {
       penetrated: true,
-      casualty: crewman,
+      casualty: casualties[0] ?? null,
+      casualties,
+      internalPathHits: usesInternalPath
+        ? result.internalPathHits.map(hit => ({
+            ...hit,
+            crewRoles: [...hit.crewRoles],
+            entryPoint: [...hit.entryPoint],
+            exitPoint: [...hit.exitPoint]
+          }))
+        : null,
       damage: this.vehicleDamage,
       components: componentResults,
       burning: this.vehicleDamageState.burning,

@@ -4,6 +4,7 @@ import { CameraManager } from './engine/CameraManager.js';
 import { SoundEngine } from './engine/SoundEngine.js';
 import { TerrainBuilder } from './world/TerrainBuilder.js';
 import { VehicleDamageEffects } from './world/VehicleDamageEffects.js';
+import { ShotTrajectoryOverlay } from './world/debug/ShotTrajectoryOverlay.js';
 import { Unit } from './game/Unit.js';
 import { CommandSystem } from './game/CommandSystem.js';
 import { BuildingInteractionSystem } from './game/BuildingInteractionSystem.js';
@@ -169,6 +170,7 @@ class Game {
         }
       });
       this.vehicleDamageEffects = new VehicleDamageEffects();
+      this.shotTrajectoryOverlay = new ShotTrajectoryOverlay(this.scene);
       this.support = new SupportSystem(this.scene, this.combat, () => this.random());
       this.wego = new WegoManager(this);
 
@@ -418,6 +420,7 @@ class Game {
     this.spotting.restoreState(state.spotting);
     this.combat.restoreState(state.combat, unitMap);
     this.vehicleDamageEffects.resetTransient();
+    this.shotTrajectoryOverlay.clear();
     this.support.restoreState(state.supportMissions, unitMap);
     if (state.matchStarted) this.beginMatch();
     const selected = state.selectedUnitId ? unitMap.get(state.selectedUnitId) : null;
@@ -663,7 +666,7 @@ class Game {
         const diagnostics = this.renderer.getDiagnostics();
         document.body.dataset.renderStats = `${diagnostics.drawCalls}:${diagnostics.triangles}:${diagnostics.geometries}:${diagnostics.textures}`;
         document.body.dataset.lodStats = `${lodCounts.high}:${lodCounts.medium}:${lodCounts.low}`;
-        document.body.dataset.ballisticsStats = `${this.combat.telemetry.shotsFired}:${this.combat.telemetry.infantryHits}:${this.combat.telemetry.vehicleHits}:${this.combat.telemetry.buildingHits}:${this.combat.telemetry.penetrations}`;
+        document.body.dataset.ballisticsStats = `${this.combat.telemetry.shotsFired}:${this.combat.telemetry.infantryHits}:${this.combat.telemetry.vehicleHits}:${this.combat.telemetry.buildingHits}:${this.combat.telemetry.penetrations}:${this.combat.telemetry.ricochets}:${this.combat.telemetry.stops}`;
         this.lastDiagnosticsUpdate = now;
       }
       requestAnimationFrame(nextTimestamp => this.animate(nextTimestamp));

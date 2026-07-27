@@ -350,6 +350,84 @@ test('penetration component damage is deterministic and disabled engine prevents
   assert.deepEqual(first.vehicleDamageState.events, second.vehicleDamageState.events);
 });
 
+test('authored track-zone penetrations damage tracks instead of arbitrary hull-side modules', () => {
+  const somua = makeVehicle('SOMUA_S35', 'track_zone_damage');
+  const result = somua.applyArmorHit({
+    penetrated: true,
+    zone: 'track_left',
+    damageZone: 'hull_side',
+    componentZone: 'track_left',
+    residualRatio: 1,
+    weapon: getWeapon('KWK36_AP'),
+    random: sequenceRandom([0, 0, 0])
+  });
+
+  assert.deepEqual(result.components.map(component => component.id), ['tracks']);
+  assert.equal(somua.vehicleComponents.tracks.status, 'DAMAGED');
+  assert.equal(somua.vehicleComponents.engine.status, 'OK');
+  assert.equal(somua.vehicleComponents.fuel.status, 'OK');
+});
+
+test('model-local penetration paths damage only intersected SOMUA crew and modules', () => {
+  const somua = makeVehicle('SOMUA_S35', 'internal_path_damage');
+  const driver = somua.roster.find(crewman => crewman.role === 'DRIVER');
+  const radioOperator = somua.roster.find(crewman => crewman.role === 'RADIO_OPERATOR');
+  const result = somua.applyArmorHit({
+    penetrated: true,
+    zone: 'hull_front',
+    residualRatio: 1,
+    weapon: getWeapon('KWK36_AP'),
+    internalPathHits: [
+      {
+        id: 'crew-driver',
+        kind: 'crew',
+        componentId: null,
+        crewRoles: ['DRIVER'],
+        entryPoint: [0, 1, 1],
+        exitPoint: [0, 1, 0.5],
+        entryDistanceMeters: 0.5,
+        exitDistanceMeters: 1,
+        pathLengthMeters: 0.5,
+        layoutVersion: 'model-local-obb-path-v1',
+        dataQuality: 'gameplay approximation'
+      },
+      {
+        id: 'module-engine',
+        kind: 'component',
+        componentId: 'engine',
+        crewRoles: [],
+        entryPoint: [0, 1, -1],
+        exitPoint: [0, 1, -2],
+        entryDistanceMeters: 2,
+        exitDistanceMeters: 3,
+        pathLengthMeters: 1,
+        layoutVersion: 'model-local-obb-path-v1',
+        dataQuality: 'gameplay approximation'
+      }
+    ],
+    random: sequenceRandom([0, 0])
+  });
+
+  assert.equal(driver.status, 'WOUNDED');
+  assert.equal(driver.health, 35);
+  assert.equal(radioOperator.status, 'OK');
+  assert.equal(result.casualty, driver);
+  assert.deepEqual(result.casualties, [driver]);
+  assert.deepEqual(result.components.map(component => component.id), ['engine']);
+  assert.equal(somua.vehicleComponents.engine.health, 68);
+  for (const untouched of ['fuel', 'ammunition', 'radio', 'transmission', 'tracks']) {
+    assert.equal(somua.vehicleComponents[untouched].health, 100, untouched);
+  }
+  assert.ok(somua.vehicleDamageState.events.some(event =>
+    event.type === 'crew_hit'
+      && event.internalVolumeId === 'crew-driver'
+      && event.cause === 'model_local_penetration_path'));
+  assert.ok(somua.vehicleDamageState.events.some(event =>
+    event.type === 'component_damage'
+      && event.internalVolumeId === 'module-engine'
+      && event.cause === 'model_local_penetration_path'));
+});
+
 test('damaged mobility and traverse components degrade their authoritative mechanisms', () => {
   const panzer = makeVehicle('PANZER_III_D');
   panzer.mesh.userData.weaponMuzzles = {};

@@ -1,8 +1,12 @@
 import * as THREE from 'three';
 import { effectiveArmorMm, penetrationAtVelocity } from './VehicleCatalog.js';
 import { intersectSegmentOrientedBox3D } from '../simulation/geometry/OrientedBox.js';
+import { intersectVehicleArmor } from '../simulation/vehicles/VehicleArmorCollision.js';
+import { traceVehicleInternalPath } from '../simulation/vehicles/VehicleInternalCollision.js';
+import { resolveArmorRicochet } from '../simulation/ballistics/ProjectileImpactPhysics.js';
 
 const GRAVITY = new THREE.Vector3(0, -9.81, 0);
+const UP = new THREE.Vector3(0, 1, 0);
 const scratchClosest = new THREE.Vector3();
 const scratchSegment = new THREE.Vector3();
 const scratchPoint = new THREE.Vector3();
@@ -122,6 +126,8 @@ export class BallisticsSystem {
 
   detectImpact(projectile) {
     let closest = null;
+    const segmentDistance = projectile.previousPosition.distanceTo(projectile.position);
+    const segmentStartDistance = Math.max(0, projectile.distanceTravelled - segmentDistance);
     const consider = candidate => {
       if (!candidate) return;
       if (!closest
@@ -162,21 +168,46 @@ export class BallisticsSystem {
       }
 
       if (unit.vehicleSpec) {
-        const center = scratchPoint.copy(unit.position).add(new THREE.Vector3(0, 1.35, 0));
-        const radius = unit.vehicleSpec?.hitRadius ?? 2.4;
-        const point = segmentSphereIntersection(
+        const armorHit = intersectVehicleArmor(
           projectile.previousPosition,
           projectile.position,
-          center,
-          radius
+          unit
         );
-        const distance = point?.distanceTo(projectile.previousPosition) ?? Infinity;
-        if (point) {
+        if (armorHit
+            && projectile.armorIgnore?.unitId === unit.id
+            && projectile.armorIgnore?.plateId === armorHit.plateId
+            && segmentStartDistance
+              + Math.hypot(
+                armorHit.point[0] - projectile.previousPosition.x,
+                armorHit.point[1] - projectile.previousPosition.y,
+                armorHit.point[2] - projectile.previousPosition.z
+              )
+                <= projectile.armorIgnore.untilDistance) {
+          continue;
+        }
+        if (armorHit) {
+          const point = new THREE.Vector3(...armorHit.point);
           consider({
             kind: 'vehicle',
             unit,
-            distance,
-            point
+            distance: point.distanceTo(projectile.previousPosition),
+            point,
+            normal: new THREE.Vector3(...armorHit.normal),
+            zone: armorHit.zone,
+            fallbackZone: armorHit.fallbackZone,
+            plateId: armorHit.plateId,
+            armorVolumeId: armorHit.armorVolumeId,
+            armorPart: armorHit.armorPart,
+            armorGeometryQuality: armorHit.geometryQuality,
+            nominalArmorMm: armorHit.nominalArmorMm,
+            thicknessSourceZone: armorHit.thicknessSourceZone,
+            thicknessDataQuality: armorHit.thicknessDataQuality,
+            thicknessReferenceUrl: armorHit.thicknessReferenceUrl,
+            localImpactPoint: [
+              armorHit.localPoint.x,
+              armorHit.localPoint.y,
+              armorHit.localPoint.z
+            ]
           });
         }
         continue;
@@ -214,6 +245,10 @@ export class BallisticsSystem {
         point: intersection.point
       });
     }
+    if (projectile.armorIgnore
+        && projectile.distanceTravelled >= projectile.armorIgnore.untilDistance) {
+      projectile.armorIgnore = null;
+    }
     if (closest) return closest;
 
     if (this.terrain) {
@@ -230,41 +265,77 @@ export class BallisticsSystem {
 
   resolveVehicleImpact(projectile, hit) {
     const unit = hit.unit;
-    scratchLocal.copy(hit.point).sub(unit.position).applyAxisAngle(
-      new THREE.Vector3(0, 1, 0),
-      -unit.rotation
-    );
-    const turret = scratchLocal.y > 1.75;
-    const longitudinal = Math.abs(scratchLocal.z) >= Math.abs(scratchLocal.x);
-    const facing = longitudinal ? (scratchLocal.z >= 0 ? 'front' : 'rear') : 'side';
-    const zone = `${turret ? 'turret' : 'hull'}_${facing}`;
-
     scratchIncoming.copy(projectile.velocity).normalize();
-    const localIncoming = scratchIncoming.clone().applyAxisAngle(
-      new THREE.Vector3(0, 1, 0),
-      -unit.rotation
-    );
-    const impactCosine = longitudinal
-      ? Math.abs(localIncoming.z)
-      : Math.abs(localIncoming.x);
-    const nominalArmorMm = unit.vehicleSpec?.armorMm?.[zone] ?? 20;
+    let zone = hit.zone;
+    let fallbackZone = hit.fallbackZone ?? hit.zone;
+    let impactNormal = hit.normal?.clone?.() ?? null;
+    if (!zone) {
+      scratchLocal.copy(hit.point).sub(unit.position).applyAxisAngle(UP, -unit.rotation);
+      const turret = scratchLocal.y > 1.75;
+      const longitudinal = Math.abs(scratchLocal.z) >= Math.abs(scratchLocal.x);
+      const facing = longitudinal ? (scratchLocal.z >= 0 ? 'front' : 'rear') : 'side';
+      zone = `${turret ? 'turret' : 'hull'}_${facing}`;
+      fallbackZone = zone;
+      const localNormal = longitudinal
+        ? new THREE.Vector3(0, 0, scratchLocal.z >= 0 ? 1 : -1)
+        : new THREE.Vector3(scratchLocal.x >= 0 ? 1 : -1, 0, 0);
+      impactNormal = localNormal.applyAxisAngle(UP, unit.rotation);
+    }
+    impactNormal ??= scratchIncoming.clone().negate();
+    const impactCosine = Math.abs(scratchIncoming.dot(impactNormal));
+    const armorMm = unit.vehicleSpec?.armorMm ?? {};
+    const thicknessZone = hit.thicknessSourceZone
+      ?? (Object.hasOwn(armorMm, zone) ? zone : fallbackZone);
+    const nominalArmorMm = Number.isFinite(hit.nominalArmorMm)
+      ? hit.nominalArmorMm
+      : armorMm[thicknessZone] ?? 20;
     const result = resolveArmorPenetration(
       projectile.weapon,
       projectile.velocity.length(),
       nominalArmorMm,
       impactCosine
     );
+    const impactAngleDegrees = THREE.MathUtils.radToDeg(
+      Math.acos(THREE.MathUtils.clamp(impactCosine, 0, 1))
+    );
+    const ricochet = resolveArmorRicochet({
+      weapon: projectile.weapon,
+      velocity: projectile.velocity,
+      impactNormal,
+      impactAngleDegrees,
+      penetrated: result.penetrated,
+      ricochetCount: projectile.ricochetCount ?? 0
+    });
+    const internalPathHits = result.penetrated && unit.vehicleSpec?.internalLayout
+      ? traceVehicleInternalPath({
+          unit,
+          impactPoint: hit.point,
+          direction: scratchIncoming
+        })
+      : null;
     return {
       ...result,
+      ...ricochet,
       zone,
+      thicknessZone,
       nominalArmorMm,
       impactCosine,
-      impactAngleDegrees: THREE.MathUtils.radToDeg(
-        Math.acos(THREE.MathUtils.clamp(impactCosine, 0, 1))
-      ),
+      impactNormal: impactNormal.toArray(),
+      localImpactPoint: hit.localImpactPoint ? [...hit.localImpactPoint] : null,
+      plateId: hit.plateId ?? null,
+      armorVolumeId: hit.armorVolumeId ?? null,
+      armorPart: hit.armorPart ?? zone.split('_')[0],
+      armorGeometryQuality: hit.armorGeometryQuality ?? 'legacy inferred zone',
+      thicknessDataQuality: hit.thicknessDataQuality ?? null,
+      thicknessReferenceUrl: hit.thicknessReferenceUrl ?? null,
+      impactAngleDegrees,
+      internalPathHits,
       crewResult: unit.applyArmorHit?.({
         ...result,
         zone,
+        damageZone: fallbackZone,
+        componentZone: zone,
+        internalPathHits,
         weapon: projectile.weapon,
         impactPoint: hit.point,
         random: this.random

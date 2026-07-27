@@ -6,6 +6,45 @@ import { worldToLocalPoint } from '../simulation/buildings/BuildingTransforms.js
 const UP = new THREE.Vector3(0, 1, 0);
 const scratchAim = new THREE.Vector3();
 const scratchDirection = new THREE.Vector3();
+const scratchRicochetNormal = new THREE.Vector3();
+const PROJECTILE_SUBSTEP_EPSILON = 1e-8;
+const MAX_PROJECTILE_CONTACTS_PER_SUBSTEP = 4;
+const MAX_TRAJECTORY_POINTS = 128;
+
+function appendTrajectoryPoint(projectile, point, force = false) {
+  projectile.trajectoryPoints ??= [
+    (projectile.muzzlePosition ?? projectile.previousPosition ?? point).toArray()
+  ];
+  projectile.trajectoryLastSampleDistance ??= 0;
+  projectile.trajectorySampleSpacing ??= Math.max(
+    1,
+    (projectile.weapon?.maxRange ?? 96) / 96
+  );
+  const sample = [point.x, point.y, point.z];
+  const points = projectile.trajectoryPoints;
+  const last = points[points.length - 1];
+  if (last && Math.hypot(
+    sample[0] - last[0],
+    sample[1] - last[1],
+    sample[2] - last[2]
+  ) <= 1e-4) {
+    if (force) points[points.length - 1] = sample;
+    return;
+  }
+  if (!force
+      && projectile.distanceTravelled - projectile.trajectoryLastSampleDistance
+        < projectile.trajectorySampleSpacing) {
+    return;
+  }
+  if (points.length >= MAX_TRAJECTORY_POINTS) {
+    const compacted = [points[0]];
+    for (let index = 2; index < points.length; index += 2) compacted.push(points[index]);
+    projectile.trajectoryPoints = compacted;
+    projectile.trajectorySampleSpacing *= 2;
+  }
+  projectile.trajectoryPoints.push(sample);
+  projectile.trajectoryLastSampleDistance = projectile.distanceTravelled;
+}
 
 export function calculateBuildingBlastDamage(weapon) {
   const woundDamage = Math.max(0, Number(weapon?.woundDamage) || 0);
@@ -38,26 +77,35 @@ function createTelemetry() {
     buildingHits: 0,
     penetrations: 0,
     ricochets: 0,
+    stops: 0,
     impacts: []
   };
 }
 
 function snapshotCrewResult(crewResult) {
   if (!crewResult) return null;
-  const casualty = crewResult.casualty
+  const snapshotCasualty = casualty => casualty
     ? {
-        id: crewResult.casualty.id,
-        name: crewResult.casualty.name,
-        role: crewResult.casualty.role,
-        status: crewResult.casualty.status,
-        health: crewResult.casualty.health
+        id: casualty.id,
+        name: casualty.name,
+        role: casualty.role,
+        status: casualty.status,
+        health: casualty.health
       }
     : null;
+  const casualty = snapshotCasualty(crewResult.casualty);
   return {
     penetrated: Boolean(crewResult.penetrated),
     casualty,
+    casualties: crewResult.casualties?.map(snapshotCasualty) ?? (casualty ? [casualty] : []),
     damage: crewResult.damage ? { ...crewResult.damage } : null,
     components: crewResult.components?.map(component => ({ ...component })) ?? [],
+    internalPathHits: crewResult.internalPathHits?.map(hit => ({
+      ...hit,
+      crewRoles: [...(hit.crewRoles ?? [])],
+      entryPoint: [...hit.entryPoint],
+      exitPoint: [...hit.exitPoint]
+    })) ?? null,
     burning: Boolean(crewResult.burning),
     destroyed: Boolean(crewResult.destroyed),
     secondaryExplosion: Boolean(crewResult.secondaryExplosion),
@@ -70,6 +118,18 @@ function snapshotImpact(record) {
     ...record,
     muzzlePosition: [...record.muzzlePosition],
     impactPosition: [...record.impactPosition],
+    impactNormal: record.impactNormal ? [...record.impactNormal] : null,
+    impactVelocity: record.impactVelocity ? [...record.impactVelocity] : null,
+    postImpactVelocity: record.postImpactVelocity ? [...record.postImpactVelocity] : null,
+    separationNormal: record.separationNormal ? [...record.separationNormal] : null,
+    trajectoryPoints: record.trajectoryPoints?.map(point => [...point]) ?? [],
+    localImpactPoint: record.localImpactPoint ? [...record.localImpactPoint] : null,
+    internalPathHits: record.internalPathHits?.map(hit => ({
+      ...hit,
+      crewRoles: [...(hit.crewRoles ?? [])],
+      entryPoint: [...hit.entryPoint],
+      exitPoint: [...hit.exitPoint]
+    })) ?? null,
     crewResult: snapshotCrewResult(record.crewResult),
     buildingResult: record.buildingResult
       ? JSON.parse(JSON.stringify(record.buildingResult))
@@ -85,6 +145,7 @@ function snapshotTelemetry(telemetry) {
     buildingHits: telemetry.buildingHits ?? 0,
     penetrations: telemetry.penetrations,
     ricochets: telemetry.ricochets,
+    stops: telemetry.stops ?? 0,
     impacts: telemetry.impacts.map(snapshotImpact)
   };
 }
@@ -132,6 +193,7 @@ export class CombatSystem {
     };
     this.effectCaps = { impact: 48, explosion: 12 };
     this.shotSequence = 0;
+    this.impactSequence = 0;
     this.telemetry = createTelemetry();
     this.buildingSystem = options.buildingSystem ?? null;
     this.onBuildingChanged = options.onBuildingChanged ?? null;
@@ -208,7 +270,12 @@ export class CombatSystem {
       velocity,
       distanceTravelled: 0,
       lifetime: 0,
-      maxLifetime: weapon.maxRange / Math.max(1, weapon.muzzleVelocity) + 1
+      maxLifetime: weapon.maxRange / Math.max(1, weapon.muzzleVelocity) + 1,
+      ricochetCount: 0,
+      armorIgnore: null,
+      trajectoryPoints: [fromPos.toArray()],
+      trajectoryLastSampleDistance: 0,
+      trajectorySampleSpacing: Math.max(1, weapon.maxRange / 96)
     };
     this.projectiles.push(projectile);
     this.telemetry.shotsFired++;
@@ -221,6 +288,7 @@ export class CombatSystem {
   captureState() {
     return {
       shotSequence: this.shotSequence,
+      impactSequence: this.impactSequence,
       projectiles: this.projectiles.map(projectile => ({
         id: projectile.id,
         attackerId: projectile.attacker?.id ?? null,
@@ -236,7 +304,12 @@ export class CombatSystem {
         velocity: projectile.velocity.toArray(),
         distanceTravelled: projectile.distanceTravelled,
         lifetime: projectile.lifetime,
-        maxLifetime: projectile.maxLifetime
+        maxLifetime: projectile.maxLifetime,
+        ricochetCount: projectile.ricochetCount ?? 0,
+        armorIgnore: projectile.armorIgnore ? { ...projectile.armorIgnore } : null,
+        trajectoryPoints: projectile.trajectoryPoints.map(point => [...point]),
+        trajectoryLastSampleDistance: projectile.trajectoryLastSampleDistance,
+        trajectorySampleSpacing: projectile.trajectorySampleSpacing
       })),
       telemetry: snapshotTelemetry(this.telemetry)
     };
@@ -248,6 +321,8 @@ export class CombatSystem {
     // reuses resources, while rewind releases the discarded render set.
     this.disposeProjectileResources();
     this.shotSequence = state?.shotSequence ?? 0;
+    this.impactSequence = state?.impactSequence
+      ?? Math.max(0, ...(state?.telemetry?.impacts ?? []).map(impact => impact.impactId ?? 0));
     this.telemetry = state?.telemetry
       ? snapshotTelemetry(state.telemetry)
       : createTelemetry();
@@ -273,7 +348,14 @@ export class CombatSystem {
         velocity: new THREE.Vector3().fromArray(saved.velocity),
         distanceTravelled: saved.distanceTravelled,
         lifetime: saved.lifetime,
-        maxLifetime: saved.maxLifetime
+        maxLifetime: saved.maxLifetime,
+        ricochetCount: saved.ricochetCount ?? 0,
+        armorIgnore: saved.armorIgnore ? { ...saved.armorIgnore } : null,
+        trajectoryPoints: saved.trajectoryPoints?.map(point => [...point])
+          ?? [saved.muzzlePosition.slice()],
+        trajectoryLastSampleDistance: saved.trajectoryLastSampleDistance ?? 0,
+        trajectorySampleSpacing: saved.trajectorySampleSpacing
+          ?? Math.max(1, weapon.maxRange / 96)
       };
       orientProjectileMesh(projectile);
       this.scene.add(projectile.mesh);
@@ -288,7 +370,9 @@ export class CombatSystem {
   }
 
   recordImpact(projectile, impact, result = null) {
+    appendTrajectoryPoint(projectile, impact.point, true);
     const record = {
+      impactId: ++this.impactSequence,
       id: projectile.id,
       shooterId: projectile.shooterId,
       mountId: projectile.mountId,
@@ -300,15 +384,44 @@ export class CombatSystem {
       impactPosition: impact.point.toArray(),
       flightTime: projectile.lifetime,
       rangeMeters: projectile.distanceTravelled,
-      impactSpeed: projectile.velocity.length(),
+      impactSpeed: result?.impactSpeed ?? projectile.velocity.length(),
+      impactVelocity: result?.impactVelocity ? [...result.impactVelocity] : null,
+      impactEnergyJ: result?.impactEnergyJ ?? null,
+      ricocheted: result?.ricocheted ?? false,
+      ricochetReason: result?.ricochetReason ?? null,
+      ricochetCount: result?.ricochetCount ?? projectile.ricochetCount ?? 0,
+      ricochetModelVersion: result?.ricochetModelVersion ?? null,
+      ricochetDataQuality: result?.ricochetDataQuality ?? null,
+      postImpactVelocity: result?.postImpactVelocity ? [...result.postImpactVelocity] : null,
+      postImpactSpeed: result?.postImpactSpeed ?? null,
+      outgoingEnergyJ: result?.outgoingEnergyJ ?? null,
+      retainedEnergyRatio: result?.retainedEnergyRatio ?? null,
+      separationNormal: result?.separationNormal ? [...result.separationNormal] : null,
+      clearanceMeters: result?.clearanceMeters ?? null,
+      trajectoryPoints: projectile.trajectoryPoints.map(point => [...point]),
       kind: impact.kind,
       zone: result?.zone ?? null,
+      thicknessZone: result?.thicknessZone ?? null,
+      plateId: result?.plateId ?? impact.plateId ?? null,
+      armorVolumeId: result?.armorVolumeId ?? impact.armorVolumeId ?? null,
+      armorPart: result?.armorPart ?? impact.armorPart ?? null,
+      armorGeometryQuality: result?.armorGeometryQuality ?? impact.armorGeometryQuality ?? null,
+      impactNormal: result?.impactNormal ? [...result.impactNormal] : null,
+      localImpactPoint: result?.localImpactPoint ? [...result.localImpactPoint] : null,
       nominalArmorMm: result?.nominalArmorMm ?? null,
+      thicknessDataQuality: result?.thicknessDataQuality ?? null,
+      thicknessReferenceUrl: result?.thicknessReferenceUrl ?? null,
       impactCosine: result?.impactCosine ?? null,
       impactAngleDegrees: result?.impactAngleDegrees ?? null,
       effectiveArmorMm: result?.effectiveArmorMm ?? null,
       penetrationMm: result?.penetrationMm ?? null,
       penetrated: result?.penetrated ?? null,
+      internalPathHits: result?.internalPathHits?.map(hit => ({
+        ...hit,
+        crewRoles: [...(hit.crewRoles ?? [])],
+        entryPoint: [...hit.entryPoint],
+        exitPoint: [...hit.exitPoint]
+      })) ?? null,
       crewResult: snapshotCrewResult(result?.crewResult),
       buildingId: impact.buildingId ?? null,
       sectionId: impact.sectionId ?? result?.sectionId ?? null,
@@ -330,6 +443,8 @@ export class CombatSystem {
           vehicleHits: this.telemetry.vehicleHits,
           buildingHits: this.telemetry.buildingHits,
           penetrations: this.telemetry.penetrations,
+          ricochets: this.telemetry.ricochets,
+          stops: this.telemetry.stops,
           latestImpact: record
         }));
       }
@@ -356,6 +471,29 @@ export class CombatSystem {
     }
   }
 
+  applyRicochetContinuation(projectile, impact, result) {
+    if (!result?.ricocheted || !result.postImpactVelocity || !result.separationNormal) {
+      return false;
+    }
+    projectile.velocity.fromArray(result.postImpactVelocity);
+    scratchRicochetNormal.fromArray(result.separationNormal).normalize();
+    projectile.position.copy(impact.point).addScaledVector(
+      scratchRicochetNormal,
+      result.clearanceMeters
+    );
+    projectile.previousPosition.copy(projectile.position);
+    projectile.ricochetCount = result.ricochetCount;
+    projectile.armorIgnore = result.plateId
+      ? {
+          unitId: impact.unit?.id ?? null,
+          plateId: result.plateId,
+          untilDistance: projectile.distanceTravelled
+            + Math.max(0.25, result.clearanceMeters * 8)
+        }
+      : null;
+    return true;
+  }
+
   resolveImpact(projectile, impact) {
     const weapon = projectile.weapon;
     this.notifyNearbyInfantry(projectile, impact);
@@ -371,7 +509,7 @@ export class CombatSystem {
       } else {
         this.createImpactEffect(impact.point, 0xffc266);
       }
-      return;
+      return false;
     }
 
     if (impact.kind === 'vehicle') {
@@ -379,7 +517,8 @@ export class CombatSystem {
       impact.unit.applySuppression(result.penetrated ? 55 : 14);
       this.telemetry.vehicleHits++;
       if (result.penetrated) this.telemetry.penetrations++;
-      else this.telemetry.ricochets++;
+      else if (result.ricocheted) this.telemetry.ricochets++;
+      else this.telemetry.stops++;
       this.recordImpact(projectile, impact, result);
       if (weapon.explosiveRadius > 0) {
         this.applyBlast(impact.point, weapon, projectile.attacker);
@@ -387,7 +526,7 @@ export class CombatSystem {
       } else {
         this.createImpactEffect(impact.point, result.penetrated ? 0xff5a36 : 0xe8f0ff);
       }
-      return;
+      return this.applyRicochetContinuation(projectile, impact, result);
     }
 
     if (impact.kind === 'structure') {
@@ -395,7 +534,7 @@ export class CombatSystem {
       impact.unit.applySuppression(result.penetrated ? 38 : 8);
       this.telemetry.vehicleHits++;
       if (result.penetrated) this.telemetry.penetrations++;
-      else this.telemetry.ricochets++;
+      else this.telemetry.stops++;
       this.recordImpact(projectile, impact, result);
       if (weapon.explosiveRadius > 0) {
         this.applyBlast(impact.point, weapon, projectile.attacker);
@@ -403,14 +542,14 @@ export class CombatSystem {
       } else {
         this.createImpactEffect(impact.point, result.penetrated ? 0xff7b46 : 0xcbd5e1);
       }
-      return;
+      return false;
     }
 
     if (impact.kind === 'building') {
       const result = this.ballistics.resolveBuildingImpact(projectile, impact);
       this.telemetry.buildingHits++;
       if (result.penetrated) this.telemetry.penetrations++;
-      else this.telemetry.ricochets++;
+      else this.telemetry.stops++;
       this.recordImpact(projectile, impact, result);
       this.processBuildingDamageResult(
         impact.buildingId,
@@ -424,7 +563,7 @@ export class CombatSystem {
       } else {
         this.createImpactEffect(impact.point, result.penetrated ? 0xff7b46 : 0xd6b36a);
       }
-      return;
+      return false;
     }
 
     this.recordImpact(projectile, impact);
@@ -434,6 +573,7 @@ export class CombatSystem {
     } else {
       this.createImpactEffect(impact.point, 0xd6b36a);
     }
+    return false;
   }
 
   applyBlast(position, weapon, attacker) {
@@ -574,16 +714,63 @@ export class CombatSystem {
     for (let substep = 0; substep < steps; substep++) {
       for (let i = this.projectiles.length - 1; i >= 0; i--) {
         const projectile = this.projectiles[i];
-        this.ballistics.integrate(projectile, step);
-        orientProjectileMesh(projectile);
-        const impact = this.ballistics.detectImpact(projectile);
-        const expired = projectile.lifetime >= projectile.maxLifetime
-          || projectile.distanceTravelled >= projectile.weapon.maxRange;
-        if (impact) {
-          this.resolveImpact(projectile, impact);
+        let remainingStep = step;
+        let remove = false;
+        let contactCount = 0;
+        while (remainingStep > PROJECTILE_SUBSTEP_EPSILON && !remove) {
+          const startX = projectile.position.x;
+          const startY = projectile.position.y;
+          const startZ = projectile.position.z;
+          const startVelocityX = projectile.velocity.x;
+          const startVelocityY = projectile.velocity.y;
+          const startVelocityZ = projectile.velocity.z;
+          const startDistance = projectile.distanceTravelled;
+          const startLifetime = projectile.lifetime;
+
+          this.ballistics.integrate(projectile, remainingStep);
+          const segmentDistance = projectile.previousPosition.distanceTo(projectile.position);
+          const impact = this.ballistics.detectImpact(projectile);
+          const expired = projectile.lifetime >= projectile.maxLifetime
+            || projectile.distanceTravelled >= projectile.weapon.maxRange;
+          if (!impact) {
+            appendTrajectoryPoint(projectile, projectile.position);
+            remove = expired;
+            break;
+          }
+
+          const impactDistance = Number.isFinite(impact.distance)
+            ? impact.distance
+            : impact.point.distanceTo(projectile.previousPosition);
+          const impactFraction = segmentDistance > PROJECTILE_SUBSTEP_EPSILON
+            ? THREE.MathUtils.clamp(impactDistance / segmentDistance, 0, 1)
+            : 1;
+          if (impactFraction < 1 - PROJECTILE_SUBSTEP_EPSILON) {
+            projectile.position.set(startX, startY, startZ);
+            projectile.previousPosition.copy(projectile.position);
+            projectile.velocity.set(startVelocityX, startVelocityY, startVelocityZ);
+            projectile.distanceTravelled = startDistance;
+            projectile.lifetime = startLifetime;
+            this.ballistics.integrate(projectile, remainingStep * impactFraction);
+          }
+          projectile.position.copy(impact.point);
+          projectile.distanceTravelled = startDistance + impactDistance;
+
+          const continued = this.resolveImpact(projectile, impact);
+          const expiredAtImpact = projectile.lifetime >= projectile.maxLifetime
+            || projectile.distanceTravelled >= projectile.weapon.maxRange;
+          if (!continued || expiredAtImpact) {
+            remove = true;
+            break;
+          }
+          remainingStep *= 1 - impactFraction;
+          contactCount++;
+          if (contactCount >= MAX_PROJECTILE_CONTACTS_PER_SUBSTEP) break;
+        }
+
+        if (remove) {
           this.removeProjectile(i);
-        } else if (expired) {
-          this.removeProjectile(i);
+        } else {
+          orientProjectileMesh(projectile);
         }
       }
     }

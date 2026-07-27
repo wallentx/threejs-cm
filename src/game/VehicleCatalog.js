@@ -1,3 +1,5 @@
+import { createSomuaS35ArmorCollision } from './vehicleData/SomuaS35Shape.js';
+
 function freezeCrew(crew) {
   return Object.freeze(crew.map(member => Object.freeze({ ...member })));
 }
@@ -16,6 +18,142 @@ function freezeMounts(mounts) {
   })));
 }
 
+const faceZones = part => Object.freeze({
+  positiveX: `${part}_side`,
+  negativeX: `${part}_side`,
+  positiveY: `${part}_top`,
+  negativeY: `${part}_bottom`,
+  positiveZ: `${part}_front`,
+  negativeZ: `${part}_rear`
+});
+
+const fallbackZones = part => Object.freeze({
+  positiveX: `${part}_side`,
+  negativeX: `${part}_side`,
+  positiveY: `${part}_side`,
+  negativeY: `${part}_side`,
+  positiveZ: `${part}_front`,
+  negativeZ: `${part}_rear`
+});
+
+function freezeArmorVolume(volume) {
+  return Object.freeze({
+    ...volume,
+    center: Object.freeze([...(volume.center ?? [0, 0, 0])]),
+    offset: volume.offset ? Object.freeze([...volume.offset]) : undefined,
+    halfExtents: volume.halfExtents
+      ? Object.freeze([...volume.halfExtents])
+      : undefined,
+    interiorPoint: volume.interiorPoint
+      ? Object.freeze([...volume.interiorPoint])
+      : undefined,
+    vertices: volume.vertices
+      ? Object.freeze(volume.vertices.map(vertex => Object.freeze([...vertex])))
+      : undefined,
+    plates: volume.plates
+      ? Object.freeze(volume.plates.map(plate => Object.freeze({
+          ...plate,
+          triangles: Object.freeze(
+            plate.triangles.map(triangle => Object.freeze([...triangle]))
+          )
+        })))
+      : undefined,
+    faceZones: volume.faceZones
+      ? Object.freeze({ ...volume.faceZones })
+      : undefined,
+    fallbackZones: volume.fallbackZones
+      ? Object.freeze({ ...volume.fallbackZones })
+      : undefined
+  });
+}
+
+function defaultArmorCollision(vehicle) {
+  const { length, width, height } = vehicle.dimensionsMeters;
+  const quality = [
+    'exact rigid-envelope bounds',
+    'model-local named surfaces',
+    'hull/turret proportions are gameplay approximations pending per-plate slope authoring'
+  ].join('; ');
+  if (!vehicle.mainGun) {
+    return {
+      version: 'named-obb-plates-v1',
+      quality,
+      volumes: [
+        {
+          id: 'hull-cab',
+          part: 'hull',
+          center: [0, height * 0.5, length * 0.30],
+          halfExtents: [width * 0.5, height * 0.5, length * 0.20],
+          faceZones: faceZones('hull'),
+          fallbackZones: fallbackZones('hull')
+        },
+        {
+          id: 'hull-cargo',
+          part: 'hull',
+          center: [0, height * 0.34, -length * 0.16],
+          halfExtents: [width * 0.5, height * 0.34, length * 0.30],
+          faceZones: faceZones('hull'),
+          fallbackZones: fallbackZones('hull')
+        }
+      ]
+    };
+  }
+
+  const hullHeight = height * 0.64;
+  const turretHeight = height - hullHeight;
+  return {
+    version: 'named-obb-plates-v1',
+    quality,
+    volumes: [
+      {
+        id: 'hull-primary',
+        part: 'hull',
+        center: [0, hullHeight * 0.5, 0],
+        halfExtents: [width * 0.5, hullHeight * 0.5, length * 0.5],
+        faceZones: faceZones('hull'),
+        fallbackZones: fallbackZones('hull')
+      },
+      {
+        id: 'turret-primary',
+        part: 'turret',
+        center: [0, hullHeight + turretHeight * 0.5, length * 0.04],
+        halfExtents: [width * 0.32, turretHeight * 0.5, length * 0.18],
+        followsTurret: true,
+        faceZones: faceZones('turret'),
+        fallbackZones: fallbackZones('turret')
+      }
+    ]
+  };
+}
+
+function freezeArmorCollision(vehicle) {
+  const source = vehicle.armorCollision ?? defaultArmorCollision(vehicle);
+  return Object.freeze({
+    ...source,
+    volumes: Object.freeze(source.volumes.map(freezeArmorVolume))
+  });
+}
+
+function freezeInternalVolume(volume) {
+  return Object.freeze({
+    ...volume,
+    center: Object.freeze([...(volume.center ?? [0, 0, 0])]),
+    offset: volume.offset ? Object.freeze([...volume.offset]) : undefined,
+    halfExtents: Object.freeze([...(volume.halfExtents ?? [0, 0, 0])]),
+    crewRoles: volume.crewRoles
+      ? Object.freeze([...volume.crewRoles])
+      : undefined
+  });
+}
+
+function freezeInternalLayout(vehicle) {
+  if (!vehicle.internalLayout) return null;
+  return Object.freeze({
+    ...vehicle.internalLayout,
+    volumes: Object.freeze(vehicle.internalLayout.volumes.map(freezeInternalVolume))
+  });
+}
+
 function freezeVehicle(vehicle) {
   return Object.freeze({
     ...vehicle,
@@ -28,6 +166,8 @@ function freezeVehicle(vehicle) {
     movementMps: Object.freeze({ ...vehicle.movementMps }),
     dimensionsMeters: Object.freeze({ ...vehicle.dimensionsMeters }),
     armorMm: Object.freeze({ ...vehicle.armorMm }),
+    armorCollision: freezeArmorCollision(vehicle),
+    internalLayout: freezeInternalLayout(vehicle),
     zoneCrew: freezeZones(vehicle.zoneCrew),
     weaponMounts: freezeMounts(vehicle.weaponMounts ?? VEHICLE_MACHINE_GUN_MOUNTS[vehicle.id] ?? []),
     communications: Object.freeze({
@@ -77,6 +217,7 @@ const armor = (hullFront, hullSide, hullRear, turretFront, turretSide, turretRea
   turret_side: turretSide,
   turret_rear: turretRear
 });
+const SOMUA_S35_ARMOR = armor(40, 40, 35, 40, 40, 40);
 const movement = (move, quick, fast, hunt) => ({ MOVE: move, QUICK: quick, FAST: fast, HUNT: hunt });
 const communications = (radioInstalled, operatorRoles, dataQuality) => ({
   radioInstalled,
@@ -90,6 +231,131 @@ const observationEquipment = binocularRoles => ({
 
 const FRENCH_ARMAMENT_REFERENCE = 'https://www.chars-francais.net/index.php?catid=13&id=2026%3A1935-somua-s-35&view=article';
 const GERMAN_ARMAMENT_REFERENCE = 'https://tankmuseum.org/article/live-round-panzer-iii';
+const SOMUA_REFERENCE = 'https://museedesblindes.fr/les_chars/somua-s35/';
+
+const SOMUA_S35_INTERNAL_LAYOUT = Object.freeze({
+  version: 'model-local-obb-path-v1',
+  maxPathMeters: 5.7,
+  entryOffsetMeters: 0.015,
+  dataQuality: [
+    'historical crew roles and rear engine compartment',
+    'model-local crew and module bounds are bounded gameplay approximations',
+    'not an assertion of exact stowage or anatomical position'
+  ].join('; '),
+  referenceUrl: SOMUA_REFERENCE,
+  volumes: [
+    {
+      id: 'crew-driver',
+      kind: 'crew',
+      crewRoles: ['DRIVER'],
+      center: [0.34, 1.16, 1.34],
+      halfExtents: [0.39, 0.48, 0.43],
+      dataQuality: 'role historical; occupied volume is a gameplay approximation'
+    },
+    {
+      id: 'crew-radio-operator',
+      kind: 'crew',
+      crewRoles: ['RADIO_OPERATOR'],
+      center: [-0.34, 1.16, 1.12],
+      halfExtents: [0.39, 0.48, 0.48],
+      dataQuality: 'role historical; occupied volume is a gameplay approximation'
+    },
+    {
+      id: 'crew-commander-gunner',
+      kind: 'crew',
+      crewRoles: ['COMMANDER_GUNNER'],
+      center: [0, 1.92, 0.38],
+      offset: [0, 0.12, -0.04],
+      halfExtents: [0.34, 0.48, 0.34],
+      followsTurret: true,
+      dataQuality: 'one-man turret role historical; occupied volume is a gameplay approximation'
+    },
+    {
+      id: 'module-breech',
+      kind: 'component',
+      componentId: 'breech',
+      center: [0, 1.91, 0.38],
+      offset: [0, 0, 0.28],
+      halfExtents: [0.25, 0.20, 0.34],
+      followsTurret: true,
+      dataQuality: 'mount association historical; volume is a gameplay approximation'
+    },
+    {
+      id: 'module-turret-traverse',
+      kind: 'component',
+      componentId: 'turret_traverse',
+      center: [0, 1.60, 0.38],
+      halfExtents: [0.52, 0.18, 0.48],
+      dataQuality: 'turret-ring location inferred; volume is a gameplay approximation'
+    },
+    {
+      id: 'module-optics',
+      kind: 'component',
+      componentId: 'optics',
+      center: [0, 1.91, 0.38],
+      offset: [0.30, 0.18, 0.18],
+      halfExtents: [0.12, 0.15, 0.16],
+      followsTurret: true,
+      dataQuality: 'observation role historical; volume is a gameplay approximation'
+    },
+    {
+      id: 'module-radio',
+      kind: 'component',
+      componentId: 'radio',
+      center: [-0.62, 1.10, 0.82],
+      halfExtents: [0.18, 0.34, 0.34],
+      dataQuality: 'radio installation historical; volume is a gameplay approximation'
+    },
+    {
+      id: 'module-ammunition-left',
+      kind: 'component',
+      componentId: 'ammunition',
+      center: [0.72, 1.18, 0.20],
+      halfExtents: [0.16, 0.39, 0.66],
+      dataQuality: 'carried load historical; stowage volume is a gameplay approximation'
+    },
+    {
+      id: 'module-ammunition-right',
+      kind: 'component',
+      componentId: 'ammunition',
+      center: [-0.72, 1.18, 0.20],
+      halfExtents: [0.16, 0.39, 0.66],
+      dataQuality: 'carried load historical; stowage volume is a gameplay approximation'
+    },
+    {
+      id: 'module-fuel-left',
+      kind: 'component',
+      componentId: 'fuel',
+      center: [0.72, 1.05, -0.84],
+      halfExtents: [0.17, 0.38, 0.48],
+      dataQuality: 'rear powerpack association inferred; volume is a gameplay approximation'
+    },
+    {
+      id: 'module-fuel-right',
+      kind: 'component',
+      componentId: 'fuel',
+      center: [-0.72, 1.05, -0.84],
+      halfExtents: [0.17, 0.38, 0.48],
+      dataQuality: 'rear powerpack association inferred; volume is a gameplay approximation'
+    },
+    {
+      id: 'module-engine',
+      kind: 'component',
+      componentId: 'engine',
+      center: [0, 1.07, -1.46],
+      halfExtents: [0.75, 0.51, 0.61],
+      dataQuality: 'rear engine compartment historical; volume is a gameplay approximation'
+    },
+    {
+      id: 'module-transmission',
+      kind: 'component',
+      componentId: 'transmission',
+      center: [0, 0.83, -2.08],
+      halfExtents: [0.68, 0.34, 0.30],
+      dataQuality: 'rear final-drive association inferred; volume is a gameplay approximation'
+    }
+  ]
+});
 
 export const VEHICLE_MACHINE_GUN_MOUNTS = Object.freeze({
   SOMUA_S35: freezeMounts([
@@ -185,7 +451,12 @@ export const VEHICLES = Object.freeze({
     movementMps: movement(2.5, 3.5, 5.2, 2.0),
     turretTraverseRadPerSecond: 0.18,
     hitRadius: 2.35,
-    armorMm: armor(40, 40, 35, 40, 40, 40),
+    armorMm: SOMUA_S35_ARMOR,
+    armorCollision: createSomuaS35ArmorCollision(
+      SOMUA_S35_ARMOR,
+      SOMUA_REFERENCE
+    ),
+    internalLayout: SOMUA_S35_INTERNAL_LAYOUT,
     zoneCrew: {
       hull_front: ['DRIVER', 'RADIO_OPERATOR'],
       hull_side: ['DRIVER', 'RADIO_OPERATOR', 'COMMANDER_GUNNER'],
@@ -198,7 +469,7 @@ export const VEHICLES = Object.freeze({
       crewArmorArmament: 'historical',
       ammunitionSplit: 'gameplay approximation',
       movement: 'gameplay approximation',
-      referenceUrl: 'https://museedesblindes.fr/les_chars/somua-s35/'
+      referenceUrl: SOMUA_REFERENCE
     }
   }),
   RENAULT_R35: freezeVehicle({

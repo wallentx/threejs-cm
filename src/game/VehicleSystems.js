@@ -22,7 +22,9 @@ const DAMAGE_CANDIDATES = Object.freeze({
   hull_rear: ['engine', 'transmission', 'fuel', 'tracks', 'ammunition'],
   turret_front: ['main_gun', 'breech', 'turret_traverse', 'coax', 'optics', 'ammunition'],
   turret_side: ['turret_traverse', 'coax', 'breech', 'optics', 'ammunition', 'radio'],
-  turret_rear: ['ammunition', 'radio', 'turret_traverse', 'breech', 'coax']
+  turret_rear: ['ammunition', 'radio', 'turret_traverse', 'breech', 'coax'],
+  track_left: ['tracks'],
+  track_right: ['tracks']
 });
 
 function statusForHealth(health, installed = true) {
@@ -123,6 +125,84 @@ function damageOneComponent(components, componentId, amount) {
   };
 }
 
+function resolvePenetrationSecondaryEffects({ components, damageState, random }) {
+  const fuel = components.fuel;
+  if (!damageState.burning && fuel?.installed && !fuel.operational && random() < 0.55) {
+    damageState.burning = true;
+    recordVehicleEvent(damageState, 'fire_started', { source: 'fuel' });
+  }
+
+  const ammunition = components.ammunition;
+  if (!damageState.secondaryExplosion
+      && ammunition?.installed
+      && !ammunition.operational
+      && random() < 0.65) {
+    damageState.secondaryExplosion = true;
+    damageState.burning = true;
+    damageState.destroyed = true;
+    setVehicleComponentHealth(components, 'hull', 0);
+    recordVehicleEvent(damageState, 'secondary_explosion', { source: 'ammunition' });
+  }
+}
+
+export function applyDirectComponentDamage({
+  components,
+  damageState,
+  componentId,
+  residualRatio = 1,
+  random,
+  detail = {},
+  resolveSecondaryEffects = true
+}) {
+  const amount = (32 + random() * 48)
+    * Math.min(1.6, Math.max(0.5, residualRatio));
+  const result = damageOneComponent(components, componentId, amount);
+  if (!result) return null;
+  const detailedResult = { ...result, ...detail };
+  recordVehicleEvent(damageState, 'component_damage', detailedResult);
+  if (resolveSecondaryEffects) {
+    resolvePenetrationSecondaryEffects({ components, damageState, random });
+  }
+  return detailedResult;
+}
+
+export function applyPathComponentDamage({
+  components,
+  damageState,
+  pathHits,
+  residualRatio = 1,
+  random
+}) {
+  const damageResults = [];
+  const damagedIds = new Set();
+  for (const hit of pathHits ?? []) {
+    const componentId = hit.componentId;
+    if (hit.kind !== 'component' || !componentId || damagedIds.has(componentId)) continue;
+    damagedIds.add(componentId);
+    const result = applyDirectComponentDamage({
+      components,
+      damageState,
+      componentId,
+      residualRatio,
+      random,
+      detail: {
+        cause: 'model_local_penetration_path',
+        internalVolumeId: hit.id,
+        pathDistanceMeters: hit.entryDistanceMeters,
+        pathLengthMeters: hit.pathLengthMeters,
+        layoutVersion: hit.layoutVersion,
+        dataQuality: hit.dataQuality
+      },
+      resolveSecondaryEffects: false
+    });
+    if (result) damageResults.push(result);
+  }
+  if (damageResults.length > 0) {
+    resolvePenetrationSecondaryEffects({ components, damageState, random });
+  }
+  return damageResults;
+}
+
 export function applyPenetrationComponentDamage({
   components,
   damageState,
@@ -145,23 +225,7 @@ export function applyPenetrationComponentDamage({
     recordVehicleEvent(damageState, 'component_damage', result);
   }
 
-  const fuel = components.fuel;
-  if (!damageState.burning && fuel?.installed && !fuel.operational && random() < 0.55) {
-    damageState.burning = true;
-    recordVehicleEvent(damageState, 'fire_started', { source: 'fuel' });
-  }
-
-  const ammunition = components.ammunition;
-  if (!damageState.secondaryExplosion
-      && ammunition?.installed
-      && !ammunition.operational
-      && random() < 0.65) {
-    damageState.secondaryExplosion = true;
-    damageState.burning = true;
-    damageState.destroyed = true;
-    setVehicleComponentHealth(components, 'hull', 0);
-    recordVehicleEvent(damageState, 'secondary_explosion', { source: 'ammunition' });
-  }
+  resolvePenetrationSecondaryEffects({ components, damageState, random });
 
   return damageResults;
 }
