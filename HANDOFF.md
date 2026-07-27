@@ -240,43 +240,64 @@ Do not begin these.
 
 Fill this section only. Do not rewrite scope above.
 
-- Status: COMPLETE; AUDIT HARNESS, R35 REPAIR, VISUAL REVIEW, AND BASELINE ACCEPTED
-- Baseline before packet:
-  - Branch: main
-  - Focused result before packet: 35/35 passed
-  - Original fixture SHA-256: `693935cb45244b76cb1fc3e4c6fd3d77b2102bb31e6de7279fb841c183e55ed1`
-- Implementation:
-  - Audit engine: `src/calibration/VehicleSilhouetteAudit.js`
-  - CLI harness: `scripts/audit-vehicle-silhouettes.mjs`
-  - Reviewed baseline: `test/fixtures/vehicle-silhouette-baseline.json`
-  - Audit tests: `test/vehicle-silhouette-audit.test.js`
-  - Package scripts: `package.json`
-  - Coordinating-agent R35 repair: `src/world/vehicles/RenaultR35.js`, `src/world/vehicles/VehicleVisualProfiles.js`, `src/world/vehicles/VehicleModelEnhancer.js`, `src/content/france1940/vehicleData/internalLayouts/RenaultR35InternalLayout.js`, `test/renault-r35-geometry.test.js`, `test/geometry-lod-fidelity.test.js`, `test/vehicles.test.js`
-  - Documentation: `TODO.md`, `HANDOFF.md`
-  - Manifest schema/version: 1.1.0
-  - Capture count: 168 records (14 vehicles x 3 views x 4 LODs)
-  - Canonical views: front, side, top
-  - Canonical LODs: high, medium, core, proxy
-  - Render config: 700 x 450; fixed colors; no envelope or wireframe in hashes; four-decimal metrics; 0.01 m envelope epsilon
-  - Baseline update remains explicit through `npm run update:silhouette-baseline`; tests and default audits never rewrite it.
-- R35 correction and review:
-  - Registered source depicts the 4.02 m tail-less production configuration; removed the absent optional trench tail.
-  - Reassigned the rigid endpoints to the cast nose and full track run; centered the detailed running gear; restored five visible road wheels; grounded track cleats; corrected proxy turret height.
-  - Replaced the disconnected lower hull and transverse nose cylinder with one closed, outward-wound station loft; lowered the belly and retained the exact 4.02 m envelope.
-  - Seated the driver hood and thin visor into the descending cast deck; replaced the floating box mantlet with a rounded embedded casting.
-  - Cross-checked front asymmetry against museum photography; moved the main gun to vehicle-right and the coax to vehicle-left in rendered markers, calibration data, enhancement metadata, and internal component volumes.
-  - CPU side/front/top inspection covered high, medium, core, and proxy tiers.
-  - Exact audit result: 0 envelope failures across all 168 records.
-  - Reviewed fixture SHA-256: `c6b01bc5bc6a05f5d87176114caf3e9abb7ff3232e50bf86ecabf01cb4a66e34`
-- Validation after final code edit:
-  - Focused command: `node --test test/renault-r35-geometry.test.js test/geometry-lod-fidelity.test.js test/vehicle-silhouette-audit.test.js test/vehicle-calibration.test.js test/vehicles.test.js test/vehicle-internal-collision.test.js`
-  - Focused result: 76/76 passed
-  - Full `npm test`: 433/433 passed
-  - `npm run build`: 140 modules transformed; known 806.17 kB `three-webgpu` chunk warning only
-  - Runtime server: `http://127.0.0.1:5173`
-  - Browser runtime: blocked because the Three.js devtools proxy had no connected browser tab and headless Chromium's SwiftShader GPU process repeatedly exited with code 11; no runtime-success claim made.
-- Deliberately incomplete: deterministic browser captures for ballistic impacts and authoritative vehicle damage states.
+- Status: PARTIAL; GENERIC VISUAL BUNDLES AND R35 SOURCE-DRIVEN REPAIR VALIDATED; CONTOUR CONVERGENCE REMAINS
+- Scope completed:
+  - Replaced model-snapshot-only R35 assertions with one reusable, injected
+    vehicle visual bundle/evaluator contract.
+  - Registered all 14 France 1940 vehicle bundles from canonical statistics,
+    profiles, calibration records, factories, logical assets, renderer data,
+    and caller-owned validation policy.
+  - Registered the supplied 4351 x 3096 R35 four-elevation drawing as a
+    replaceable logical asset with exact SHA-256, side/front/top crops, source
+    landmarks, provenance, and secondary-source limitations.
+  - Removed the R35 floating driver hood and rejected ellipsoid mantlet.
+    Authored a glacis-mounted slit, irregular embedded shield, separate
+    main/lower/coax collars, rear-asymmetric APX-R turret, shallow cupola dome,
+    and authored main/coax muzzle ownership.
+  - Kept detail and proxy rigid envelopes at 4.02 x 1.87 x 2.13 m and aligned
+    internal breech/coax volumes with the renderer-owned weapon stations.
+  - Retained the 168-record CPU baseline as a regression detector only. Source
+    overlays, not hash equality, remain the historical-fidelity gate.
+- Files changed by responsibility:
+  - Data/assets: `RenaultR35VisualData.js`, France 1940 asset manifest,
+    `VehicleVisualProfiles.js`, and `RenaultR35InternalLayout.js`.
+  - Calibration: `VehicleVisualBundle.js`, `VehicleVisualEvaluator.js`,
+    `VehicleOwnedRegistration.js`, silhouette audit engine and CLI.
+  - Rendering: `RenaultR35.js`, `VehicleModelEnhancer.js`, family vehicle
+    visual-bundle composition, and the checked-in R35 drawing.
+  - Tests: generic visual-bundle tests, calibration/asset tests, shared
+    geometry/vehicle/internal-collision tests, and the reviewed silhouette
+    fixture.
+  - Docs: `docs/ARCHITECTURE.md`, `TODO.md`, and this results section.
+- Authoritative ownership:
+  - Canonical vehicle simulation statistics remain in France 1940 content.
+  - R35 renderer parameters and source registration now live together in
+    `RenaultR35VisualData.js`.
+  - Family composition owns the bundle registry. Generic calibration owns the
+    bundle/check interfaces and imports no concrete family.
+- Validation:
+  - Focused command: `node --test test/vehicle-visual-bundles.test.js test/geometry-lod-fidelity.test.js test/vehicle-calibration.test.js test/asset-manifest.test.js test/vehicle-internal-collision.test.js`
+  - Focused result: 58/58 passed.
+  - Full `npm test`: 433/433 passed.
+  - `npm run build`: 143 modules transformed; known 806.17 kB
+    `three-webgpu` chunk warning only.
+  - `git diff --check`: passed.
+  - Updated regression fixture SHA-256:
+    `bf03e200dd00bc4015ddad863fea82170686e97d59cefb736843d030f86d84da`.
+  - Browser target: `http://localhost:5173` through
+    `http://localhost:9222`; mode: calibration scene; backend:
+    `WebGPUBackend`; `data-game-status="ready"`; R35 scene count: 1;
+    console errors: 0.
+- Deliberately incomplete:
+  - R35 hull, turret, mantlet, and running-gear contours still need measured
+    source-space side/front/top convergence. Exact envelope and clean runtime
+    status do not close that fidelity item.
+  - Other vehicle bundles have the reusable contract, but source-backed
+    outline review remains vehicle-by-vehicle work.
+  - Ballistic-impact and authoritative vehicle-damage browser captures remain
+    outside this packet.
 
 ## Questions or blockers
 
-- No packet blocker remains. Browser capture work still requires one connected proxy tab or a functioning headless GPU process.
+- No environment blocker. Continue R35 contour work from the registered source,
+  not from the accepted regression fixture.
