@@ -43,6 +43,7 @@ const EXPECTED_IDS = Object.freeze([
   'PANZER_III_D',
   'PANZER_II_C',
   'PANZER_IV_D',
+  'RENAULT_D2',
   'RENAULT_R35',
   'SDKFZ_231',
   'SOMUA_S35'
@@ -57,7 +58,7 @@ function assertDeepFrozen(value, path = 'value', seen = new Set()) {
   }
 }
 
-test('France 1940 owns exactly fourteen deeply frozen identity-stable vehicle records', () => {
+test('France 1940 owns exactly fifteen deeply frozen identity-stable vehicle records', () => {
   assert.deepEqual(Object.keys(FRANCE_1940_VEHICLES).sort(), EXPECTED_IDS);
   for (const [id, vehicle] of Object.entries(FRANCE_1940_VEHICLES)) {
     assert.equal(vehicle.id, id);

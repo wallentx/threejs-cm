@@ -217,6 +217,47 @@ Required handoff report:
   close detail that disappears into an incorrect medium/core silhouette.
 - Track proxies must preserve open running-gear identity. Do not replace tracks
   with opaque black slabs.
+- Never use a generic oval, capsule, or current rendered track silhouette as
+  blueprint-calibration evidence. A migrated tracked vehicle declares its own
+  drive-sprocket, idler, road-wheel, and return-roller centers and radii plus
+  link thickness and provenance/quality in vehicle-owned visual data.
+- Derive the presented track path from those supports. Any gravity, linear-mass,
+  or static-tension value used to shape an unsupported span must be labeled as
+  historical, inferred, or renderer approximation. It must not become
+  authoritative suspension, collision, movement, damage, or physics state.
+- Detailed and proxy running gear must consume the same solved track shape.
+  Far LOD may reduce link count and geometry cost; it may not change support
+  datums or fall back to a different oval outline.
+- Keep source-space evidence separate from emitted metre-space geometry. Store
+  the original pixel point, radius, outline, or bounds beside every derived
+  support, hull station, mudguard, suspension plate, spring pack, turret
+  section, cupola, visor, mantlet, or weapon datum. Generic evaluators receive
+  this data through a bundle and must not import a concrete vehicle.
+- Use independent horizontal and vertical registration scales when the selected
+  drawing and exact rigid dimensions require them. Never shrink wheels, links,
+  cleats, hull stations, or another coupled part merely to compensate for an
+  envelope failure. Fix the source transform or the incorrectly registered
+  part and retain the original source coordinates as review evidence.
+- Vehicle-owned visual data distinguishes four kinds of value: exact published
+  dimensions, source-registered pixels, cross-view constrained inference, and
+  renderer approximation. Never relabel a current mesh measurement as source
+  evidence. Never copy another vehicle's numeric values to fill a missing view.
+- Mudguards, suspension silhouettes, cupolas, mantlets, and other
+  identity-defining parts must survive every LOD where their absence changes
+  the vehicle silhouette. A proxy may omit internal detail, but it must retain
+  the source-defining outline with cheaper geometry.
+- The R35 reference implementation is
+  `RenaultR35VisualData.js` + `TrackPathSolver.js` +
+  `TrackedRunningGear.js` + `RenaultR35.js` +
+  `VehicleVisualEvaluator.js` source-mechanics checks. Reuse the schema and
+  ownership boundaries for another tank; never copy R35 numeric constants.
+- Source-backed vehicle acceptance order: verify source identity and
+  crop/landmark registration; label exact versus inferred datums; align hull
+  stations, mudguards, suspension, turret, mantlet, cupola, and gun axes; align
+  wheel supports and solved track path; inspect side/front/top at every LOD;
+  compare exactly which keyed silhouette records changed; then explicitly
+  update the reviewed baseline. A new expected hash cannot substitute for
+  overlay review.
 
 ## Animation and AI
 

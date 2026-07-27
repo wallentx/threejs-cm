@@ -17,6 +17,7 @@ import { TEST_VFX_PROVIDER } from './helpers/TestVfxProvider.js';
 const vehicleIds = [
   'SOMUA_S35',
   'RENAULT_R35',
+  'RENAULT_D2',
   'HOTCHKISS_H39',
   'AMC_35',
   'PANHARD_178',
@@ -62,7 +63,7 @@ function acquireVehicleTarget(vehicle, target) {
   });
 }
 
-test('all 14 catalog vehicles explicitly own data-driven machine-gun mount lists', () => {
+test('all 15 catalog vehicles explicitly own data-driven machine-gun mount lists', () => {
   assert.deepEqual(Object.keys(VEHICLE_MACHINE_GUN_MOUNTS).sort(), [...vehicleIds].sort());
   for (const vehicleId of vehicleIds) {
     const spec = VEHICLES[vehicleId];

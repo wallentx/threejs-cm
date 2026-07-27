@@ -97,37 +97,37 @@ export const VEHICLE_VISUAL_PROFILES = Object.freeze({
       {
         id: 'road-wheel-rear-center',
         label: 'Rear road-wheel centre',
-        world: [0, 0.245, -1.08],
+        world: [0, 0.2238876889848812, -1.090555352575813],
         views: ['side'],
-        quality: 'approximation inferred from registered side raster'
+        quality: 'registered from source pixels [2160, 1328]'
       },
       {
         id: 'road-wheel-front-center',
         label: 'Front road-wheel centre',
-        world: [0, 0.245, 1.08],
+        world: [0, 0.2238876889848812, 1.0450237486298868],
         views: ['side'],
-        quality: 'approximation inferred from registered side raster'
+        quality: 'registered from source pixels [706, 1328]'
       },
       {
         id: 'turret-ring-center',
         label: 'Turret-ring centre',
-        world: [0, 1.35, -0.23],
+        world: [0, 1.4092656587473003, -0.23132992327365726],
         views: ['side', 'top'],
         quality: 'registered against the user-supplied side and top elevations'
       },
       {
         id: 'gun-axis-root',
         label: 'Main-gun axis at mantlet',
-        world: [-0.16, 1.70, 0.305],
+        world: [-0.16, 1.8003023758099352, 0.3036700767263428],
         views: ['side', 'front'],
         quality: 'registered against the user-supplied side and front elevations'
       },
       {
         id: 'upper-track-run',
         label: 'Upper track run',
-        world: [0, 1.10, 0],
+        world: [0, 0.9764535668713912, 0],
         views: ['side'],
-        quality: 'approximation inferred from registered side raster'
+        quality: 'derived from registered support path'
       }
     ],
     kind: 'tracked',
@@ -138,6 +138,76 @@ export const VEHICLE_VISUAL_PROFILES = Object.freeze({
       'https://www.the-blueprints.com/blueprints/tanks/tanks-r/50737/view/renault_r35/'
     ],
     dataQuality: 'historical tail-less dimensions; side, front, and top registered from a user-supplied secondary four-elevation drawing; hidden casting radii inferred between views'
+  }),
+  fr_renault_d2: freezeProfile({
+    designation: 'Renault D2',
+    dimensionsMeters: { length: 5.46, width: 2.22, height: 2.67 },
+    calibrationLandmarks: [
+      {
+        id: 'road-wheel-rear-center',
+        label: 'Rear road-wheel centre',
+        world: [0, 0.2096280991735537, -1.6380000000000001],
+        views: ['side'],
+        quality: 'LLM-registered from source pixels [762, 523]; human review pending'
+      },
+      {
+        id: 'road-wheel-front-center',
+        label: 'Front road-wheel centre',
+        world: [0, 0.2096280991735537, 2.0409304812834224],
+        views: ['side'],
+        quality: 'LLM-registered from source pixels [132, 523]; human review pending'
+      },
+      {
+        id: 'rear-sprocket-center',
+        label: 'Rear drive-sprocket centre',
+        world: [0, 0.832995867768595, -2.0584491978609627],
+        views: ['side'],
+        quality: 'LLM-registered from source pixels [834, 410]; human review pending'
+      },
+      {
+        id: 'front-idler-center',
+        label: 'Front idler centre',
+        world: [0, 0.7447314049586777, 2.426342245989305],
+        views: ['side'],
+        quality: 'LLM-registered from source pixels [66, 426]; human review pending'
+      },
+      {
+        id: 'turret-ring-center',
+        label: 'Turret-ring centre',
+        world: [0, 1.75, 0.878855614973262],
+        views: ['side', 'top'],
+        quality: 'LLM-registered across supplied orthographic views; human review pending'
+      },
+      {
+        id: 'gun-axis-root',
+        label: 'Main-gun axis at mantlet',
+        world: [-0.24, 2.17, 1.708855614973262],
+        views: ['side', 'front'],
+        quality: 'LLM-registered across supplied orthographic views; human review pending'
+      },
+      {
+        id: 'upper-track-run',
+        label: 'Upper track run',
+        world: [0, 1.122995867768595, 0],
+        views: ['side'],
+        quality: 'derived from provisional registered support path'
+      }
+    ],
+    kind: 'tracked',
+    hullConstruction: 'bolted plate',
+    roadWheelsPerSide: 15,
+    silhouetteFeatures: [
+      'long tail-less hull',
+      'fifteen small road wheels per side',
+      'rear drive sprocket and lower front idler',
+      'compact APX-series one-man turret'
+    ],
+    references: [
+      'https://www.the-blueprints.com/blueprints-depot/tanks/tanks-r/renault-d2-tourelle-apx-4.png',
+      'https://www.servicehistorique.sga.defense.gouv.fr/ark/950463',
+      'https://www.unabcc.org/app/download/8279653/Renault%2BD2%2B-%2BFiche%2Btechnique.pdf'
+    ],
+    dataQuality: 'historical rigid dimensions and running-gear identity; secondary orthographic drawing is LLM-registered and remains pending human review'
   }),
   fr_hotchkiss_h39: freezeProfile({
     designation: 'Hotchkiss H39',

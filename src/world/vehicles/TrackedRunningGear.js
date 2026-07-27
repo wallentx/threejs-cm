@@ -1,4 +1,8 @@
 import * as THREE from 'three';
+import {
+  sampleClosedTrackPath,
+  solveSupportedTrackPath
+} from './TrackPathSolver.js';
 
 const X_AXIS = new THREE.Vector3(1, 0, 0);
 
@@ -165,6 +169,138 @@ function addBeltLinks(group, config, side) {
   return { links, cleats, count };
 }
 
+function addSupportedBeltLinks(
+  group,
+  {
+    trackCenterX,
+    trackWidth,
+    linkPitch,
+    trackMaterial,
+    solvedPath
+  },
+  side,
+  { proxy = false } = {}
+) {
+  const sampled = sampleClosedTrackPath(
+    solvedPath,
+    // Preserve source-registered end tangency at proxy range. Geometry and
+    // cleats are simplified; path sampling remains identical to detail.
+    linkPitch
+  );
+  const linkHeight = solvedPath.inputs.linkThickness;
+  const cleatHeight = solvedPath.inputs.cleatHeight;
+  const renderedLinkHeight = proxy
+    // Approximate the detailed link-plus-cleat outside envelope within the
+    // rigid-envelope epsilon. Proxy LOD must not change the solved track path.
+    ? linkHeight + cleatHeight * 1.5
+    : linkHeight;
+  const linkGeometry = createTrackLinkGeometry(
+    proxy ? trackWidth * 1.04 : trackWidth,
+    sampled.pitchMeters * (proxy ? 0.94 : 0.90),
+    renderedLinkHeight
+  );
+  linkGeometry.name = proxy
+    ? 'SupportedProxyTrackLinkGeometry'
+    : 'SupportedTrackLinkGeometry';
+  const semanticSide = side < 0 ? 'Right' : 'Left';
+  const links = new THREE.InstancedMesh(
+    linkGeometry,
+    trackMaterial,
+    sampled.count
+  );
+  links.name = proxy
+    ? `Proxy${semanticSide}TrackLinks`
+    : `${semanticSide}TrackLinks`;
+  links.visible = !proxy;
+  links.castShadow = true;
+  links.receiveShadow = true;
+  links.userData = {
+    lodBand: proxy ? 'proxy' : 'core',
+    trackPart: proxy ? 'proxyLinks' : 'links',
+    trackPathMode: solvedPath.model,
+    side,
+    semanticSide: semanticSide.toLowerCase(),
+    count: sampled.count
+  };
+
+  const cleatGeometry = proxy || cleatHeight === 0
+    ? null
+    : createTrackLinkGeometry(
+        trackWidth * 1.04,
+        sampled.pitchMeters * 0.68,
+        cleatHeight
+      );
+  const cleats = proxy || cleatHeight === 0
+    ? null
+    : new THREE.InstancedMesh(
+        cleatGeometry,
+        trackMaterial,
+        sampled.count
+      );
+  if (cleats) {
+    cleats.name = `${semanticSide}TrackCleats`;
+    cleats.castShadow = true;
+    cleats.receiveShadow = true;
+    cleats.userData = {
+      lodBand: 'high',
+      trackPart: 'cleats',
+      trackPathMode: solvedPath.model,
+      side,
+      semanticSide: semanticSide.toLowerCase(),
+      count: sampled.count
+    };
+  }
+
+  const position = new THREE.Vector3();
+  const cleatPosition = new THREE.Vector3();
+  const quaternion = new THREE.Quaternion();
+  const scale = new THREE.Vector3(1, 1, 1);
+  const matrix = new THREE.Matrix4();
+  const instancePath = [];
+  const cleatOffset = (linkHeight + cleatHeight) * 0.5;
+
+  sampled.samples.forEach((sample, index) => {
+    position.set(side * trackCenterX, sample.y, sample.z);
+    quaternion.setFromAxisAngle(
+      X_AXIS,
+      Math.atan2(-sample.tangentY, sample.tangentZ)
+    );
+    matrix.compose(position, quaternion, scale);
+    links.setMatrixAt(index, matrix);
+
+    if (cleats) {
+      cleatPosition.set(
+        side * trackCenterX,
+        sample.y + sample.outwardY * cleatOffset,
+        sample.z + sample.outwardZ * cleatOffset
+      );
+      matrix.compose(cleatPosition, quaternion, scale);
+      cleats.setMatrixAt(index, matrix);
+    }
+    instancePath.push({
+      distance: sample.distanceMeters,
+      position: position.toArray(),
+      quaternion: quaternion.toArray(),
+      outward: [0, sample.outwardY, sample.outwardZ]
+    });
+  });
+  links.instanceMatrix.needsUpdate = true;
+  links.userData.instancePath = instancePath;
+  if (cleats) {
+    cleats.instanceMatrix.needsUpdate = true;
+    cleats.userData.instancePath = instancePath;
+    group.add(links, cleats);
+  } else {
+    group.add(links);
+  }
+  return {
+    links,
+    cleats,
+    count: sampled.count,
+    path: solvedPath
+  };
+}
+
 function addWheel(group, name, material, radius, width, side, x, y, z, band, kind) {
   const wheel = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, width, 12), material);
   wheel.name = name;
@@ -198,7 +334,8 @@ export function createTrackedRunningGear({
   roadWheelSpacing,
   sprocketRadius = beltHeight * 0.42,
   idlerRadius = beltHeight * 0.38,
-  linkPitch = 0.18
+  linkPitch = 0.18,
+  trackPath = null
 }) {
   const runningGear = new THREE.Group();
   runningGear.name = id;
@@ -208,39 +345,110 @@ export function createTrackedRunningGear({
   sprockets.name = 'DriveSprockets';
   const idlers = new THREE.Group();
   idlers.name = 'IdlerWheels';
-  const parts = { roadWheels: [], sprockets: [], idlers: [], tracks: [] };
-  runningGear.add(roadWheels, sprockets, idlers);
+  const returnRollers = new THREE.Group();
+  returnRollers.name = 'ReturnRollers';
+  const parts = {
+    roadWheels: [],
+    sprockets: [],
+    idlers: [],
+    returnRollers: [],
+    tracks: []
+  };
+  runningGear.add(roadWheels, sprockets, idlers, returnRollers);
+  const solvedPath = trackPath ? solveSupportedTrackPath(trackPath) : null;
+  const configuredRoadWheels = trackPath?.roadWheels ?? null;
+  const configuredReturnRollers = trackPath?.returnRollers ?? [];
+  const drive = trackPath?.driveSprocket;
+  const idler = trackPath?.idlerWheel;
 
   for (const side of [-1, 1]) {
-    const belt = addBeltLinks(runningGear, {
-      centerY, trackCenterX, trackWidth, beltLength, beltHeight, linkPitch, trackMaterial
-    }, side);
+    const belt = solvedPath
+      ? addSupportedBeltLinks(runningGear, {
+          trackCenterX,
+          trackWidth,
+          linkPitch,
+          trackMaterial,
+          solvedPath
+        }, side)
+      : addBeltLinks(runningGear, {
+          centerY,
+          trackCenterX,
+          trackWidth,
+          beltLength,
+          beltHeight,
+          linkPitch,
+          trackMaterial
+        }, side);
     parts.tracks.push(belt);
     const sprocket = addWheel(
       sprockets, side < 0 ? 'RightDriveSprocket' : 'LeftDriveSprocket', wheelMaterial,
-      sprocketRadius, trackWidth * 0.82, side, trackCenterX, centerY, beltLength / 2 - beltHeight / 2,
+      drive?.radius ?? sprocketRadius,
+      trackWidth * 0.82,
+      side,
+      trackCenterX,
+      drive?.centerY ?? centerY,
+      drive?.centerZ ?? beltLength / 2 - beltHeight / 2,
       'medium', 'sprocket'
     );
     const idler = addWheel(
       idlers, side < 0 ? 'RightIdlerWheel' : 'LeftIdlerWheel', wheelMaterial,
-      idlerRadius, trackWidth * 0.76, side, trackCenterX, centerY, -beltLength / 2 + beltHeight / 2,
+      trackPath?.idlerWheel?.radius ?? idlerRadius,
+      trackWidth * 0.76,
+      side,
+      trackCenterX,
+      trackPath?.idlerWheel?.centerY ?? centerY,
+      trackPath?.idlerWheel?.centerZ ?? -beltLength / 2 + beltHeight / 2,
       'medium', 'idler'
     );
     parts.sprockets.push(sprocket);
     parts.idlers.push(idler);
-    for (let index = 0; index < roadWheelCount; index++) {
+    const wheels = configuredRoadWheels ?? Array.from(
+      { length: roadWheelCount },
+      (_, index) => ({
+        radius: roadWheelRadius,
+        centerY: roadWheelY,
+        centerZ: roadWheelZStart + index * roadWheelSpacing
+      })
+    );
+    for (let index = 0; index < wheels.length; index++) {
+      const wheel = wheels[index];
       parts.roadWheels.push(addWheel(
         roadWheels, `${side < 0 ? 'Right' : 'Left'}RoadWheel_${index + 1}`, wheelMaterial,
-        roadWheelRadius, trackWidth * 0.46, side, trackCenterX + trackWidth * 0.08,
-        roadWheelY, roadWheelZStart + index * roadWheelSpacing, 'medium', 'roadWheel'
+        wheel.radius,
+        trackWidth * 0.46,
+        side,
+        trackCenterX + trackWidth * 0.08,
+        wheel.centerY,
+        wheel.centerZ,
+        'medium',
+        'roadWheel'
       ));
     }
+    configuredReturnRollers.forEach((roller, index) => {
+      parts.returnRollers.push(addWheel(
+        returnRollers,
+        `${side < 0 ? 'Right' : 'Left'}ReturnRoller_${index + 1}`,
+        wheelMaterial,
+        roller.radius,
+        trackWidth * 0.38,
+        side,
+        trackCenterX + trackWidth * 0.06,
+        roller.centerY,
+        roller.centerZ,
+        'medium',
+        'returnRoller'
+      ));
+    });
   }
   runningGear.userData = {
     articulated: true,
-    runningGearType: 'closed-track-belt',
+    runningGearType: solvedPath
+      ? 'wheel-supported-quasi-static-track'
+      : 'closed-track-belt',
     trackParts: parts,
     dimensionsMeters: { trackWidth, beltLength, beltHeight },
+    trackPathConfig: trackPath,
+    trackPath: solvedPath,
     lodBands: ['core', 'medium', 'high']
   };
   return runningGear;
@@ -259,12 +467,25 @@ export function createTrackedRunningGearProxy({
   beltHeight,
   centerY,
   roadWheelRadius = beltHeight * 0.32,
-  roadWheelCount
+  roadWheelCount,
+  linkPitch = 0.18,
+  trackPath = null
 }) {
   const proxy = new THREE.Group();
   proxy.name = id;
+  const solvedPath = trackPath ? solveSupportedTrackPath(trackPath) : null;
 
   for (const side of [-1, 1]) {
+    if (solvedPath) {
+      addSupportedBeltLinks(proxy, {
+        trackCenterX,
+        trackWidth,
+        linkPitch,
+        trackMaterial,
+        solvedPath
+      }, side, { proxy: true });
+      continue;
+    }
     const belt = new THREE.Mesh(
       createProxyTrackBeltGeometry(beltLength, beltHeight, trackWidth),
       trackMaterial
@@ -291,7 +512,7 @@ export function createTrackedRunningGearProxy({
       8
     ),
     wheelMaterial,
-    roadWheelCount * 2
+    (trackPath?.roadWheels?.length ?? roadWheelCount) * 2
   );
   wheels.name = 'ProxyRoadWheels';
   wheels.visible = false;
@@ -300,25 +521,34 @@ export function createTrackedRunningGearProxy({
   wheels.userData = {
     lodBand: 'proxy',
     trackPart: 'proxyRoadWheels',
-    wheelsPerSide: roadWheelCount
+    wheelsPerSide: trackPath?.roadWheels?.length ?? roadWheelCount
   };
   const quaternion = new THREE.Quaternion()
     .setFromEuler(new THREE.Euler(0, 0, Math.PI / 2));
   const position = new THREE.Vector3();
   const scale = new THREE.Vector3(1, 1, 1);
   const matrix = new THREE.Matrix4();
+  const configuredRoadWheels = trackPath?.roadWheels;
+  const proxyRoadWheelCount = configuredRoadWheels?.length ?? roadWheelCount;
   const wheelY = centerY - beltHeight / 2 + roadWheelRadius;
   const usableLength = Math.max(0, beltLength - beltHeight * 1.15);
   const startZ = -usableLength / 2;
-  const spacing = roadWheelCount > 1 ? usableLength / (roadWheelCount - 1) : 0;
+  const spacing = proxyRoadWheelCount > 1
+    ? usableLength / (proxyRoadWheelCount - 1)
+    : 0;
   let instance = 0;
   for (const side of [-1, 1]) {
-    for (let index = 0; index < roadWheelCount; index++) {
+    for (let index = 0; index < proxyRoadWheelCount; index++) {
+      const wheel = configuredRoadWheels?.[index];
       position.set(
         side * trackCenterX,
-        wheelY,
-        startZ + index * spacing
+        wheel?.centerY ?? wheelY,
+        wheel?.centerZ ?? startZ + index * spacing
       );
+      const wheelScale = wheel
+        ? wheel.radius / roadWheelRadius
+        : 1;
+      scale.set(wheelScale, 1, wheelScale);
       matrix.compose(position, quaternion, scale);
       wheels.setMatrixAt(instance++, matrix);
     }
@@ -326,8 +556,12 @@ export function createTrackedRunningGearProxy({
   wheels.instanceMatrix.needsUpdate = true;
   proxy.add(wheels);
   proxy.userData = {
-    runningGearType: 'closed-track-proxy',
+    runningGearType: solvedPath
+      ? 'wheel-supported-quasi-static-proxy'
+      : 'closed-track-proxy',
     meshLodBand: 'proxy',
+    trackPathConfig: trackPath,
+    trackPath: solvedPath,
     dimensionsMeters: {
       trackCenterX,
       trackWidth,

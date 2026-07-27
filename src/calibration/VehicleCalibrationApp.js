@@ -27,6 +27,16 @@ import { createVehicleOwnedRegistrations } from './VehicleOwnedRegistration.js';
 const MODES = Object.freeze(['overlay', 'difference', 'silhouette', 'wireframe', 'shaded']);
 const LOD_TIERS = Object.freeze(['high', 'medium', 'core', 'proxy']);
 
+export function resolveCalibrationModelOpacity(queryValue, mode) {
+  const parsed = typeof queryValue === 'string' && queryValue.trim() !== ''
+    ? Number(queryValue)
+    : NaN;
+  if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 1) return parsed;
+  if (mode === 'overlay') return 0.72;
+  if (mode === 'shaded') return 1;
+  return 0.94;
+}
+
 const cloneRegistration = registration => ({
   imageUrl: registration.imageUrl,
   crop: { ...registration.crop },
@@ -92,7 +102,8 @@ export class VehicleCalibrationApp {
     this.viewSelect = requiredElement('view-select');
     this.lodSelect = requiredElement('lod-select');
     this.modeSelect = requiredElement('render-mode-select');
-    this.opacityInput = requiredElement('blueprint-opacity');
+    this.blueprintOpacityInput = requiredElement('blueprint-opacity');
+    this.modelOpacityInput = requiredElement('model-opacity');
     this.fileInput = requiredElement('blueprint-file');
     this.urlInput = requiredElement('blueprint-url');
     this.loadUrlButton = requiredElement('load-blueprint-url');
@@ -126,6 +137,11 @@ export class VehicleCalibrationApp {
     this.view = CALIBRATION_VIEWS[params.get('view')] ? params.get('view') : 'side';
     this.lodTier = LOD_TIERS.includes(params.get('lod')) ? params.get('lod') : 'high';
     this.mode = MODES.includes(params.get('mode')) ? params.get('mode') : 'overlay';
+    this.modelOpacity = resolveCalibrationModelOpacity(
+      params.get('modelOpacity'),
+      this.mode
+    );
+    this.modelOpacityInput.value = String(this.modelOpacity);
     this.modelCache = new Map();
     this.registrationDefaults = new Map();
     this.registrationState = new Map();
@@ -224,7 +240,14 @@ export class VehicleCalibrationApp {
       this.applyRenderMode();
       this.updateUrl();
     });
-    this.opacityInput.addEventListener('input', () => this.requestRender());
+    this.blueprintOpacityInput.addEventListener(
+      'input',
+      () => this.requestRender()
+    );
+    this.modelOpacityInput.addEventListener('input', () => {
+      this.applyModelOpacity();
+      this.updateUrl();
+    });
     this.fileInput.addEventListener('change', async () => {
       const file = this.fileInput.files?.[0];
       if (!file) return;
@@ -440,15 +463,21 @@ export class VehicleCalibrationApp {
         : this.mode === 'difference'
           ? this.differenceMaterial
           : this.silhouetteMaterial;
-    this.rendererHost.style.opacity = this.mode === 'overlay'
-      ? '0.72'
-      : this.mode === 'shaded'
-        ? '1'
-        : '0.94';
+    this.applyModelOpacity();
     this.rendererHost.style.mixBlendMode = this.mode === 'difference' ? 'difference' : 'normal';
     this.blueprintCanvas.style.filter = this.mode === 'difference'
       ? 'grayscale(1) contrast(1.8)'
       : 'none';
+    this.requestRender();
+  }
+
+  applyModelOpacity() {
+    const requested = Number(this.modelOpacityInput.value);
+    this.modelOpacity = Number.isFinite(requested)
+      ? THREE.MathUtils.clamp(requested, 0, 1)
+      : 1;
+    this.modelOpacityInput.value = String(this.modelOpacity);
+    this.rendererHost.style.opacity = String(this.modelOpacity);
     this.requestRender();
   }
 
@@ -720,7 +749,7 @@ export class VehicleCalibrationApp {
     });
     this.blueprintTransform = transform;
     context.save();
-    context.globalAlpha = Number(this.opacityInput.value);
+    context.globalAlpha = Number(this.blueprintOpacityInput.value);
     context.translate(transform.centerX, transform.centerY);
     context.rotate(transform.rotation);
     context.scale(transform.mirrorX ? -1 : 1, 1);
@@ -928,6 +957,7 @@ export class VehicleCalibrationApp {
     url.searchParams.set('view', this.view);
     url.searchParams.set('lod', this.lodTier);
     url.searchParams.set('mode', this.mode);
+    url.searchParams.set('modelOpacity', this.modelOpacity.toFixed(2));
     window.history.replaceState(null, '', url);
   }
 

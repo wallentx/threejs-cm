@@ -3,7 +3,10 @@ import {
   RENAULT_R35_VISUAL_DATA
 } from '../../content/france1940/vehicleData/RenaultR35VisualData.js';
 import { setVehicleMaterialSlot } from './VehicleMaterialLibrary.js';
-import { createTrackedRunningGear } from './TrackedRunningGear.js';
+import {
+  createTrackedRunningGear,
+  createTrackedRunningGearProxy
+} from './TrackedRunningGear.js';
 import { getVehicleVisualProfile } from './VehicleVisualProfiles.js';
 
 const PROFILE = getVehicleVisualProfile('fr_renault_r35');
@@ -21,10 +24,11 @@ const R35 = Object.freeze({
   trackWidth: VISUAL.runningGear.trackWidth,
   trackCenterX: VISUAL.runningGear.trackCenterX,
   trackLength: VISUAL.runningGear.trackLength,
-  // The detailed links add 0.0638 m beyond the belt path. This path height
-  // seats their cleats on y=0 while retaining the registered 1.10 m top run.
+  // Legacy envelope arguments remain required by the shared factory, but the
+  // R35 track itself uses the source-registered support path below.
   trackHeight: VISUAL.runningGear.trackHeight,
   trackCenterY: VISUAL.runningGear.trackCenterY,
+  turretCenterX: VISUAL.turret.centerX,
   turretCenterZ: VISUAL.turret.centerZ,
   turretDeckY: VISUAL.turret.deckY,
   turretBodyHeight: VISUAL.turret.sections.at(-1).y,
@@ -144,7 +148,33 @@ function createCastTurretGeometry(rings, segments = 12) {
   return geometry;
 }
 
-function createFrontPlateGeometry(outline, depth, name) {
+function createFrontPlateGeometry(
+  outline,
+  depth,
+  name,
+  { bevelMeters = 0 } = {}
+) {
+  const shape = new THREE.Shape();
+  shape.moveTo(outline[0][0], outline[0][1]);
+  for (let index = 1; index < outline.length; index++) {
+    shape.lineTo(outline[index][0], outline[index][1]);
+  }
+  shape.closePath();
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth,
+    steps: 1,
+    bevelEnabled: bevelMeters > 0,
+    bevelSegments: bevelMeters > 0 ? 2 : 0,
+    bevelSize: bevelMeters,
+    bevelThickness: bevelMeters
+  });
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.name = name;
+  return geometry;
+}
+
+function createSidePlateGeometry(outline, depth, name) {
   const shape = new THREE.Shape();
   shape.moveTo(outline[0][0], outline[0][1]);
   for (let index = 1; index < outline.length; index++) {
@@ -156,6 +186,8 @@ function createFrontPlateGeometry(outline, depth, name) {
     steps: 1,
     bevelEnabled: false
   });
+  geometry.translate(0, 0, -depth / 2);
+  geometry.rotateY(-Math.PI / 2);
   geometry.computeVertexNormals();
   geometry.computeBoundingBox();
   geometry.name = name;
@@ -243,10 +275,16 @@ export function createRenaultR35Mesh() {
   // hull between the full 1.87 m outside-track width.
   for (const side of [-1, 1]) {
     const fender = tag(new THREE.Mesh(
-      new THREE.BoxGeometry(0.24, 0.045, 3.72),
+      createSidePlateGeometry(
+        VISUAL.mudguard.outline,
+        VISUAL.mudguard.depth,
+        'R35SourceRegisteredMudguardGeometry'
+      ),
       bodyMat
     ), 'core', `${side < 0 ? 'Right' : 'Left'}Fender`);
-    fender.position.set(side * 0.79, 1.10, 0.04);
+    fender.position.x = side * VISUAL.mudguard.centerX;
+    fender.userData.surfaceRole = 'source-registered-mudguard';
+    fender.userData.sourceView = 'side';
     tankGroup.add(fender);
 
     const lamp = tag(new THREE.Mesh(
@@ -275,42 +313,83 @@ export function createRenaultR35Mesh() {
     beltLength: R35.trackLength,
     beltHeight: R35.trackHeight,
     centerY: R35.trackCenterY,
-    roadWheelRadius: 0.205,
+    roadWheelRadius: VISUAL.runningGear.trackPath.roadWheels[0].radius,
     roadWheelCount: PROFILE.roadWheelsPerSide,
-    roadWheelY: 0.245,
+    roadWheelY: VISUAL.runningGear.trackPath.roadWheels[0].centerY,
     roadWheelZStart: R35.roadWheelCentersZ[0] - R35.runningGearOffsetZ,
     roadWheelSpacing: 0.50,
-    sprocketRadius: 0.39,
-    idlerRadius: 0.36,
-    linkPitch: 0.15
+    sprocketRadius: VISUAL.runningGear.trackPath.driveSprocket.radius,
+    idlerRadius: VISUAL.runningGear.trackPath.idlerWheel.radius,
+    linkPitch: 0.15,
+    trackPath: VISUAL.runningGear.trackPath
   });
-  for (let sideIndex = 0; sideIndex < 2; sideIndex++) {
-    for (let wheelIndex = 0; wheelIndex < R35.roadWheelCentersZ.length; wheelIndex++) {
-      const wheel = runningGear.userData.trackParts.roadWheels[
-        sideIndex * R35.roadWheelCentersZ.length + wheelIndex
-      ];
-      wheel.position.z = R35.roadWheelCentersZ[wheelIndex] - R35.runningGearOffsetZ;
-    }
-  }
   tankGroup.add(runningGear);
   tankGroup.userData.runningGear = runningGear;
 
-  // Visible paired suspension beams preserve the R35's compact bogie rhythm.
+  // Suspension plates and leaf-spring packs consume the same side-source
+  // registration as the wheels. This keeps their silhouettes attached to the
+  // mechanical datums instead of floating from hand-authored local offsets.
+  const suspension = VISUAL.suspension;
   for (const side of [-1, 1]) {
-    for (const [index, centerZ] of [-0.76, 0.28, 0.73].entries()) {
-      const beam = tag(new THREE.Mesh(
-        new THREE.BoxGeometry(0.055, 0.16, index === 0 ? 0.57 : 0.48),
+    for (const assembly of suspension.assemblies) {
+      const plate = tag(new THREE.Mesh(
+        createSidePlateGeometry(
+          assembly.outline,
+          suspension.plateDepth,
+          `R35_${assembly.id}_PlateGeometry`
+        ),
         turretMat
-      ), 'medium', `${side < 0 ? 'Right' : 'Left'}BogieBeam_${index + 1}`);
-      beam.position.set(side * 0.90, 0.60, centerZ);
-      beam.rotation.x = index === 1 ? -0.10 : 0.08;
-      tankGroup.add(beam);
+      ), 'medium', `${
+        side < 0 ? 'Right' : 'Left'
+      }SuspensionPlate_${assembly.id}`);
+      plate.position.x = side * suspension.lateralCenterX;
+      plate.userData.surfaceRole = 'source-registered-suspension-yoke';
+      plate.userData.sourceView = 'side';
+      plate.userData.sourceAssemblyId = assembly.id;
+      tankGroup.add(plate);
+
+      const springPack = assembly.springPack;
+      const elementSpan = springPack.spanZ / springPack.elementCount;
+      const elementDepthZ = (
+        elementSpan * (1 - suspension.springElementGapRatio)
+      );
+      for (
+        let springIndex = 0;
+        springIndex < springPack.elementCount;
+        springIndex++
+      ) {
+        const block = tag(new THREE.Mesh(
+          new THREE.BoxGeometry(
+            suspension.springDepth,
+            springPack.height,
+            elementDepthZ
+          ),
+          metalMat
+        ), 'high', `${
+          side < 0 ? 'Right' : 'Left'
+        }SuspensionSpring_${assembly.id}_${springIndex + 1}`);
+        block.position.set(
+          side * suspension.lateralCenterX,
+          springPack.centerY,
+          springPack.centerZ + (
+            0.5 - (springIndex + 0.5) / springPack.elementCount
+          ) * springPack.spanZ
+        );
+        block.userData.surfaceRole = 'source-registered-suspension-spring';
+        block.userData.sourceView = 'side';
+        block.userData.sourceAssemblyId = assembly.id;
+        tankGroup.add(block);
+      }
     }
   }
 
   const turretGroup = new THREE.Group();
   turretGroup.name = 'Turret';
-  turretGroup.position.set(0, R35.turretDeckY, R35.turretCenterZ);
+  turretGroup.position.set(
+    R35.turretCenterX,
+    R35.turretDeckY,
+    R35.turretCenterZ
+  );
   turretGroup.userData.deckContact = {
     hullName: 'R35_CastHull',
     maxGapMeters: 0.03
@@ -331,7 +410,8 @@ export function createRenaultR35Mesh() {
     createFrontPlateGeometry(
       mantletData.outline,
       mantletData.depth,
-      'R35SA18MantletShieldGeometry'
+      'R35SA18MantletShieldGeometry',
+      { bevelMeters: mantletData.bevelMeters }
     ),
     turretMat
   ), 'core', 'R35_SA18_MantletShield');
@@ -393,7 +473,7 @@ export function createRenaultR35Mesh() {
   const cupola = tag(new THREE.Mesh(
     new THREE.SphereGeometry(1, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2),
     turretMat
-  ), 'medium', 'R35_APXR_Cupola');
+  ), 'core', 'R35_APXR_Cupola');
   cupola.position.set(
     cupolaData.centerX,
     cupolaData.baseY,
@@ -481,16 +561,57 @@ export function createRenaultR35Mesh() {
   proxyBody.visible = false;
   proxyGroup.add(proxyBody);
 
+  for (const side of [-1, 1]) {
+    const proxyMudguard = new THREE.Mesh(
+      createSidePlateGeometry(
+        VISUAL.mudguard.outline,
+        VISUAL.mudguard.depth,
+        'R35ProxySourceRegisteredMudguardGeometry'
+      ),
+      bodyMat
+    );
+    proxyMudguard.name = `R35_Proxy${
+      side < 0 ? 'Right' : 'Left'
+    }Mudguard`;
+    proxyMudguard.position.x = side * VISUAL.mudguard.centerX;
+    proxyMudguard.userData.lodBand = 'proxy';
+    proxyMudguard.userData.surfaceRole = 'source-registered-mudguard';
+    proxyMudguard.userData.sourceView = 'side';
+    proxyMudguard.visible = false;
+    proxyGroup.add(proxyMudguard);
+  }
+
+  const proxyRunningGear = createTrackedRunningGearProxy({
+    id: 'R35SupportedTrackProxy',
+    trackMaterial: trackMat,
+    wheelMaterial: turretMat,
+    trackCenterX: R35.trackCenterX,
+    trackWidth: R35.trackWidth,
+    beltLength: R35.trackLength,
+    beltHeight: R35.trackHeight,
+    centerY: R35.trackCenterY,
+    roadWheelRadius: VISUAL.runningGear.trackPath.roadWheels[0].radius,
+    roadWheelCount: R35.roadWheelCentersZ.length,
+    linkPitch: 0.15,
+    trackPath: VISUAL.runningGear.trackPath
+  });
+  proxyGroup.add(proxyRunningGear);
+
   const proxyTurret = new THREE.Mesh(
-    createCastTurretGeometry([
-      VISUAL.turret.sections[0],
-      VISUAL.turret.sections[1],
-      VISUAL.turret.sections.at(-1)
-    ], 8),
+    createCastTurretGeometry(
+      VISUAL.turret.proxySectionIndices.map(
+        index => VISUAL.turret.sections[index]
+      ),
+      10
+    ),
     turretMat
   );
   proxyTurret.name = 'R35_ProxyAPXRTurret';
-  proxyTurret.position.set(0, R35.turretDeckY, R35.turretCenterZ);
+  proxyTurret.position.set(
+    R35.turretCenterX,
+    R35.turretDeckY,
+    R35.turretCenterZ
+  );
   proxyTurret.userData.lodBand = 'proxy';
   proxyTurret.visible = false;
   proxyGroup.add(proxyTurret);
@@ -501,7 +622,7 @@ export function createRenaultR35Mesh() {
   );
   proxyRoofBoss.name = 'R35_ProxyAPXRRoofBoss';
   proxyRoofBoss.position.set(
-    VISUAL.turret.cupola.centerX,
+    R35.turretCenterX + VISUAL.turret.cupola.centerX,
     R35.turretDeckY + VISUAL.turret.cupola.baseY,
     R35.turretCenterZ + VISUAL.turret.cupola.centerZ
   );

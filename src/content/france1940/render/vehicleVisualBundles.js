@@ -14,6 +14,9 @@ import {
   RENAULT_R35_VISUAL_DATA
 } from '../vehicleData/RenaultR35VisualData.js';
 import {
+  RENAULT_D2_VISUAL_DATA
+} from '../vehicleData/RenaultD2AuthoringData.js';
+import {
   FRANCE_1940_VEHICLES
 } from '../vehicles.js';
 import {
@@ -24,6 +27,10 @@ import {
 } from './vehicleMeshFactories.js';
 
 const DEFAULT_REQUIRED_LODS = Object.freeze(['high', 'medium', 'core', 'proxy']);
+const VISUAL_DATA_BY_MODEL_ID = Object.freeze({
+  [RENAULT_R35_VISUAL_DATA.modelId]: RENAULT_R35_VISUAL_DATA,
+  [RENAULT_D2_VISUAL_DATA.modelId]: RENAULT_D2_VISUAL_DATA
+});
 
 function assetRecordsByModelId(assetResolver) {
   const surfaceBinding = assetResolver.require(
@@ -39,17 +46,24 @@ function assetRecordsByModelId(assetResolver) {
     FRANCE_1940_ASSET_IDS.renaultR35MultiviewCalibrationReference,
     'calibration-reference-image'
   );
+  const d2BlueprintBinding = assetResolver.require(
+    FRANCE_1940_ASSET_IDS.renaultD2MultiviewCalibrationReference,
+    'calibration-reference-image'
+  );
+  const blueprintBindings = Object.freeze({
+    [RENAULT_R35_VISUAL_DATA.modelId]: r35BlueprintBinding,
+    [RENAULT_D2_VISUAL_DATA.modelId]: d2BlueprintBinding
+  });
 
   return Object.freeze(Object.fromEntries(
     Object.values(FRANCE_1940_VEHICLES).map(vehicle => {
-      const visualData = vehicle.modelId === RENAULT_R35_VISUAL_DATA.modelId
-        ? RENAULT_R35_VISUAL_DATA
-        : null;
+      const visualData = VISUAL_DATA_BY_MODEL_ID[vehicle.modelId] ?? null;
+      const blueprintBinding = blueprintBindings[vehicle.modelId] ?? null;
       const blueprint = visualData
         ? Object.freeze({
-            logicalId: r35BlueprintBinding.logicalId,
-            sourcePackId: r35BlueprintBinding.packId,
-            record: r35BlueprintBinding.record,
+            logicalId: blueprintBinding.logicalId,
+            sourcePackId: blueprintBinding.packId,
+            record: blueprintBinding.record,
             registration: visualData.blueprint
           })
         : Object.freeze({
@@ -74,9 +88,8 @@ export function createFrance1940VehicleVisualBundles({
   const validationByModelId = Object.fromEntries(
     Object.values(FRANCE_1940_VEHICLES).map(vehicle => [
       vehicle.modelId,
-      vehicle.modelId === RENAULT_R35_VISUAL_DATA.modelId
-        ? RENAULT_R35_VISUAL_DATA.validation
-        : Object.freeze({ requiredLodBands: DEFAULT_REQUIRED_LODS })
+      VISUAL_DATA_BY_MODEL_ID[vehicle.modelId]?.validation
+        ?? Object.freeze({ requiredLodBands: DEFAULT_REQUIRED_LODS })
     ])
   );
 
@@ -86,9 +99,7 @@ export function createFrance1940VehicleVisualBundles({
     calibrations: BLUEPRINT_CALIBRATION_RECORDS,
     meshFactories,
     assetsByModelId: assetRecordsByModelId(assetResolver),
-    visualDataByModelId: {
-      [RENAULT_R35_VISUAL_DATA.modelId]: RENAULT_R35_VISUAL_DATA
-    },
+    visualDataByModelId: VISUAL_DATA_BY_MODEL_ID,
     validationByModelId
   });
 }

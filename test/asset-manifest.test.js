@@ -205,6 +205,8 @@ test('France 1940 family owns one renderer-neutral manifest and one bound core r
     [FRANCE_1940_ASSET_IDS.somuaSideCalibrationReference]:
       'calibration-reference-image',
     [FRANCE_1940_ASSET_IDS.renaultR35MultiviewCalibrationReference]:
+      'calibration-reference-image',
+    [FRANCE_1940_ASSET_IDS.renaultD2MultiviewCalibrationReference]:
       'calibration-reference-image'
   });
 
@@ -225,7 +227,11 @@ test('France 1940 family owns one renderer-neutral manifest and one bound core r
     } else {
       assert.equal(binding.provider, null);
       assert.ok(
-        ['/s35-compare.jpg', '/assets/blueprints/france1940/renault-r-35-2.png']
+        [
+          '/s35-compare.jpg',
+          '/assets/blueprints/france1940/renault-r-35-2.png',
+          '/assets/blueprints/france1940/renault-d2-tourelle-apx-4.png'
+        ]
           .includes(binding.record.source.url)
       );
     }

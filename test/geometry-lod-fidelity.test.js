@@ -81,7 +81,47 @@ test('R35 and H39 turrets seat on outward-wound cast decks', () => {
       gap <= turret.userData.deckContact.maxGapMeters && gap >= -0.04,
       `${type} turret deck gap ${gap.toFixed(3)}m must remain seated`
     );
+
+    if (type === 'fr_renault_r35') {
+      assert.equal(
+        vehicle.getObjectByName('R35_APXR_Cupola').userData.lodBand,
+        'core',
+        'R35 core silhouette must retain its source-defining cupola'
+      );
+      for (const side of ['Right', 'Left']) {
+        const mudguard = vehicle.getObjectByName(`R35_Proxy${side}Mudguard`);
+        assert.ok(mudguard, `R35 proxy needs its ${side.toLowerCase()} mudguard`);
+        assert.equal(mudguard.userData.lodBand, 'proxy');
+        assert.equal(mudguard.userData.sourceView, 'side');
+      }
+    }
   }
+});
+
+test('R35 cast nose reaches its registered front datum with a visible outward cap', () => {
+  const vehicle = createVehicleMesh('fr_renault_r35');
+  const hull = vehicle.getObjectByName('R35_CastHull');
+  const profile = vehicle.userData.modelMetadata.dimensionsMeters;
+  hull.geometry.computeBoundingBox();
+  const frontZ = hull.geometry.boundingBox.max.z;
+
+  assert.ok(
+    Math.abs(frontZ - profile.length / 2) < 0.001,
+    `R35 integrated nose must reach +${(profile.length / 2).toFixed(3)}m; measured +${frontZ.toFixed(3)}m`
+  );
+
+  const raycaster = new THREE.Raycaster(
+    new THREE.Vector3(0, 0.56, frontZ + 0.5),
+    new THREE.Vector3(0, 0, -1),
+    0,
+    1
+  );
+  const hit = raycaster.intersectObject(hull, false)[0];
+  assert.ok(hit, 'R35 front-facing ray must hit the cast nose');
+  assert.ok(
+    hit.face.normal.z > 0.99,
+    `R35 nose cap must face +Z; measured normal z=${hit.face.normal.z}`
+  );
 });
 
 test('Panzer III rear deck remains outward-facing at core distance', () => {

@@ -24,6 +24,7 @@ test('authored internal layouts are immutable, provenance-labeled, and vehicle-o
   const authored = [
     VEHICLES.SOMUA_S35,
     VEHICLES.RENAULT_R35,
+    VEHICLES.RENAULT_D2,
     VEHICLES.HOTCHKISS_H39,
     VEHICLES.AMC_35,
     VEHICLES.PANHARD_178,
@@ -79,6 +80,15 @@ test('authored internal layouts are immutable, provenance-labeled, and vehicle-o
   assert.equal(amcComponents.has('radio'), false);
   assert.equal(amcComponents.has('hull_mg'), false);
   assert.ok(amcComponents.has('coax'));
+
+  const d2Components = new Set(
+    VEHICLES.RENAULT_D2.internalLayout.volumes
+      .map(volume => volume.componentId)
+      .filter(Boolean)
+  );
+  assert.ok(d2Components.has('radio'));
+  assert.ok(d2Components.has('coax'));
+  assert.equal(d2Components.has('hull_mg'), false);
 
   const panhardComponents = new Set(
     VEHICLES.PANHARD_178.internalLayout.volumes

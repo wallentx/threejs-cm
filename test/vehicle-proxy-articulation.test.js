@@ -6,6 +6,7 @@ import { Unit } from './helpers/France1940TestUnit.js';
 const ARMED_VEHICLES = [
   'SOMUA_S35',
   'RENAULT_R35',
+  'RENAULT_D2',
   'HOTCHKISS_H39',
   'AMC_35',
   'PANHARD_178',

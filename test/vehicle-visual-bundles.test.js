@@ -68,6 +68,54 @@ test('R35 bundle passes source registration, rigid envelope, topology, and mount
     Object.keys(report.metrics.blueprintViews).sort(),
     ['front', 'side', 'top']
   );
+  assert.equal(report.metrics.sourceMechanics.hullStationCount, 17);
+  assert.deepEqual(
+    {
+      hullStationCount:
+        report.metrics.sourceMechanics.sideProfile.hullStationCount,
+      mudguardPointCount:
+        report.metrics.sourceMechanics.sideProfile.mudguardPointCount,
+      suspensionAssemblyCount:
+        report.metrics.sourceMechanics.sideProfile.suspensionAssemblyCount,
+      turretSectionCount:
+        report.metrics.sourceMechanics.sideProfile.turretSectionCount
+    },
+    {
+      hullStationCount: 17,
+      mudguardPointCount: 13,
+      suspensionAssemblyCount: 3,
+      turretSectionCount: 8
+    }
+  );
+  assert.equal(
+    report.metrics.sourceMechanics.track.detail.model,
+    'wheel-supported-quasi-static-v1'
+  );
+  assert.equal(report.metrics.sourceMechanics.track.detail.supportCount, 10);
+  assert.equal(
+    report.metrics.sourceMechanics.trackRegistration.registeredSupportCount,
+    10
+  );
+  assert.equal(
+    report.metrics.sourceMechanics.trackRegistration.view,
+    'side'
+  );
+  assert.equal(
+    report.metrics.sourceMechanics.sideProfile.hullTerminalPixelX,
+    bundle.visualData.geometry.runningGear.trackPath.sourceRegistration
+      .rigidFrontPixelX
+  );
+  assert.ok(
+    report.metrics.sourceMechanics.frontProfile.cupolaCenterX > 0,
+    'front source keeps the cupola on vehicle left'
+  );
+  assert.ok(
+    report.metrics.sourceMechanics.frontProfile.cupolaRadius > 0.2
+  );
+  assert.deepEqual(
+    report.metrics.sourceMechanics.track.detail,
+    report.metrics.sourceMechanics.track.proxy
+  );
   assert.equal(bundle.assets.blueprint.record.kind, 'calibration-reference-image');
   assert.equal(
     bundle.assets.blueprint.record.source.url,
@@ -126,4 +174,168 @@ test('vehicle visual evaluator accepts injected checks instead of hard-coding R3
   assert.equal(calls, 1);
   assert.equal(report.pass, true);
   assert.deepEqual(report.executedChecks, ['caller-owned-source-rule']);
+});
+
+test('source-mechanics plugin rejects disconnected track and unordered hull data', () => {
+  const source = FRANCE_1940_VEHICLE_VISUAL_BUNDLES.fr_renault_r35;
+  const check = DEFAULT_VEHICLE_VISUAL_CHECKS.find(
+    candidate => candidate.id === 'source-mechanics'
+  );
+  const disconnectedTrack = defineVehicleVisualBundle({
+    modelId: source.modelId,
+    vehicle: source.vehicle,
+    profile: source.profile,
+    calibration: source.calibration,
+    createMesh() {
+      const model = source.createMesh();
+      model.getObjectByName('R35RunningGear').userData.trackPath = null;
+      return model;
+    },
+    assets: source.assets,
+    visualData: source.visualData,
+    validation: source.validation
+  });
+  const trackReport = evaluateVehicleVisualBundle(disconnectedTrack, {
+    checks: [check]
+  });
+  assert.equal(trackReport.pass, false);
+  assert.ok(trackReport.failures.some(item => (
+    item.message.includes('has no solved support path')
+  )));
+
+  const visualData = structuredClone(source.visualData);
+  [
+    visualData.geometry.hullStations[5],
+    visualData.geometry.hullStations[6]
+  ] = [
+    visualData.geometry.hullStations[6],
+    visualData.geometry.hullStations[5]
+  ];
+  const unorderedHull = defineVehicleVisualBundle({
+    modelId: source.modelId,
+    vehicle: source.vehicle,
+    profile: source.profile,
+    calibration: source.calibration,
+    createMesh: source.createMesh,
+    assets: source.assets,
+    visualData,
+    validation: source.validation
+  });
+  const hullReport = evaluateVehicleVisualBundle(unorderedHull, {
+    checks: [check]
+  });
+  assert.equal(hullReport.pass, false);
+  assert.ok(hullReport.failures.some(item => (
+    item.message.includes('strictly ascending')
+  )));
+
+  const truncatedHullVisualData = structuredClone(source.visualData);
+  truncatedHullVisualData.geometry.hullStations.splice(-1, 1);
+  truncatedHullVisualData.geometry.sideSourceRegistration
+    .hullDeckStations.splice(-1, 1);
+  const truncatedHull = defineVehicleVisualBundle({
+    modelId: source.modelId,
+    vehicle: source.vehicle,
+    profile: source.profile,
+    calibration: source.calibration,
+    createMesh: source.createMesh,
+    assets: source.assets,
+    visualData: truncatedHullVisualData,
+    validation: source.validation
+  });
+  const truncatedHullReport = evaluateVehicleVisualBundle(
+    truncatedHull,
+    { checks: [check] }
+  );
+  assert.equal(truncatedHullReport.pass, false);
+  assert.ok(truncatedHullReport.failures.some(item => (
+    item.message.includes('requires at least 17 stations')
+    || item.message.includes('terminal source pixel')
+  )));
+
+  const misregisteredVisualData = structuredClone(source.visualData);
+  misregisteredVisualData.geometry.runningGear.trackPath.roadWheels[0]
+    .sourcePixels[0] += 12;
+  const misregisteredSupport = defineVehicleVisualBundle({
+    modelId: source.modelId,
+    vehicle: source.vehicle,
+    profile: source.profile,
+    calibration: source.calibration,
+    createMesh: source.createMesh,
+    assets: source.assets,
+    visualData: misregisteredVisualData,
+    validation: source.validation
+  });
+  const registrationReport = evaluateVehicleVisualBundle(
+    misregisteredSupport,
+    { checks: [check] }
+  );
+  assert.equal(registrationReport.pass, false);
+  assert.ok(registrationReport.failures.some(item => (
+    item.message.includes('diverges from source registration')
+  )));
+
+  const shiftedMudguardVisualData = structuredClone(source.visualData);
+  shiftedMudguardVisualData.geometry.mudguard.outline[0][1] += 0.08;
+  const shiftedMudguard = defineVehicleVisualBundle({
+    modelId: source.modelId,
+    vehicle: source.vehicle,
+    profile: source.profile,
+    calibration: source.calibration,
+    createMesh: source.createMesh,
+    assets: source.assets,
+    visualData: shiftedMudguardVisualData,
+    validation: source.validation
+  });
+  const mudguardReport = evaluateVehicleVisualBundle(
+    shiftedMudguard,
+    { checks: [check] }
+  );
+  assert.equal(mudguardReport.pass, false);
+  assert.ok(mudguardReport.failures.some(item => (
+    item.message.includes('mudguard point 0')
+  )));
+
+  const shiftedSuspensionVisualData = structuredClone(source.visualData);
+  shiftedSuspensionVisualData.geometry.suspension
+    .assemblies[0].springPack.centerY += 0.08;
+  const shiftedSuspension = defineVehicleVisualBundle({
+    modelId: source.modelId,
+    vehicle: source.vehicle,
+    profile: source.profile,
+    calibration: source.calibration,
+    createMesh: source.createMesh,
+    assets: source.assets,
+    visualData: shiftedSuspensionVisualData,
+    validation: source.validation
+  });
+  const suspensionReport = evaluateVehicleVisualBundle(
+    shiftedSuspension,
+    { checks: [check] }
+  );
+  assert.equal(suspensionReport.pass, false);
+  assert.ok(suspensionReport.failures.some(item => (
+    item.message.includes('leading-single-wheel spring pack')
+  )));
+
+  const shiftedCupolaVisualData = structuredClone(source.visualData);
+  shiftedCupolaVisualData.geometry.turret.cupola.centerX -= 0.08;
+  const shiftedCupola = defineVehicleVisualBundle({
+    modelId: source.modelId,
+    vehicle: source.vehicle,
+    profile: source.profile,
+    calibration: source.calibration,
+    createMesh: source.createMesh,
+    assets: source.assets,
+    visualData: shiftedCupolaVisualData,
+    validation: source.validation
+  });
+  const cupolaReport = evaluateVehicleVisualBundle(
+    shiftedCupola,
+    { checks: [check] }
+  );
+  assert.equal(cupolaReport.pass, false);
+  assert.ok(cupolaReport.failures.some(item => (
+    item.message.includes('cupola diverges from front source registration')
+  )));
 });

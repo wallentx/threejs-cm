@@ -128,10 +128,12 @@ The first boundary slice now exists:
   bundle; generic calibration code does not import the France 1940 catalog.
 - `src/calibration/VehicleVisualEvaluator.js` runs pluggable checks over any
   visual bundle. Identity, asset, mesh/LOD, rigid-envelope, source-registration,
-  topology, and weapon-mount checks are independent plugins. CPU silhouette
-  hashes remain change detectors only. Historical shape acceptance uses
-  source-space blueprint registration and side/front/top overlay evidence, not
-  equality with a previous model capture.
+  topology, weapon-mount, and source-mechanics checks are independent plugins.
+  The source-mechanics plugin consumes declarative validation data from the
+  injected bundle; it does not import the R35 or any concrete family. CPU
+  silhouette hashes remain change detectors only. Historical shape acceptance
+  uses source-space blueprint registration and side/front/top overlay evidence,
+  not equality with a previous model capture.
 - `src/assets/AssetManifest.js` validates and deeply freezes portable logical
   asset records, binds runtime providers outside those records, and composes
   immutable base/replacement packs. Replacement is explicit, ordered,
@@ -187,13 +189,44 @@ The first boundary slice now exists:
 - `src/world/vehicles/VehicleMaterialLibrary.js` owns cached procedural vehicle
   surfaces, explicit material slots, physical UV projection, and proxy material
   policy independently from vehicle geometry factories.
-- `src/world/vehicles/TrackedRunningGear.js` owns reusable, named track belts,
-  wheels, sprockets, idlers, and their LOD contract. Vehicle factories supply
-  dimensions and materials instead of rebuilding track logic.
+- `src/world/vehicles/TrackPathSolver.js` owns a deterministic, renderer-only
+  quasi-static track path derived from vehicle-owned drive sprocket, idler,
+  road-wheel, and return-roller supports. Gravity and static tension affect
+  unsupported upper spans; they are labeled presentation approximations, not
+  suspension or physics authority.
+- `src/world/vehicles/TrackedRunningGear.js` consumes that path for named track
+  links and wheels. Detail and proxy tiers share one support-derived shape;
+  proxy may reduce link density but must not substitute an oval. Its legacy
+  capsule fallback exists only for unmigrated vehicles and is not valid
+  blueprint-calibration evidence.
+- `RenaultR35VisualData.js` is the current reference bundle for independently
+  scaled source pixels, hull stations, mudguard outline, suspension plates and
+  spring packs, turret sections, shield/cupola/weapon datums, wheel supports,
+  separate link/cleat dimensions, and declarative source-mechanics validation.
+  `RenaultR35.js` consumes the derived metre-space data and retains the
+  source-defining cupola and mudguard silhouette at core/proxy distance. Other
+  vehicles reuse these ownership and validation contracts, not R35 numeric
+  values.
+- A vehicle may be migrated into visual-data ownership before source-backed
+  geometry work. That extraction must be output-neutral: move current
+  renderer-owned parameters and provenance into a family-owned plain-data
+  module, preserve compatibility exports, and require all keyed CPU silhouette
+  records to remain unchanged. Source registration is a later, separately
+  reviewed geometry packet unless a directly loadable identified raster is
+  already available.
 - `src/calibration/VehicleOwnedRegistration.js` adapts plain, vehicle-owned
   blueprint metadata into editable jig defaults. The jig preloads only
   directly loadable registered rasters and keeps unavailable or qualitative
   views explicit instead of inventing registrations.
+- `src/authoring/vehicle/ParametricVehicleCompiler.js` is an injected,
+  family-neutral authoring compiler for new vehicle proofs. A plain family-owned
+  definition supplies image identity, source-space crops and datums,
+  metre-space hull/turret sections, mechanical supports, components, semantic
+  names, LOD policy, and acceptance state. The compiler emits geometry and
+  markers but owns no vehicle catalog record or historical constants. Renault
+  D2 is the first isolated proof under `docs/vehicle-authoring/`; it remains
+  outside runtime registries until its human-reviewed overlays and full content
+  bundle pass a separate integration gate.
 - `src/world/infantry/InfantryWeaponFactory.js` owns weapon geometry and semantic
   grip/muzzle markers. `InfantryPoseAnimator.js` owns render-only pose binding;
   neither module decides whether a soldier may fire.

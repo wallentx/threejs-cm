@@ -50,8 +50,8 @@ test('vehicle silhouette audit generates valid manifest structure and same-proce
   assert.deepEqual(manifest1, manifest2, 'Two sequential manifest generations in the same process must be byte/object identical');
 
   assert.equal(manifest1.schemaVersion, SILHOUETTE_AUDIT_SCHEMA_VERSION);
-  assert.equal(manifest1.vehicleCount, 14);
-  assert.equal(manifest1.recordCount, 168);
+  assert.equal(manifest1.vehicleCount, 15);
+  assert.equal(manifest1.recordCount, 180);
   assert.deepEqual(manifest1.views, CANONICAL_AUDIT_VIEWS.slice());
   assert.deepEqual(manifest1.lods, CANONICAL_AUDIT_LODS.slice());
   assert.deepEqual(manifest1.renderConfig, DEFAULT_RENDER_CONFIG);
@@ -60,10 +60,10 @@ test('vehicle silhouette audit generates valid manifest structure and same-proce
   const expectedProfileIds = Object.keys(VEHICLE_VISUAL_PROFILES).sort();
   const recordModelIds = Array.from(new Set(Object.values(manifest1.records).map(r => r.modelId))).sort();
   assert.deepEqual(recordModelIds, expectedProfileIds, 'Record model IDs must exactly match registered profile IDs');
-  assert.equal(recordModelIds.length, 14);
+  assert.equal(recordModelIds.length, 15);
 
   const keys = Object.keys(manifest1.records);
-  assert.equal(keys.length, 168);
+  assert.equal(keys.length, 180);
 
   for (const key of keys) {
     const rec = manifest1.records[key];

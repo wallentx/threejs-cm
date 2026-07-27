@@ -150,6 +150,16 @@ export const STONNE_1940_SCENARIO = Object.freeze({
       rotation: Math.PI
     }),
     freezeUnit({
+      id: 'fr_renault_d2',
+      name: 'Renault D2 (provisional blueprint model)',
+      faction: 'french',
+      type: 'vehicle',
+      vehicleId: 'RENAULT_D2',
+      position: [12, 0, 86],
+      rotation: Math.PI,
+      experience: 'Regular'
+    }),
+    freezeUnit({
       id: 'fr_laffly_s20tl',
       name: 'Laffly S20TL',
       faction: 'french',

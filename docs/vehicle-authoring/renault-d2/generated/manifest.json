@@ -1,0 +1,313 @@
+{
+  "schemaVersion": 1,
+  "modelId": "fr_renault_d2",
+  "sourceImageSha256": "93cf038753a8510e80907e2bcadd267da7dc594ddba081c4619bd486a2cc19d9",
+  "dimensionsMeters": {
+    "length": 5.46,
+    "width": 2.22,
+    "height": 2.67
+  },
+  "renderer": {
+    "width": 1400,
+    "height": 900,
+    "views": [
+      "side",
+      "front",
+      "top"
+    ],
+    "lods": [
+      "high",
+      "medium",
+      "core",
+      "proxy"
+    ],
+    "flexibleAttachmentsHidden": true
+  },
+  "captureRecords": [
+    {
+      "key": "side:high",
+      "fileName": "model-side-high.svg",
+      "triangleCount": 10228,
+      "projectedBoundsMeters": {
+        "minU": -2.7300000190734863,
+        "maxU": 2.7300000190734863,
+        "minV": 0.00800000037997961,
+        "maxV": 2.6700000166893005,
+        "width": 5.460000038146973,
+        "height": 2.662000016309321
+      },
+      "svgSha256": "c5e84b488ddc9ea48e752651a052ac4e77ea73b65f36604a25a2398a203fdc53"
+    },
+    {
+      "key": "front:high",
+      "fileName": "model-front-high.svg",
+      "triangleCount": 10228,
+      "projectedBoundsMeters": {
+        "minU": -1.1148000061511993,
+        "maxU": 1.1148000061511993,
+        "minV": 0.00800000037997961,
+        "maxV": 2.6700000166893005,
+        "width": 2.2296000123023987,
+        "height": 2.662000016309321
+      },
+      "svgSha256": "b26f00e574fd235aeabf10cc7fbce2494df9481add561d8bce432ff57abb1daf"
+    },
+    {
+      "key": "top:high",
+      "fileName": "model-top-high.svg",
+      "triangleCount": 10228,
+      "projectedBoundsMeters": {
+        "minU": -1.1148000061511993,
+        "maxU": 1.1148000061511993,
+        "minV": -2.7300000190734863,
+        "maxV": 2.7300000190734863,
+        "width": 2.2296000123023987,
+        "height": 5.460000038146973
+      },
+      "svgSha256": "37c581a9b43d3795fa8ec83e7abeb9f58eb51a7b3553865866f48b4e4eaad6f1"
+    },
+    {
+      "key": "side:medium",
+      "fileName": "model-side-medium.svg",
+      "triangleCount": 6568,
+      "projectedBoundsMeters": {
+        "minU": -2.7300000190734863,
+        "maxU": 2.7300000190734863,
+        "minV": 0.019999999552965164,
+        "maxV": 2.6700000166893005,
+        "width": 5.460000038146973,
+        "height": 2.6500000171363354
+      },
+      "svgSha256": "2718a84ee1b0d6f48b03d4156c23c6404ee862f298024520b7686139c5557be4"
+    },
+    {
+      "key": "front:medium",
+      "fileName": "model-front-medium.svg",
+      "triangleCount": 6568,
+      "projectedBoundsMeters": {
+        "minU": -1.1100000068545341,
+        "maxU": 1.1100000068545341,
+        "minV": 0.019999999552965164,
+        "maxV": 2.6700000166893005,
+        "width": 2.2200000137090683,
+        "height": 2.6500000171363354
+      },
+      "svgSha256": "801abf8b355a96e9415e174ac4e3d698cab3fd5723c953c6095edc09aa85de36"
+    },
+    {
+      "key": "top:medium",
+      "fileName": "model-top-medium.svg",
+      "triangleCount": 6568,
+      "projectedBoundsMeters": {
+        "minU": -1.1100000068545341,
+        "maxU": 1.1100000068545341,
+        "minV": -2.7300000190734863,
+        "maxV": 2.7300000190734863,
+        "width": 2.2200000137090683,
+        "height": 5.460000038146973
+      },
+      "svgSha256": "dd26474a024b61ee68d72de6143a0b379033f37aa4c9ba2877b21fa1d36772c1"
+    },
+    {
+      "key": "side:core",
+      "fileName": "model-side-core.svg",
+      "triangleCount": 4264,
+      "projectedBoundsMeters": {
+        "minU": -2.7300000190734863,
+        "maxU": 2.7300000190734863,
+        "minV": 0.019999999552965164,
+        "maxV": 2.6700000166893005,
+        "width": 5.460000038146973,
+        "height": 2.6500000171363354
+      },
+      "svgSha256": "9d9cfc4f9eef9e050d795f36accda2b56e6b05278e83bd72aa94e84f429f20ae"
+    },
+    {
+      "key": "front:core",
+      "fileName": "model-front-core.svg",
+      "triangleCount": 4264,
+      "projectedBoundsMeters": {
+        "minU": -1.1100000068545341,
+        "maxU": 1.1100000068545341,
+        "minV": 0.019999999552965164,
+        "maxV": 2.6700000166893005,
+        "width": 2.2200000137090683,
+        "height": 2.6500000171363354
+      },
+      "svgSha256": "2e0881e09bc72bf1b11eeb7a72c7f9a844024605c852cc72915102f1fba906f0"
+    },
+    {
+      "key": "top:core",
+      "fileName": "model-top-core.svg",
+      "triangleCount": 4264,
+      "projectedBoundsMeters": {
+        "minU": -1.1100000068545341,
+        "maxU": 1.1100000068545341,
+        "minV": -2.7300000190734863,
+        "maxV": 2.7300000190734863,
+        "width": 2.2200000137090683,
+        "height": 5.460000038146973
+      },
+      "svgSha256": "2ce85b0602a2dc600d8affa74fbf2903bbf44eb4c79d3a5f3e6433cf9b011107"
+    },
+    {
+      "key": "side:proxy",
+      "fileName": "model-side-proxy.svg",
+      "triangleCount": 3348,
+      "projectedBoundsMeters": {
+        "minU": -2.7300000190734863,
+        "maxU": 2.7300000190734863,
+        "minV": 0.0019906084683127823,
+        "maxV": 2.6700000166893005,
+        "width": 5.460000038146973,
+        "height": 2.6680094082209878
+      },
+      "svgSha256": "fd30662aee6a42d073805027364e5885da7105fe3e67e2a22572a72aa090fa02"
+    },
+    {
+      "key": "front:proxy",
+      "fileName": "model-front-proxy.svg",
+      "triangleCount": 3348,
+      "projectedBoundsMeters": {
+        "minU": -1.1148000061511993,
+        "maxU": 1.1148000061511993,
+        "minV": 0.0019906084683127823,
+        "maxV": 2.6700000166893005,
+        "width": 2.2296000123023987,
+        "height": 2.6680094082209878
+      },
+      "svgSha256": "304b79f82c46e45b0566269995b2973132a0e0306c05a2104b1d2c46236eeaeb"
+    },
+    {
+      "key": "top:proxy",
+      "fileName": "model-top-proxy.svg",
+      "triangleCount": 3348,
+      "projectedBoundsMeters": {
+        "minU": -1.1148000061511993,
+        "maxU": 1.1148000061511993,
+        "minV": -2.7300000190734863,
+        "maxV": 2.7300000190734863,
+        "width": 2.2296000123023987,
+        "height": 5.460000038146973
+      },
+      "svgSha256": "e61b672a02900dfe63decbad609bd527a3a4b62962cc4bd6c5f5157799e8e38a"
+    }
+  ],
+  "files": [
+    {
+      "fileName": "blueprint-front.svg",
+      "bytes": 332001,
+      "sha256": "0e737e01d7260e6b1e680ff98db41ca821bd58c16f8db04e2910dcfeba19f51e"
+    },
+    {
+      "fileName": "blueprint-oppositeSide.svg",
+      "bytes": 328710,
+      "sha256": "323a3e8341d48211db26e917b18076f73c444d8c678477961f240c7220404e57"
+    },
+    {
+      "fileName": "blueprint-rear.svg",
+      "bytes": 328717,
+      "sha256": "cf291f45dfdd3765c1721a40ff6cc48c8df5ac8fbd717c92ce2e6f970398a57d"
+    },
+    {
+      "fileName": "blueprint-side.svg",
+      "bytes": 336003,
+      "sha256": "151282a0920fc096ced64c4119a7eeed58534de7f0efade51740e0e479ac6a7a"
+    },
+    {
+      "fileName": "blueprint-top.svg",
+      "bytes": 331726,
+      "sha256": "8de1c9034cd7fb1f4fa464e9d029071bf0d590722f215c6f77d500e3c935cfcc"
+    },
+    {
+      "fileName": "model-front-core.svg",
+      "bytes": 234846,
+      "sha256": "2e0881e09bc72bf1b11eeb7a72c7f9a844024605c852cc72915102f1fba906f0"
+    },
+    {
+      "fileName": "model-front-high.svg",
+      "bytes": 562866,
+      "sha256": "b26f00e574fd235aeabf10cc7fbce2494df9481add561d8bce432ff57abb1daf"
+    },
+    {
+      "fileName": "model-front-medium.svg",
+      "bytes": 361566,
+      "sha256": "801abf8b355a96e9415e174ac4e3d698cab3fd5723c953c6095edc09aa85de36"
+    },
+    {
+      "fileName": "model-front-proxy.svg",
+      "bytes": 184466,
+      "sha256": "304b79f82c46e45b0566269995b2973132a0e0306c05a2104b1d2c46236eeaeb"
+    },
+    {
+      "fileName": "model-side-core.svg",
+      "bytes": 236808,
+      "sha256": "9d9cfc4f9eef9e050d795f36accda2b56e6b05278e83bd72aa94e84f429f20ae"
+    },
+    {
+      "fileName": "model-side-high.svg",
+      "bytes": 566736,
+      "sha256": "c5e84b488ddc9ea48e752651a052ac4e77ea73b65f36604a25a2398a203fdc53"
+    },
+    {
+      "fileName": "model-side-medium.svg",
+      "bytes": 363816,
+      "sha256": "2718a84ee1b0d6f48b03d4156c23c6404ee862f298024520b7686139c5557be4"
+    },
+    {
+      "fileName": "model-side-proxy.svg",
+      "bytes": 185612,
+      "sha256": "fd30662aee6a42d073805027364e5885da7105fe3e67e2a22572a72aa090fa02"
+    },
+    {
+      "fileName": "model-top-core.svg",
+      "bytes": 234846,
+      "sha256": "2ce85b0602a2dc600d8affa74fbf2903bbf44eb4c79d3a5f3e6433cf9b011107"
+    },
+    {
+      "fileName": "model-top-high.svg",
+      "bytes": 562866,
+      "sha256": "37c581a9b43d3795fa8ec83e7abeb9f58eb51a7b3553865866f48b4e4eaad6f1"
+    },
+    {
+      "fileName": "model-top-medium.svg",
+      "bytes": 361566,
+      "sha256": "dd26474a024b61ee68d72de6143a0b379033f37aa4c9ba2877b21fa1d36772c1"
+    },
+    {
+      "fileName": "model-top-proxy.svg",
+      "bytes": 184466,
+      "sha256": "e61b672a02900dfe63decbad609bd527a3a4b62962cc4bd6c5f5157799e8e38a"
+    },
+    {
+      "fileName": "overlay-front.svg",
+      "bytes": 891727,
+      "sha256": "48041c8b7f3836cce01d510c8232545f67e022b3f6c27b7edf98e05989f752ef"
+    },
+    {
+      "fileName": "overlay-side.svg",
+      "bytes": 895589,
+      "sha256": "fe67d8f8f480e29b9df89c62d4d346828f04eae77f45f05cc71a16d8f75ea2c4"
+    },
+    {
+      "fileName": "overlay-top.svg",
+      "bytes": 891722,
+      "sha256": "3a8dcb470ce553a4f779b83f883a8c4f459f9e0705393538dd7479085bc7b406"
+    },
+    {
+      "fileName": "renault-d2-all-lods.glb",
+      "bytes": 640868,
+      "sha256": "d1659578ceddeddd94e65f60d33477657f8bf83716f686c701a62f92df0f7812"
+    },
+    {
+      "fileName": "renault-d2-high.obj",
+      "bytes": 900580,
+      "sha256": "3e6038b14bd46260e019a7bdceae76dc894007e0b5dbb0852fa477f98ed546d0"
+    },
+    {
+      "fileName": "renault-d2-high.stl",
+      "bytes": 1175235,
+      "sha256": "53077d7c01386f7a485639f5d6df308222a1f512f237eb99ddd44684b1040ee2"
+    }
+  ]
+}

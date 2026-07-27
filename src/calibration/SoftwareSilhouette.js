@@ -11,6 +11,11 @@ const scratchB = new THREE.Vector3();
 const scratchC = new THREE.Vector3();
 const instanceMatrix = new THREE.Matrix4();
 const worldMatrix = new THREE.Matrix4();
+const RIGID_ENVELOPE_EXCLUDED_ROLES = new Set([
+  'flexibleAttachment',
+  'surfaceDetail',
+  'weaponProjection'
+]);
 
 function includePoint(bounds, viewPoint, canvasPoint) {
   bounds.canvas.minX = Math.min(bounds.canvas.minX, canvasPoint.x);
@@ -34,7 +39,8 @@ function appendProjectedTriangle(
   view,
   frame,
   width,
-  height
+  height,
+  includeInBounds
 ) {
   scratchA.fromBufferAttribute(positions, ia).applyMatrix4(matrix);
   scratchB.fromBufferAttribute(positions, ib).applyMatrix4(matrix);
@@ -45,9 +51,11 @@ function appendProjectedTriangle(
   const a = viewMetersToCanvas(viewA, frame, width, height);
   const b = viewMetersToCanvas(viewB, frame, width, height);
   const c = viewMetersToCanvas(viewC, frame, width, height);
-  includePoint(bounds, viewA, a);
-  includePoint(bounds, viewB, b);
-  includePoint(bounds, viewC, c);
+  if (includeInBounds) {
+    includePoint(bounds, viewA, a);
+    includePoint(bounds, viewB, b);
+    includePoint(bounds, viewC, c);
+  }
   path.push(
     `M${a.x.toFixed(2)},${a.y.toFixed(2)}`
     + `L${b.x.toFixed(2)},${b.y.toFixed(2)}`
@@ -62,6 +70,9 @@ function appendMeshTriangles(path, bounds, mesh, root, view, frame, width, heigh
   if (!positions) return 0;
   const index = geometry.index;
   const instanceCount = mesh.isInstancedMesh ? mesh.count : 1;
+  const includeInBounds = !RIGID_ENVELOPE_EXCLUDED_ROLES.has(
+    mesh.userData.envelopeRole
+  );
   let triangleCount = 0;
 
   for (let instance = 0; instance < instanceCount; instance++) {
@@ -84,7 +95,8 @@ function appendMeshTriangles(path, bounds, mesh, root, view, frame, width, heigh
         view,
         frame,
         width,
-        height
+        height,
+        includeInBounds
       );
       triangleCount += 1;
     }

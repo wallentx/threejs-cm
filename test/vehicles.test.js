@@ -10,6 +10,7 @@ import { getVehicle, VEHICLES } from '../src/game/VehicleCatalog.js';
 import { getWeapon } from '../src/game/WeaponCatalog.js';
 import {
   createRenaultR35Mesh,
+  createRenaultD2Mesh,
   createSomuaS35Mesh,
   createHotchkissH39Mesh,
   createAMC35Mesh,
@@ -44,6 +45,7 @@ import { VEHICLE_VISUAL_PROFILES } from '../src/world/vehicles/VehicleVisualProf
 const vehicleCreators = [
   { name: 'SOMUA S35', fn: createSomuaS35Mesh, type: 'fr_somua', vehicleId: 'SOMUA_S35', armed: true },
   { name: 'Renault R35', fn: createRenaultR35Mesh, type: 'fr_renault_r35', vehicleId: 'RENAULT_R35', armed: true },
+  { name: 'Renault D2', fn: createRenaultD2Mesh, type: 'fr_renault_d2', vehicleId: 'RENAULT_D2', armed: true },
   { name: 'Hotchkiss H39', fn: createHotchkissH39Mesh, type: 'fr_hotchkiss_h39', vehicleId: 'HOTCHKISS_H39', armed: true },
   { name: 'AMC 35', fn: createAMC35Mesh, type: 'fr_amc35', vehicleId: 'AMC_35', armed: true },
   { name: 'Panhard 178', fn: createPanhard178Mesh, type: 'fr_panhard178', vehicleId: 'PANHARD_178', armed: true },
@@ -96,7 +98,7 @@ test('every catalog auxiliary mount has a correctly parented rendered muzzle mar
   }
 });
 
-test('all 14 vehicle 3D model modules build cleanly and satisfy model contract and 4 LOD bands', () => {
+test('all 15 vehicle 3D model modules build cleanly and satisfy model contract and 4 LOD bands', () => {
   vehicleCreators.forEach(({ name, fn, type }) => {
     const mesh = fn();
     assert.ok(mesh instanceof THREE.Group, `${name} must return a THREE.Group`);
@@ -298,7 +300,7 @@ test('authored vehicle hulls are closed, outward-wound, and non-degenerate', () 
   }
 });
 
-test('all 14 vehicles use deterministic mapped PBR materials at detailed LODs', () => {
+test('all 15 vehicles use deterministic mapped PBR materials at detailed LODs', () => {
   const generatedTextures = new Set();
   for (const { name, fn } of vehicleCreators) {
     const vehicle = fn();
@@ -472,7 +474,7 @@ test('metre projection isolates shared non-indexed geometry without disposing an
   assert.equal(disposeCount, 0);
 });
 
-test('all 14 vehicles route through Unit, crew, armament, selection, and LOD contracts', () => {
+test('all 15 vehicles route through Unit, crew, armament, selection, and LOD contracts', () => {
   vehicleCreators.forEach(({ name, type, vehicleId, armed }) => {
     const spec = getVehicle(vehicleId);
     assert.ok(spec, `${name} must exist in VehicleCatalog`);

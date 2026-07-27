@@ -11,6 +11,7 @@ import {
   createPanzerIIIMesh,
   createPanzerIVMesh,
   createRenaultR35Mesh,
+  createRenaultD2Mesh,
   createSdKfz231Mesh,
   createSomuaS35Mesh
 } from '../../../world/vehicles/index.js';
@@ -30,6 +31,7 @@ import {
 const BASE_VEHICLE_MESH_FACTORIES = Object.freeze({
   fr_somua: createSomuaS35Mesh,
   fr_renault_r35: createRenaultR35Mesh,
+  fr_renault_d2: createRenaultD2Mesh,
   fr_hotchkiss_h39: createHotchkissH39Mesh,
   fr_amc35: createAMC35Mesh,
   fr_panhard178: createPanhard178Mesh,

@@ -8,6 +8,7 @@
     "calibrate": "vite --host 127.0.0.1",
     "build": "vite build",
     "audit:silhouettes": "node scripts/audit-vehicle-silhouettes.mjs",
+    "author:renault-d2": "node scripts/build-renault-d2-authoring.mjs",
     "update:silhouette-baseline": "node scripts/audit-vehicle-silhouettes.mjs --update-baseline",
     "test": "node --test",
     "preview": "vite preview"

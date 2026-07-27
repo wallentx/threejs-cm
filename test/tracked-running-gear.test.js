@@ -133,19 +133,39 @@ test('each tracked factory exposes named, vehicle-configured running gear', () =
     assert.ok(gear.getObjectByName('RightTrackCleats'));
     assert.ok(gear.userData.trackParts.tracks.every(track => track.count >= 18));
 
-    const proxyLeft = vehicle.getObjectByName('ProxyLeftTrackBelt');
-    const proxyRight = vehicle.getObjectByName('ProxyRightTrackBelt');
+    const supportedPath = gear.userData.trackPath;
+    const proxyLeft = vehicle.getObjectByName(
+      supportedPath ? 'ProxyLeftTrackLinks' : 'ProxyLeftTrackBelt'
+    );
+    const proxyRight = vehicle.getObjectByName(
+      supportedPath ? 'ProxyRightTrackLinks' : 'ProxyRightTrackBelt'
+    );
     const proxyWheels = vehicle.getObjectByName('ProxyRoadWheels');
     assert.ok(proxyLeft, `${name} must preserve a shaped left-track silhouette at far LOD`);
     assert.ok(proxyRight, `${name} must preserve a shaped right-track silhouette at far LOD`);
-    assert.equal(proxyLeft.geometry.name, 'ProxyTrackBeltGeometry');
-    assert.equal(proxyRight.geometry.name, 'ProxyTrackBeltGeometry');
-    assert.equal(proxyLeft.geometry.userData.closedTrackBelt, true);
-    assert.equal(proxyRight.geometry.userData.closedTrackBelt, true);
-    assert.ok(proxyLeft.position.x > 0, `${name} left track must use +X`);
-    assert.ok(proxyRight.position.x < 0, `${name} right track must use -X`);
-    assert.notEqual(proxyLeft.geometry.type, 'BoxGeometry');
-    assert.notEqual(proxyRight.geometry.type, 'BoxGeometry');
+    if (supportedPath) {
+      assert.equal(
+        gear.userData.runningGearType,
+        'wheel-supported-quasi-static-track'
+      );
+      assert.equal(proxyLeft.geometry.name, 'SupportedProxyTrackLinkGeometry');
+      assert.equal(proxyRight.geometry.name, 'SupportedProxyTrackLinkGeometry');
+      assert.equal(
+        proxyLeft.userData.trackPathMode,
+        'wheel-supported-quasi-static-v1'
+      );
+      assert.ok(proxyLeft.userData.instancePath.every(link => link.position[0] > 0));
+      assert.ok(proxyRight.userData.instancePath.every(link => link.position[0] < 0));
+    } else {
+      assert.equal(proxyLeft.geometry.name, 'ProxyTrackBeltGeometry');
+      assert.equal(proxyRight.geometry.name, 'ProxyTrackBeltGeometry');
+      assert.equal(proxyLeft.geometry.userData.closedTrackBelt, true);
+      assert.equal(proxyRight.geometry.userData.closedTrackBelt, true);
+      assert.ok(proxyLeft.position.x > 0, `${name} left track must use +X`);
+      assert.ok(proxyRight.position.x < 0, `${name} right track must use -X`);
+      assert.notEqual(proxyLeft.geometry.type, 'BoxGeometry');
+      assert.notEqual(proxyRight.geometry.type, 'BoxGeometry');
+    }
     assert.equal(proxyWheels.isInstancedMesh, true);
     assert.equal(proxyWheels.count, wheelsPerSide * 2);
   }

@@ -4,7 +4,7 @@ import {
 
 const VISUAL = RENAULT_R35_VISUAL_DATA.geometry;
 const TURRET_CENTER = Object.freeze([
-  0,
+  VISUAL.turret.centerX,
   VISUAL.turret.deckY,
   VISUAL.turret.centerZ
 ]);

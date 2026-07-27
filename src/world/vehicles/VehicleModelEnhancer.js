@@ -26,6 +26,7 @@ const BLUEPRINT_REFERENCES = Object.freeze(Object.fromEntries(
 const VEHICLE_PROFILES = Object.freeze({
   fr_somua: { kind: 'tracked', hull: 'cast', wheels: VEHICLE_VISUAL_PROFILES.fr_somua.roadWheelsPerSide },
   fr_renault_r35: { kind: 'tracked', hull: 'cast', wheels: VEHICLE_VISUAL_PROFILES.fr_renault_r35.roadWheelsPerSide },
+  fr_renault_d2: { kind: 'tracked', hull: 'riveted', wheels: VEHICLE_VISUAL_PROFILES.fr_renault_d2.roadWheelsPerSide },
   fr_hotchkiss_h39: { kind: 'tracked', hull: 'cast', wheels: VEHICLE_VISUAL_PROFILES.fr_hotchkiss_h39.roadWheelsPerSide },
   fr_amc35: { kind: 'tracked', hull: 'riveted', wheels: VEHICLE_VISUAL_PROFILES.fr_amc35.roadWheelsPerSide },
   fr_panhard178: { kind: 'armoredCar', hull: 'armoredCar', wheels: VEHICLE_VISUAL_PROFILES.fr_panhard178.roadWheelsPerSide * 2 },
@@ -44,6 +45,15 @@ const VEHICLE_PROFILES = Object.freeze({
 // A marker is deliberately a child of the moving assembly: turret weapons
 // traverse with the turret while hull weapons stay fixed to the hull.
 const AUXILIARY_MOUNT_LAYOUTS = Object.freeze({
+  fr_renault_d2: {
+    coax: {
+      parent: 'turret',
+      position: [lateralX('left', 0.29), 0.39, 1.30],
+      side: 'left',
+      placementQuality: 'LLM-registered against supplied front and side elevations; human review pending',
+      referenceUrl: BLUEPRINT_REFERENCES.fr_renault_d2
+    }
+  },
   fr_renault_r35: {
     coax: {
       parent: 'turret',

@@ -46,12 +46,43 @@ import {
 import {
   createVehicleOwnedRegistrations
 } from '../src/calibration/VehicleOwnedRegistration.js';
+import {
+  resolveCalibrationModelOpacity,
+  VehicleCalibrationApp
+} from '../src/calibration/VehicleCalibrationApp.js';
 import { UnitFactory } from '../src/world/UnitFactory.js';
 
 const createVehicleMesh = modelId => UnitFactory.createTankMesh(
   modelId,
   FRANCE_1940_VEHICLE_MESH_FACTORIES
 );
+
+test('model opacity control changes the rendered model layer independently', () => {
+  assert.equal(resolveCalibrationModelOpacity(null, 'overlay'), 0.72);
+  assert.equal(resolveCalibrationModelOpacity('', 'shaded'), 1);
+  assert.equal(resolveCalibrationModelOpacity('invalid', 'wireframe'), 0.94);
+  assert.equal(resolveCalibrationModelOpacity('0', 'overlay'), 0);
+  assert.equal(resolveCalibrationModelOpacity('0.35', 'shaded'), 0.35);
+
+  const app = Object.create(VehicleCalibrationApp.prototype);
+  app.modelOpacityInput = { value: '0.35' };
+  app.rendererHost = { style: {} };
+  let renderRequests = 0;
+  app.requestRender = () => {
+    renderRequests += 1;
+  };
+
+  app.applyModelOpacity();
+  assert.equal(app.modelOpacity, 0.35);
+  assert.equal(app.rendererHost.style.opacity, '0.35');
+  assert.equal(renderRequests, 1);
+
+  app.modelOpacityInput.value = '2';
+  app.applyModelOpacity();
+  assert.equal(app.modelOpacity, 1);
+  assert.equal(app.rendererHost.style.opacity, '1');
+  assert.equal(renderRequests, 2);
+});
 
 test('every catalog vehicle has a reusable side, front, and top calibration record', () => {
   const modelIds = Object.values(VEHICLES).map(vehicle => vehicle.modelId).sort();

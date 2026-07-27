@@ -9,6 +9,9 @@ import {
   createRenaultR35InternalLayout
 } from './vehicleData/internalLayouts/RenaultR35InternalLayout.js';
 import {
+  createRenaultD2InternalLayout
+} from './vehicleData/internalLayouts/RenaultD2InternalLayout.js';
+import {
   createHotchkissH39InternalLayout
 } from './vehicleData/internalLayouts/HotchkissH39InternalLayout.js';
 import {
@@ -300,6 +303,7 @@ const FRENCH_ARMAMENT_REFERENCE = 'https://www.chars-francais.net/index.php?cati
 const GERMAN_ARMAMENT_REFERENCE = 'https://tankmuseum.org/article/live-round-panzer-iii';
 const SOMUA_REFERENCE = 'https://museedesblindes.fr/les_chars/somua-s35/';
 const RENAULT_R35_REFERENCE = 'https://museedesblindes.fr/les_chars/renault-r35/';
+const RENAULT_D2_REFERENCE = 'https://www.unabcc.org/app/download/8279653/Renault%2BD2%2B-%2BFiche%2Btechnique.pdf';
 const HOTCHKISS_H39_REFERENCE = 'https://museedesblindes.fr/les_chars/hotchkiss-h-39/';
 const AMC35_REFERENCE = 'https://museedesblindes.fr/les_chars/amc-35/';
 const PANHARD_178_REFERENCE = 'https://warwheels.net/images/Panhard178datasheet.pdf';
@@ -320,6 +324,11 @@ export const FRANCE_1940_VEHICLE_MACHINE_GUN_MOUNTS = Object.freeze({
   RENAULT_R35: freezeMounts([
     machineGunMount('coax', 'Coaxial MAC mle 1931', 'MAC31_VEHICLE', ['COMMANDER_GUNNER'], 2400,
       'historical identity and mount; carried load is a bounded gameplay approximation')
+  ]),
+  RENAULT_D2: freezeMounts([
+    machineGunMount('coax', 'Coaxial MAC mle 1931', 'MAC31_VEHICLE', ['COMMANDER_GUNNER'], 2400,
+      'historical identity and mount; carried load is a bounded gameplay approximation',
+      RENAULT_D2_REFERENCE)
   ]),
   HOTCHKISS_H39: freezeMounts([
     machineGunMount('coax', 'Coaxial MAC mle 1931', 'MAC31_VEHICLE', ['COMMANDER_GUNNER'], 2400,
@@ -461,6 +470,43 @@ export const FRANCE_1940_VEHICLES = Object.freeze({
       ammunitionSplit: 'inferred from 58-round total',
       movement: 'gameplay approximation',
       referenceUrl: RENAULT_R35_REFERENCE
+    }
+  }),
+  RENAULT_D2: freezeVehicle({
+    id: 'RENAULT_D2',
+    modelId: 'fr_renault_d2',
+    name: 'Renault D2',
+    dimensionsMeters: { length: 5.46, width: 2.22, height: 2.67 },
+    crew: [
+      crewman('COMMANDER_GUNNER', 'Commander / Gunner / Loader'),
+      crewman('DRIVER', 'Driver'),
+      crewman('RADIO_OPERATOR', 'Radio Operator')
+    ],
+    communications: communications(true, ['RADIO_OPERATOR'],
+      'historical radiotelegraphist role; represented radio fit and command-net behavior remain provisional'),
+    observationEquipment: observationEquipment(['COMMANDER_GUNNER']),
+    gunnerRoles: ['COMMANDER_GUNNER'],
+    loaderRoles: ['COMMANDER_GUNNER'],
+    mainGun: { ap: 'SA35_AP', he: 'SA35_HE' },
+    ammunition: { ap: 70, he: 38 },
+    movementMps: movement(2.3, 3.4, 5.6, 1.8),
+    turretTraverseRadPerSecond: 0.16,
+    hitRadius: 2.55,
+    armorMm: armor(40, 40, 40, 40, 40, 40),
+    internalLayout: createRenaultD2InternalLayout(RENAULT_D2_REFERENCE),
+    zoneCrew: {
+      hull_front: ['DRIVER', 'RADIO_OPERATOR'],
+      hull_side: ['DRIVER', 'RADIO_OPERATOR', 'COMMANDER_GUNNER'],
+      hull_rear: ['RADIO_OPERATOR'],
+      turret_front: ['COMMANDER_GUNNER'],
+      turret_side: ['COMMANDER_GUNNER'],
+      turret_rear: ['COMMANDER_GUNNER']
+    },
+    dataQuality: {
+      crewArmorArmament: 'historical series-2 configuration; radio fit provisional',
+      ammunitionSplit: 'gameplay approximation',
+      movement: 'gameplay approximation constrained by published top speed',
+      referenceUrl: RENAULT_D2_REFERENCE
     }
   }),
   HOTCHKISS_H39: freezeVehicle({

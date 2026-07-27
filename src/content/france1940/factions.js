@@ -12,6 +12,7 @@ export const FRANCE_1940_FACTIONS = Object.freeze({
     vehicleIds: Object.freeze([
       'SOMUA_S35',
       'RENAULT_R35',
+      'RENAULT_D2',
       'HOTCHKISS_H39',
       'AMC_35',
       'PANHARD_178',

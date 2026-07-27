@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.1.0",
-  "vehicleCount": 14,
+  "vehicleCount": 15,
   "views": [
     "front",
     "side",
@@ -23,7 +23,7 @@
     "envelopeEpsilonMeters": 0.01,
     "svgNormalization": "crlf-to-lf-and-trailing-trim"
   },
-  "recordCount": 168,
+  "recordCount": 180,
   "failures": [],
   "records": {
     "fr_amc35:front:core": {
@@ -1046,22 +1046,226 @@
       },
       "svgHash": "91428cef8a5425331625e42d352f9e13ea267ae790dfa95b851116884cf641ee"
     },
+    "fr_renault_d2:front:core": {
+      "key": "fr_renault_d2:front:core",
+      "modelId": "fr_renault_d2",
+      "designation": "Renault D2",
+      "view": "front",
+      "lod": "core",
+      "triangleCount": 4264,
+      "projectedBoundsMeters": {
+        "minU": -1.11,
+        "maxU": 1.11,
+        "minV": 0.02,
+        "maxV": 2.67,
+        "width": 2.22,
+        "height": 2.65
+      },
+      "svgHash": "31b20c531fd49bf96be203811d4c89c845ad262e6b303f7ec4a50a4ebd9f98ee"
+    },
+    "fr_renault_d2:front:high": {
+      "key": "fr_renault_d2:front:high",
+      "modelId": "fr_renault_d2",
+      "designation": "Renault D2",
+      "view": "front",
+      "lod": "high",
+      "triangleCount": 10252,
+      "projectedBoundsMeters": {
+        "minU": -1.1148,
+        "maxU": 1.1148,
+        "minV": 0.008,
+        "maxV": 2.67,
+        "width": 2.2296,
+        "height": 2.662
+      },
+      "svgHash": "18dad09a3a09979a4c8678a201f347c309c0d49728c089bb8dddb90f166cefe1"
+    },
+    "fr_renault_d2:front:medium": {
+      "key": "fr_renault_d2:front:medium",
+      "modelId": "fr_renault_d2",
+      "designation": "Renault D2",
+      "view": "front",
+      "lod": "medium",
+      "triangleCount": 6568,
+      "projectedBoundsMeters": {
+        "minU": -1.11,
+        "maxU": 1.11,
+        "minV": 0.02,
+        "maxV": 2.67,
+        "width": 2.22,
+        "height": 2.65
+      },
+      "svgHash": "1424749441373ec919b65771cefc8b0d56ecd51be9c5a8f82a70ae39cbeb030d"
+    },
+    "fr_renault_d2:front:proxy": {
+      "key": "fr_renault_d2:front:proxy",
+      "modelId": "fr_renault_d2",
+      "designation": "Renault D2",
+      "view": "front",
+      "lod": "proxy",
+      "triangleCount": 3348,
+      "projectedBoundsMeters": {
+        "minU": -1.1148,
+        "maxU": 1.1148,
+        "minV": 0.002,
+        "maxV": 2.67,
+        "width": 2.2296,
+        "height": 2.668
+      },
+      "svgHash": "a84eab8531dd05effafc285c7337e649701a09a2d5126e03ef2c55aac3bc5687"
+    },
+    "fr_renault_d2:side:core": {
+      "key": "fr_renault_d2:side:core",
+      "modelId": "fr_renault_d2",
+      "designation": "Renault D2",
+      "view": "side",
+      "lod": "core",
+      "triangleCount": 4264,
+      "projectedBoundsMeters": {
+        "minU": -2.73,
+        "maxU": 2.73,
+        "minV": 0.02,
+        "maxV": 2.67,
+        "width": 5.46,
+        "height": 2.65
+      },
+      "svgHash": "52d9b62b3549dcf1df6fc5a0fad8c40734a6a455e0c5c3097f148929e5a81c1f"
+    },
+    "fr_renault_d2:side:high": {
+      "key": "fr_renault_d2:side:high",
+      "modelId": "fr_renault_d2",
+      "designation": "Renault D2",
+      "view": "side",
+      "lod": "high",
+      "triangleCount": 10252,
+      "projectedBoundsMeters": {
+        "minU": -2.73,
+        "maxU": 2.73,
+        "minV": 0.008,
+        "maxV": 2.67,
+        "width": 5.46,
+        "height": 2.662
+      },
+      "svgHash": "4937c907691fc02b251375d05f9bc3aa2894da1efb5e7ddd1e6d0f325fb4d774"
+    },
+    "fr_renault_d2:side:medium": {
+      "key": "fr_renault_d2:side:medium",
+      "modelId": "fr_renault_d2",
+      "designation": "Renault D2",
+      "view": "side",
+      "lod": "medium",
+      "triangleCount": 6568,
+      "projectedBoundsMeters": {
+        "minU": -2.73,
+        "maxU": 2.73,
+        "minV": 0.02,
+        "maxV": 2.67,
+        "width": 5.46,
+        "height": 2.65
+      },
+      "svgHash": "27f0db06799a8a017f34c78f7a15889441f92b76f6e5c75a91c2fd6a7243ac28"
+    },
+    "fr_renault_d2:side:proxy": {
+      "key": "fr_renault_d2:side:proxy",
+      "modelId": "fr_renault_d2",
+      "designation": "Renault D2",
+      "view": "side",
+      "lod": "proxy",
+      "triangleCount": 3348,
+      "projectedBoundsMeters": {
+        "minU": -2.73,
+        "maxU": 2.73,
+        "minV": 0.002,
+        "maxV": 2.67,
+        "width": 5.46,
+        "height": 2.668
+      },
+      "svgHash": "55faee710485dc93b0149e72246c5eb963a95d35f8160401f23aef453e36fda6"
+    },
+    "fr_renault_d2:top:core": {
+      "key": "fr_renault_d2:top:core",
+      "modelId": "fr_renault_d2",
+      "designation": "Renault D2",
+      "view": "top",
+      "lod": "core",
+      "triangleCount": 4264,
+      "projectedBoundsMeters": {
+        "minU": -1.11,
+        "maxU": 1.11,
+        "minV": -2.73,
+        "maxV": 2.73,
+        "width": 2.22,
+        "height": 5.46
+      },
+      "svgHash": "c5b61fc53ae202014a80c303c6061b924a5a30a5e2f60a3a0ebd43ca59739bb5"
+    },
+    "fr_renault_d2:top:high": {
+      "key": "fr_renault_d2:top:high",
+      "modelId": "fr_renault_d2",
+      "designation": "Renault D2",
+      "view": "top",
+      "lod": "high",
+      "triangleCount": 10252,
+      "projectedBoundsMeters": {
+        "minU": -1.1148,
+        "maxU": 1.1148,
+        "minV": -2.73,
+        "maxV": 2.73,
+        "width": 2.2296,
+        "height": 5.46
+      },
+      "svgHash": "62394dea25e99eef16e0930a1ff063fd2010681239ecfdb7cb4d00110ff0db8d"
+    },
+    "fr_renault_d2:top:medium": {
+      "key": "fr_renault_d2:top:medium",
+      "modelId": "fr_renault_d2",
+      "designation": "Renault D2",
+      "view": "top",
+      "lod": "medium",
+      "triangleCount": 6568,
+      "projectedBoundsMeters": {
+        "minU": -1.11,
+        "maxU": 1.11,
+        "minV": -2.73,
+        "maxV": 2.73,
+        "width": 2.22,
+        "height": 5.46
+      },
+      "svgHash": "61e594b0368095780cf7f04c393532eb9b2cd292b87ff7a304165467525a136b"
+    },
+    "fr_renault_d2:top:proxy": {
+      "key": "fr_renault_d2:top:proxy",
+      "modelId": "fr_renault_d2",
+      "designation": "Renault D2",
+      "view": "top",
+      "lod": "proxy",
+      "triangleCount": 3348,
+      "projectedBoundsMeters": {
+        "minU": -1.1148,
+        "maxU": 1.1148,
+        "minV": -2.73,
+        "maxV": 2.73,
+        "width": 2.2296,
+        "height": 5.46
+      },
+      "svgHash": "e510dbcd1507e8f09d848cdb340764b81804cc1929ba46c095238ca5dd5cd42d"
+    },
     "fr_renault_r35:front:core": {
       "key": "fr_renault_r35:front:core",
       "modelId": "fr_renault_r35",
       "designation": "Renault R35",
       "view": "front",
       "lod": "core",
-      "triangleCount": 1912,
+      "triangleCount": 2340,
       "projectedBoundsMeters": {
         "minU": -0.9292,
         "maxU": 0.9292,
-        "minV": 0.0279,
-        "maxV": 1.97,
+        "minV": 0.0074,
+        "maxV": 2.1223,
         "width": 1.8584,
-        "height": 1.9421
+        "height": 2.115
       },
-      "svgHash": "1d3fdb22407cd38bebf237046c96f5a85dc50cc14abfc8f65cb36bb51d79a1fb"
+      "svgHash": "784a9fd9133bd791ccb56808ab6837aeb9183af3d2c2a0dc99ba2213505332d5"
     },
     "fr_renault_r35:front:high": {
       "key": "fr_renault_r35:front:high",
@@ -1069,16 +1273,16 @@
       "designation": "Renault R35",
       "view": "front",
       "lod": "high",
-      "triangleCount": 4500,
+      "triangleCount": 5636,
       "projectedBoundsMeters": {
         "minU": -0.935,
         "maxU": 0.935,
-        "minV": -0.0023,
+        "minV": 0.0031,
         "maxV": 2.13,
         "width": 1.87,
-        "height": 2.1323
+        "height": 2.1269
       },
-      "svgHash": "2e143f77e7a2fcf96be47ad7396e3e0eed04620943ea78c118c5c2ea4720a658"
+      "svgHash": "31ff595c76017f0943c758945f30619b541135b4f2f238aed576ef0adf72fe52"
     },
     "fr_renault_r35:front:medium": {
       "key": "fr_renault_r35:front:medium",
@@ -1086,16 +1290,16 @@
       "designation": "Renault R35",
       "view": "front",
       "lod": "medium",
-      "triangleCount": 2892,
+      "triangleCount": 3716,
       "projectedBoundsMeters": {
         "minU": -0.9292,
         "maxU": 0.9292,
-        "minV": 0.0279,
-        "maxV": 2.13,
+        "minV": 0.0074,
+        "maxV": 2.1223,
         "width": 1.8584,
-        "height": 2.1021
+        "height": 2.115
       },
-      "svgHash": "0b92699e3c5a301f7ea9df94667b4be2650bb6abd222ec47c23d12c3d3b86f5a"
+      "svgHash": "4773ca7942b14389144654ee9d58b6a0e943550186f65c5093ba83ed34e33de8"
     },
     "fr_renault_r35:front:proxy": {
       "key": "fr_renault_r35:front:proxy",
@@ -1103,16 +1307,16 @@
       "designation": "Renault R35",
       "view": "front",
       "lod": "proxy",
-      "triangleCount": 760,
+      "triangleCount": 2240,
       "projectedBoundsMeters": {
         "minU": -0.935,
         "maxU": 0.935,
-        "minV": -0.0023,
+        "minV": 0.0002,
         "maxV": 2.13,
         "width": 1.87,
-        "height": 2.1323
+        "height": 2.1298
       },
-      "svgHash": "3819f9ca56d88502483dbc4fd811e6297e1d100300340ea5f320925611442196"
+      "svgHash": "d287cb75276d9e2f529027fd27ec87245070061ee07140ca6de032cb74583009"
     },
     "fr_renault_r35:side:core": {
       "key": "fr_renault_r35:side:core",
@@ -1120,16 +1324,16 @@
       "designation": "Renault R35",
       "view": "side",
       "lod": "core",
-      "triangleCount": 1912,
+      "triangleCount": 2340,
       "projectedBoundsMeters": {
         "minU": -2.01,
-        "maxU": 1.9795,
-        "minV": 0.0279,
-        "maxV": 1.97,
-        "width": 3.9895,
-        "height": 1.9421
+        "maxU": 2.01,
+        "minV": 0.0074,
+        "maxV": 2.1223,
+        "width": 4.02,
+        "height": 2.115
       },
-      "svgHash": "92ff8884c4d7c2f42b50010c191100bfa90b5d665316dd500410953303ed96f9"
+      "svgHash": "d5929dc498120783d5b63102047f2fc9a9fa9f94d02b09234bf382aed1539442"
     },
     "fr_renault_r35:side:high": {
       "key": "fr_renault_r35:side:high",
@@ -1137,16 +1341,16 @@
       "designation": "Renault R35",
       "view": "side",
       "lod": "high",
-      "triangleCount": 4500,
+      "triangleCount": 5636,
       "projectedBoundsMeters": {
-        "minU": -2.0106,
-        "maxU": 2.0106,
-        "minV": -0.0023,
+        "minU": -2.0109,
+        "maxU": 2.0144,
+        "minV": 0.0031,
         "maxV": 2.13,
-        "width": 4.0211,
-        "height": 2.1323
+        "width": 4.0253,
+        "height": 2.1269
       },
-      "svgHash": "97f15d66b819d3574258c28c11f7c51a41c20aa0db918405c04e5a6b22522225"
+      "svgHash": "b5528767c2382821913bd0ed91dab9e041ccb3cdaffb27f15d1e203a0df9fe0f"
     },
     "fr_renault_r35:side:medium": {
       "key": "fr_renault_r35:side:medium",
@@ -1154,16 +1358,16 @@
       "designation": "Renault R35",
       "view": "side",
       "lod": "medium",
-      "triangleCount": 2892,
+      "triangleCount": 3716,
       "projectedBoundsMeters": {
         "minU": -2.01,
-        "maxU": 1.9795,
-        "minV": 0.0279,
-        "maxV": 2.13,
-        "width": 3.9895,
-        "height": 2.1021
+        "maxU": 2.01,
+        "minV": 0.0074,
+        "maxV": 2.1223,
+        "width": 4.02,
+        "height": 2.115
       },
-      "svgHash": "6c727c9cfe68c793cfa4dd3696f3231cb54756c92a626121ac9227651b7c9f30"
+      "svgHash": "bd3f5cf4f0dcad3626922a434f020147e56c6236a226b8160814ff17599eed00"
     },
     "fr_renault_r35:side:proxy": {
       "key": "fr_renault_r35:side:proxy",
@@ -1171,16 +1375,16 @@
       "designation": "Renault R35",
       "view": "side",
       "lod": "proxy",
-      "triangleCount": 760,
+      "triangleCount": 2240,
       "projectedBoundsMeters": {
-        "minU": -2.0106,
-        "maxU": 2.0106,
-        "minV": -0.0023,
+        "minU": -2.0104,
+        "maxU": 2.0139,
+        "minV": 0.0002,
         "maxV": 2.13,
-        "width": 4.0211,
-        "height": 2.1323
+        "width": 4.0243,
+        "height": 2.1298
       },
-      "svgHash": "fcc3948e4117fd3f0f2c58edf304a2c1952ad82fede850fcd1e2bdc52594d563"
+      "svgHash": "624f23dc415e493c27d1d6fd3eb8deb6586db73a845e8b46ae972af934acf16c"
     },
     "fr_renault_r35:top:core": {
       "key": "fr_renault_r35:top:core",
@@ -1188,16 +1392,16 @@
       "designation": "Renault R35",
       "view": "top",
       "lod": "core",
-      "triangleCount": 1912,
+      "triangleCount": 2340,
       "projectedBoundsMeters": {
         "minU": -0.9292,
         "maxU": 0.9292,
-        "minV": -1.9795,
+        "minV": -2.01,
         "maxV": 2.01,
         "width": 1.8584,
-        "height": 3.9895
+        "height": 4.02
       },
-      "svgHash": "d77f1449f1c564d7c9a594ba5139630fe4669033991f9f28080b5dbd2667473e"
+      "svgHash": "83a563ec92d9d4eb9165ed00a99fdb0176158d013120f33705576cd76ac202f9"
     },
     "fr_renault_r35:top:high": {
       "key": "fr_renault_r35:top:high",
@@ -1205,16 +1409,16 @@
       "designation": "Renault R35",
       "view": "top",
       "lod": "high",
-      "triangleCount": 4500,
+      "triangleCount": 5636,
       "projectedBoundsMeters": {
         "minU": -0.935,
         "maxU": 0.935,
-        "minV": -2.0106,
-        "maxV": 2.0106,
+        "minV": -2.0144,
+        "maxV": 2.0109,
         "width": 1.87,
-        "height": 4.0211
+        "height": 4.0253
       },
-      "svgHash": "e5c9bde2ae26bf9034bd36f69f3e8da688e471856e696d6289df185d53e47048"
+      "svgHash": "7af8e6a39524ace2081973d77c9fee5567c80fa64d6baf9b59a1ee6bc3016829"
     },
     "fr_renault_r35:top:medium": {
       "key": "fr_renault_r35:top:medium",
@@ -1222,16 +1426,16 @@
       "designation": "Renault R35",
       "view": "top",
       "lod": "medium",
-      "triangleCount": 2892,
+      "triangleCount": 3716,
       "projectedBoundsMeters": {
         "minU": -0.9292,
         "maxU": 0.9292,
-        "minV": -1.9795,
+        "minV": -2.01,
         "maxV": 2.01,
         "width": 1.8584,
-        "height": 3.9895
+        "height": 4.02
       },
-      "svgHash": "f8f34719fe573ab5f7a073634f7ede09c4396bae2f7107eea6b6ece59224a6e3"
+      "svgHash": "06a2ab9de9e78ea7fb39653b5bc694226362e4e72aeb520781ba162165503d55"
     },
     "fr_renault_r35:top:proxy": {
       "key": "fr_renault_r35:top:proxy",
@@ -1239,16 +1443,16 @@
       "designation": "Renault R35",
       "view": "top",
       "lod": "proxy",
-      "triangleCount": 760,
+      "triangleCount": 2240,
       "projectedBoundsMeters": {
         "minU": -0.935,
         "maxU": 0.935,
-        "minV": -2.0106,
-        "maxV": 2.0106,
+        "minV": -2.0139,
+        "maxV": 2.0104,
         "width": 1.87,
-        "height": 4.0211
+        "height": 4.0243
       },
-      "svgHash": "8ac4161024d0cce7e0967129fa731b3561c6973789256da6c9cf9629ea30e82f"
+      "svgHash": "37f5583b80700bfbf41fd9304bf9334478437180c9e8b2ef6325b724310508e4"
     },
     "fr_somua:front:core": {
       "key": "fr_somua:front:core",

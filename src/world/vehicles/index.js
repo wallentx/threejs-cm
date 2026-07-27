@@ -1,4 +1,5 @@
 import { createRenaultR35Mesh as createRenaultR35Base } from './RenaultR35.js';
+import { createRenaultD2Mesh as createRenaultD2Base } from './RenaultD2.js';
 import { createSomuaS35Mesh as createSomuaS35Base } from './SomuaS35.js';
 import { createHotchkissH39Mesh as createHotchkissH39Base } from './HotchkissH39.js';
 import { createAMC35Mesh as createAMC35Base } from './AMC35.js';
@@ -15,6 +16,7 @@ import { createPanzerIVMesh as createPanzerIVBase } from './PanzerIV.js';
 import { enhanceVehicleModel } from './VehicleModelEnhancer.js';
 
 export const createRenaultR35Mesh = options => enhanceVehicleModel(createRenaultR35Base(), options);
+export const createRenaultD2Mesh = options => createRenaultD2Base(options);
 export const createSomuaS35Mesh = options => enhanceVehicleModel(createSomuaS35Base(), options);
 export const createHotchkissH39Mesh = options => enhanceVehicleModel(createHotchkissH39Base(), options);
 export const createAMC35Mesh = options => enhanceVehicleModel(createAMC35Base(), options);

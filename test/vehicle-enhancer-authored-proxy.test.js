@@ -35,15 +35,33 @@ test('enhancer preserves calibrated tracked hull proxies and derives exact track
       false,
       `${label} must not receive a generic hull proxy`
     );
-    assert.equal(
-      proxies.filter(mesh => /Proxy(?:Right|Left)TrackBelt/.test(mesh.name)).length,
-      2,
-      `${label} needs two open far track belts`
-    );
     const detailedRunningGear = vehicle.userData.runningGear;
-    const proxyRunningGear = vehicle.getObjectByName('FidelityTrackedProxy');
+    const usesSupportedPath = label === 'R35';
+    const proxyRunningGear = vehicle.getObjectByName(
+      usesSupportedPath ? 'R35SupportedTrackProxy' : 'FidelityTrackedProxy'
+    );
     assert.ok(proxyRunningGear, `${label} needs proxy running gear`);
+    assert.equal(
+      proxies.filter(mesh => (
+        usesSupportedPath
+          ? /Proxy(?:Right|Left)TrackLinks/.test(mesh.name)
+          : /Proxy(?:Right|Left)TrackBelt/.test(mesh.name)
+      )).length,
+      2,
+      `${label} needs two open far track runs`
+    );
     assert.deepEqual(proxyRunningGear.position.toArray(), detailedRunningGear.position.toArray());
+    if (usesSupportedPath) {
+      assert.equal(
+        proxyRunningGear.userData.trackPath.model,
+        'wheel-supported-quasi-static-v1'
+      );
+      assert.deepEqual(
+        proxyRunningGear.userData.trackPath,
+        detailedRunningGear.userData.trackPath
+      );
+      assert.equal(vehicle.getObjectByName('FidelityTrackedProxy'), undefined);
+    }
     assert.ok(vehicle.userData.proxyTurret?.parent === vehicle.userData.turret);
     assert.ok(vehicle.userData.proxyBarrel?.parent === vehicle.userData.barrel);
     assert.equal(vehicle.getObjectByName('FlexibleAntenna'), undefined);

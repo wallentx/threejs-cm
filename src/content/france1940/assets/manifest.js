@@ -11,7 +11,9 @@ export const FRANCE_1940_ASSET_IDS = Object.freeze({
   somuaSideCalibrationReference:
     'france1940.calibration.vehicle.fr_somua.side.reference',
   renaultR35MultiviewCalibrationReference:
-    'france1940.calibration.vehicle.fr_renault_r35.multiview.reference'
+    'france1940.calibration.vehicle.fr_renault_r35.multiview.reference',
+  renaultD2MultiviewCalibrationReference:
+    'france1940.calibration.vehicle.fr_renault_d2.multiview.reference'
 });
 
 export const FRANCE_1940_ASSET_MANIFEST = defineAssetManifest({
@@ -166,6 +168,23 @@ export const FRANCE_1940_ASSET_MANIFEST = defineAssetManifest({
         role: 'orthographic-shape-registration',
         sha256:
           '11ef1ab07dcfc0672016c5ebad845894c5750d056c682419fb5177b033ba8df5'
+      }
+    },
+    [FRANCE_1940_ASSET_IDS.renaultD2MultiviewCalibrationReference]: {
+      id: FRANCE_1940_ASSET_IDS.renaultD2MultiviewCalibrationReference,
+      kind: 'calibration-reference-image',
+      source: {
+        type: 'url',
+        url: '/assets/blueprints/france1940/renault-d2-tourelle-apx-4.png'
+      },
+      provenance:
+        'secondary Renault D2 five-view drawing; LLM-authored registration pending human review',
+      metadata: {
+        modelId: 'fr_renault_d2',
+        views: ['side', 'front', 'top'],
+        role: 'orthographic-shape-registration',
+        sha256:
+          '93cf038753a8510e80907e2bcadd267da7dc594ddba081c4619bd486a2cc19d9'
       }
     }
   }

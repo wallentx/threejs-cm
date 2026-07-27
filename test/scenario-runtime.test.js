@@ -153,7 +153,7 @@ test('Stonne scenario owns roster, startup selection, camera target, and map ref
   assert.equal(STONNE_1940_SCENARIO.gameFamilyId, 'france-1940');
   assert.equal(STONNE_1940_SCENARIO.mapId, STONNE_1940_MAP.id);
   assert.equal(Object.hasOwn(STONNE_1940_SCENARIO, 'deploymentZones'), false);
-  assert.equal(STONNE_1940_SCENARIO.units.length, 18);
+  assert.equal(STONNE_1940_SCENARIO.units.length, 19);
   assert.equal(
     new Set(STONNE_1940_SCENARIO.units.map(unit => unit.id)).size,
     STONNE_1940_SCENARIO.units.length
@@ -177,6 +177,10 @@ test('Stonne scenario owns roster, startup selection, camera target, and map ref
   assert.equal(STONNE_1940_SCENARIO.units.find(unit => unit.id === 'fr_sq1').formationId, 'FRENCH_CHASSEURS_PORTES_SQUAD');
   assert.equal(STONNE_1940_SCENARIO.units.find(unit => unit.id === 'ger_sq1').formationId, 'GERMAN_GRENADIER_SQUAD_1940');
   assert.equal(STONNE_1940_SCENARIO.units.find(unit => unit.id === 'fr_tank').vehicleId, 'SOMUA_S35');
+  assert.equal(
+    STONNE_1940_SCENARIO.units.find(unit => unit.id === 'fr_renault_d2').vehicleId,
+    'RENAULT_D2'
+  );
   assert.equal(STONNE_1940_SCENARIO.units.find(unit => unit.id === 'ger_tank').vehicleId, 'PANZER_III_D');
 });
 
@@ -548,7 +552,7 @@ test('Stonne descriptor instantiates every production Unit model', () => {
       visualFactories: FRANCE_1940_VISUAL_FACTORIES
     }
   );
-  assert.equal(units.length, 18);
+  assert.equal(units.length, 19);
   const frenchTank = units.find(unit => unit.id === 'fr_tank');
   const germanTank = units.find(unit => unit.id === 'ger_panzer4');
   const frenchInfantry = units.find(unit => unit.id === 'fr_hq');
