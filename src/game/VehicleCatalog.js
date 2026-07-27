@@ -113,7 +113,7 @@ export const VEHICLE_MACHINE_GUN_MOUNTS = Object.freeze({
       'historical identity and mount; carried load is a bounded gameplay approximation',
       null, ['COMMANDER'])
   ]),
-  LAFFLY_V15T: freezeMounts([]),
+  LAFFLY_S20TL: freezeMounts([]),
   CHAR_B1_BIS: freezeMounts([
     machineGunMount('coax', 'Coaxial MAC mle 1931', 'MAC31_VEHICLE', ['COMMANDER_GUNNER'], 2400,
       'historical identity and mount; ammunition allocation is a gameplay approximation'),
@@ -343,17 +343,17 @@ export const VEHICLES = Object.freeze({
       movement: 'gameplay approximation'
     }
   }),
-  LAFFLY_V15T: freezeVehicle({
-    id: 'LAFFLY_V15T',
-    modelId: 'fr_laffly_v15t',
-    name: 'Laffly V15T',
-    dimensionsMeters: { length: 4.35, width: 1.80, height: 1.52 },
+  LAFFLY_S20TL: freezeVehicle({
+    id: 'LAFFLY_S20TL',
+    modelId: 'fr_laffly_s20tl',
+    name: 'Laffly S20TL',
+    dimensionsMeters: { length: 5.35, width: 2.00, height: 2.00 },
     crew: [
       crewman('DRIVER', 'Driver'),
       crewman('PASSENGER', 'Vehicle Commander')
     ],
     communications: communications(false, [],
-      'radio is not assumed for the represented artillery tractor'),
+      'radio is not assumed for the represented troop carrier'),
     observationEquipment: observationEquipment([]),
     gunnerRoles: [],
     loaderRoles: [],
@@ -361,7 +361,7 @@ export const VEHICLES = Object.freeze({
     ammunition: { ap: 0, he: 0 },
     movementMps: movement(3.4, 4.8, 7.0, 2.2),
     turretTraverseRadPerSecond: 0,
-    hitRadius: 2.3,
+    hitRadius: 2.8,
     armorMm: armor(0, 0, 0, 0, 0, 0),
     zoneCrew: {
       hull_front: ['DRIVER', 'PASSENGER'],
@@ -372,7 +372,7 @@ export const VEHICLES = Object.freeze({
       turret_rear: []
     },
     dataQuality: {
-      crewArmorArmament: 'historical unarmored tractor',
+      crewArmorArmament: 'historical unarmored 6x6 troop carrier',
       ammunitionSplit: 'not applicable',
       movement: 'gameplay approximation'
     }
@@ -562,8 +562,8 @@ export const VEHICLES = Object.freeze({
   SDKFZ_231: freezeVehicle({
     id: 'SDKFZ_231',
     modelId: 'ger_sdkfz231',
-    name: 'Sd.Kfz. 231 (8-Rad)',
-    dimensionsMeters: { length: 5.85, width: 2.20, height: 2.35 },
+    name: 'Sd.Kfz. 231 (6-Rad)',
+    dimensionsMeters: { length: 5.57, width: 1.82, height: 2.25 },
     crew: [
       crewman('COMMANDER', 'Commander'),
       crewman('GUNNER', 'Gunner'),
@@ -579,7 +579,7 @@ export const VEHICLES = Object.freeze({
     ammunition: { ap: 90, he: 90 },
     movementMps: movement(4.0, 5.8, 8.0, 2.5),
     turretTraverseRadPerSecond: 0.3,
-    hitRadius: 3.0,
+    hitRadius: 2.85,
     armorMm: armor(14.5, 8, 8, 14.5, 8, 8),
     zoneCrew: {
       hull_front: ['DRIVER'],
@@ -599,7 +599,7 @@ export const VEHICLES = Object.freeze({
     id: 'OPEL_BLITZ',
     modelId: 'ger_opel_blitz',
     name: 'Opel Blitz 3.6-36S',
-    dimensionsMeters: { length: 6.10, width: 2.26, height: 2.56 },
+    dimensionsMeters: { length: 6.02, width: 2.27, height: 2.59 },
     crew: [
       crewman('DRIVER', 'Driver'),
       crewman('PASSENGER', 'Vehicle Commander')

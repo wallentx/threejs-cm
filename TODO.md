@@ -92,10 +92,29 @@ Status:
   - [ ] Replace provisional rectangular ground fields with scenario-authored surface layers, irregular field boundaries, roads, and riverbank materials.
   - [ ] Expand the village, vegetation, fences, rubble, and small terrain props with authored near/medium/far representations.
 - [ ] Add additional authored LOD models and measure transition popping at near, design, and far cameras.
+  - [ ] Blueprint-calibrate all 14 vehicle envelopes, profiles, running gear, turrets, and weapon projections.
+    - [x] Correct the requested vehicle identities: replace the 8-wheel Sd.Kfz. 231 with the 6-Rad and replace the Laffly V15T tractor with the Laffly S20TL 6x6 troop carrier.
+    - [x] Add one provenance-backed visual contract for every catalog vehicle, centralizing historical dimensions, construction, running-gear count, and defining silhouette landmarks.
+    - [x] Blueprint-calibrate the Panzer IV Ausf. D, Panzer 35(t), and Panzer 38(t) detailed envelopes, track widths, hull lengths, and turret/deck stacks.
+    - [x] Blueprint-calibrate the AMC 35, Panzer II Ausf. C, and Char B1 bis detailed envelopes while separating hull dimensions from gun projection.
+    - [x] Rebuild Renault R35, Hotchkiss H39, and Panhard 178 around blueprint-specific cast/armored hull lofts, running gear, deck contacts, and exact rigid envelopes.
+    - [x] Refit R35, H39, and Panhard 178 side profiles against registered source elevations/data sheets; record exact versus inferred datums and preserve authored far hull/turret/gun/running-gear silhouettes through enhancement.
+    - [x] Refit AMC 35, Laffly S20TL, and Char B1 bis against registered side elevations and published mechanical dimensions; preserve exact envelopes, ground contact, running gear, weapon projections, and authored far silhouettes.
+    - [x] Refit Panzer II Ausf. C, Panzer 35(t), and Panzer 38(t) against registered reference elevations; converge hull, turret, running-gear, and gun silhouettes while preserving exact envelopes and articulated far proxies.
+    - [x] Refit Panzer IV Ausf. D against a registered multiview reference; converge its stepped hull, four-bogie suspension, faceted turret, short KwK 37, MG mounts, and articulated far proxy.
+    - [x] Refit Sd.Kfz. 231 6-Rad against a registered multiview reference; preserve its exact three-axle envelope, tandem rear wheels, horseshoe turret, weapon projections, and articulated far proxy.
+    - [x] Blueprint-calibrate the SOMUA S35 cast hull, nine-wheel suspension, and APX stack plus the Opel Blitz bonnet, cab, dual-rear-tire bed, and canvas profile.
+    - [x] Blueprint-calibrate the Panzer III Ausf. D exact envelope, eight-wheel suspension, stepped hull, three-man turret/cupola, weapon projections, and articulated proxy.
+    - [x] Validate all 14 rigid envelopes and model contracts automatically, then inspect representative near and formation-distance silhouettes in the live scene.
+    - [x] Add an isolated orthographic calibration jig with side, front, and top blueprint registration; silhouette, wireframe, overlay, and difference modes; explicit LOD selection; landmark-error readouts in metres; resumable JSON; and deterministic GPU-free SVG silhouettes.
+    - [ ] Add per-vehicle calibration records for source image, crop, scale, origin, mirror state, ground line, axle centers, turret ring, gun axis, and defining outline landmarks.
+      - [x] Add provenance-backed side/front/top record schemas and validated JSON import/export for all 14 vehicles.
+      - [ ] Register image transforms and vehicle-specific mechanical/outline landmarks from the selected sources.
+    - [ ] Refit every detailed vehicle against registered multi-view outlines; retain exact envelopes while reducing contour and landmark error.
   - [x] Rough pass: authored medium & proxy LOD models for French/German infantry, SOMUA S35, and Panzer III.
   - [x] Seat R35/H39 turrets on their cast decks, keep Panzer III rear deck and period helmet/firearm silhouettes at core distance, preserve French helmet identity in the far proxy, and add per-triangle winding/LOD regressions.
-  - [x] Authored 12 standalone 1940 vehicle 3D models in `src/world/vehicles/` (R35, H39, AMC 35, Panhard 178, Laffly V15T, Char B1 bis, Panzer II, Panzer 35(t), Panzer 38(t), Sd.Kfz. 231, Opel Blitz, Panzer IV Ausf. D).
-  - [x] Integrated all 12 models into `UnitFactory`, `VehicleCatalog`, crew/armor/ammunition state, selection, LOD switching, scenario spawning, WEGO, and realtime.
+  - [x] Authored all 14 standalone 1940 vehicle 3D models in `src/world/vehicles/` (SOMUA S35, R35, H39, AMC 35, Panhard 178, Laffly S20TL, Char B1 bis, Panzer II, Panzer III, Panzer 35(t), Panzer 38(t), Sd.Kfz. 231 6-Rad, Opel Blitz, and Panzer IV Ausf. D).
+  - [x] Integrated all 14 models into `UnitFactory`, `VehicleCatalog`, crew/armor/ammunition state, selection, LOD switching, scenario spawning, WEGO, and realtime; removed the legacy inline SOMUA/Panzer III mesh branches.
   - [x] Replace single-box new-vehicle proxies with sectioned hull, running-gear, turret, and gun silhouettes.
   - [x] Add distinct high, medium, core, and far-proxy runtime tiers for every unit.
   - [x] Add vehicle-profile fidelity metadata for cast, riveted, boxy, armored-car, and truck construction.

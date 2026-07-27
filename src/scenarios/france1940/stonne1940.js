@@ -159,11 +159,11 @@ export const STONNE_1940_SCENARIO = Object.freeze({
       rotation: Math.PI
     }),
     freezeUnit({
-      id: 'fr_laffly_v15t',
-      name: 'Laffly V15T Tractor',
+      id: 'fr_laffly_s20tl',
+      name: 'Laffly S20TL',
       faction: 'french',
       type: 'vehicle',
-      vehicleId: 'LAFFLY_V15T',
+      vehicleId: 'LAFFLY_S20TL',
       position: [30, 0, 86],
       rotation: Math.PI
     }),
@@ -206,7 +206,7 @@ export const STONNE_1940_SCENARIO = Object.freeze({
     }),
     freezeUnit({
       id: 'ger_sdkfz231',
-      name: 'Sd.Kfz. 231 (8-Rad)',
+      name: 'Sd.Kfz. 231 (6-Rad)',
       faction: 'german',
       type: 'vehicle',
       vehicleId: 'SDKFZ_231',

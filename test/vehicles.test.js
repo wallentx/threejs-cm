@@ -2,16 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { Unit } from '../src/game/Unit.js';
+import { UnitFactory } from '../src/world/UnitFactory.js';
 import { getVehicle, VEHICLES } from '../src/game/VehicleCatalog.js';
 import { getWeapon } from '../src/game/WeaponCatalog.js';
 import {
   createRenaultR35Mesh,
+  createSomuaS35Mesh,
   createHotchkissH39Mesh,
   createAMC35Mesh,
   createPanhard178Mesh,
-  createLafflyV15TMesh,
+  createLafflyS20TLMesh,
   createCharB1BisMesh,
   createPanzerIIMesh,
+  createPanzerIIIMesh,
   createPanzer35tMesh,
   createPanzer38tMesh,
   createSdKfz231Mesh,
@@ -28,21 +31,37 @@ import {
   getVehicleTextureCacheStats,
   setVehicleMaterialSlot
 } from '../src/world/vehicles/VehicleMaterialLibrary.js';
+import { VEHICLE_VISUAL_PROFILES } from '../src/world/vehicles/VehicleVisualProfiles.js';
 
 const vehicleCreators = [
+  { name: 'SOMUA S35', fn: createSomuaS35Mesh, type: 'fr_somua', vehicleId: 'SOMUA_S35', armed: true },
   { name: 'Renault R35', fn: createRenaultR35Mesh, type: 'fr_renault_r35', vehicleId: 'RENAULT_R35', armed: true },
   { name: 'Hotchkiss H39', fn: createHotchkissH39Mesh, type: 'fr_hotchkiss_h39', vehicleId: 'HOTCHKISS_H39', armed: true },
   { name: 'AMC 35', fn: createAMC35Mesh, type: 'fr_amc35', vehicleId: 'AMC_35', armed: true },
   { name: 'Panhard 178', fn: createPanhard178Mesh, type: 'fr_panhard178', vehicleId: 'PANHARD_178', armed: true },
-  { name: 'Laffly V15T', fn: createLafflyV15TMesh, type: 'fr_laffly_v15t', vehicleId: 'LAFFLY_V15T', armed: false },
+  { name: 'Laffly S20TL', fn: createLafflyS20TLMesh, type: 'fr_laffly_s20tl', vehicleId: 'LAFFLY_S20TL', armed: false },
   { name: 'Char B1 bis', fn: createCharB1BisMesh, type: 'fr_char_b1bis', vehicleId: 'CHAR_B1_BIS', armed: true },
   { name: 'Panzer II', fn: createPanzerIIMesh, type: 'ger_panzer2', vehicleId: 'PANZER_II_C', armed: true },
+  { name: 'Panzer III', fn: createPanzerIIIMesh, type: 'ger_panzer3', vehicleId: 'PANZER_III_D', armed: true },
   { name: 'Panzer 35(t)', fn: createPanzer35tMesh, type: 'ger_panzer35t', vehicleId: 'PANZER_35T', armed: true },
   { name: 'Panzer 38(t)', fn: createPanzer38tMesh, type: 'ger_panzer38t', vehicleId: 'PANZER_38T', armed: true },
   { name: 'Sd.Kfz. 231', fn: createSdKfz231Mesh, type: 'ger_sdkfz231', vehicleId: 'SDKFZ_231', armed: true },
   { name: 'Opel Blitz', fn: createOpelBlitzMesh, type: 'ger_opel_blitz', vehicleId: 'OPEL_BLITZ', armed: false },
   { name: 'Panzer IV', fn: createPanzerIVMesh, type: 'ger_panzer4', vehicleId: 'PANZER_IV_D', armed: true }
 ];
+
+test('every catalog vehicle has one blueprint-backed visual contract with matching dimensions', () => {
+  assert.equal(Object.keys(VEHICLE_VISUAL_PROFILES).length, Object.keys(VEHICLES).length);
+  for (const vehicle of Object.values(VEHICLES)) {
+    const profile = VEHICLE_VISUAL_PROFILES[vehicle.modelId];
+    assert.ok(profile, `${vehicle.id} needs a visual profile`);
+    assert.deepEqual(profile.dimensionsMeters, vehicle.dimensionsMeters, `${vehicle.id} dimensions`);
+    assert.ok(profile.references.length > 0, `${vehicle.id} needs reference provenance`);
+    assert.ok(profile.silhouetteFeatures.length >= 4, `${vehicle.id} needs defining silhouette landmarks`);
+    assert.match(profile.dataQuality, /historical/);
+    assert.match(profile.dimensionPolicy, /excludes weapon projection and flexible aerials/);
+  }
+});
 
 test('every catalog auxiliary mount has a correctly parented rendered muzzle marker', () => {
   for (const spec of Object.values(VEHICLES)) {
@@ -69,7 +88,7 @@ test('every catalog auxiliary mount has a correctly parented rendered muzzle mar
   }
 });
 
-test('all 12 vehicle 3D model modules build cleanly and satisfy model contract and 4 LOD bands', () => {
+test('all 14 vehicle 3D model modules build cleanly and satisfy model contract and 4 LOD bands', () => {
   vehicleCreators.forEach(({ name, fn, type }) => {
     const mesh = fn();
     assert.ok(mesh instanceof THREE.Group, `${name} must return a THREE.Group`);
@@ -110,6 +129,126 @@ test('all 12 vehicle 3D model modules build cleanly and satisfy model contract a
   });
 });
 
+test('blueprint-calibrated vehicles preserve measured envelopes and running-gear identity', () => {
+  const corrected = [
+    {
+      name: 'Laffly S20TL',
+      mesh: createLafflyS20TLMesh(),
+      dimensions: { length: 5.35, width: 2.00, height: 2.00 },
+      wheelPrefix: 'S20TL_Wheel_'
+    },
+    {
+      name: 'Sd.Kfz. 231 (6-Rad)',
+      mesh: createSdKfz231Mesh(),
+      dimensions: { length: 5.57, width: 1.82, height: 2.25 },
+      wheelPrefix: 'SdKfz231_6Rad_Wheel_'
+    },
+    {
+      name: 'Panzer IV Ausf. D',
+      mesh: createPanzerIVMesh(),
+      dimensions: { length: 5.92, width: 2.84, height: 2.68 },
+      wheelPrefix: null,
+      checkGround: false
+    },
+    {
+      name: 'Panzer 38(t)',
+      mesh: createPanzer38tMesh(),
+      dimensions: { length: 4.61, width: 2.14, height: 2.25 },
+      wheelPrefix: null,
+      checkGround: false
+    },
+    {
+      name: 'Panzer 35(t)',
+      mesh: createPanzer35tMesh(),
+      dimensions: { length: 4.90, width: 2.06, height: 2.37 },
+      wheelPrefix: null,
+      checkGround: false
+    },
+    {
+      name: 'AMC 35',
+      mesh: createAMC35Mesh(),
+      dimensions: { length: 4.55, width: 2.24, height: 2.30 },
+      wheelPrefix: null,
+      checkGround: false
+    },
+    {
+      name: 'Panzer II Ausf. C',
+      mesh: createPanzerIIMesh(),
+      dimensions: { length: 4.81, width: 2.22, height: 1.99 },
+      wheelPrefix: null,
+      checkGround: false
+    },
+    {
+      name: 'Char B1 bis',
+      mesh: createCharB1BisMesh(),
+      dimensions: { length: 6.37, width: 2.46, height: 2.79 },
+      wheelPrefix: null,
+      checkGround: false
+    },
+    {
+      name: 'Renault R35',
+      mesh: createRenaultR35Mesh(),
+      dimensions: { length: 4.02, width: 1.87, height: 2.13 },
+      wheelPrefix: null
+    },
+    {
+      name: 'Hotchkiss H39',
+      mesh: createHotchkissH39Mesh(),
+      dimensions: { length: 4.22, width: 1.85, height: 2.15 },
+      wheelPrefix: null
+    },
+    {
+      name: 'Panhard 178',
+      mesh: createPanhard178Mesh(),
+      dimensions: { length: 4.79, width: 2.01, height: 2.31 },
+      wheelPrefix: null
+    },
+    {
+      name: 'SOMUA S35',
+      mesh: UnitFactory.createTankMesh('fr_somua'),
+      dimensions: { length: 5.38, width: 2.12, height: 2.62 },
+      wheelPrefix: null
+    },
+    {
+      name: 'Opel Blitz 3.6-36S',
+      mesh: createOpelBlitzMesh(),
+      dimensions: { length: 6.02, width: 2.27, height: 2.59 },
+      wheelPrefix: null
+    },
+    {
+      name: 'Panzer III Ausf. D',
+      mesh: UnitFactory.createTankMesh('ger_panzer3'),
+      dimensions: { length: 5.38, width: 2.91, height: 2.50 },
+      wheelPrefix: null
+    }
+  ];
+
+  for (const spec of corrected) {
+    spec.mesh.updateMatrixWorld(true);
+    const bounds = new THREE.Box3();
+    let wheelCount = 0;
+    spec.mesh.traverse(object => {
+      if (spec.wheelPrefix && object.name.startsWith(spec.wheelPrefix)) wheelCount++;
+      if (!object.isMesh
+        || object.userData.lodBand === 'proxy'
+        || object.userData.lodBand === 'ui'
+        || ['flexibleAttachment', 'weaponProjection'].includes(object.userData.envelopeRole)) return;
+      bounds.union(new THREE.Box3().setFromObject(object));
+    });
+    const measured = bounds.getSize(new THREE.Vector3());
+    if (spec.wheelPrefix) {
+      assert.equal(wheelCount, 6, `${spec.name} must expose three modeled axles`);
+    }
+    assert.ok(Math.abs(measured.z - spec.dimensions.length) < 0.01, `${spec.name} length`);
+    assert.ok(Math.abs(measured.x - spec.dimensions.width) < 0.01, `${spec.name} width`);
+    if (spec.checkGround !== false) {
+      assert.ok(bounds.min.y < 0.02, `${spec.name} running gear must reach ground level`);
+    }
+    assert.ok(Math.abs(bounds.max.y - spec.dimensions.height) < 0.01, `${spec.name} height`);
+    assert.deepEqual(spec.mesh.userData.modelMetadata.dimensionsMeters, spec.dimensions);
+  }
+});
+
 test('authored vehicle hulls are closed, outward-wound, and non-degenerate', () => {
   for (const style of ['cast', 'riveted', 'boxy', 'armoredCar']) {
     const geometry = createSectionedHullGeometry(5, 2.2, 1.2, style);
@@ -133,7 +272,7 @@ test('authored vehicle hulls are closed, outward-wound, and non-degenerate', () 
   }
 });
 
-test('all 12 vehicles use deterministic mapped PBR materials at detailed LODs', () => {
+test('all 14 vehicles use deterministic mapped PBR materials at detailed LODs', () => {
   const generatedTextures = new Set();
   for (const { name, fn } of vehicleCreators) {
     const vehicle = fn();
@@ -307,7 +446,7 @@ test('metre projection isolates shared non-indexed geometry without disposing an
   assert.equal(disposeCount, 0);
 });
 
-test('all 12 vehicles route through Unit, crew, armament, selection, and LOD contracts', () => {
+test('all 14 vehicles route through Unit, crew, armament, selection, and LOD contracts', () => {
   vehicleCreators.forEach(({ name, type, vehicleId, armed }) => {
     const spec = getVehicle(vehicleId);
     assert.ok(spec, `${name} must exist in VehicleCatalog`);

@@ -197,10 +197,10 @@ test('French tank model carries SOMUA S35 dimensions and defining assemblies', (
   assert.equal(metadata.designation, 'SOMUA S35');
   assert.equal(metadata.dimensionsMeters.length, 5.38);
   assert.equal(metadata.dimensionsMeters.width, 2.12);
-  assert.ok(names.includes('S35_CastHull'));
-  assert.ok(names.includes('S35_EngineDeck'));
-  assert.ok(names.filter(name => name.startsWith('S35_RoadWheel_')).length >= 18);
-  assert.ok(metadata.features.includes('APX 1 CE one-man turret'));
+  assert.ok(names.includes('S35_CastPrimaryHull'));
+  assert.ok(names.includes('S35_SlopingEngineDeck'));
+  assert.equal(names.filter(name => /S35RoadWheel_/.test(name)).length, 18);
+  assert.ok(metadata.features.some(feature => feature.includes('APX 1 CE one-man turret')));
 });
 
 test('SOMUA S35 cast hull end caps face outward', () => {
@@ -210,26 +210,33 @@ test('SOMUA S35 cast hull end caps face outward', () => {
     type: 'tank',
     position: new THREE.Vector3()
   });
-  const hull = tank.mesh.getObjectByName('S35_CastHull');
+  const hull = tank.mesh.getObjectByName('S35_CastPrimaryHull');
   assert.ok(hull);
+  assert.ok(hull.geometry.userData.signedVolumeCubicMeters > 0);
   const positions = hull.geometry.attributes.position;
   const indices = hull.geometry.index;
-  const capStart = 4 * 6 * 2 * 3;
+  const stationCount = hull.geometry.userData.profileStations.length;
+  const ringSize = 8;
+  const sideIndexCount = (stationCount - 1) * ringSize * 2 * 3;
+  const capTriangleCount = ringSize - 2;
   const vertexIndex = offset => indices?.getX(offset) ?? offset;
 
-  for (let triangle = 0; triangle < 8; triangle++) {
-    const offset = capStart + triangle * 3;
-    const a = new THREE.Vector3().fromBufferAttribute(positions, vertexIndex(offset));
-    const b = new THREE.Vector3().fromBufferAttribute(positions, vertexIndex(offset + 1));
-    const c = new THREE.Vector3().fromBufferAttribute(positions, vertexIndex(offset + 2));
-    const normal = new THREE.Vector3().crossVectors(
-      new THREE.Vector3().subVectors(b, a),
-      new THREE.Vector3().subVectors(c, a)
-    );
-    assert.ok(
-      triangle < 4 ? normal.z < 0 : normal.z > 0,
-      `S35 cap triangle ${triangle} must face outward`
-    );
+  for (const [cap, expectedSign] of [['rear', -1], ['front', 1]]) {
+    const capOffset = sideIndexCount + (cap === 'front' ? capTriangleCount * 3 : 0);
+    for (let triangle = 0; triangle < capTriangleCount; triangle++) {
+      const offset = capOffset + triangle * 3;
+      const a = new THREE.Vector3().fromBufferAttribute(positions, vertexIndex(offset));
+      const b = new THREE.Vector3().fromBufferAttribute(positions, vertexIndex(offset + 1));
+      const c = new THREE.Vector3().fromBufferAttribute(positions, vertexIndex(offset + 2));
+      const normal = new THREE.Vector3().crossVectors(
+        new THREE.Vector3().subVectors(b, a),
+        new THREE.Vector3().subVectors(c, a)
+      );
+      assert.ok(
+        Math.sign(normal.z) === expectedSign,
+        `S35 ${cap} cap triangle ${triangle} must face outward`
+      );
+    }
   }
 });
 

@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vehicle Blueprint Calibration</title>
+</head>
+<body data-calibration-status="loading">
+  <main class="calibration-shell">
+    <aside class="calibration-controls">
+      <header>
+        <p class="eyebrow">1940 vehicle tools</p>
+        <h1>Blueprint calibration</h1>
+        <p>Orthographic outline fitting in scene metres. No terrain, perspective, fog, or combat state.</p>
+      </header>
+
+      <section class="control-section">
+        <label>Vehicle
+          <select id="vehicle-select"></select>
+        </label>
+        <label>View
+          <select id="view-select"></select>
+        </label>
+        <div class="split-controls">
+          <label>LOD
+            <select id="lod-select">
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="core">Core</option>
+              <option value="proxy">Proxy</option>
+            </select>
+          </label>
+          <label>Render
+            <select id="render-mode-select">
+              <option value="overlay">Overlay</option>
+              <option value="difference">Difference</option>
+              <option value="silhouette">Silhouette</option>
+              <option value="wireframe">Wireframe</option>
+              <option value="shaded">Shaded</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section class="control-section">
+        <h2>Reference</h2>
+        <a id="blueprint-source" href="#" target="_blank" rel="noreferrer"></a>
+        <label>Local image
+          <input id="blueprint-file" type="file" accept="image/png,image/jpeg,image/webp">
+        </label>
+        <label>Same-origin image URL
+          <span class="inline-control">
+            <input id="blueprint-url" type="text" placeholder="/reference.png">
+            <button id="load-blueprint-url" type="button">Load</button>
+          </span>
+        </label>
+        <label>Blueprint opacity
+          <input id="blueprint-opacity" type="range" min="0" max="1" value="0.65" step="0.01">
+        </label>
+      </section>
+
+      <section class="control-section">
+        <h2>Registration</h2>
+        <div class="split-controls">
+          <label>Scale
+            <input id="blueprint-scale" type="number" min="0.05" max="10" value="1" step="0.01">
+          </label>
+          <label class="check-label">
+            <input id="blueprint-mirror" type="checkbox">
+            Mirror X
+          </label>
+        </div>
+        <div class="split-controls">
+          <label>Offset X px
+            <input id="blueprint-offset-x" type="number" value="0" step="1">
+          </label>
+          <label>Offset Y px
+            <input id="blueprint-offset-y" type="number" value="0" step="1">
+          </label>
+        </div>
+        <div class="crop-grid">
+          <label>Crop left %
+            <input id="crop-left" type="number" min="0" max="95" value="0" step="1">
+          </label>
+          <label>Crop top %
+            <input id="crop-top" type="number" min="0" max="95" value="0" step="1">
+          </label>
+          <label>Crop right %
+            <input id="crop-right" type="number" min="0" max="95" value="0" step="1">
+          </label>
+          <label>Crop bottom %
+            <input id="crop-bottom" type="number" min="0" max="95" value="0" step="1">
+          </label>
+        </div>
+      </section>
+
+      <section class="control-section">
+        <h2>Landmarks</h2>
+        <label>Datum
+          <select id="landmark-select"></select>
+        </label>
+        <div class="button-row">
+          <button id="place-landmark" type="button">Place on blueprint</button>
+          <button id="clear-landmark" type="button">Clear</button>
+        </div>
+        <button id="fit-landmarks" type="button">Fit scale and offset from placed landmarks</button>
+        <pre id="landmark-report">No registered landmarks for this view.</pre>
+      </section>
+
+      <section class="control-section">
+        <div class="button-row">
+          <button id="reset-registration" type="button">Reset view</button>
+          <button id="export-registration" type="button">Export JSON</button>
+        </div>
+        <label>Resume exported registration
+          <input id="import-registration" type="file" accept="application/json,.json">
+        </label>
+      </section>
+    </aside>
+
+    <section class="calibration-workspace">
+      <div class="workspace-header">
+        <strong id="calibration-status">Initializing renderer...</strong>
+        <span id="calibration-metrics"></span>
+      </div>
+      <div id="calibration-viewport" class="calibration-viewport">
+        <canvas id="blueprint-canvas"></canvas>
+        <div id="calibration-renderer"></div>
+        <canvas id="annotation-canvas"></canvas>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="./src/calibration/main.js"></script>
+</body>
+</html>

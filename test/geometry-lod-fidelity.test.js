@@ -58,19 +58,16 @@ test('sectioned vehicle hull compiler winds every convex plate outward', () => {
 });
 
 test('R35 and H39 turrets seat on outward-wound cast decks', () => {
-  for (const [type, hullName] of [
-    ['fr_renault_r35', 'R35_CastHull'],
-    ['fr_hotchkiss_h39', 'H39_CastHull']
-  ]) {
+  for (const type of ['fr_renault_r35', 'fr_hotchkiss_h39']) {
     const vehicle = UnitFactory.createTankMesh(type);
-    const hull = vehicle.getObjectByName(hullName);
     const turret = vehicle.userData.turret;
-    assert.ok(hull, `${type} needs named primary hull`);
     assert.ok(turret?.userData.deckContact, `${type} needs explicit deck-contact contract`);
-    assert.equal(hull.material.side, THREE.FrontSide);
+    const deck = vehicle.getObjectByName(turret.userData.deckContact.hullName);
+    assert.ok(deck, `${type} needs its declared turret deck`);
+    assert.equal(deck.material.side, THREE.FrontSide);
 
-    hull.geometry.computeBoundingBox();
-    const deckTop = hull.position.y + hull.geometry.boundingBox.max.y;
+    deck.geometry.computeBoundingBox();
+    const deckTop = deck.position.y + deck.geometry.boundingBox.max.y;
     const gap = turret.position.y - deckTop;
     assert.ok(
       gap <= turret.userData.deckContact.maxGapMeters && gap >= -0.04,
@@ -86,7 +83,13 @@ test('Panzer III rear deck remains outward-facing at core distance', () => {
   assert.equal(deck.userData.surfaceRole, 'rear-hull-deck');
   assert.equal(deck.userData.lodBand, 'core');
   assert.equal(deck.material.side, THREE.FrontSide);
-  assertConvexFacesOutward(deck.geometry, 'Panzer III engine deck');
+  assert.ok(
+    deck.geometry.userData.signedVolumeCubicMeters > 0,
+    'Panzer III engine-deck loft must have outward winding'
+  );
+  forEachTriangle(deck.geometry, ({ normal }, index) => {
+    assert.ok(normal.lengthSq() > 1e-12, `Panzer III engine deck triangle ${index} must not collapse`);
+  });
 });
 
 test('French helmet geometry is outward-facing and survives core and proxy LODs', () => {

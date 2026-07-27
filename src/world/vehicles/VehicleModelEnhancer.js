@@ -5,29 +5,39 @@ import {
 } from './VehicleMaterialLibrary.js';
 import { createTrackedRunningGearProxy } from './TrackedRunningGear.js';
 import { lateralX } from '../LocalFrame.js';
+import { VEHICLE_VISUAL_PROFILES } from './VehicleVisualProfiles.js';
 
-const VEHICLE_ENHANCEMENT_VERSION = 'authored-v2-material-v4-track-proxy';
+const VEHICLE_ENHANCEMENT_VERSION = 'authored-v3-preserved-proxy-material-v5';
 
-const BLUEPRINT_REFERENCES = Object.freeze({
-  fr_renault_r35: 'https://www.the-blueprints.com/blueprints/tanks/tanks-r/50737/view/renault_r35/',
-  fr_amc35: 'https://museedesblindes.fr/les_chars/amc-35/',
-  fr_char_b1bis: 'https://www.the-blueprints.com/blueprints/tanks/tanks-c/54878/view/char_b1_bis/',
-  ger_panzer2: 'https://www.the-blueprints.com/blueprints/tanks/ww2-tanks-germany-2/81805/view/sd_kfz_121_pzkpfwii_ausfc/'
-});
+const hasCalibrationMetadata = metadata => Boolean(
+  metadata?.blueprintCalibration
+  || metadata?.blueprintFit
+  || metadata?.blueprintContract
+  || metadata?.calibration
+);
+
+const BLUEPRINT_REFERENCES = Object.freeze(Object.fromEntries(
+  Object.entries(VEHICLE_VISUAL_PROFILES).map(([modelId, profile]) => [
+    modelId,
+    profile.references[0]
+  ])
+));
 
 const VEHICLE_PROFILES = Object.freeze({
-  fr_renault_r35: { kind: 'tracked', hull: 'cast', wheels: 5 },
-  fr_hotchkiss_h39: { kind: 'tracked', hull: 'cast', wheels: 6 },
-  fr_amc35: { kind: 'tracked', hull: 'riveted', wheels: 5 },
-  fr_panhard178: { kind: 'armoredCar', hull: 'armoredCar', wheels: 4 },
-  fr_laffly_v15t: { kind: 'truck', hull: 'truck', wheels: 6 },
-  fr_char_b1bis: { kind: 'tracked', hull: 'cast', wheels: 16 },
-  ger_panzer2: { kind: 'tracked', hull: 'boxy', wheels: 5 },
-  ger_panzer35t: { kind: 'tracked', hull: 'riveted', wheels: 8 },
-  ger_panzer38t: { kind: 'tracked', hull: 'riveted', wheels: 4 },
-  ger_sdkfz231: { kind: 'armoredCar', hull: 'armoredCar', wheels: 8 },
-  ger_opel_blitz: { kind: 'truck', hull: 'truck', wheels: 6 },
-  ger_panzer4: { kind: 'tracked', hull: 'boxy', wheels: 8 }
+  fr_somua: { kind: 'tracked', hull: 'cast', wheels: VEHICLE_VISUAL_PROFILES.fr_somua.roadWheelsPerSide },
+  fr_renault_r35: { kind: 'tracked', hull: 'cast', wheels: VEHICLE_VISUAL_PROFILES.fr_renault_r35.roadWheelsPerSide },
+  fr_hotchkiss_h39: { kind: 'tracked', hull: 'cast', wheels: VEHICLE_VISUAL_PROFILES.fr_hotchkiss_h39.roadWheelsPerSide },
+  fr_amc35: { kind: 'tracked', hull: 'riveted', wheels: VEHICLE_VISUAL_PROFILES.fr_amc35.roadWheelsPerSide },
+  fr_panhard178: { kind: 'armoredCar', hull: 'armoredCar', wheels: VEHICLE_VISUAL_PROFILES.fr_panhard178.roadWheelsPerSide * 2 },
+  fr_laffly_s20tl: { kind: 'truck', hull: 'truck', wheels: VEHICLE_VISUAL_PROFILES.fr_laffly_s20tl.axleZ.length * 2 },
+  fr_char_b1bis: { kind: 'tracked', hull: 'cast', wheels: VEHICLE_VISUAL_PROFILES.fr_char_b1bis.roadWheelsPerSide },
+  ger_panzer2: { kind: 'tracked', hull: 'boxy', wheels: VEHICLE_VISUAL_PROFILES.ger_panzer2.roadWheelsPerSide },
+  ger_panzer3: { kind: 'tracked', hull: 'boxy', wheels: VEHICLE_VISUAL_PROFILES.ger_panzer3.roadWheelsPerSide },
+  ger_panzer35t: { kind: 'tracked', hull: 'riveted', wheels: VEHICLE_VISUAL_PROFILES.ger_panzer35t.roadWheelsPerSide },
+  ger_panzer38t: { kind: 'tracked', hull: 'riveted', wheels: VEHICLE_VISUAL_PROFILES.ger_panzer38t.roadWheelsPerSide },
+  ger_sdkfz231: { kind: 'armoredCar', hull: 'armoredCar', wheels: VEHICLE_VISUAL_PROFILES.ger_sdkfz231.axleZ.length * 2 },
+  ger_opel_blitz: { kind: 'truck', hull: 'truck', wheels: VEHICLE_VISUAL_PROFILES.ger_opel_blitz.roadWheelsPerSide * 2 },
+  ger_panzer4: { kind: 'tracked', hull: 'boxy', wheels: VEHICLE_VISUAL_PROFILES.ger_panzer4.roadWheelsPerSide }
 });
 
 // These offsets are authored against each vehicle's named hull/turret group.
@@ -55,8 +65,8 @@ const AUXILIARY_MOUNT_LAYOUTS = Object.freeze({
   fr_amc35: {
     coax: {
       parent: 'turret',
-      position: [lateralX('right', 0.20), 0.33, 1.45],
-      barrel: [lateralX('right', 0.20), 0.33, 1.10, 0.70],
+      position: [lateralX('right', 0.20), 0.33, 1.31],
+      barrel: [lateralX('right', 0.20), 0.33, 0.96, 0.70],
       side: 'right',
       placementQuality: 'museum-reference front arrangement',
       referenceUrl: BLUEPRINT_REFERENCES.fr_amc35
@@ -181,11 +191,11 @@ function tagMesh(mesh, band) {
 
 function addAuxiliaryWeaponMounts(root, metalMaterial) {
   const layouts = AUXILIARY_MOUNT_LAYOUTS[root.name];
-  const weaponMuzzles = {};
   if (!layouts) {
-    root.userData.weaponMuzzles = weaponMuzzles;
+    root.userData.weaponMuzzles ??= {};
     return;
   }
+  const weaponMuzzles = {};
 
   for (const [id, layout] of Object.entries(layouts)) {
     const parent = layout.parent === 'turret' ? root.userData.turret : root;
@@ -199,6 +209,7 @@ function addAuxiliaryWeaponMounts(root, metalMaterial) {
       barrel.rotation.x = Math.PI / 2;
       barrel.position.set(x, y, z);
       barrel.userData.weaponMountId = id;
+      barrel.userData.envelopeRole = 'weaponProjection';
       barrel.userData.mountSide = layout.side ?? null;
       barrel.userData.placementQuality = layout.placementQuality ?? 'inferred';
       barrel.userData.referenceUrl = layout.referenceUrl ?? null;
@@ -312,16 +323,28 @@ function findPrimaryHull(root) {
   return primary;
 }
 
-function removeOldProxy(root) {
-  const proxyMeshes = [];
+function proxyMeshes(root) {
+  const meshes = [];
   root.traverse(object => {
-    if (object.isMesh && object.userData.lodBand === 'proxy') proxyMeshes.push(object);
+    if (object.isMesh && object.userData.lodBand === 'proxy') meshes.push(object);
   });
-  for (const mesh of proxyMeshes) {
-    mesh.parent?.remove(mesh);
-    mesh.geometry.dispose();
-  }
-  root.getObjectByName('Proxy')?.removeFromParent();
+  return meshes;
+}
+
+function replaceCalibratedBoxProxyHull(root, primaryHull) {
+  const metadata = root.userData.modelMetadata;
+  if (!hasCalibrationMetadata(metadata)) return false;
+  const placeholder = proxyMeshes(root).find(mesh => (
+    /Hull|Body/i.test(mesh.name) && mesh.geometry?.type === 'BoxGeometry'
+  ));
+  if (!placeholder) return false;
+  placeholder.geometry.dispose();
+  placeholder.geometry = primaryHull.geometry.clone();
+  placeholder.position.copy(primaryHull.position);
+  placeholder.quaternion.copy(primaryHull.quaternion);
+  placeholder.scale.copy(primaryHull.scale);
+  placeholder.userData.proxySource = 'calibrated-primary-hull-clone';
+  return true;
 }
 
 function createLowPolyWheels({
@@ -358,62 +381,137 @@ function addTrackedProxy(
   bodyMaterial,
   trackMaterial,
   rubberMaterial,
-  profile
+  profile,
+  { includeHull = true, sourceRunningGear = null } = {}
 ) {
-  const hullHeight = dimensions.height * 0.42;
-  const trackHeight = dimensions.height * 0.27;
-  const trackLength = dimensions.length * 0.86;
-  const trackWidth = dimensions.width * 0.14;
-  const hull = tagMesh(new THREE.Mesh(
-    createSectionedHullGeometry(
-      dimensions.length * 0.9,
-      dimensions.width * 0.82,
-      hullHeight,
-      profile.hull
-    ),
-    bodyMaterial
-  ), 'proxy');
-  hull.position.y = trackHeight + hullHeight * 0.42;
-  hull.visible = false;
-  group.add(hull);
+  const sourceDimensions = sourceRunningGear?.userData?.dimensionsMeters;
+  const sourcePath = sourceRunningGear?.userData?.trackParts?.tracks?.[0]?.links
+    ?.userData?.instancePath;
+  const firstRoadWheel = sourceRunningGear?.userData?.trackParts?.roadWheels?.[0];
+  const trackHeight = sourceDimensions?.beltHeight ?? dimensions.height * 0.27;
+  const trackLength = sourceDimensions?.beltLength ?? dimensions.length * 0.86;
+  const trackWidth = sourceDimensions?.trackWidth ?? dimensions.width * 0.14;
+  const trackCenterX = Math.abs(sourcePath?.[0]?.position?.[0] ?? dimensions.width * 0.43);
+  const bottomY = sourcePath?.reduce(
+    (minimum, point) => Math.min(minimum, point.position[1]),
+    Infinity
+  );
+  const centerY = Number.isFinite(bottomY) ? bottomY + trackHeight * 0.5 : trackHeight * 0.5;
+  firstRoadWheel?.geometry?.computeBoundingBox();
+  const roadWheelRadius = firstRoadWheel?.geometry?.boundingBox
+    ? (
+        firstRoadWheel.geometry.boundingBox.max.x
+        - firstRoadWheel.geometry.boundingBox.min.x
+      ) * 0.5
+    : trackHeight * 0.32;
+  const roadWheelCount = sourceRunningGear?.userData?.trackParts?.roadWheels?.length
+    ? sourceRunningGear.userData.trackParts.roadWheels.length / 2
+    : profile.wheels;
 
-  group.add(createTrackedRunningGearProxy({
+  if (includeHull) {
+    const hullHeight = dimensions.height * 0.42;
+    const hull = tagMesh(new THREE.Mesh(
+      createSectionedHullGeometry(
+        dimensions.length * 0.9,
+        dimensions.width * 0.82,
+        hullHeight,
+        profile.hull
+      ),
+      bodyMaterial
+    ), 'proxy');
+    hull.name = 'FidelityProxyHull';
+    hull.position.y = trackHeight + hullHeight * 0.42;
+    hull.visible = false;
+    group.add(hull);
+  }
+
+  const runningGearProxy = createTrackedRunningGearProxy({
     id: 'FidelityTrackedProxy',
     trackMaterial,
     wheelMaterial: rubberMaterial,
-    trackCenterX: dimensions.width * 0.43,
+    trackCenterX,
     trackWidth,
     beltLength: trackLength,
     beltHeight: trackHeight,
-    centerY: trackHeight / 2,
-    roadWheelRadius: trackHeight * 0.32,
-    roadWheelCount: profile.wheels
-  }));
+    centerY,
+    roadWheelRadius,
+    roadWheelCount
+  });
+  if (sourceRunningGear) {
+    runningGearProxy.position.copy(sourceRunningGear.position);
+    runningGearProxy.quaternion.copy(sourceRunningGear.quaternion);
+    runningGearProxy.scale.copy(sourceRunningGear.scale);
+  }
+  group.add(runningGearProxy);
 }
 
-function addArmoredCarProxy(group, dimensions, bodyMaterial, rubberMaterial, profile) {
+function addArmoredCarProxy(
+  group,
+  dimensions,
+  bodyMaterial,
+  rubberMaterial,
+  profile,
+  { includeHull = true, includeWheels = true } = {}
+) {
   const hullHeight = dimensions.height * 0.46;
   const wheelRadius = dimensions.height * 0.18;
-  const hull = tagMesh(new THREE.Mesh(
-    createSectionedHullGeometry(
-      dimensions.length * 0.88,
-      dimensions.width * 0.88,
-      hullHeight,
-      profile.hull
-    ),
-    bodyMaterial
-  ), 'proxy');
-  hull.position.y = wheelRadius + hullHeight * 0.48;
-  hull.visible = false;
-  group.add(hull);
-  group.add(createLowPolyWheels({
-    count: profile.wheels,
-    length: dimensions.length,
-    width: dimensions.width,
-    radius: wheelRadius,
-    y: wheelRadius,
-    material: rubberMaterial
-  }));
+  if (includeHull) {
+    const hull = tagMesh(new THREE.Mesh(
+      createSectionedHullGeometry(
+        dimensions.length * 0.88,
+        dimensions.width * 0.88,
+        hullHeight,
+        profile.hull
+      ),
+      bodyMaterial
+    ), 'proxy');
+    hull.name = 'FidelityProxyHull';
+    hull.position.y = wheelRadius + hullHeight * 0.48;
+    hull.visible = false;
+    group.add(hull);
+  }
+  if (includeWheels) {
+    group.add(createLowPolyWheels({
+      count: profile.wheels,
+      length: dimensions.length,
+      width: dimensions.width,
+      radius: wheelRadius,
+      y: wheelRadius,
+      material: rubberMaterial
+    }));
+  }
+}
+
+function addProxyWheelsFromDetailed(root, group, material) {
+  const sourceWheels = [];
+  root.updateMatrixWorld(true);
+  root.traverse(object => {
+    if (
+      !object.isMesh
+      || object.userData.lodBand === 'proxy'
+      || !/_Wheel_/.test(object.name)
+      || /Hub/.test(object.name)
+    ) return;
+    sourceWheels.push(object);
+  });
+  if (!sourceWheels.length) return false;
+
+  const rootInverse = root.matrixWorld.clone().invert();
+  for (const [index, source] of sourceWheels.entries()) {
+    const parameters = source.geometry.parameters ?? {};
+    const radius = parameters.radiusTop ?? parameters.radius ?? 0.3;
+    const width = parameters.height ?? radius * 0.45;
+    const wheel = tagMesh(new THREE.Mesh(
+      new THREE.CylinderGeometry(radius, radius, width, 8),
+      material
+    ), 'proxy');
+    wheel.name = `AuthoredProxyWheel_${index}`;
+    const localMatrix = rootInverse.clone().multiply(source.matrixWorld);
+    localMatrix.decompose(wheel.position, wheel.quaternion, wheel.scale);
+    wheel.visible = false;
+    group.add(wheel);
+  }
+  return true;
 }
 
 function addTruckProxy(
@@ -470,42 +568,78 @@ function addTruckProxy(
 function addProxyTurret(root, dimensions, bodyMaterial, metalMaterial) {
   if (!root.userData.turret) return;
   const sourceTurret = root.userData.turret;
-  const turret = tagMesh(new THREE.Mesh(
-    new THREE.CylinderGeometry(
-      dimensions.width * 0.18,
-      dimensions.width * 0.24,
-      dimensions.height * 0.2,
-      8
-    ),
-    bodyMaterial
-  ), 'proxy');
-  turret.position.set(
-    0,
-    dimensions.height * 0.7 - sourceTurret.position.y,
-    0
-  );
-  turret.visible = false;
-  sourceTurret.add(turret);
-
-  const barrel = tagMesh(new THREE.Mesh(
-    new THREE.CylinderGeometry(
-      dimensions.width * 0.018,
-      dimensions.width * 0.025,
-      dimensions.length * 0.26,
-      6
-    ),
-    metalMaterial
-  ), 'proxy');
-  const sourceBarrel = root.userData.barrel;
-  if (sourceBarrel) {
-    // Standalone factories rotate the barrel object; legacy factories rotate
-    // its geometry. Match either convention while inheriting recoil position.
-    barrel.rotation.x = Math.abs(sourceBarrel.rotation.x) > Math.PI / 4
-      ? 0
-      : Math.PI / 2;
-    barrel.position.set(0, 0, 0);
-    sourceBarrel.add(barrel);
+  let turret = proxyMeshes(root).find(mesh => /Turret/i.test(mesh.name));
+  if (turret) {
+    root.updateMatrixWorld(true);
+    sourceTurret.attach(turret);
   } else {
+    const sourceCoreMeshes = [];
+    let largestVolume = -Infinity;
+    sourceTurret.traverse(object => {
+      if (
+        !object.isMesh
+        || object.userData.lodBand === 'proxy'
+        || object.userData.envelopeRole === 'weaponProjection'
+      ) return;
+      const size = getGeometrySize(object);
+      const volume = size.x * size.y * size.z;
+      sourceCoreMeshes.push({ object, volume });
+      if (volume > largestVolume) {
+        largestVolume = volume;
+      }
+    });
+    if (sourceCoreMeshes.length) {
+      for (const { object, volume } of sourceCoreMeshes) {
+        const part = tagMesh(new THREE.Mesh(object.geometry.clone(), bodyMaterial), 'proxy');
+        part.position.copy(object.position);
+        part.quaternion.copy(object.quaternion);
+        part.scale.copy(object.scale);
+        part.name = `AuthoredProxy_${object.name || 'TurretPart'}`;
+        part.visible = false;
+        sourceTurret.add(part);
+        if (volume === largestVolume) turret = part;
+      }
+    } else {
+      turret = tagMesh(new THREE.Mesh(
+        new THREE.CylinderGeometry(
+          dimensions.width * 0.18,
+          dimensions.width * 0.24,
+          dimensions.height * 0.2,
+          8
+        ),
+        bodyMaterial
+      ), 'proxy');
+      turret.name = 'FidelityProxyTurret';
+      turret.position.set(
+        0,
+        dimensions.height * 0.7 - sourceTurret.position.y,
+        0
+      );
+    }
+    sourceTurret.add(turret);
+  }
+  turret.visible = false;
+
+  let barrel = proxyMeshes(root).find(mesh => /Barrel|Gun/i.test(mesh.name));
+  const sourceBarrel = root.userData.barrel;
+  if (!barrel && sourceBarrel?.geometry) {
+    barrel = tagMesh(new THREE.Mesh(sourceBarrel.geometry.clone(), metalMaterial), 'proxy');
+    barrel.name = 'AuthoredProxyBarrel';
+    barrel.position.set(0, 0, 0);
+    barrel.rotation.set(0, 0, 0);
+    barrel.scale.set(1, 1, 1);
+    sourceBarrel.add(barrel);
+  } else if (!barrel) {
+    barrel = tagMesh(new THREE.Mesh(
+      new THREE.CylinderGeometry(
+        dimensions.width * 0.018,
+        dimensions.width * 0.025,
+        dimensions.length * 0.26,
+        6
+      ),
+      metalMaterial
+    ), 'proxy');
+    barrel.name = 'FidelityProxyBarrel';
     barrel.rotation.x = Math.PI / 2;
     barrel.position.set(
       0,
@@ -513,13 +647,21 @@ function addProxyTurret(root, dimensions, bodyMaterial, metalMaterial) {
       dimensions.length * 0.18
     );
     sourceTurret.add(barrel);
+  } else if (sourceBarrel) {
+    root.updateMatrixWorld(true);
+    sourceBarrel.attach(barrel);
   }
   barrel.visible = false;
+  barrel.userData.envelopeRole = 'weaponProjection';
   root.userData.proxyTurret = turret;
   root.userData.proxyBarrel = barrel;
 }
 
 function addAuthoredDetails(root, primaryHull, dimensions, profile, metalMaterial) {
+  const metadata = root.userData.modelMetadata;
+  if (hasCalibrationMetadata(metadata)) {
+    return;
+  }
   if (profile.kind === 'tracked') {
     for (const side of [-1, 1]) {
       const guard = tagMesh(new THREE.Mesh(
@@ -535,17 +677,30 @@ function addAuthoredDetails(root, primaryHull, dimensions, profile, metalMateria
     }
   }
 
-  const detailParent = root.userData.turret ?? root;
-  const antenna = tagMesh(new THREE.Mesh(
-    new THREE.CylinderGeometry(0.012, 0.02, dimensions.height * 0.42, 5),
-    metalMaterial
-  ), 'high');
-  antenna.position.set(
-    dimensions.width * 0.22,
-    root.userData.turret ? dimensions.height * 0.32 : dimensions.height * 0.75,
-    -dimensions.length * 0.06
-  );
-  detailParent.add(antenna);
+  let hasAuthoredAntenna = false;
+  root.traverse(object => {
+    if (
+      /Antenna/i.test(object.name)
+      || object.userData.envelopeRole === 'flexibleAttachment'
+    ) {
+      hasAuthoredAntenna = true;
+    }
+  });
+  if (!hasAuthoredAntenna) {
+    const detailParent = root.userData.turret ?? root;
+    const antenna = tagMesh(new THREE.Mesh(
+      new THREE.CylinderGeometry(0.012, 0.02, dimensions.height * 0.42, 5),
+      metalMaterial
+    ), 'high');
+    antenna.name = 'FlexibleAntenna';
+    antenna.userData.envelopeRole = 'flexibleAttachment';
+    antenna.position.set(
+      dimensions.width * 0.22,
+      root.userData.turret ? dimensions.height * 0.32 : dimensions.height * 0.75,
+      -dimensions.length * 0.06
+    );
+    detailParent.add(antenna);
+  }
 
   if (!['riveted', 'boxy'].includes(profile.hull)) return;
   const rivetCount = 12;
@@ -576,11 +731,13 @@ export function enhanceVehicleModel(root) {
     return root;
   }
   const profile = VEHICLE_PROFILES[root.name];
+  const visualProfile = VEHICLE_VISUAL_PROFILES[root.name];
   const metadata = root.userData.modelMetadata;
-  if (!profile || !metadata?.dimensionsMeters) return root;
+  if (!profile || !visualProfile || !metadata?.dimensionsMeters) return root;
 
   const primaryHull = findPrimaryHull(root);
   if (!primaryHull) return root;
+  replaceCalibratedBoxProxyHull(root, primaryHull);
 
   if (profile.kind !== 'truck' && !primaryHull.userData.authoredHull && !root.userData.authoredHull) {
     const size = getGeometrySize(primaryHull);
@@ -605,22 +762,44 @@ export function enhanceVehicleModel(root) {
     metalness: 0.01
   }), 'rubber');
   addAuxiliaryWeaponMounts(root, metalMaterial);
-  removeOldProxy(root);
-  const proxyGroup = new THREE.Group();
-  proxyGroup.name = 'FidelityProxy';
-  const dimensions = metadata.dimensionsMeters;
+  if (root.userData.barrel) {
+    root.userData.barrel.userData.envelopeRole = 'weaponProjection';
+  }
+  const existingProxy = proxyMeshes(root);
+  const proxyGroup = root.getObjectByName('Proxy') ?? new THREE.Group();
+  if (!proxyGroup.name) proxyGroup.name = 'FidelityProxy';
+  const hasProxyHull = existingProxy.some(mesh => /Hull|Body|Chassis|Cab|Cargo/i.test(mesh.name));
+  const hasProxyRunningGear = existingProxy.some(mesh => /Track|Wheel/i.test(mesh.name));
+  const dimensions = visualProfile.dimensionsMeters;
   if (profile.kind === 'tracked') {
-    addTrackedProxy(
+    if (!hasProxyRunningGear || !hasProxyHull) {
+      addTrackedProxy(
+        proxyGroup,
+        dimensions,
+        primaryHull.material,
+        trackMaterial,
+        rubberMaterial,
+        profile,
+        {
+          includeHull: !hasProxyHull,
+          sourceRunningGear: root.userData.runningGear
+        }
+      );
+    }
+  } else if (profile.kind === 'armoredCar') {
+    let addedDetailedWheels = hasProxyRunningGear;
+    if (!addedDetailedWheels) {
+      addedDetailedWheels = addProxyWheelsFromDetailed(root, proxyGroup, rubberMaterial);
+    }
+    addArmoredCarProxy(
       proxyGroup,
       dimensions,
       primaryHull.material,
-      trackMaterial,
       rubberMaterial,
-      profile
+      profile,
+      { includeHull: !hasProxyHull, includeWheels: !addedDetailedWheels }
     );
-  } else if (profile.kind === 'armoredCar') {
-    addArmoredCarProxy(proxyGroup, dimensions, primaryHull.material, rubberMaterial, profile);
-  } else {
+  } else if (!hasProxyHull && !hasProxyRunningGear) {
     addTruckProxy(
       proxyGroup,
       dimensions,
@@ -631,12 +810,17 @@ export function enhanceVehicleModel(root) {
     );
   }
   addProxyTurret(root, dimensions, primaryHull.material, metalMaterial);
-  root.add(proxyGroup);
+  if (!proxyGroup.parent) root.add(proxyGroup);
   addAuthoredDetails(root, primaryHull, dimensions, profile, metalMaterial);
   const materialPack = applyVehicleMaterialPack(root);
 
   root.userData.modelMetadata = {
     ...metadata,
+    designation: visualProfile.designation,
+    dimensionsMeters: visualProfile.dimensionsMeters,
+    references: visualProfile.references,
+    silhouetteFeatures: visualProfile.silhouetteFeatures,
+    dataQuality: visualProfile.dataQuality,
     fidelityPass: 'authored-v2',
     hullConstruction: profile.hull,
     wheelOrTrackLayout: profile.kind === 'tracked'

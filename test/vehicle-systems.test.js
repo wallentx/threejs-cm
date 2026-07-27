@@ -19,7 +19,7 @@ const vehicleIds = [
   'HOTCHKISS_H39',
   'AMC_35',
   'PANHARD_178',
-  'LAFFLY_V15T',
+  'LAFFLY_S20TL',
   'CHAR_B1_BIS',
   'PANZER_III_D',
   'PANZER_II_C',
@@ -73,7 +73,7 @@ test('all 14 catalog vehicles explicitly own data-driven machine-gun mount lists
       assert.match(mount.dataQuality, /historical|approximation/);
     }
   }
-  assert.equal(VEHICLES.LAFFLY_V15T.weaponMounts.length, 0);
+  assert.equal(VEHICLES.LAFFLY_S20TL.weaponMounts.length, 0);
   assert.equal(VEHICLES.OPEL_BLITZ.weaponMounts.length, 0);
 });
 
@@ -415,7 +415,7 @@ test('ammunition damage can create authoritative fire and secondary-explosion ev
 });
 
 test('unarmed transports have no ammunition component and cannot ammunition-explode', () => {
-  for (const vehicleId of ['LAFFLY_V15T', 'OPEL_BLITZ']) {
+  for (const vehicleId of ['LAFFLY_S20TL', 'OPEL_BLITZ']) {
     const transport = makeVehicle(vehicleId, `unarmed_ammo_${vehicleId}`);
     assert.equal(transport.vehicleComponents.ammunition.installed, false);
     assert.equal(setVehicleComponentHealth(transport.vehicleComponents, 'ammunition', 0), null);

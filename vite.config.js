@@ -11,6 +11,10 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
+      input: {
+        game: fileURLToPath(new URL('./index.html', import.meta.url)),
+        calibration: fileURLToPath(new URL('./calibration.html', import.meta.url))
+      },
       output: {
         manualChunks: {
           'three-webgpu': ['three/webgpu']

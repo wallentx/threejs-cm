@@ -1,13 +1,42 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as THREE from 'three';
 import { UnitFactory } from '../src/world/UnitFactory.js';
 import { WORLD_SCALE, getAuthoredMeshBounds } from '../src/world/WorldScale.js';
 import { VEHICLE_TEXTURE_PACK_ID } from '../src/world/vehicles/VehicleMaterialLibrary.js';
+import { getVehicleVisualProfile } from '../src/world/vehicles/VehicleVisualProfiles.js';
 
 function materialsOf(mesh) {
   return Array.isArray(mesh.material) ? mesh.material : [mesh.material];
 }
+
+test('SOMUA standalone model exposes its registered blueprint datums', () => {
+  const profile = getVehicleVisualProfile('fr_somua');
+  const vehicle = UnitFactory.createTankMesh('fr_somua');
+  const hull = vehicle.getObjectByName('S35_CastPrimaryHull');
+  const turret = vehicle.userData.turret;
+  const barrel = vehicle.userData.barrel;
+  const muzzle = vehicle.userData.muzzle;
+  const calibration = vehicle.userData.modelMetadata.blueprintCalibration;
+
+  assert.ok(hull);
+  assert.equal(hull.userData.authoredHull, true);
+  assert.deepEqual(calibration.rigidEnvelopeMeters, profile.dimensionsMeters);
+  assert.equal(calibration.datums.exact.roadWheelsPerSide, 9);
+  assert.deepEqual(
+    calibration.datums.registeredInferred.roadWheelCentersZ,
+    [1.54, 1.16, 0.78, 0.40, 0.02, -0.36, -0.74, -1.12, -1.50]
+  );
+  assert.deepEqual(
+    turret.position.toArray(),
+    calibration.datums.registeredInferred.turretRing
+  );
+  assert.equal(barrel.userData.weaponIdentity, '47 mm SA 35');
+  assert.equal(muzzle.position.z, 1.98);
+  assert.ok(
+    turret.position.z + muzzle.position.z - profile.dimensionsMeters.length * 0.5 < 0.25,
+    'SA35 should only project slightly beyond the rigid bow in side elevation'
+  );
+});
 
 test('authored infantry uses metre standing-height scale without moving formation slots', () => {
   const squad = UnitFactory.createInfantrySquadMesh('french', 6);
@@ -28,11 +57,11 @@ test('authored infantry uses metre standing-height scale without moving formatio
   });
 });
 
-for (const [type, requiredSlots] of [
-  ['fr_somua', ['paint', 'track', 'metal']],
-  ['ger_panzer3', ['paint', 'track', 'rubber', 'metal']]
+for (const [type, requiredSlots, expectedProxyMeshes] of [
+  ['fr_somua', ['paint', 'track', 'metal'], 6],
+  ['ger_panzer3', ['paint', 'track', 'metal'], 10]
 ]) {
-  test(`${type} legacy model has explicit mapped PBR detail and cheap textured proxy`, () => {
+  test(`${type} standalone model has explicit mapped PBR detail and cheap textured proxy`, () => {
     const vehicle = UnitFactory.createTankMesh(type);
     const metadata = vehicle.userData.modelMetadata;
     assert.equal(metadata.materialPack.id, VEHICLE_TEXTURE_PACK_ID);
@@ -77,6 +106,6 @@ for (const [type, requiredSlots] of [
       }
     });
     assert.ok(detailed > 0);
-    assert.equal(proxy, 6);
+    assert.equal(proxy, expectedProxyMeshes);
   });
 }

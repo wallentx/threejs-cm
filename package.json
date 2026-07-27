@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host",
+    "calibrate": "vite --host 127.0.0.1",
     "build": "vite build",
     "test": "node --test",
     "preview": "vite preview"
