@@ -1,0 +1,2886 @@
+{
+  "schemaVersion": "1.1.0",
+  "vehicleCount": 14,
+  "views": [
+    "front",
+    "side",
+    "top"
+  ],
+  "lods": [
+    "high",
+    "medium",
+    "core",
+    "proxy"
+  ],
+  "renderConfig": {
+    "width": 700,
+    "height": 450,
+    "background": "#ffffff",
+    "silhouette": "#101820",
+    "showEnvelope": false,
+    "wireframe": false,
+    "metricPrecision": 4,
+    "envelopeEpsilonMeters": 0.01,
+    "svgNormalization": "crlf-to-lf-and-trailing-trim"
+  },
+  "recordCount": 168,
+  "failures": [],
+  "records": {
+    "fr_amc35:front:core": {
+      "key": "fr_amc35:front:core",
+      "modelId": "fr_amc35",
+      "designation": "AMC 35 (ACG-1)",
+      "view": "front",
+      "lod": "core",
+      "triangleCount": 1844,
+      "projectedBoundsMeters": {
+        "minU": -1.115,
+        "maxU": 1.115,
+        "minV": 0.0396,
+        "maxV": 2.24,
+        "width": 2.23,
+        "height": 2.2004
+      },
+      "svgHash": "c034ae83b345a846f8fe19ebcad2e6a2edd2928286e3b05ecb06da32354d6c04"
+    },
+    "fr_amc35:front:high": {
+      "key": "fr_amc35:front:high",
+      "modelId": "fr_amc35",
+      "designation": "AMC 35 (ACG-1)",
+      "view": "front",
+      "lod": "high",
+      "triangleCount": 5016,
+      "projectedBoundsMeters": {
+        "minU": -1.12,
+        "maxU": 1.12,
+        "minV": 0.0001,
+        "maxV": 2.3,
+        "width": 2.24,
+        "height": 2.2999
+      },
+      "svgHash": "2a99e3b84d09b329bb281b89701f6206db08cd6137b4114f5e159a21e181c01d"
+    },
+    "fr_amc35:front:medium": {
+      "key": "fr_amc35:front:medium",
+      "modelId": "fr_amc35",
+      "designation": "AMC 35 (ACG-1)",
+      "view": "front",
+      "lod": "medium",
+      "triangleCount": 2956,
+      "projectedBoundsMeters": {
+        "minU": -1.115,
+        "maxU": 1.115,
+        "minV": 0.0396,
+        "maxV": 2.29,
+        "width": 2.23,
+        "height": 2.2504
+      },
+      "svgHash": "a7151d7fdecaa84ecfd342b4c23a201f66c015f4fcedc6991ca1ddaf32e27737"
+    },
+    "fr_amc35:front:proxy": {
+      "key": "fr_amc35:front:proxy",
+      "modelId": "fr_amc35",
+      "designation": "AMC 35 (ACG-1)",
+      "view": "front",
+      "lod": "proxy",
+      "triangleCount": 768,
+      "projectedBoundsMeters": {
+        "minU": -1.1116,
+        "maxU": 1.1116,
+        "minV": 0.0762,
+        "maxV": 2.22,
+        "width": 2.2232,
+        "height": 2.1438
+      },
+      "svgHash": "9f073eac490fa03548e996b32647813951be0d06cc592ea9e55ce430f376342b"
+    },
+    "fr_amc35:side:core": {
+      "key": "fr_amc35:side:core",
+      "modelId": "fr_amc35",
+      "designation": "AMC 35 (ACG-1)",
+      "view": "side",
+      "lod": "core",
+      "triangleCount": 1844,
+      "projectedBoundsMeters": {
+        "minU": -2.275,
+        "maxU": 2.275,
+        "minV": 0.0396,
+        "maxV": 2.24,
+        "width": 4.55,
+        "height": 2.2004
+      },
+      "svgHash": "5882bd0206e737178be6ce3260afdd7532bc492a2e1b41245d761fc74e0c1f35"
+    },
+    "fr_amc35:side:high": {
+      "key": "fr_amc35:side:high",
+      "modelId": "fr_amc35",
+      "designation": "AMC 35 (ACG-1)",
+      "view": "side",
+      "lod": "high",
+      "triangleCount": 5016,
+      "projectedBoundsMeters": {
+        "minU": -2.275,
+        "maxU": 2.275,
+        "minV": 0.0001,
+        "maxV": 2.3,
+        "width": 4.55,
+        "height": 2.2999
+      },
+      "svgHash": "3b87e8f09e86a24a2947cd2f515482bb7c94d19849e96904e1d168fe91a37d0c"
+    },
+    "fr_amc35:side:medium": {
+      "key": "fr_amc35:side:medium",
+      "modelId": "fr_amc35",
+      "designation": "AMC 35 (ACG-1)",
+      "view": "side",
+      "lod": "medium",
+      "triangleCount": 2956,
+      "projectedBoundsMeters": {
+        "minU": -2.275,
+        "maxU": 2.275,
+        "minV": 0.0396,
+        "maxV": 2.29,
+        "width": 4.55,
+        "height": 2.2504
+      },
+      "svgHash": "6b8ee3991b5efb56c3f2af8ea02d6291c49ec64dd98798afe8edac876fbcee84"
+    },
+    "fr_amc35:side:proxy": {
+      "key": "fr_amc35:side:proxy",
+      "modelId": "fr_amc35",
+      "designation": "AMC 35 (ACG-1)",
+      "view": "side",
+      "lod": "proxy",
+      "triangleCount": 768,
+      "projectedBoundsMeters": {
+        "minU": -2.275,
+        "maxU": 2.275,
+        "minV": 0.0762,
+        "maxV": 2.22,
+        "width": 4.55,
+        "height": 2.1438
+      },
+      "svgHash": "be3e6de128cef706fb8c395ab44f260602d36d7e1cd1b490dbdd974bedb7d5ff"
+    },
+    "fr_amc35:top:core": {
+      "key": "fr_amc35:top:core",
+      "modelId": "fr_amc35",
+      "designation": "AMC 35 (ACG-1)",
+      "view": "top",
+      "lod": "core",
+      "triangleCount": 1844,
+      "projectedBoundsMeters": {
+        "minU": -1.115,
+        "maxU": 1.115,
+        "minV": -2.275,
+        "maxV": 2.275,
+        "width": 2.23,
+        "height": 4.55
+      },
+      "svgHash": "cb615c9728d3261985cfed10c36570acad6bd7b737bcc48a3bb5150f03ae2153"
+    },
+    "fr_amc35:top:high": {
+      "key": "fr_amc35:top:high",
+      "modelId": "fr_amc35",
+      "designation": "AMC 35 (ACG-1)",
+      "view": "top",
+      "lod": "high",
+      "triangleCount": 5016,
+      "projectedBoundsMeters": {
+        "minU": -1.12,
+        "maxU": 1.12,
+        "minV": -2.275,
+        "maxV": 2.275,
+        "width": 2.24,
+        "height": 4.55
+      },
+      "svgHash": "d2d00c8d0d9fd81d6ad338206e71af161d36e185809b84218a15300e6235846e"
+    },
+    "fr_amc35:top:medium": {
+      "key": "fr_amc35:top:medium",
+      "modelId": "fr_amc35",
+      "designation": "AMC 35 (ACG-1)",
+      "view": "top",
+      "lod": "medium",
+      "triangleCount": 2956,
+      "projectedBoundsMeters": {
+        "minU": -1.115,
+        "maxU": 1.115,
+        "minV": -2.275,
+        "maxV": 2.275,
+        "width": 2.23,
+        "height": 4.55
+      },
+      "svgHash": "107ba0f001999da90c3d7e81afcdd615751a6bab8ecc7098895f776f1ddba262"
+    },
+    "fr_amc35:top:proxy": {
+      "key": "fr_amc35:top:proxy",
+      "modelId": "fr_amc35",
+      "designation": "AMC 35 (ACG-1)",
+      "view": "top",
+      "lod": "proxy",
+      "triangleCount": 768,
+      "projectedBoundsMeters": {
+        "minU": -1.1116,
+        "maxU": 1.1116,
+        "minV": -2.275,
+        "maxV": 2.275,
+        "width": 2.2232,
+        "height": 4.55
+      },
+      "svgHash": "ee421b8345bcd1a81a2542986544ba26afceb7c4b6b0c8dc3dfc362c8a10458c"
+    },
+    "fr_char_b1bis:front:core": {
+      "key": "fr_char_b1bis:front:core",
+      "modelId": "fr_char_b1bis",
+      "designation": "Char B1 bis",
+      "view": "front",
+      "lod": "core",
+      "triangleCount": 2456,
+      "projectedBoundsMeters": {
+        "minU": -1.221,
+        "maxU": 1.221,
+        "minV": 0.0391,
+        "maxV": 2.48,
+        "width": 2.442,
+        "height": 2.4409
+      },
+      "svgHash": "18e2479ec649d771511a14f54e7c7de56e0249466a671c285e6644ee4e4aa4e2"
+    },
+    "fr_char_b1bis:front:high": {
+      "key": "fr_char_b1bis:front:high",
+      "modelId": "fr_char_b1bis",
+      "designation": "Char B1 bis",
+      "view": "front",
+      "lod": "high",
+      "triangleCount": 6484,
+      "projectedBoundsMeters": {
+        "minU": -1.23,
+        "maxU": 1.23,
+        "minV": -0.0007,
+        "maxV": 2.79,
+        "width": 2.46,
+        "height": 2.7907
+      },
+      "svgHash": "ec36bbe5fe0e1ae888e6101516557267dbff37b233750edc60ff89fb07f3ad14"
+    },
+    "fr_char_b1bis:front:medium": {
+      "key": "fr_char_b1bis:front:medium",
+      "modelId": "fr_char_b1bis",
+      "designation": "Char B1 bis",
+      "view": "front",
+      "lod": "medium",
+      "triangleCount": 4316,
+      "projectedBoundsMeters": {
+        "minU": -1.221,
+        "maxU": 1.221,
+        "minV": 0.0391,
+        "maxV": 2.755,
+        "width": 2.442,
+        "height": 2.7159
+      },
+      "svgHash": "1be080d20aa222b2a84417bca384a01a44c093bf15584b9aaf3a95d58d2e655b"
+    },
+    "fr_char_b1bis:front:proxy": {
+      "key": "fr_char_b1bis:front:proxy",
+      "modelId": "fr_char_b1bis",
+      "designation": "Char B1 bis",
+      "view": "front",
+      "lod": "proxy",
+      "triangleCount": 1700,
+      "projectedBoundsMeters": {
+        "minU": -1.221,
+        "maxU": 1.221,
+        "minV": 0.075,
+        "maxV": 2.79,
+        "width": 2.442,
+        "height": 2.715
+      },
+      "svgHash": "ee7f43f2f33f6e2977a6ba1ae5f138c8b8785cf32689559b95ac8176419a5dac"
+    },
+    "fr_char_b1bis:side:core": {
+      "key": "fr_char_b1bis:side:core",
+      "modelId": "fr_char_b1bis",
+      "designation": "Char B1 bis",
+      "view": "side",
+      "lod": "core",
+      "triangleCount": 2456,
+      "projectedBoundsMeters": {
+        "minU": -3.185,
+        "maxU": 3.185,
+        "minV": 0.0391,
+        "maxV": 2.48,
+        "width": 6.37,
+        "height": 2.4409
+      },
+      "svgHash": "c815b938b50119bf6278e713ba10189b3f456ac200cb3ee9f89159c21ef50e46"
+    },
+    "fr_char_b1bis:side:high": {
+      "key": "fr_char_b1bis:side:high",
+      "modelId": "fr_char_b1bis",
+      "designation": "Char B1 bis",
+      "view": "side",
+      "lod": "high",
+      "triangleCount": 6484,
+      "projectedBoundsMeters": {
+        "minU": -3.185,
+        "maxU": 3.185,
+        "minV": -0.0007,
+        "maxV": 2.79,
+        "width": 6.37,
+        "height": 2.7907
+      },
+      "svgHash": "ab0549bb9bbae587760562f3c03b918e655d6423973c70ab04c3929f9d1f9dcc"
+    },
+    "fr_char_b1bis:side:medium": {
+      "key": "fr_char_b1bis:side:medium",
+      "modelId": "fr_char_b1bis",
+      "designation": "Char B1 bis",
+      "view": "side",
+      "lod": "medium",
+      "triangleCount": 4316,
+      "projectedBoundsMeters": {
+        "minU": -3.185,
+        "maxU": 3.185,
+        "minV": 0.0391,
+        "maxV": 2.755,
+        "width": 6.37,
+        "height": 2.7159
+      },
+      "svgHash": "975134afacd98362987b37ff8fbca22cda217acbdd8fa95a5e2eb5777399cdbf"
+    },
+    "fr_char_b1bis:side:proxy": {
+      "key": "fr_char_b1bis:side:proxy",
+      "modelId": "fr_char_b1bis",
+      "designation": "Char B1 bis",
+      "view": "side",
+      "lod": "proxy",
+      "triangleCount": 1700,
+      "projectedBoundsMeters": {
+        "minU": -3.185,
+        "maxU": 3.185,
+        "minV": 0.075,
+        "maxV": 2.79,
+        "width": 6.37,
+        "height": 2.715
+      },
+      "svgHash": "482089d96f581f60f3e9c06026c5b9131729504c43acadf00708d5c11b494eeb"
+    },
+    "fr_char_b1bis:top:core": {
+      "key": "fr_char_b1bis:top:core",
+      "modelId": "fr_char_b1bis",
+      "designation": "Char B1 bis",
+      "view": "top",
+      "lod": "core",
+      "triangleCount": 2456,
+      "projectedBoundsMeters": {
+        "minU": -1.221,
+        "maxU": 1.221,
+        "minV": -3.185,
+        "maxV": 3.185,
+        "width": 2.442,
+        "height": 6.37
+      },
+      "svgHash": "a3ee371bb798cddf0e5ba78f5b5bc52451583f13964d6f9180f9b12f9f21b9a2"
+    },
+    "fr_char_b1bis:top:high": {
+      "key": "fr_char_b1bis:top:high",
+      "modelId": "fr_char_b1bis",
+      "designation": "Char B1 bis",
+      "view": "top",
+      "lod": "high",
+      "triangleCount": 6484,
+      "projectedBoundsMeters": {
+        "minU": -1.23,
+        "maxU": 1.23,
+        "minV": -3.185,
+        "maxV": 3.185,
+        "width": 2.46,
+        "height": 6.37
+      },
+      "svgHash": "66c05f85928dc9c60b2721baa50fa225854678bb5efdd43d569cb54aeb6340a7"
+    },
+    "fr_char_b1bis:top:medium": {
+      "key": "fr_char_b1bis:top:medium",
+      "modelId": "fr_char_b1bis",
+      "designation": "Char B1 bis",
+      "view": "top",
+      "lod": "medium",
+      "triangleCount": 4316,
+      "projectedBoundsMeters": {
+        "minU": -1.221,
+        "maxU": 1.221,
+        "minV": -3.185,
+        "maxV": 3.185,
+        "width": 2.442,
+        "height": 6.37
+      },
+      "svgHash": "35a8e9e9a084752b2abb00b7378e12eb74663dbfd287a3b5e0c47ba49dd162e1"
+    },
+    "fr_char_b1bis:top:proxy": {
+      "key": "fr_char_b1bis:top:proxy",
+      "modelId": "fr_char_b1bis",
+      "designation": "Char B1 bis",
+      "view": "top",
+      "lod": "proxy",
+      "triangleCount": 1700,
+      "projectedBoundsMeters": {
+        "minU": -1.221,
+        "maxU": 1.221,
+        "minV": -3.185,
+        "maxV": 3.185,
+        "width": 2.442,
+        "height": 6.37
+      },
+      "svgHash": "962551c0c351216539b871acf5fdab8aaa6ac8c624393be02b5eb5768db93710"
+    },
+    "fr_hotchkiss_h39:front:core": {
+      "key": "fr_hotchkiss_h39:front:core",
+      "modelId": "fr_hotchkiss_h39",
+      "designation": "Hotchkiss H39",
+      "view": "front",
+      "lod": "core",
+      "triangleCount": 2180,
+      "projectedBoundsMeters": {
+        "minU": -0.925,
+        "maxU": 0.925,
+        "minV": 0.0285,
+        "maxV": 2.11,
+        "width": 1.85,
+        "height": 2.0815
+      },
+      "svgHash": "0001c73f93a461a3015253ceaf712cfec6a01ccbaeca784432ac7a29581f2ddb"
+    },
+    "fr_hotchkiss_h39:front:high": {
+      "key": "fr_hotchkiss_h39:front:high",
+      "modelId": "fr_hotchkiss_h39",
+      "designation": "Hotchkiss H39",
+      "view": "front",
+      "lod": "high",
+      "triangleCount": 5200,
+      "projectedBoundsMeters": {
+        "minU": -0.925,
+        "maxU": 0.925,
+        "minV": 0,
+        "maxV": 2.14,
+        "width": 1.85,
+        "height": 2.14
+      },
+      "svgHash": "a7c159cac52f7cf2e5cb35a763ac4c4b8dab9c072f694439a8632eefcaf832b7"
+    },
+    "fr_hotchkiss_h39:front:medium": {
+      "key": "fr_hotchkiss_h39:front:medium",
+      "modelId": "fr_hotchkiss_h39",
+      "designation": "Hotchkiss H39",
+      "view": "front",
+      "lod": "medium",
+      "triangleCount": 3360,
+      "projectedBoundsMeters": {
+        "minU": -0.925,
+        "maxU": 0.925,
+        "minV": 0.0285,
+        "maxV": 2.14,
+        "width": 1.85,
+        "height": 2.1115
+      },
+      "svgHash": "4149c13b1b7e2de00f148d7b8708a6e1b57c6151585df5afdca0abfa77b547a9"
+    },
+    "fr_hotchkiss_h39:front:proxy": {
+      "key": "fr_hotchkiss_h39:front:proxy",
+      "modelId": "fr_hotchkiss_h39",
+      "designation": "Hotchkiss H39",
+      "view": "front",
+      "lod": "proxy",
+      "triangleCount": 848,
+      "projectedBoundsMeters": {
+        "minU": -0.925,
+        "maxU": 0.925,
+        "minV": 0,
+        "maxV": 1.93,
+        "width": 1.85,
+        "height": 1.93
+      },
+      "svgHash": "4b2c9bcff3329858cdccea239cb04228d02bd0176bbb8d8efb0c99d5600c1b16"
+    },
+    "fr_hotchkiss_h39:side:core": {
+      "key": "fr_hotchkiss_h39:side:core",
+      "modelId": "fr_hotchkiss_h39",
+      "designation": "Hotchkiss H39",
+      "view": "side",
+      "lod": "core",
+      "triangleCount": 2180,
+      "projectedBoundsMeters": {
+        "minU": -2.11,
+        "maxU": 2.11,
+        "minV": 0.0285,
+        "maxV": 2.11,
+        "width": 4.22,
+        "height": 2.0815
+      },
+      "svgHash": "4b5d19389a8de6e2931aa6b36aa3390f7b87328dbf306fa70193c80eea41f8ca"
+    },
+    "fr_hotchkiss_h39:side:high": {
+      "key": "fr_hotchkiss_h39:side:high",
+      "modelId": "fr_hotchkiss_h39",
+      "designation": "Hotchkiss H39",
+      "view": "side",
+      "lod": "high",
+      "triangleCount": 5200,
+      "projectedBoundsMeters": {
+        "minU": -2.11,
+        "maxU": 2.11,
+        "minV": 0,
+        "maxV": 2.14,
+        "width": 4.22,
+        "height": 2.14
+      },
+      "svgHash": "d435adcc98e9f432672927b9f38b50e93dda296ebe170c2ad575feb4d40fb2b5"
+    },
+    "fr_hotchkiss_h39:side:medium": {
+      "key": "fr_hotchkiss_h39:side:medium",
+      "modelId": "fr_hotchkiss_h39",
+      "designation": "Hotchkiss H39",
+      "view": "side",
+      "lod": "medium",
+      "triangleCount": 3360,
+      "projectedBoundsMeters": {
+        "minU": -2.11,
+        "maxU": 2.11,
+        "minV": 0.0285,
+        "maxV": 2.14,
+        "width": 4.22,
+        "height": 2.1115
+      },
+      "svgHash": "23b10df33c7257313ab0a67bdc0766b322173e73f01722a773a3687913b741d7"
+    },
+    "fr_hotchkiss_h39:side:proxy": {
+      "key": "fr_hotchkiss_h39:side:proxy",
+      "modelId": "fr_hotchkiss_h39",
+      "designation": "Hotchkiss H39",
+      "view": "side",
+      "lod": "proxy",
+      "triangleCount": 848,
+      "projectedBoundsMeters": {
+        "minU": -2.11,
+        "maxU": 2.11,
+        "minV": 0,
+        "maxV": 1.93,
+        "width": 4.22,
+        "height": 1.93
+      },
+      "svgHash": "226c6fff623260ac34e363ede0fb1572f34f7a5a62fc97e49cb72d92b29ee24a"
+    },
+    "fr_hotchkiss_h39:top:core": {
+      "key": "fr_hotchkiss_h39:top:core",
+      "modelId": "fr_hotchkiss_h39",
+      "designation": "Hotchkiss H39",
+      "view": "top",
+      "lod": "core",
+      "triangleCount": 2180,
+      "projectedBoundsMeters": {
+        "minU": -0.925,
+        "maxU": 0.925,
+        "minV": -2.11,
+        "maxV": 2.11,
+        "width": 1.85,
+        "height": 4.22
+      },
+      "svgHash": "745fa18b2a60505beeb1bb6be5a5c3f96fa2f1567bc48c540e17e6d61ab4a011"
+    },
+    "fr_hotchkiss_h39:top:high": {
+      "key": "fr_hotchkiss_h39:top:high",
+      "modelId": "fr_hotchkiss_h39",
+      "designation": "Hotchkiss H39",
+      "view": "top",
+      "lod": "high",
+      "triangleCount": 5200,
+      "projectedBoundsMeters": {
+        "minU": -0.925,
+        "maxU": 0.925,
+        "minV": -2.11,
+        "maxV": 2.11,
+        "width": 1.85,
+        "height": 4.22
+      },
+      "svgHash": "fb14c3b10f3a3050db1620676bbf154cf59f2adaff8f70f9fac335759c35ec0f"
+    },
+    "fr_hotchkiss_h39:top:medium": {
+      "key": "fr_hotchkiss_h39:top:medium",
+      "modelId": "fr_hotchkiss_h39",
+      "designation": "Hotchkiss H39",
+      "view": "top",
+      "lod": "medium",
+      "triangleCount": 3360,
+      "projectedBoundsMeters": {
+        "minU": -0.925,
+        "maxU": 0.925,
+        "minV": -2.11,
+        "maxV": 2.11,
+        "width": 1.85,
+        "height": 4.22
+      },
+      "svgHash": "e31098bb996a4cae74ddf7cbdaf314b7b31d19a7b2cb3ae17a34e98963df45c0"
+    },
+    "fr_hotchkiss_h39:top:proxy": {
+      "key": "fr_hotchkiss_h39:top:proxy",
+      "modelId": "fr_hotchkiss_h39",
+      "designation": "Hotchkiss H39",
+      "view": "top",
+      "lod": "proxy",
+      "triangleCount": 848,
+      "projectedBoundsMeters": {
+        "minU": -0.925,
+        "maxU": 0.925,
+        "minV": -2.11,
+        "maxV": 2.11,
+        "width": 1.85,
+        "height": 4.22
+      },
+      "svgHash": "2269defbee297dd46d80476c48913fafab9f4ebe31f2e421819a33abba7885a5"
+    },
+    "fr_laffly_s20tl:front:core": {
+      "key": "fr_laffly_s20tl:front:core",
+      "modelId": "fr_laffly_s20tl",
+      "designation": "Laffly S20TL",
+      "view": "front",
+      "lod": "core",
+      "triangleCount": 972,
+      "projectedBoundsMeters": {
+        "minU": -1,
+        "maxU": 1,
+        "minV": 0,
+        "maxV": 2,
+        "width": 2,
+        "height": 2
+      },
+      "svgHash": "ff4f3cad8d979030728ee8857089b26860f683ceab1a3314ddcd8c940b0bc4fb"
+    },
+    "fr_laffly_s20tl:front:high": {
+      "key": "fr_laffly_s20tl:front:high",
+      "modelId": "fr_laffly_s20tl",
+      "designation": "Laffly S20TL",
+      "view": "front",
+      "lod": "high",
+      "triangleCount": 4824,
+      "projectedBoundsMeters": {
+        "minU": -1,
+        "maxU": 1,
+        "minV": 0,
+        "maxV": 2,
+        "width": 2,
+        "height": 2
+      },
+      "svgHash": "5bbf4de587efae0778a937f0e0ce0ed924a8772c52b4d0807b6baf11b6e8e96d"
+    },
+    "fr_laffly_s20tl:front:medium": {
+      "key": "fr_laffly_s20tl:front:medium",
+      "modelId": "fr_laffly_s20tl",
+      "designation": "Laffly S20TL",
+      "view": "front",
+      "lod": "medium",
+      "triangleCount": 3204,
+      "projectedBoundsMeters": {
+        "minU": -1,
+        "maxU": 1,
+        "minV": 0,
+        "maxV": 2,
+        "width": 2,
+        "height": 2
+      },
+      "svgHash": "137084c9fef3a76553e5eca1119a5de7b1bf7e027ff1bdea1177a269e1f87597"
+    },
+    "fr_laffly_s20tl:front:proxy": {
+      "key": "fr_laffly_s20tl:front:proxy",
+      "modelId": "fr_laffly_s20tl",
+      "designation": "Laffly S20TL",
+      "view": "front",
+      "lod": "proxy",
+      "triangleCount": 572,
+      "projectedBoundsMeters": {
+        "minU": -1,
+        "maxU": 1,
+        "minV": 0,
+        "maxV": 2,
+        "width": 2,
+        "height": 2
+      },
+      "svgHash": "78cf2799641aafaddacdc6af8745fd25cf8073c6f3cdf8c7c607ca267af0c4a5"
+    },
+    "fr_laffly_s20tl:side:core": {
+      "key": "fr_laffly_s20tl:side:core",
+      "modelId": "fr_laffly_s20tl",
+      "designation": "Laffly S20TL",
+      "view": "side",
+      "lod": "core",
+      "triangleCount": 972,
+      "projectedBoundsMeters": {
+        "minU": -2.675,
+        "maxU": 2.675,
+        "minV": 0,
+        "maxV": 2,
+        "width": 5.35,
+        "height": 2
+      },
+      "svgHash": "285010d248858c4bac9ab64872d05043a5805ad44ec8965e4407e8e88f14371e"
+    },
+    "fr_laffly_s20tl:side:high": {
+      "key": "fr_laffly_s20tl:side:high",
+      "modelId": "fr_laffly_s20tl",
+      "designation": "Laffly S20TL",
+      "view": "side",
+      "lod": "high",
+      "triangleCount": 4824,
+      "projectedBoundsMeters": {
+        "minU": -2.675,
+        "maxU": 2.675,
+        "minV": 0,
+        "maxV": 2,
+        "width": 5.35,
+        "height": 2
+      },
+      "svgHash": "f34b684ddaa1e798f182d837d8d014773a3debbe68dffcf29ea792c8e4341662"
+    },
+    "fr_laffly_s20tl:side:medium": {
+      "key": "fr_laffly_s20tl:side:medium",
+      "modelId": "fr_laffly_s20tl",
+      "designation": "Laffly S20TL",
+      "view": "side",
+      "lod": "medium",
+      "triangleCount": 3204,
+      "projectedBoundsMeters": {
+        "minU": -2.675,
+        "maxU": 2.675,
+        "minV": 0,
+        "maxV": 2,
+        "width": 5.35,
+        "height": 2
+      },
+      "svgHash": "f1a26e4ea23df1fb288e2f86b8843fa595ab2216baf69210e6241835c8a557dd"
+    },
+    "fr_laffly_s20tl:side:proxy": {
+      "key": "fr_laffly_s20tl:side:proxy",
+      "modelId": "fr_laffly_s20tl",
+      "designation": "Laffly S20TL",
+      "view": "side",
+      "lod": "proxy",
+      "triangleCount": 572,
+      "projectedBoundsMeters": {
+        "minU": -2.675,
+        "maxU": 2.675,
+        "minV": 0,
+        "maxV": 2,
+        "width": 5.35,
+        "height": 2
+      },
+      "svgHash": "9d2ce0262d18dec6c04524538f4e02a9f8ad1e5d2e55cd36aa5b01a4e08a5621"
+    },
+    "fr_laffly_s20tl:top:core": {
+      "key": "fr_laffly_s20tl:top:core",
+      "modelId": "fr_laffly_s20tl",
+      "designation": "Laffly S20TL",
+      "view": "top",
+      "lod": "core",
+      "triangleCount": 972,
+      "projectedBoundsMeters": {
+        "minU": -1,
+        "maxU": 1,
+        "minV": -2.675,
+        "maxV": 2.675,
+        "width": 2,
+        "height": 5.35
+      },
+      "svgHash": "6756030063b2688936e889fd3ef6d259778ff07a6bf6254312e97de19737a91b"
+    },
+    "fr_laffly_s20tl:top:high": {
+      "key": "fr_laffly_s20tl:top:high",
+      "modelId": "fr_laffly_s20tl",
+      "designation": "Laffly S20TL",
+      "view": "top",
+      "lod": "high",
+      "triangleCount": 4824,
+      "projectedBoundsMeters": {
+        "minU": -1,
+        "maxU": 1,
+        "minV": -2.675,
+        "maxV": 2.675,
+        "width": 2,
+        "height": 5.35
+      },
+      "svgHash": "8a4f340207c01944e436845983d498c38aaaf9f23910d96331bc313208a59a53"
+    },
+    "fr_laffly_s20tl:top:medium": {
+      "key": "fr_laffly_s20tl:top:medium",
+      "modelId": "fr_laffly_s20tl",
+      "designation": "Laffly S20TL",
+      "view": "top",
+      "lod": "medium",
+      "triangleCount": 3204,
+      "projectedBoundsMeters": {
+        "minU": -1,
+        "maxU": 1,
+        "minV": -2.675,
+        "maxV": 2.675,
+        "width": 2,
+        "height": 5.35
+      },
+      "svgHash": "5c02aa1702a793329abd8bfceefcbd7a49061c9d578b70d2dd2cc0a36aaf9e17"
+    },
+    "fr_laffly_s20tl:top:proxy": {
+      "key": "fr_laffly_s20tl:top:proxy",
+      "modelId": "fr_laffly_s20tl",
+      "designation": "Laffly S20TL",
+      "view": "top",
+      "lod": "proxy",
+      "triangleCount": 572,
+      "projectedBoundsMeters": {
+        "minU": -1,
+        "maxU": 1,
+        "minV": -2.675,
+        "maxV": 2.675,
+        "width": 2,
+        "height": 5.35
+      },
+      "svgHash": "f0a9fae8fb59ffdfc79302e035f267f125e0f9a7562bde60e80eee5097200899"
+    },
+    "fr_panhard178:front:core": {
+      "key": "fr_panhard178:front:core",
+      "modelId": "fr_panhard178",
+      "designation": "Panhard 178 (AMD 35)",
+      "view": "front",
+      "lod": "core",
+      "triangleCount": 372,
+      "projectedBoundsMeters": {
+        "minU": -0.88,
+        "maxU": 0.88,
+        "minV": 0.35,
+        "maxV": 2.24,
+        "width": 1.76,
+        "height": 1.89
+      },
+      "svgHash": "738063b2ab0da958cadf64b1177c9ff0222b14f724d00b12945359bbe747a746"
+    },
+    "fr_panhard178:front:high": {
+      "key": "fr_panhard178:front:high",
+      "modelId": "fr_panhard178",
+      "designation": "Panhard 178 (AMD 35)",
+      "view": "front",
+      "lod": "high",
+      "triangleCount": 1496,
+      "projectedBoundsMeters": {
+        "minU": -1.005,
+        "maxU": 1.005,
+        "minV": 0,
+        "maxV": 2.3147,
+        "width": 2.01,
+        "height": 2.3147
+      },
+      "svgHash": "314fcb48cba20aba6b73349d05e2401fd36b0db96135dfaf909cb01aa8c4b6fd"
+    },
+    "fr_panhard178:front:medium": {
+      "key": "fr_panhard178:front:medium",
+      "modelId": "fr_panhard178",
+      "designation": "Panhard 178 (AMD 35)",
+      "view": "front",
+      "lod": "medium",
+      "triangleCount": 1064,
+      "projectedBoundsMeters": {
+        "minU": -1.005,
+        "maxU": 1.005,
+        "minV": 0,
+        "maxV": 2.3147,
+        "width": 2.01,
+        "height": 2.3147
+      },
+      "svgHash": "e93446533bdb9f25c433552e0bfe40e46d481612212a2107aa79451b06aaf143"
+    },
+    "fr_panhard178:front:proxy": {
+      "key": "fr_panhard178:front:proxy",
+      "modelId": "fr_panhard178",
+      "designation": "Panhard 178 (AMD 35)",
+      "view": "front",
+      "lod": "proxy",
+      "triangleCount": 468,
+      "projectedBoundsMeters": {
+        "minU": -1.005,
+        "maxU": 1.005,
+        "minV": 0,
+        "maxV": 2.3147,
+        "width": 2.01,
+        "height": 2.3147
+      },
+      "svgHash": "1a27d210ac98967d97a6a9b04cd2562f6b6c1b76ef1639abcd22ed2b281b6b3d"
+    },
+    "fr_panhard178:side:core": {
+      "key": "fr_panhard178:side:core",
+      "modelId": "fr_panhard178",
+      "designation": "Panhard 178 (AMD 35)",
+      "view": "side",
+      "lod": "core",
+      "triangleCount": 372,
+      "projectedBoundsMeters": {
+        "minU": -2.395,
+        "maxU": 2.395,
+        "minV": 0.35,
+        "maxV": 2.24,
+        "width": 4.79,
+        "height": 1.89
+      },
+      "svgHash": "b5578cc41587448ad84314af04dba262337b9ca4c1e752dd916e3b35473126fb"
+    },
+    "fr_panhard178:side:high": {
+      "key": "fr_panhard178:side:high",
+      "modelId": "fr_panhard178",
+      "designation": "Panhard 178 (AMD 35)",
+      "view": "side",
+      "lod": "high",
+      "triangleCount": 1496,
+      "projectedBoundsMeters": {
+        "minU": -2.395,
+        "maxU": 2.395,
+        "minV": 0,
+        "maxV": 2.3147,
+        "width": 4.79,
+        "height": 2.3147
+      },
+      "svgHash": "545d0b501112b112eeb3d5dd3d36e859a633ac8485c1de3682ab80746df17bd5"
+    },
+    "fr_panhard178:side:medium": {
+      "key": "fr_panhard178:side:medium",
+      "modelId": "fr_panhard178",
+      "designation": "Panhard 178 (AMD 35)",
+      "view": "side",
+      "lod": "medium",
+      "triangleCount": 1064,
+      "projectedBoundsMeters": {
+        "minU": -2.395,
+        "maxU": 2.395,
+        "minV": 0,
+        "maxV": 2.3147,
+        "width": 4.79,
+        "height": 2.3147
+      },
+      "svgHash": "5fed5bcef5ef1e1c1b86d9e057faf5f131ecc57e0eada572d489f485c1e2477b"
+    },
+    "fr_panhard178:side:proxy": {
+      "key": "fr_panhard178:side:proxy",
+      "modelId": "fr_panhard178",
+      "designation": "Panhard 178 (AMD 35)",
+      "view": "side",
+      "lod": "proxy",
+      "triangleCount": 468,
+      "projectedBoundsMeters": {
+        "minU": -2.395,
+        "maxU": 2.395,
+        "minV": 0,
+        "maxV": 2.3147,
+        "width": 4.79,
+        "height": 2.3147
+      },
+      "svgHash": "499886784ddaa54224260e5ba10cf71c1f0aefc4f1c556f9ffbab01a5ed0ce24"
+    },
+    "fr_panhard178:top:core": {
+      "key": "fr_panhard178:top:core",
+      "modelId": "fr_panhard178",
+      "designation": "Panhard 178 (AMD 35)",
+      "view": "top",
+      "lod": "core",
+      "triangleCount": 372,
+      "projectedBoundsMeters": {
+        "minU": -0.88,
+        "maxU": 0.88,
+        "minV": -2.395,
+        "maxV": 2.395,
+        "width": 1.76,
+        "height": 4.79
+      },
+      "svgHash": "f574d9e2331a2a353dd12bd3ed6954ffc39bb0523f130e3e8c615b6dd6822524"
+    },
+    "fr_panhard178:top:high": {
+      "key": "fr_panhard178:top:high",
+      "modelId": "fr_panhard178",
+      "designation": "Panhard 178 (AMD 35)",
+      "view": "top",
+      "lod": "high",
+      "triangleCount": 1496,
+      "projectedBoundsMeters": {
+        "minU": -1.005,
+        "maxU": 1.005,
+        "minV": -2.395,
+        "maxV": 2.395,
+        "width": 2.01,
+        "height": 4.79
+      },
+      "svgHash": "6853597f3423b2173c3591f57f9d03dd1f79eaa689f000187622919352bdbee3"
+    },
+    "fr_panhard178:top:medium": {
+      "key": "fr_panhard178:top:medium",
+      "modelId": "fr_panhard178",
+      "designation": "Panhard 178 (AMD 35)",
+      "view": "top",
+      "lod": "medium",
+      "triangleCount": 1064,
+      "projectedBoundsMeters": {
+        "minU": -1.005,
+        "maxU": 1.005,
+        "minV": -2.395,
+        "maxV": 2.395,
+        "width": 2.01,
+        "height": 4.79
+      },
+      "svgHash": "2f9511addd78479e448d2095dd6f06b32d8a177fd987dd18451162a607e65c25"
+    },
+    "fr_panhard178:top:proxy": {
+      "key": "fr_panhard178:top:proxy",
+      "modelId": "fr_panhard178",
+      "designation": "Panhard 178 (AMD 35)",
+      "view": "top",
+      "lod": "proxy",
+      "triangleCount": 468,
+      "projectedBoundsMeters": {
+        "minU": -1.005,
+        "maxU": 1.005,
+        "minV": -2.395,
+        "maxV": 2.395,
+        "width": 2.01,
+        "height": 4.79
+      },
+      "svgHash": "91428cef8a5425331625e42d352f9e13ea267ae790dfa95b851116884cf641ee"
+    },
+    "fr_renault_r35:front:core": {
+      "key": "fr_renault_r35:front:core",
+      "modelId": "fr_renault_r35",
+      "designation": "Renault R35",
+      "view": "front",
+      "lod": "core",
+      "triangleCount": 1912,
+      "projectedBoundsMeters": {
+        "minU": -0.9292,
+        "maxU": 0.9292,
+        "minV": 0.0279,
+        "maxV": 1.97,
+        "width": 1.8584,
+        "height": 1.9421
+      },
+      "svgHash": "1d3fdb22407cd38bebf237046c96f5a85dc50cc14abfc8f65cb36bb51d79a1fb"
+    },
+    "fr_renault_r35:front:high": {
+      "key": "fr_renault_r35:front:high",
+      "modelId": "fr_renault_r35",
+      "designation": "Renault R35",
+      "view": "front",
+      "lod": "high",
+      "triangleCount": 4500,
+      "projectedBoundsMeters": {
+        "minU": -0.935,
+        "maxU": 0.935,
+        "minV": -0.0023,
+        "maxV": 2.13,
+        "width": 1.87,
+        "height": 2.1323
+      },
+      "svgHash": "2e143f77e7a2fcf96be47ad7396e3e0eed04620943ea78c118c5c2ea4720a658"
+    },
+    "fr_renault_r35:front:medium": {
+      "key": "fr_renault_r35:front:medium",
+      "modelId": "fr_renault_r35",
+      "designation": "Renault R35",
+      "view": "front",
+      "lod": "medium",
+      "triangleCount": 2892,
+      "projectedBoundsMeters": {
+        "minU": -0.9292,
+        "maxU": 0.9292,
+        "minV": 0.0279,
+        "maxV": 2.13,
+        "width": 1.8584,
+        "height": 2.1021
+      },
+      "svgHash": "0b92699e3c5a301f7ea9df94667b4be2650bb6abd222ec47c23d12c3d3b86f5a"
+    },
+    "fr_renault_r35:front:proxy": {
+      "key": "fr_renault_r35:front:proxy",
+      "modelId": "fr_renault_r35",
+      "designation": "Renault R35",
+      "view": "front",
+      "lod": "proxy",
+      "triangleCount": 760,
+      "projectedBoundsMeters": {
+        "minU": -0.935,
+        "maxU": 0.935,
+        "minV": -0.0023,
+        "maxV": 2.13,
+        "width": 1.87,
+        "height": 2.1323
+      },
+      "svgHash": "3819f9ca56d88502483dbc4fd811e6297e1d100300340ea5f320925611442196"
+    },
+    "fr_renault_r35:side:core": {
+      "key": "fr_renault_r35:side:core",
+      "modelId": "fr_renault_r35",
+      "designation": "Renault R35",
+      "view": "side",
+      "lod": "core",
+      "triangleCount": 1912,
+      "projectedBoundsMeters": {
+        "minU": -2.01,
+        "maxU": 1.9795,
+        "minV": 0.0279,
+        "maxV": 1.97,
+        "width": 3.9895,
+        "height": 1.9421
+      },
+      "svgHash": "92ff8884c4d7c2f42b50010c191100bfa90b5d665316dd500410953303ed96f9"
+    },
+    "fr_renault_r35:side:high": {
+      "key": "fr_renault_r35:side:high",
+      "modelId": "fr_renault_r35",
+      "designation": "Renault R35",
+      "view": "side",
+      "lod": "high",
+      "triangleCount": 4500,
+      "projectedBoundsMeters": {
+        "minU": -2.0106,
+        "maxU": 2.0106,
+        "minV": -0.0023,
+        "maxV": 2.13,
+        "width": 4.0211,
+        "height": 2.1323
+      },
+      "svgHash": "97f15d66b819d3574258c28c11f7c51a41c20aa0db918405c04e5a6b22522225"
+    },
+    "fr_renault_r35:side:medium": {
+      "key": "fr_renault_r35:side:medium",
+      "modelId": "fr_renault_r35",
+      "designation": "Renault R35",
+      "view": "side",
+      "lod": "medium",
+      "triangleCount": 2892,
+      "projectedBoundsMeters": {
+        "minU": -2.01,
+        "maxU": 1.9795,
+        "minV": 0.0279,
+        "maxV": 2.13,
+        "width": 3.9895,
+        "height": 2.1021
+      },
+      "svgHash": "6c727c9cfe68c793cfa4dd3696f3231cb54756c92a626121ac9227651b7c9f30"
+    },
+    "fr_renault_r35:side:proxy": {
+      "key": "fr_renault_r35:side:proxy",
+      "modelId": "fr_renault_r35",
+      "designation": "Renault R35",
+      "view": "side",
+      "lod": "proxy",
+      "triangleCount": 760,
+      "projectedBoundsMeters": {
+        "minU": -2.0106,
+        "maxU": 2.0106,
+        "minV": -0.0023,
+        "maxV": 2.13,
+        "width": 4.0211,
+        "height": 2.1323
+      },
+      "svgHash": "fcc3948e4117fd3f0f2c58edf304a2c1952ad82fede850fcd1e2bdc52594d563"
+    },
+    "fr_renault_r35:top:core": {
+      "key": "fr_renault_r35:top:core",
+      "modelId": "fr_renault_r35",
+      "designation": "Renault R35",
+      "view": "top",
+      "lod": "core",
+      "triangleCount": 1912,
+      "projectedBoundsMeters": {
+        "minU": -0.9292,
+        "maxU": 0.9292,
+        "minV": -1.9795,
+        "maxV": 2.01,
+        "width": 1.8584,
+        "height": 3.9895
+      },
+      "svgHash": "d77f1449f1c564d7c9a594ba5139630fe4669033991f9f28080b5dbd2667473e"
+    },
+    "fr_renault_r35:top:high": {
+      "key": "fr_renault_r35:top:high",
+      "modelId": "fr_renault_r35",
+      "designation": "Renault R35",
+      "view": "top",
+      "lod": "high",
+      "triangleCount": 4500,
+      "projectedBoundsMeters": {
+        "minU": -0.935,
+        "maxU": 0.935,
+        "minV": -2.0106,
+        "maxV": 2.0106,
+        "width": 1.87,
+        "height": 4.0211
+      },
+      "svgHash": "e5c9bde2ae26bf9034bd36f69f3e8da688e471856e696d6289df185d53e47048"
+    },
+    "fr_renault_r35:top:medium": {
+      "key": "fr_renault_r35:top:medium",
+      "modelId": "fr_renault_r35",
+      "designation": "Renault R35",
+      "view": "top",
+      "lod": "medium",
+      "triangleCount": 2892,
+      "projectedBoundsMeters": {
+        "minU": -0.9292,
+        "maxU": 0.9292,
+        "minV": -1.9795,
+        "maxV": 2.01,
+        "width": 1.8584,
+        "height": 3.9895
+      },
+      "svgHash": "f8f34719fe573ab5f7a073634f7ede09c4396bae2f7107eea6b6ece59224a6e3"
+    },
+    "fr_renault_r35:top:proxy": {
+      "key": "fr_renault_r35:top:proxy",
+      "modelId": "fr_renault_r35",
+      "designation": "Renault R35",
+      "view": "top",
+      "lod": "proxy",
+      "triangleCount": 760,
+      "projectedBoundsMeters": {
+        "minU": -0.935,
+        "maxU": 0.935,
+        "minV": -2.0106,
+        "maxV": 2.0106,
+        "width": 1.87,
+        "height": 4.0211
+      },
+      "svgHash": "8ac4161024d0cce7e0967129fa731b3561c6973789256da6c9cf9629ea30e82f"
+    },
+    "fr_somua:front:core": {
+      "key": "fr_somua:front:core",
+      "modelId": "fr_somua",
+      "designation": "SOMUA S35",
+      "view": "front",
+      "lod": "core",
+      "triangleCount": 2364,
+      "projectedBoundsMeters": {
+        "minU": -1.0536,
+        "maxU": 1.0536,
+        "minV": 0.0367,
+        "maxV": 2.27,
+        "width": 2.1072,
+        "height": 2.2333
+      },
+      "svgHash": "62bc29b41bd82d1f9f4aa5a00e15c7329e10a154d7e6ed2cbe4412550f319b5c"
+    },
+    "fr_somua:front:high": {
+      "key": "fr_somua:front:high",
+      "modelId": "fr_somua",
+      "designation": "SOMUA S35",
+      "view": "front",
+      "lod": "high",
+      "triangleCount": 7038,
+      "projectedBoundsMeters": {
+        "minU": -1.06,
+        "maxU": 1.06,
+        "minV": 0.0031,
+        "maxV": 2.62,
+        "width": 2.12,
+        "height": 2.6169
+      },
+      "svgHash": "df855d9f5f33c875100bad911367cd26c7695cfe82e1245b3989841439736833"
+    },
+    "fr_somua:front:medium": {
+      "key": "fr_somua:front:medium",
+      "modelId": "fr_somua",
+      "designation": "SOMUA S35",
+      "view": "front",
+      "lod": "medium",
+      "triangleCount": 4110,
+      "projectedBoundsMeters": {
+        "minU": -1.055,
+        "maxU": 1.055,
+        "minV": 0.015,
+        "maxV": 2.6,
+        "width": 2.11,
+        "height": 2.585
+      },
+      "svgHash": "7aa4fc3b73305e236fcc1dbae98ceb95633f62c1956221962c5845b77632122a"
+    },
+    "fr_somua:front:proxy": {
+      "key": "fr_somua:front:proxy",
+      "modelId": "fr_somua",
+      "designation": "SOMUA S35",
+      "view": "front",
+      "lod": "proxy",
+      "triangleCount": 1172,
+      "projectedBoundsMeters": {
+        "minU": -1.0536,
+        "maxU": 1.0536,
+        "minV": 0.015,
+        "maxV": 2.27,
+        "width": 2.1072,
+        "height": 2.255
+      },
+      "svgHash": "28a30132c85f7a264c20e5de234cfcdd5f8a4f2d65eb6b980b657813099af783"
+    },
+    "fr_somua:side:core": {
+      "key": "fr_somua:side:core",
+      "modelId": "fr_somua",
+      "designation": "SOMUA S35",
+      "view": "side",
+      "lod": "core",
+      "triangleCount": 2364,
+      "projectedBoundsMeters": {
+        "minU": -2.69,
+        "maxU": 2.69,
+        "minV": 0.0367,
+        "maxV": 2.27,
+        "width": 5.38,
+        "height": 2.2333
+      },
+      "svgHash": "787102f2f4e4a6832df303c1a75b6c782771be8144bd29deb32a97964ba0e0ba"
+    },
+    "fr_somua:side:high": {
+      "key": "fr_somua:side:high",
+      "modelId": "fr_somua",
+      "designation": "SOMUA S35",
+      "view": "side",
+      "lod": "high",
+      "triangleCount": 7038,
+      "projectedBoundsMeters": {
+        "minU": -2.69,
+        "maxU": 2.69,
+        "minV": 0.0031,
+        "maxV": 2.62,
+        "width": 5.38,
+        "height": 2.6169
+      },
+      "svgHash": "6b2f53d3e6d28917e87a4c2df43865edc969fec412eedf01de1c000091b476b0"
+    },
+    "fr_somua:side:medium": {
+      "key": "fr_somua:side:medium",
+      "modelId": "fr_somua",
+      "designation": "SOMUA S35",
+      "view": "side",
+      "lod": "medium",
+      "triangleCount": 4110,
+      "projectedBoundsMeters": {
+        "minU": -2.69,
+        "maxU": 2.69,
+        "minV": 0.015,
+        "maxV": 2.6,
+        "width": 5.38,
+        "height": 2.585
+      },
+      "svgHash": "81282ce3cf2efc289caea5bee257ec4d9f89085833bb75cab1453fddfa922ea9"
+    },
+    "fr_somua:side:proxy": {
+      "key": "fr_somua:side:proxy",
+      "modelId": "fr_somua",
+      "designation": "SOMUA S35",
+      "view": "side",
+      "lod": "proxy",
+      "triangleCount": 1172,
+      "projectedBoundsMeters": {
+        "minU": -2.69,
+        "maxU": 2.69,
+        "minV": 0.015,
+        "maxV": 2.27,
+        "width": 5.38,
+        "height": 2.255
+      },
+      "svgHash": "82a8eb75a94d21b5274eae53f9df59fdf4f63a0284ee250c2df1522ab3682a35"
+    },
+    "fr_somua:top:core": {
+      "key": "fr_somua:top:core",
+      "modelId": "fr_somua",
+      "designation": "SOMUA S35",
+      "view": "top",
+      "lod": "core",
+      "triangleCount": 2364,
+      "projectedBoundsMeters": {
+        "minU": -1.0536,
+        "maxU": 1.0536,
+        "minV": -2.69,
+        "maxV": 2.69,
+        "width": 2.1072,
+        "height": 5.38
+      },
+      "svgHash": "e1b889461a7a32627a0a519b58c0601616ab2787685924db0146431a30c10a2e"
+    },
+    "fr_somua:top:high": {
+      "key": "fr_somua:top:high",
+      "modelId": "fr_somua",
+      "designation": "SOMUA S35",
+      "view": "top",
+      "lod": "high",
+      "triangleCount": 7038,
+      "projectedBoundsMeters": {
+        "minU": -1.06,
+        "maxU": 1.06,
+        "minV": -2.69,
+        "maxV": 2.69,
+        "width": 2.12,
+        "height": 5.38
+      },
+      "svgHash": "caa2dd727c3b4cea11ca1caaf75b755fdbda940caedec50fa1e22da5df5ccd71"
+    },
+    "fr_somua:top:medium": {
+      "key": "fr_somua:top:medium",
+      "modelId": "fr_somua",
+      "designation": "SOMUA S35",
+      "view": "top",
+      "lod": "medium",
+      "triangleCount": 4110,
+      "projectedBoundsMeters": {
+        "minU": -1.055,
+        "maxU": 1.055,
+        "minV": -2.69,
+        "maxV": 2.69,
+        "width": 2.11,
+        "height": 5.38
+      },
+      "svgHash": "7d2287c73967658b1d6402f71d6ae0bb3cc69f16110a7467bc3c22827a28fc89"
+    },
+    "fr_somua:top:proxy": {
+      "key": "fr_somua:top:proxy",
+      "modelId": "fr_somua",
+      "designation": "SOMUA S35",
+      "view": "top",
+      "lod": "proxy",
+      "triangleCount": 1172,
+      "projectedBoundsMeters": {
+        "minU": -1.0536,
+        "maxU": 1.0536,
+        "minV": -2.69,
+        "maxV": 2.69,
+        "width": 2.1072,
+        "height": 5.38
+      },
+      "svgHash": "4a7618db837093b9da28ea7e9a87df960b99c15142f3898a82e2a50628f409a2"
+    },
+    "ger_opel_blitz:front:core": {
+      "key": "ger_opel_blitz:front:core",
+      "modelId": "ger_opel_blitz",
+      "designation": "Opel Blitz 3.6-36S",
+      "view": "front",
+      "lod": "core",
+      "triangleCount": 736,
+      "projectedBoundsMeters": {
+        "minU": -1.0625,
+        "maxU": 1.0625,
+        "minV": 0,
+        "maxV": 2.59,
+        "width": 2.125,
+        "height": 2.59
+      },
+      "svgHash": "7edc76c370d3eb9b49dac5b0852c5c043d89f22e8fe33911d09803c0fd38dd7a"
+    },
+    "ger_opel_blitz:front:high": {
+      "key": "ger_opel_blitz:front:high",
+      "modelId": "ger_opel_blitz",
+      "designation": "Opel Blitz 3.6-36S",
+      "view": "front",
+      "lod": "high",
+      "triangleCount": 3624,
+      "projectedBoundsMeters": {
+        "minU": -1.135,
+        "maxU": 1.135,
+        "minV": 0,
+        "maxV": 2.59,
+        "width": 2.27,
+        "height": 2.59
+      },
+      "svgHash": "a8bd6c7be3a042ce1c79544cf19c212343498618989eb3e5713e2575fe99d716"
+    },
+    "ger_opel_blitz:front:medium": {
+      "key": "ger_opel_blitz:front:medium",
+      "modelId": "ger_opel_blitz",
+      "designation": "Opel Blitz 3.6-36S",
+      "view": "front",
+      "lod": "medium",
+      "triangleCount": 2836,
+      "projectedBoundsMeters": {
+        "minU": -1.135,
+        "maxU": 1.135,
+        "minV": 0,
+        "maxV": 2.59,
+        "width": 2.27,
+        "height": 2.59
+      },
+      "svgHash": "4da0f89c32f982008845062dea0d3be3dd05b3a42298daac6377b0691bcbe641"
+    },
+    "ger_opel_blitz:front:proxy": {
+      "key": "ger_opel_blitz:front:proxy",
+      "modelId": "ger_opel_blitz",
+      "designation": "Opel Blitz 3.6-36S",
+      "view": "front",
+      "lod": "proxy",
+      "triangleCount": 628,
+      "projectedBoundsMeters": {
+        "minU": -1.135,
+        "maxU": 1.135,
+        "minV": 0,
+        "maxV": 2.59,
+        "width": 2.27,
+        "height": 2.59
+      },
+      "svgHash": "24ce18e6c208d6b65e665081044cc935669d313e4ae463cbaf7a0b21c602c761"
+    },
+    "ger_opel_blitz:side:core": {
+      "key": "ger_opel_blitz:side:core",
+      "modelId": "ger_opel_blitz",
+      "designation": "Opel Blitz 3.6-36S",
+      "view": "side",
+      "lod": "core",
+      "triangleCount": 736,
+      "projectedBoundsMeters": {
+        "minU": -3.01,
+        "maxU": 3.01,
+        "minV": 0,
+        "maxV": 2.59,
+        "width": 6.02,
+        "height": 2.59
+      },
+      "svgHash": "af2230c5797038c2e549bd156bd9cff345194c6a53119a103483c6cdb322b18b"
+    },
+    "ger_opel_blitz:side:high": {
+      "key": "ger_opel_blitz:side:high",
+      "modelId": "ger_opel_blitz",
+      "designation": "Opel Blitz 3.6-36S",
+      "view": "side",
+      "lod": "high",
+      "triangleCount": 3624,
+      "projectedBoundsMeters": {
+        "minU": -3.01,
+        "maxU": 3.01,
+        "minV": 0,
+        "maxV": 2.59,
+        "width": 6.02,
+        "height": 2.59
+      },
+      "svgHash": "ace7ffdcbdceb77560a74fb50e336673f2516f8ee0d0aaba3cf924df61ff03db"
+    },
+    "ger_opel_blitz:side:medium": {
+      "key": "ger_opel_blitz:side:medium",
+      "modelId": "ger_opel_blitz",
+      "designation": "Opel Blitz 3.6-36S",
+      "view": "side",
+      "lod": "medium",
+      "triangleCount": 2836,
+      "projectedBoundsMeters": {
+        "minU": -3.01,
+        "maxU": 3.01,
+        "minV": 0,
+        "maxV": 2.59,
+        "width": 6.02,
+        "height": 2.59
+      },
+      "svgHash": "529879004e283324179cd5e5305aceca919a265a9e9b053732ebd5ce2011e110"
+    },
+    "ger_opel_blitz:side:proxy": {
+      "key": "ger_opel_blitz:side:proxy",
+      "modelId": "ger_opel_blitz",
+      "designation": "Opel Blitz 3.6-36S",
+      "view": "side",
+      "lod": "proxy",
+      "triangleCount": 628,
+      "projectedBoundsMeters": {
+        "minU": -3.01,
+        "maxU": 3.01,
+        "minV": 0,
+        "maxV": 2.59,
+        "width": 6.02,
+        "height": 2.59
+      },
+      "svgHash": "5400e753b6889eb3dcc089277d95cfebe44b8897448aa641dfb1054e762b426b"
+    },
+    "ger_opel_blitz:top:core": {
+      "key": "ger_opel_blitz:top:core",
+      "modelId": "ger_opel_blitz",
+      "designation": "Opel Blitz 3.6-36S",
+      "view": "top",
+      "lod": "core",
+      "triangleCount": 736,
+      "projectedBoundsMeters": {
+        "minU": -1.0625,
+        "maxU": 1.0625,
+        "minV": -3.01,
+        "maxV": 3.01,
+        "width": 2.125,
+        "height": 6.02
+      },
+      "svgHash": "caa63f34696c471b6b58b0364f34d8bad26705ba9228c35cf95fb6778ac8d382"
+    },
+    "ger_opel_blitz:top:high": {
+      "key": "ger_opel_blitz:top:high",
+      "modelId": "ger_opel_blitz",
+      "designation": "Opel Blitz 3.6-36S",
+      "view": "top",
+      "lod": "high",
+      "triangleCount": 3624,
+      "projectedBoundsMeters": {
+        "minU": -1.135,
+        "maxU": 1.135,
+        "minV": -3.01,
+        "maxV": 3.01,
+        "width": 2.27,
+        "height": 6.02
+      },
+      "svgHash": "6fd6671f309460e190a07b85b201019fe2188fe9f05c457a23c508cb7ee9fbe3"
+    },
+    "ger_opel_blitz:top:medium": {
+      "key": "ger_opel_blitz:top:medium",
+      "modelId": "ger_opel_blitz",
+      "designation": "Opel Blitz 3.6-36S",
+      "view": "top",
+      "lod": "medium",
+      "triangleCount": 2836,
+      "projectedBoundsMeters": {
+        "minU": -1.135,
+        "maxU": 1.135,
+        "minV": -3.01,
+        "maxV": 3.01,
+        "width": 2.27,
+        "height": 6.02
+      },
+      "svgHash": "8d748385ac94a8ca7227db0c3f1ed2c7a159b9da50d5eeccfdf7698d138d7f9e"
+    },
+    "ger_opel_blitz:top:proxy": {
+      "key": "ger_opel_blitz:top:proxy",
+      "modelId": "ger_opel_blitz",
+      "designation": "Opel Blitz 3.6-36S",
+      "view": "top",
+      "lod": "proxy",
+      "triangleCount": 628,
+      "projectedBoundsMeters": {
+        "minU": -1.135,
+        "maxU": 1.135,
+        "minV": -3.01,
+        "maxV": 3.01,
+        "width": 2.27,
+        "height": 6.02
+      },
+      "svgHash": "70f0b75e9678bb6f059cf8dcbfeb90512b2d410c176fd283229b95a0929be4cd"
+    },
+    "ger_panzer2:front:core": {
+      "key": "ger_panzer2:front:core",
+      "modelId": "ger_panzer2",
+      "designation": "Panzerkampfwagen II Ausf. C",
+      "view": "front",
+      "lod": "core",
+      "triangleCount": 1948,
+      "projectedBoundsMeters": {
+        "minU": -1.1032,
+        "maxU": 1.1032,
+        "minV": 0.0384,
+        "maxV": 1.91,
+        "width": 2.2064,
+        "height": 1.8716
+      },
+      "svgHash": "f0e27f055ee5dd849caa7c18a2f7f6d65b8a2d7f40f695474870d1b738f1fda1"
+    },
+    "ger_panzer2:front:high": {
+      "key": "ger_panzer2:front:high",
+      "modelId": "ger_panzer2",
+      "designation": "Panzerkampfwagen II Ausf. C",
+      "view": "front",
+      "lod": "high",
+      "triangleCount": 5880,
+      "projectedBoundsMeters": {
+        "minU": -1.11,
+        "maxU": 1.11,
+        "minV": 0.0006,
+        "maxV": 1.99,
+        "width": 2.22,
+        "height": 1.9894
+      },
+      "svgHash": "36522a806023a991d8435ebdc312bda1dc37eb733bc502dc4b6091bff465337b"
+    },
+    "ger_panzer2:front:medium": {
+      "key": "ger_panzer2:front:medium",
+      "modelId": "ger_panzer2",
+      "designation": "Panzerkampfwagen II Ausf. C",
+      "view": "front",
+      "lod": "medium",
+      "triangleCount": 3380,
+      "projectedBoundsMeters": {
+        "minU": -1.105,
+        "maxU": 1.105,
+        "minV": 0.0384,
+        "maxV": 1.99,
+        "width": 2.21,
+        "height": 1.9516
+      },
+      "svgHash": "d32fa6a8c764d4f64db8dca53d23588126b880817bed9003f022b42d4b052a38"
+    },
+    "ger_panzer2:front:proxy": {
+      "key": "ger_panzer2:front:proxy",
+      "modelId": "ger_panzer2",
+      "designation": "Panzerkampfwagen II Ausf. C",
+      "view": "front",
+      "lod": "proxy",
+      "triangleCount": 744,
+      "projectedBoundsMeters": {
+        "minU": -1.11,
+        "maxU": 1.11,
+        "minV": 0.077,
+        "maxV": 1.99,
+        "width": 2.22,
+        "height": 1.913
+      },
+      "svgHash": "7474ba8482c864f276d079d2208e3960f69b7f6da0ab482dd5f69d0fa736af58"
+    },
+    "ger_panzer2:side:core": {
+      "key": "ger_panzer2:side:core",
+      "modelId": "ger_panzer2",
+      "designation": "Panzerkampfwagen II Ausf. C",
+      "view": "side",
+      "lod": "core",
+      "triangleCount": 1948,
+      "projectedBoundsMeters": {
+        "minU": -2.405,
+        "maxU": 2.405,
+        "minV": 0.0384,
+        "maxV": 1.91,
+        "width": 4.81,
+        "height": 1.8716
+      },
+      "svgHash": "7a353bbcf2e70174b6a86e52c10f0c7d8cceaee1a8730f6b75cdbb055fd9ec59"
+    },
+    "ger_panzer2:side:high": {
+      "key": "ger_panzer2:side:high",
+      "modelId": "ger_panzer2",
+      "designation": "Panzerkampfwagen II Ausf. C",
+      "view": "side",
+      "lod": "high",
+      "triangleCount": 5880,
+      "projectedBoundsMeters": {
+        "minU": -2.405,
+        "maxU": 2.405,
+        "minV": 0.0006,
+        "maxV": 1.99,
+        "width": 4.81,
+        "height": 1.9894
+      },
+      "svgHash": "4f239f6755ff8f23a39d602b23bbc4c5732559646885714477fb84f8ea7ba657"
+    },
+    "ger_panzer2:side:medium": {
+      "key": "ger_panzer2:side:medium",
+      "modelId": "ger_panzer2",
+      "designation": "Panzerkampfwagen II Ausf. C",
+      "view": "side",
+      "lod": "medium",
+      "triangleCount": 3380,
+      "projectedBoundsMeters": {
+        "minU": -2.405,
+        "maxU": 2.405,
+        "minV": 0.0384,
+        "maxV": 1.99,
+        "width": 4.81,
+        "height": 1.9516
+      },
+      "svgHash": "ff04fc33b70070c24512c505ea40a233eb0dd91e541414ede1158d21051f8e53"
+    },
+    "ger_panzer2:side:proxy": {
+      "key": "ger_panzer2:side:proxy",
+      "modelId": "ger_panzer2",
+      "designation": "Panzerkampfwagen II Ausf. C",
+      "view": "side",
+      "lod": "proxy",
+      "triangleCount": 744,
+      "projectedBoundsMeters": {
+        "minU": -2.405,
+        "maxU": 2.405,
+        "minV": 0.077,
+        "maxV": 1.99,
+        "width": 4.81,
+        "height": 1.913
+      },
+      "svgHash": "435b6847b169cd6abd0ae7a32d6094ca23926dbea11b92317732674fe1cff676"
+    },
+    "ger_panzer2:top:core": {
+      "key": "ger_panzer2:top:core",
+      "modelId": "ger_panzer2",
+      "designation": "Panzerkampfwagen II Ausf. C",
+      "view": "top",
+      "lod": "core",
+      "triangleCount": 1948,
+      "projectedBoundsMeters": {
+        "minU": -1.1032,
+        "maxU": 1.1032,
+        "minV": -2.405,
+        "maxV": 2.405,
+        "width": 2.2064,
+        "height": 4.81
+      },
+      "svgHash": "63d8ebaec1285502865a21076e8a8af694ddacd884422f590e3e3e0f7834436d"
+    },
+    "ger_panzer2:top:high": {
+      "key": "ger_panzer2:top:high",
+      "modelId": "ger_panzer2",
+      "designation": "Panzerkampfwagen II Ausf. C",
+      "view": "top",
+      "lod": "high",
+      "triangleCount": 5880,
+      "projectedBoundsMeters": {
+        "minU": -1.11,
+        "maxU": 1.11,
+        "minV": -2.405,
+        "maxV": 2.405,
+        "width": 2.22,
+        "height": 4.81
+      },
+      "svgHash": "adb8c6b8462bf4948c9df6b04483967c2692ca24ed75aba750af4f0b7bcb508f"
+    },
+    "ger_panzer2:top:medium": {
+      "key": "ger_panzer2:top:medium",
+      "modelId": "ger_panzer2",
+      "designation": "Panzerkampfwagen II Ausf. C",
+      "view": "top",
+      "lod": "medium",
+      "triangleCount": 3380,
+      "projectedBoundsMeters": {
+        "minU": -1.105,
+        "maxU": 1.105,
+        "minV": -2.405,
+        "maxV": 2.405,
+        "width": 2.21,
+        "height": 4.81
+      },
+      "svgHash": "1b5bf0ee521356c55729dff31fe5a62ba97d3710f11e7594c534b9f01930aa3b"
+    },
+    "ger_panzer2:top:proxy": {
+      "key": "ger_panzer2:top:proxy",
+      "modelId": "ger_panzer2",
+      "designation": "Panzerkampfwagen II Ausf. C",
+      "view": "top",
+      "lod": "proxy",
+      "triangleCount": 744,
+      "projectedBoundsMeters": {
+        "minU": -1.11,
+        "maxU": 1.11,
+        "minV": -2.405,
+        "maxV": 2.405,
+        "width": 2.22,
+        "height": 4.81
+      },
+      "svgHash": "168abcc44a86d7a7188656e1db6e23e090fe233e1c2b4de547b3ae6213326b68"
+    },
+    "ger_panzer35t:front:core": {
+      "key": "ger_panzer35t:front:core",
+      "modelId": "ger_panzer35t",
+      "designation": "Panzerkampfwagen 35(t)",
+      "view": "front",
+      "lod": "core",
+      "triangleCount": 2876,
+      "projectedBoundsMeters": {
+        "minU": -1.03,
+        "maxU": 1.03,
+        "minV": 0.0442,
+        "maxV": 2.12,
+        "width": 2.06,
+        "height": 2.0758
+      },
+      "svgHash": "4a19c3d352b718e2caaba3cfbd1aea39f08806359e1664e95ed67aeb67b172ab"
+    },
+    "ger_panzer35t:front:high": {
+      "key": "ger_panzer35t:front:high",
+      "modelId": "ger_panzer35t",
+      "designation": "Panzerkampfwagen 35(t)",
+      "view": "front",
+      "lod": "high",
+      "triangleCount": 8838,
+      "projectedBoundsMeters": {
+        "minU": -1.03,
+        "maxU": 1.03,
+        "minV": 0.009,
+        "maxV": 2.37,
+        "width": 2.06,
+        "height": 2.361
+      },
+      "svgHash": "1133d851fd39e4b50038dfd33726fd300be6e27568b250cea79c107f94b9d951"
+    },
+    "ger_panzer35t:front:medium": {
+      "key": "ger_panzer35t:front:medium",
+      "modelId": "ger_panzer35t",
+      "designation": "Panzerkampfwagen 35(t)",
+      "view": "front",
+      "lod": "medium",
+      "triangleCount": 4624,
+      "projectedBoundsMeters": {
+        "minU": -1.03,
+        "maxU": 1.03,
+        "minV": 0.0442,
+        "maxV": 2.31,
+        "width": 2.06,
+        "height": 2.2658
+      },
+      "svgHash": "af201f5b3a6382036f3234ed484cde7de21543405205c0a7b07e64aad3b36271"
+    },
+    "ger_panzer35t:front:proxy": {
+      "key": "ger_panzer35t:front:proxy",
+      "modelId": "ger_panzer35t",
+      "designation": "Panzerkampfwagen 35(t)",
+      "view": "front",
+      "lod": "proxy",
+      "triangleCount": 1290,
+      "projectedBoundsMeters": {
+        "minU": -1.03,
+        "maxU": 1.03,
+        "minV": 0.08,
+        "maxV": 2.37,
+        "width": 2.06,
+        "height": 2.29
+      },
+      "svgHash": "baeb8e5622acc027805ff02a95dc0714db38b0da24b1df47fa03f6ce8c971776"
+    },
+    "ger_panzer35t:side:core": {
+      "key": "ger_panzer35t:side:core",
+      "modelId": "ger_panzer35t",
+      "designation": "Panzerkampfwagen 35(t)",
+      "view": "side",
+      "lod": "core",
+      "triangleCount": 2876,
+      "projectedBoundsMeters": {
+        "minU": -2.45,
+        "maxU": 2.45,
+        "minV": 0.0442,
+        "maxV": 2.12,
+        "width": 4.9,
+        "height": 2.0758
+      },
+      "svgHash": "a4d7b1e8fe52052380a33e370f7f8d75beab15fed8fdabdf4804dff62d598b07"
+    },
+    "ger_panzer35t:side:high": {
+      "key": "ger_panzer35t:side:high",
+      "modelId": "ger_panzer35t",
+      "designation": "Panzerkampfwagen 35(t)",
+      "view": "side",
+      "lod": "high",
+      "triangleCount": 8838,
+      "projectedBoundsMeters": {
+        "minU": -2.45,
+        "maxU": 2.45,
+        "minV": 0.009,
+        "maxV": 2.37,
+        "width": 4.9,
+        "height": 2.361
+      },
+      "svgHash": "776959479cd5c80ea790d7afe53e8f07dadd6b6935bb5cbe0e23c55bd1dbd887"
+    },
+    "ger_panzer35t:side:medium": {
+      "key": "ger_panzer35t:side:medium",
+      "modelId": "ger_panzer35t",
+      "designation": "Panzerkampfwagen 35(t)",
+      "view": "side",
+      "lod": "medium",
+      "triangleCount": 4624,
+      "projectedBoundsMeters": {
+        "minU": -2.45,
+        "maxU": 2.45,
+        "minV": 0.0442,
+        "maxV": 2.31,
+        "width": 4.9,
+        "height": 2.2658
+      },
+      "svgHash": "aaf1f42748f69f1cf1950a5521a3c31a4c2ed61c0e168237728c54518f384d84"
+    },
+    "ger_panzer35t:side:proxy": {
+      "key": "ger_panzer35t:side:proxy",
+      "modelId": "ger_panzer35t",
+      "designation": "Panzerkampfwagen 35(t)",
+      "view": "side",
+      "lod": "proxy",
+      "triangleCount": 1290,
+      "projectedBoundsMeters": {
+        "minU": -2.45,
+        "maxU": 2.45,
+        "minV": 0.08,
+        "maxV": 2.37,
+        "width": 4.9,
+        "height": 2.29
+      },
+      "svgHash": "ccd8e484a5dc04063ac6570c5d7f2a9c8afd88b4d5058475631e48e18113e5cd"
+    },
+    "ger_panzer35t:top:core": {
+      "key": "ger_panzer35t:top:core",
+      "modelId": "ger_panzer35t",
+      "designation": "Panzerkampfwagen 35(t)",
+      "view": "top",
+      "lod": "core",
+      "triangleCount": 2876,
+      "projectedBoundsMeters": {
+        "minU": -1.03,
+        "maxU": 1.03,
+        "minV": -2.45,
+        "maxV": 2.45,
+        "width": 2.06,
+        "height": 4.9
+      },
+      "svgHash": "9d0dbbe4353e53d936887327657011180cc60fde8a68511b39d6652f0b90b3c3"
+    },
+    "ger_panzer35t:top:high": {
+      "key": "ger_panzer35t:top:high",
+      "modelId": "ger_panzer35t",
+      "designation": "Panzerkampfwagen 35(t)",
+      "view": "top",
+      "lod": "high",
+      "triangleCount": 8838,
+      "projectedBoundsMeters": {
+        "minU": -1.03,
+        "maxU": 1.03,
+        "minV": -2.45,
+        "maxV": 2.45,
+        "width": 2.06,
+        "height": 4.9
+      },
+      "svgHash": "3b67d9239085a3d4fcac2b0948838b6f7e1904d2dac737dd16865eed8b2c79ff"
+    },
+    "ger_panzer35t:top:medium": {
+      "key": "ger_panzer35t:top:medium",
+      "modelId": "ger_panzer35t",
+      "designation": "Panzerkampfwagen 35(t)",
+      "view": "top",
+      "lod": "medium",
+      "triangleCount": 4624,
+      "projectedBoundsMeters": {
+        "minU": -1.03,
+        "maxU": 1.03,
+        "minV": -2.45,
+        "maxV": 2.45,
+        "width": 2.06,
+        "height": 4.9
+      },
+      "svgHash": "d432713903359dccb4efcdd2c2ed2735f32edae988e3edff6482df8c9df1b56e"
+    },
+    "ger_panzer35t:top:proxy": {
+      "key": "ger_panzer35t:top:proxy",
+      "modelId": "ger_panzer35t",
+      "designation": "Panzerkampfwagen 35(t)",
+      "view": "top",
+      "lod": "proxy",
+      "triangleCount": 1290,
+      "projectedBoundsMeters": {
+        "minU": -1.03,
+        "maxU": 1.03,
+        "minV": -2.45,
+        "maxV": 2.45,
+        "width": 2.06,
+        "height": 4.9
+      },
+      "svgHash": "004c5b1ee1cc8227dbe6cc80e2643b9605efccdcf3273c2e553a4f1a9c836009"
+    },
+    "ger_panzer38t:front:core": {
+      "key": "ger_panzer38t:front:core",
+      "modelId": "ger_panzer38t",
+      "designation": "Panzerkampfwagen 38(t)",
+      "view": "front",
+      "lod": "core",
+      "triangleCount": 2232,
+      "projectedBoundsMeters": {
+        "minU": -1.07,
+        "maxU": 1.07,
+        "minV": 0,
+        "maxV": 2.25,
+        "width": 2.14,
+        "height": 2.25
+      },
+      "svgHash": "28e8177dc40ea550444d806f5f23018d3879c83157e411cc4ea32d329b559a8e"
+    },
+    "ger_panzer38t:front:high": {
+      "key": "ger_panzer38t:front:high",
+      "modelId": "ger_panzer38t",
+      "designation": "Panzerkampfwagen 38(t)",
+      "view": "front",
+      "lod": "high",
+      "triangleCount": 7128,
+      "projectedBoundsMeters": {
+        "minU": -1.07,
+        "maxU": 1.07,
+        "minV": -0.0005,
+        "maxV": 2.25,
+        "width": 2.14,
+        "height": 2.2505
+      },
+      "svgHash": "6849f6cb7407fc24f3a1f39fd95549623fdc8b6dcb4f3582ee0b387e3e7e0050"
+    },
+    "ger_panzer38t:front:medium": {
+      "key": "ger_panzer38t:front:medium",
+      "modelId": "ger_panzer38t",
+      "designation": "Panzerkampfwagen 38(t)",
+      "view": "front",
+      "lod": "medium",
+      "triangleCount": 3528,
+      "projectedBoundsMeters": {
+        "minU": -1.07,
+        "maxU": 1.07,
+        "minV": 0,
+        "maxV": 2.25,
+        "width": 2.14,
+        "height": 2.25
+      },
+      "svgHash": "edca4854b9cdde0a0ae5f80eed58e33dc627f9736bdbcb17fc230547e867a725"
+    },
+    "ger_panzer38t:front:proxy": {
+      "key": "ger_panzer38t:front:proxy",
+      "modelId": "ger_panzer38t",
+      "designation": "Panzerkampfwagen 38(t)",
+      "view": "front",
+      "lod": "proxy",
+      "triangleCount": 912,
+      "projectedBoundsMeters": {
+        "minU": -1.07,
+        "maxU": 1.07,
+        "minV": 0,
+        "maxV": 2.25,
+        "width": 2.14,
+        "height": 2.25
+      },
+      "svgHash": "d31afa6b6737c96ee9956a840616dba7e1f0a2ccd2f72a0363e7da820b0aa50b"
+    },
+    "ger_panzer38t:side:core": {
+      "key": "ger_panzer38t:side:core",
+      "modelId": "ger_panzer38t",
+      "designation": "Panzerkampfwagen 38(t)",
+      "view": "side",
+      "lod": "core",
+      "triangleCount": 2232,
+      "projectedBoundsMeters": {
+        "minU": -2.305,
+        "maxU": 2.305,
+        "minV": 0,
+        "maxV": 2.25,
+        "width": 4.61,
+        "height": 2.25
+      },
+      "svgHash": "9f497bf4e189c3fcacab1d3b4128cc99d449e380b8c42f0b3d42c158e7a28e9e"
+    },
+    "ger_panzer38t:side:high": {
+      "key": "ger_panzer38t:side:high",
+      "modelId": "ger_panzer38t",
+      "designation": "Panzerkampfwagen 38(t)",
+      "view": "side",
+      "lod": "high",
+      "triangleCount": 7128,
+      "projectedBoundsMeters": {
+        "minU": -2.305,
+        "maxU": 2.305,
+        "minV": -0.0005,
+        "maxV": 2.25,
+        "width": 4.61,
+        "height": 2.2505
+      },
+      "svgHash": "e5c282d5befc4e4ebcc71b8a6fc8e29232e731ab9d1b7f11a1f569b88752f38d"
+    },
+    "ger_panzer38t:side:medium": {
+      "key": "ger_panzer38t:side:medium",
+      "modelId": "ger_panzer38t",
+      "designation": "Panzerkampfwagen 38(t)",
+      "view": "side",
+      "lod": "medium",
+      "triangleCount": 3528,
+      "projectedBoundsMeters": {
+        "minU": -2.305,
+        "maxU": 2.305,
+        "minV": 0,
+        "maxV": 2.25,
+        "width": 4.61,
+        "height": 2.25
+      },
+      "svgHash": "0364d56581464da3ad8471cb9b7e3daa5f52d5ada0bad3c14dc3bb92b116321d"
+    },
+    "ger_panzer38t:side:proxy": {
+      "key": "ger_panzer38t:side:proxy",
+      "modelId": "ger_panzer38t",
+      "designation": "Panzerkampfwagen 38(t)",
+      "view": "side",
+      "lod": "proxy",
+      "triangleCount": 912,
+      "projectedBoundsMeters": {
+        "minU": -2.305,
+        "maxU": 2.305,
+        "minV": 0,
+        "maxV": 2.25,
+        "width": 4.61,
+        "height": 2.25
+      },
+      "svgHash": "b23a230fa4802ec5fdaeaa326662bf7f9674a27c480bc85b27a2f11945700bb4"
+    },
+    "ger_panzer38t:top:core": {
+      "key": "ger_panzer38t:top:core",
+      "modelId": "ger_panzer38t",
+      "designation": "Panzerkampfwagen 38(t)",
+      "view": "top",
+      "lod": "core",
+      "triangleCount": 2232,
+      "projectedBoundsMeters": {
+        "minU": -1.07,
+        "maxU": 1.07,
+        "minV": -2.305,
+        "maxV": 2.305,
+        "width": 2.14,
+        "height": 4.61
+      },
+      "svgHash": "c04652ed764dbd455228689be32e8c757600668f146eec6ae4e14f904f7507d2"
+    },
+    "ger_panzer38t:top:high": {
+      "key": "ger_panzer38t:top:high",
+      "modelId": "ger_panzer38t",
+      "designation": "Panzerkampfwagen 38(t)",
+      "view": "top",
+      "lod": "high",
+      "triangleCount": 7128,
+      "projectedBoundsMeters": {
+        "minU": -1.07,
+        "maxU": 1.07,
+        "minV": -2.305,
+        "maxV": 2.305,
+        "width": 2.14,
+        "height": 4.61
+      },
+      "svgHash": "205c4e7e8cccd54f40ff9767f4f1af2665da0f28e33f4db948c82eee6d1b7eea"
+    },
+    "ger_panzer38t:top:medium": {
+      "key": "ger_panzer38t:top:medium",
+      "modelId": "ger_panzer38t",
+      "designation": "Panzerkampfwagen 38(t)",
+      "view": "top",
+      "lod": "medium",
+      "triangleCount": 3528,
+      "projectedBoundsMeters": {
+        "minU": -1.07,
+        "maxU": 1.07,
+        "minV": -2.305,
+        "maxV": 2.305,
+        "width": 2.14,
+        "height": 4.61
+      },
+      "svgHash": "424ccf9a7245c8dcfe990349fe93bdf567b0ec4b3d44eac4d3aed9c504282691"
+    },
+    "ger_panzer38t:top:proxy": {
+      "key": "ger_panzer38t:top:proxy",
+      "modelId": "ger_panzer38t",
+      "designation": "Panzerkampfwagen 38(t)",
+      "view": "top",
+      "lod": "proxy",
+      "triangleCount": 912,
+      "projectedBoundsMeters": {
+        "minU": -1.07,
+        "maxU": 1.07,
+        "minV": -2.305,
+        "maxV": 2.305,
+        "width": 2.14,
+        "height": 4.61
+      },
+      "svgHash": "cd75645c516282f8a5bd1062560f68f21c8449a61dee9b53405b1d5a4ef7a203"
+    },
+    "ger_panzer3:front:core": {
+      "key": "ger_panzer3:front:core",
+      "modelId": "ger_panzer3",
+      "designation": "Panzerkampfwagen III Ausf. D",
+      "view": "front",
+      "lod": "core",
+      "triangleCount": 2572,
+      "projectedBoundsMeters": {
+        "minU": -1.4478,
+        "maxU": 1.4478,
+        "minV": 0.0388,
+        "maxV": 2.2,
+        "width": 2.8956,
+        "height": 2.1612
+      },
+      "svgHash": "842e9af3c37e31c88a0a93188d0e7a697a015804348a82c4a9582e77f989d527"
+    },
+    "ger_panzer3:front:high": {
+      "key": "ger_panzer3:front:high",
+      "modelId": "ger_panzer3",
+      "designation": "Panzerkampfwagen III Ausf. D",
+      "view": "front",
+      "lod": "high",
+      "triangleCount": 7060,
+      "projectedBoundsMeters": {
+        "minU": -1.455,
+        "maxU": 1.455,
+        "minV": -0.0009,
+        "maxV": 2.5,
+        "width": 2.91,
+        "height": 2.5009
+      },
+      "svgHash": "39ff0b5cfd47df05c8ef3d8f9ace1d735ec222345cc01da96a2b7df9d091774b"
+    },
+    "ger_panzer3:front:medium": {
+      "key": "ger_panzer3:front:medium",
+      "modelId": "ger_panzer3",
+      "designation": "Panzerkampfwagen III Ausf. D",
+      "view": "front",
+      "lod": "medium",
+      "triangleCount": 4048,
+      "projectedBoundsMeters": {
+        "minU": -1.4478,
+        "maxU": 1.4478,
+        "minV": 0.02,
+        "maxV": 2.48,
+        "width": 2.8956,
+        "height": 2.46
+      },
+      "svgHash": "80a380baec462656c499b312a6821f2ecf13bf13382dee12807b7785ea9e4f49"
+    },
+    "ger_panzer3:front:proxy": {
+      "key": "ger_panzer3:front:proxy",
+      "modelId": "ger_panzer3",
+      "designation": "Panzerkampfwagen III Ausf. D",
+      "view": "front",
+      "lod": "proxy",
+      "triangleCount": 992,
+      "projectedBoundsMeters": {
+        "minU": -1.4478,
+        "maxU": 1.4478,
+        "minV": 0.02,
+        "maxV": 2.2,
+        "width": 2.8956,
+        "height": 2.18
+      },
+      "svgHash": "d862903ad51fb125d4e0b19e8ea77823055bad6ad94a45859d38ac6d93546e14"
+    },
+    "ger_panzer3:side:core": {
+      "key": "ger_panzer3:side:core",
+      "modelId": "ger_panzer3",
+      "designation": "Panzerkampfwagen III Ausf. D",
+      "view": "side",
+      "lod": "core",
+      "triangleCount": 2572,
+      "projectedBoundsMeters": {
+        "minU": -2.69,
+        "maxU": 2.69,
+        "minV": 0.0388,
+        "maxV": 2.2,
+        "width": 5.38,
+        "height": 2.1612
+      },
+      "svgHash": "34d8cf4594f0bdddc69c7c3dee56cc680f960cdafb8552be02f2a88326ec525b"
+    },
+    "ger_panzer3:side:high": {
+      "key": "ger_panzer3:side:high",
+      "modelId": "ger_panzer3",
+      "designation": "Panzerkampfwagen III Ausf. D",
+      "view": "side",
+      "lod": "high",
+      "triangleCount": 7060,
+      "projectedBoundsMeters": {
+        "minU": -2.69,
+        "maxU": 2.69,
+        "minV": -0.0009,
+        "maxV": 2.5,
+        "width": 5.38,
+        "height": 2.5009
+      },
+      "svgHash": "44fc6265cb3cb39c089896bfa246e33e96e64453a6f0513af36fd112c9184304"
+    },
+    "ger_panzer3:side:medium": {
+      "key": "ger_panzer3:side:medium",
+      "modelId": "ger_panzer3",
+      "designation": "Panzerkampfwagen III Ausf. D",
+      "view": "side",
+      "lod": "medium",
+      "triangleCount": 4048,
+      "projectedBoundsMeters": {
+        "minU": -2.69,
+        "maxU": 2.69,
+        "minV": 0.02,
+        "maxV": 2.48,
+        "width": 5.38,
+        "height": 2.46
+      },
+      "svgHash": "f8d818a5f191b5091077e11a964853ae62f42f524c0a9692325917308d656766"
+    },
+    "ger_panzer3:side:proxy": {
+      "key": "ger_panzer3:side:proxy",
+      "modelId": "ger_panzer3",
+      "designation": "Panzerkampfwagen III Ausf. D",
+      "view": "side",
+      "lod": "proxy",
+      "triangleCount": 992,
+      "projectedBoundsMeters": {
+        "minU": -2.69,
+        "maxU": 2.69,
+        "minV": 0.02,
+        "maxV": 2.2,
+        "width": 5.38,
+        "height": 2.18
+      },
+      "svgHash": "1baf820b23d1b329e72043e76f27fd46ff813d712dd897cbe2569dd226052b3e"
+    },
+    "ger_panzer3:top:core": {
+      "key": "ger_panzer3:top:core",
+      "modelId": "ger_panzer3",
+      "designation": "Panzerkampfwagen III Ausf. D",
+      "view": "top",
+      "lod": "core",
+      "triangleCount": 2572,
+      "projectedBoundsMeters": {
+        "minU": -1.4478,
+        "maxU": 1.4478,
+        "minV": -2.69,
+        "maxV": 2.69,
+        "width": 2.8956,
+        "height": 5.38
+      },
+      "svgHash": "4853a90c9bf3e9f9be016a34d3f06443059561759359beaaca8bc6bc9490e5a3"
+    },
+    "ger_panzer3:top:high": {
+      "key": "ger_panzer3:top:high",
+      "modelId": "ger_panzer3",
+      "designation": "Panzerkampfwagen III Ausf. D",
+      "view": "top",
+      "lod": "high",
+      "triangleCount": 7060,
+      "projectedBoundsMeters": {
+        "minU": -1.455,
+        "maxU": 1.455,
+        "minV": -2.69,
+        "maxV": 2.69,
+        "width": 2.91,
+        "height": 5.38
+      },
+      "svgHash": "e567a3efb77b0d5d1f5a47efd49675fb28260977708c7382b34018761b981ae6"
+    },
+    "ger_panzer3:top:medium": {
+      "key": "ger_panzer3:top:medium",
+      "modelId": "ger_panzer3",
+      "designation": "Panzerkampfwagen III Ausf. D",
+      "view": "top",
+      "lod": "medium",
+      "triangleCount": 4048,
+      "projectedBoundsMeters": {
+        "minU": -1.4478,
+        "maxU": 1.4478,
+        "minV": -2.69,
+        "maxV": 2.69,
+        "width": 2.8956,
+        "height": 5.38
+      },
+      "svgHash": "437d6cad723a6250c15e3576ff265c4232786e19a4b3077fde8972c3b9e79ef5"
+    },
+    "ger_panzer3:top:proxy": {
+      "key": "ger_panzer3:top:proxy",
+      "modelId": "ger_panzer3",
+      "designation": "Panzerkampfwagen III Ausf. D",
+      "view": "top",
+      "lod": "proxy",
+      "triangleCount": 992,
+      "projectedBoundsMeters": {
+        "minU": -1.4478,
+        "maxU": 1.4478,
+        "minV": -2.69,
+        "maxV": 2.69,
+        "width": 2.8956,
+        "height": 5.38
+      },
+      "svgHash": "8f63a517b04a91ec6359d3556e908daabbf7ebc51604839d3cf180582ccdd8e4"
+    },
+    "ger_panzer4:front:core": {
+      "key": "ger_panzer4:front:core",
+      "modelId": "ger_panzer4",
+      "designation": "Panzerkampfwagen IV Ausf. D",
+      "view": "front",
+      "lod": "core",
+      "triangleCount": 2708,
+      "projectedBoundsMeters": {
+        "minU": -1.42,
+        "maxU": 1.42,
+        "minV": 0.045,
+        "maxV": 2.35,
+        "width": 2.84,
+        "height": 2.305
+      },
+      "svgHash": "5c5e40714a0b693d6311f2dcc5f69451315be218643a7f30245dfac1ec6e7603"
+    },
+    "ger_panzer4:front:high": {
+      "key": "ger_panzer4:front:high",
+      "modelId": "ger_panzer4",
+      "designation": "Panzerkampfwagen IV Ausf. D",
+      "view": "front",
+      "lod": "high",
+      "triangleCount": 7660,
+      "projectedBoundsMeters": {
+        "minU": -1.42,
+        "maxU": 1.42,
+        "minV": 0.005,
+        "maxV": 2.68,
+        "width": 2.84,
+        "height": 2.675
+      },
+      "svgHash": "710c7d14eddb783f8938ed849b2ceea36cb9975f549e95b7600c5e37f1174416"
+    },
+    "ger_panzer4:front:medium": {
+      "key": "ger_panzer4:front:medium",
+      "modelId": "ger_panzer4",
+      "designation": "Panzerkampfwagen IV Ausf. D",
+      "view": "front",
+      "lod": "medium",
+      "triangleCount": 4600,
+      "projectedBoundsMeters": {
+        "minU": -1.42,
+        "maxU": 1.42,
+        "minV": 0.015,
+        "maxV": 2.64,
+        "width": 2.84,
+        "height": 2.625
+      },
+      "svgHash": "b66930fc847f8f014797c59b68854c4af889a913f8e1092e177fcaa41ad445bb"
+    },
+    "ger_panzer4:front:proxy": {
+      "key": "ger_panzer4:front:proxy",
+      "modelId": "ger_panzer4",
+      "designation": "Panzerkampfwagen IV Ausf. D",
+      "view": "front",
+      "lod": "proxy",
+      "triangleCount": 1080,
+      "projectedBoundsMeters": {
+        "minU": -1.42,
+        "maxU": 1.42,
+        "minV": 0.015,
+        "maxV": 2.68,
+        "width": 2.84,
+        "height": 2.665
+      },
+      "svgHash": "0f85c114ebae356145e0803b5b02bfa528b951fd86c27576de07c2d2178d6c9d"
+    },
+    "ger_panzer4:side:core": {
+      "key": "ger_panzer4:side:core",
+      "modelId": "ger_panzer4",
+      "designation": "Panzerkampfwagen IV Ausf. D",
+      "view": "side",
+      "lod": "core",
+      "triangleCount": 2708,
+      "projectedBoundsMeters": {
+        "minU": -2.96,
+        "maxU": 2.96,
+        "minV": 0.045,
+        "maxV": 2.35,
+        "width": 5.92,
+        "height": 2.305
+      },
+      "svgHash": "a4ec2fdd89f16a8fbaa75b4e45c9df31ea9013185630ebad10d26e5fe2f1cba9"
+    },
+    "ger_panzer4:side:high": {
+      "key": "ger_panzer4:side:high",
+      "modelId": "ger_panzer4",
+      "designation": "Panzerkampfwagen IV Ausf. D",
+      "view": "side",
+      "lod": "high",
+      "triangleCount": 7660,
+      "projectedBoundsMeters": {
+        "minU": -2.96,
+        "maxU": 2.96,
+        "minV": 0.005,
+        "maxV": 2.68,
+        "width": 5.92,
+        "height": 2.675
+      },
+      "svgHash": "61220ac1c5ab18b4f0d34b57bbead27c4c0a7194ee4191845a1ce3aea9e6d4a2"
+    },
+    "ger_panzer4:side:medium": {
+      "key": "ger_panzer4:side:medium",
+      "modelId": "ger_panzer4",
+      "designation": "Panzerkampfwagen IV Ausf. D",
+      "view": "side",
+      "lod": "medium",
+      "triangleCount": 4600,
+      "projectedBoundsMeters": {
+        "minU": -2.96,
+        "maxU": 2.96,
+        "minV": 0.015,
+        "maxV": 2.64,
+        "width": 5.92,
+        "height": 2.625
+      },
+      "svgHash": "07a7358fab074aef286bd3c5a4c9c3e44b8ebbf30fb1f6024c78cd3c1d570849"
+    },
+    "ger_panzer4:side:proxy": {
+      "key": "ger_panzer4:side:proxy",
+      "modelId": "ger_panzer4",
+      "designation": "Panzerkampfwagen IV Ausf. D",
+      "view": "side",
+      "lod": "proxy",
+      "triangleCount": 1080,
+      "projectedBoundsMeters": {
+        "minU": -2.96,
+        "maxU": 2.96,
+        "minV": 0.015,
+        "maxV": 2.68,
+        "width": 5.92,
+        "height": 2.665
+      },
+      "svgHash": "da2bef889d93ef0c51994d425f1722a8ff06116ec3fe5b922e0bb960f7d66918"
+    },
+    "ger_panzer4:top:core": {
+      "key": "ger_panzer4:top:core",
+      "modelId": "ger_panzer4",
+      "designation": "Panzerkampfwagen IV Ausf. D",
+      "view": "top",
+      "lod": "core",
+      "triangleCount": 2708,
+      "projectedBoundsMeters": {
+        "minU": -1.42,
+        "maxU": 1.42,
+        "minV": -2.96,
+        "maxV": 2.96,
+        "width": 2.84,
+        "height": 5.92
+      },
+      "svgHash": "5d42500c049ce00e8636616837feb76fd3f4a8c60c1d8d4a92e36ec2e7676435"
+    },
+    "ger_panzer4:top:high": {
+      "key": "ger_panzer4:top:high",
+      "modelId": "ger_panzer4",
+      "designation": "Panzerkampfwagen IV Ausf. D",
+      "view": "top",
+      "lod": "high",
+      "triangleCount": 7660,
+      "projectedBoundsMeters": {
+        "minU": -1.42,
+        "maxU": 1.42,
+        "minV": -2.96,
+        "maxV": 2.96,
+        "width": 2.84,
+        "height": 5.92
+      },
+      "svgHash": "81e47194e43c23c9c04b8b2713f5b025da5fa814fbfd2e9beeacc3dc45015ad7"
+    },
+    "ger_panzer4:top:medium": {
+      "key": "ger_panzer4:top:medium",
+      "modelId": "ger_panzer4",
+      "designation": "Panzerkampfwagen IV Ausf. D",
+      "view": "top",
+      "lod": "medium",
+      "triangleCount": 4600,
+      "projectedBoundsMeters": {
+        "minU": -1.42,
+        "maxU": 1.42,
+        "minV": -2.96,
+        "maxV": 2.96,
+        "width": 2.84,
+        "height": 5.92
+      },
+      "svgHash": "db0940271e1aed5185f941d2d8a1ba66df55b404f67c03f6ab97c6b8945546af"
+    },
+    "ger_panzer4:top:proxy": {
+      "key": "ger_panzer4:top:proxy",
+      "modelId": "ger_panzer4",
+      "designation": "Panzerkampfwagen IV Ausf. D",
+      "view": "top",
+      "lod": "proxy",
+      "triangleCount": 1080,
+      "projectedBoundsMeters": {
+        "minU": -1.42,
+        "maxU": 1.42,
+        "minV": -2.96,
+        "maxV": 2.96,
+        "width": 2.84,
+        "height": 5.92
+      },
+      "svgHash": "f29977cba21d70c65e2aaa57d29a56c987f6791dbc2fa22c08ed6d1e766d8e56"
+    },
+    "ger_sdkfz231:front:core": {
+      "key": "ger_sdkfz231:front:core",
+      "modelId": "ger_sdkfz231",
+      "designation": "Sd.Kfz. 231 (6-Rad)",
+      "view": "front",
+      "lod": "core",
+      "triangleCount": 348,
+      "projectedBoundsMeters": {
+        "minU": -0.88,
+        "maxU": 0.88,
+        "minV": 0.52,
+        "maxV": 2.22,
+        "width": 1.76,
+        "height": 1.7
+      },
+      "svgHash": "e6b39c58a7eb942becef506859a4e7f54887d5289694ec079ef570d59eddf7a2"
+    },
+    "ger_sdkfz231:front:high": {
+      "key": "ger_sdkfz231:front:high",
+      "modelId": "ger_sdkfz231",
+      "designation": "Sd.Kfz. 231 (6-Rad)",
+      "view": "front",
+      "lod": "high",
+      "triangleCount": 1880,
+      "projectedBoundsMeters": {
+        "minU": -0.91,
+        "maxU": 0.91,
+        "minV": 0,
+        "maxV": 2.25,
+        "width": 1.82,
+        "height": 2.25
+      },
+      "svgHash": "9f62d7ef7c42b3ff7498c6d6edb36fa29b1757468c9fc8cdb5bf55374531858f"
+    },
+    "ger_sdkfz231:front:medium": {
+      "key": "ger_sdkfz231:front:medium",
+      "modelId": "ger_sdkfz231",
+      "designation": "Sd.Kfz. 231 (6-Rad)",
+      "view": "front",
+      "lod": "medium",
+      "triangleCount": 1304,
+      "projectedBoundsMeters": {
+        "minU": -0.91,
+        "maxU": 0.91,
+        "minV": 0,
+        "maxV": 2.25,
+        "width": 1.82,
+        "height": 2.25
+      },
+      "svgHash": "163eef81dbaa462796b777c6c4bbc7ec7c47fe1c521153fdc0df430d437063cc"
+    },
+    "ger_sdkfz231:front:proxy": {
+      "key": "ger_sdkfz231:front:proxy",
+      "modelId": "ger_sdkfz231",
+      "designation": "Sd.Kfz. 231 (6-Rad)",
+      "view": "front",
+      "lod": "proxy",
+      "triangleCount": 376,
+      "projectedBoundsMeters": {
+        "minU": -0.91,
+        "maxU": 0.91,
+        "minV": 0,
+        "maxV": 2.25,
+        "width": 1.82,
+        "height": 2.25
+      },
+      "svgHash": "8cf594816e33b7c32e20930f05effb6285409e5b53ef45e7e8730f14990f7d7e"
+    },
+    "ger_sdkfz231:side:core": {
+      "key": "ger_sdkfz231:side:core",
+      "modelId": "ger_sdkfz231",
+      "designation": "Sd.Kfz. 231 (6-Rad)",
+      "view": "side",
+      "lod": "core",
+      "triangleCount": 348,
+      "projectedBoundsMeters": {
+        "minU": -2.785,
+        "maxU": 2.785,
+        "minV": 0.52,
+        "maxV": 2.22,
+        "width": 5.57,
+        "height": 1.7
+      },
+      "svgHash": "725f6a4324b47e75976737e15253ee659ef2f562c6f8d639b3922633fb740d38"
+    },
+    "ger_sdkfz231:side:high": {
+      "key": "ger_sdkfz231:side:high",
+      "modelId": "ger_sdkfz231",
+      "designation": "Sd.Kfz. 231 (6-Rad)",
+      "view": "side",
+      "lod": "high",
+      "triangleCount": 1880,
+      "projectedBoundsMeters": {
+        "minU": -2.785,
+        "maxU": 2.785,
+        "minV": 0,
+        "maxV": 2.25,
+        "width": 5.57,
+        "height": 2.25
+      },
+      "svgHash": "2557697f50c38d492b82c19c0ee4f4336e7fa978e0f8a93a0d788eeac5ec1be8"
+    },
+    "ger_sdkfz231:side:medium": {
+      "key": "ger_sdkfz231:side:medium",
+      "modelId": "ger_sdkfz231",
+      "designation": "Sd.Kfz. 231 (6-Rad)",
+      "view": "side",
+      "lod": "medium",
+      "triangleCount": 1304,
+      "projectedBoundsMeters": {
+        "minU": -2.785,
+        "maxU": 2.785,
+        "minV": 0,
+        "maxV": 2.25,
+        "width": 5.57,
+        "height": 2.25
+      },
+      "svgHash": "93fd06ffd5b603b1f34447070ef74fc215a38589c2ff3a53a032b00b2836afec"
+    },
+    "ger_sdkfz231:side:proxy": {
+      "key": "ger_sdkfz231:side:proxy",
+      "modelId": "ger_sdkfz231",
+      "designation": "Sd.Kfz. 231 (6-Rad)",
+      "view": "side",
+      "lod": "proxy",
+      "triangleCount": 376,
+      "projectedBoundsMeters": {
+        "minU": -2.785,
+        "maxU": 2.785,
+        "minV": 0,
+        "maxV": 2.25,
+        "width": 5.57,
+        "height": 2.25
+      },
+      "svgHash": "d6bb5b6a081e8962d9f11f8a80bf3453852e36db503589b36d048509a617bac3"
+    },
+    "ger_sdkfz231:top:core": {
+      "key": "ger_sdkfz231:top:core",
+      "modelId": "ger_sdkfz231",
+      "designation": "Sd.Kfz. 231 (6-Rad)",
+      "view": "top",
+      "lod": "core",
+      "triangleCount": 348,
+      "projectedBoundsMeters": {
+        "minU": -0.88,
+        "maxU": 0.88,
+        "minV": -2.785,
+        "maxV": 2.785,
+        "width": 1.76,
+        "height": 5.57
+      },
+      "svgHash": "5497288cdcc213c4cf414056f620ffdab9345af9711838c94525e53218b9f247"
+    },
+    "ger_sdkfz231:top:high": {
+      "key": "ger_sdkfz231:top:high",
+      "modelId": "ger_sdkfz231",
+      "designation": "Sd.Kfz. 231 (6-Rad)",
+      "view": "top",
+      "lod": "high",
+      "triangleCount": 1880,
+      "projectedBoundsMeters": {
+        "minU": -0.91,
+        "maxU": 0.91,
+        "minV": -2.785,
+        "maxV": 2.785,
+        "width": 1.82,
+        "height": 5.57
+      },
+      "svgHash": "2da52fade5dc3f2d21f9595fee2df8da88883d21382b1160f3d515d7fe1c2c5a"
+    },
+    "ger_sdkfz231:top:medium": {
+      "key": "ger_sdkfz231:top:medium",
+      "modelId": "ger_sdkfz231",
+      "designation": "Sd.Kfz. 231 (6-Rad)",
+      "view": "top",
+      "lod": "medium",
+      "triangleCount": 1304,
+      "projectedBoundsMeters": {
+        "minU": -0.91,
+        "maxU": 0.91,
+        "minV": -2.785,
+        "maxV": 2.785,
+        "width": 1.82,
+        "height": 5.57
+      },
+      "svgHash": "f71bd5dc388c5a2ad5bdb6e20456939f5f70159ab6e1d94ee743956ed671cab4"
+    },
+    "ger_sdkfz231:top:proxy": {
+      "key": "ger_sdkfz231:top:proxy",
+      "modelId": "ger_sdkfz231",
+      "designation": "Sd.Kfz. 231 (6-Rad)",
+      "view": "top",
+      "lod": "proxy",
+      "triangleCount": 376,
+      "projectedBoundsMeters": {
+        "minU": -0.91,
+        "maxU": 0.91,
+        "minV": -2.785,
+        "maxV": 2.785,
+        "width": 1.82,
+        "height": 5.57
+      },
+      "svgHash": "c619aa0cd8042e73e9e5e74f0a339104a6167e95f10f1f5bef74336a60418b9b"
+    }
+  }
+}

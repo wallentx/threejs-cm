@@ -120,6 +120,18 @@ The first boundary slice now exists:
   presentation identity and rejects missing infantry, structure, or vehicle
   renderers before constructing any unit. Calibration and silhouette tools
   inject the vehicle registry directly.
+- `src/calibration/VehicleVisualBundle.js` defines the family-neutral vehicle
+  visual input contract. `src/content/france1940/render/vehicleVisualBundles.js`
+  composes each France 1940 vehicle's canonical statistics, visual profile,
+  calibration record, mesh factory, logical assets, optional renderer-owned
+  dimensions/shape data, and validation policy. A vehicle is an injected
+  bundle; generic calibration code does not import the France 1940 catalog.
+- `src/calibration/VehicleVisualEvaluator.js` runs pluggable checks over any
+  visual bundle. Identity, asset, mesh/LOD, rigid-envelope, source-registration,
+  topology, and weapon-mount checks are independent plugins. CPU silhouette
+  hashes remain change detectors only. Historical shape acceptance uses
+  source-space blueprint registration and side/front/top overlay evidence, not
+  equality with a previous model capture.
 - `src/assets/AssetManifest.js` validates and deeply freezes portable logical
   asset records, binds runtime providers outside those records, and composes
   immutable base/replacement packs. Replacement is explicit, ordered,
@@ -249,6 +261,8 @@ These seams are usable now, before the staged directory migration is complete:
 | Infantry body meshes, faction presentation, and bunker mesh | `content/france1940/render/*` | Injected `UnitFactory`, Soldier pose animation |
 | Period infantry weapons and grip/muzzle markers | `content/france1940/render/France1940InfantryWeaponFactory.js` | Family infantry mesh factories |
 | Family-neutral infantry pose solving | `world/infantry/InfantryPoseAnimator.js` | `SoldierAI` |
+| Vehicle visual bundle composition | `content/france1940/render/vehicleVisualBundles.js` | Generic visual evaluator, calibration, family integration tests |
+| Generic vehicle visual contract and check plugins | `calibration/VehicleVisualBundle.js`, `calibration/VehicleVisualEvaluator.js` | Any family-owned vehicle bundle |
 | Vehicle visual selection | `content/france1940/render/*` | Injected `UnitFactory`, calibration and silhouette tools |
 | Logical asset identity and pack replacement | `assets/AssetManifest.js`, `content/france1940/assets/*` | Composition-bound family render providers |
 | External image loading, cache, fallback, and ownership | `assets/ExternalImageAssetService.js` | Calibration-reference consumer; browser lifecycle only |

@@ -240,29 +240,43 @@ Do not begin these.
 
 Fill this section only. Do not rewrite scope above.
 
-- Status: NOT STARTED
-- Baseline before edits:
-  - Branch:
-  - Existing dirty allowed files:
-  - Focused command:
-  - Result:
+- Status: COMPLETE; AUDIT HARNESS, R35 REPAIR, VISUAL REVIEW, AND BASELINE ACCEPTED
+- Baseline before packet:
+  - Branch: main
+  - Focused result before packet: 35/35 passed
+  - Original fixture SHA-256: `693935cb45244b76cb1fc3e4c6fd3d77b2102bb31e6de7279fb841c183e55ed1`
 - Implementation:
-  - Files changed:
-  - Manifest schema/version:
-  - Capture count:
-  - Vehicle IDs:
-  - Triangle-count range by LOD:
-  - Envelope warnings:
-  - Baseline update command:
-- Validation after final edit:
-  - Focused tests:
-  - Fresh-process byte comparison:
-  - Full `npm test`:
-  - `npm run build`:
-  - `git diff --check`:
-- Deliberately incomplete:
-- Review risks:
+  - Audit engine: `src/calibration/VehicleSilhouetteAudit.js`
+  - CLI harness: `scripts/audit-vehicle-silhouettes.mjs`
+  - Reviewed baseline: `test/fixtures/vehicle-silhouette-baseline.json`
+  - Audit tests: `test/vehicle-silhouette-audit.test.js`
+  - Package scripts: `package.json`
+  - Coordinating-agent R35 repair: `src/world/vehicles/RenaultR35.js`, `src/world/vehicles/VehicleVisualProfiles.js`, `src/world/vehicles/VehicleModelEnhancer.js`, `src/content/france1940/vehicleData/internalLayouts/RenaultR35InternalLayout.js`, `test/renault-r35-geometry.test.js`, `test/geometry-lod-fidelity.test.js`, `test/vehicles.test.js`
+  - Documentation: `TODO.md`, `HANDOFF.md`
+  - Manifest schema/version: 1.1.0
+  - Capture count: 168 records (14 vehicles x 3 views x 4 LODs)
+  - Canonical views: front, side, top
+  - Canonical LODs: high, medium, core, proxy
+  - Render config: 700 x 450; fixed colors; no envelope or wireframe in hashes; four-decimal metrics; 0.01 m envelope epsilon
+  - Baseline update remains explicit through `npm run update:silhouette-baseline`; tests and default audits never rewrite it.
+- R35 correction and review:
+  - Registered source depicts the 4.02 m tail-less production configuration; removed the absent optional trench tail.
+  - Reassigned the rigid endpoints to the cast nose and full track run; centered the detailed running gear; restored five visible road wheels; grounded track cleats; corrected proxy turret height.
+  - Replaced the disconnected lower hull and transverse nose cylinder with one closed, outward-wound station loft; lowered the belly and retained the exact 4.02 m envelope.
+  - Seated the driver hood and thin visor into the descending cast deck; replaced the floating box mantlet with a rounded embedded casting.
+  - Cross-checked front asymmetry against museum photography; moved the main gun to vehicle-right and the coax to vehicle-left in rendered markers, calibration data, enhancement metadata, and internal component volumes.
+  - CPU side/front/top inspection covered high, medium, core, and proxy tiers.
+  - Exact audit result: 0 envelope failures across all 168 records.
+  - Reviewed fixture SHA-256: `c6b01bc5bc6a05f5d87176114caf3e9abb7ff3232e50bf86ecabf01cb4a66e34`
+- Validation after final code edit:
+  - Focused command: `node --test test/renault-r35-geometry.test.js test/geometry-lod-fidelity.test.js test/vehicle-silhouette-audit.test.js test/vehicle-calibration.test.js test/vehicles.test.js test/vehicle-internal-collision.test.js`
+  - Focused result: 76/76 passed
+  - Full `npm test`: 433/433 passed
+  - `npm run build`: 140 modules transformed; known 806.17 kB `three-webgpu` chunk warning only
+  - Runtime server: `http://127.0.0.1:5173`
+  - Browser runtime: blocked because the Three.js devtools proxy had no connected browser tab and headless Chromium's SwiftShader GPU process repeatedly exited with code 11; no runtime-success claim made.
+- Deliberately incomplete: deterministic browser captures for ballistic impacts and authoritative vehicle damage states.
 
 ## Questions or blockers
 
-- None recorded.
+- No packet blocker remains. Browser capture work still requires one connected proxy tab or a functioning headless GPU process.

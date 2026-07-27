@@ -193,8 +193,18 @@ function sourcePoint(x, y, dimensions, offset = { x: 0, y: 0 }) {
 }
 
 function rigidLandmarks(calibration, registration, viewData, view, dimensions, crop) {
-  if (view !== 'side' || !dimensions) return {};
+  if (!dimensions) return {};
   const entry = viewData.entry ?? {};
+  const landmarks = {};
+  const explicitLandmarks = entry.landmarkPixels ?? {};
+  for (const [id, point] of Object.entries(explicitLandmarks)) {
+    const x = Array.isArray(point) ? point[0] : point?.x;
+    const y = Array.isArray(point) ? point[1] : point?.y;
+    const normalized = sourcePoint(x, y, dimensions);
+    if (normalized) landmarks[id] = normalized;
+  }
+  if (view !== 'side') return landmarks;
+
   const rigid = entry.rigidDatumPixels
     ?? entry.rigidEnvelopePixels
     ?? registration?.sideDatumPixelsInCrop
@@ -220,8 +230,8 @@ function rigidLandmarks(calibration, registration, viewData, view, dimensions, c
   const centerX = finite(frontX) !== null && finite(rearX) !== null
     ? (finite(frontX) + finite(rearX)) * 0.5
     : null;
-  const landmarks = {};
   const assign = (id, x, y) => {
+    if (landmarks[id]) return;
     const point = sourcePoint(x, y, dimensions, cropOffset);
     if (point) landmarks[id] = point;
   };

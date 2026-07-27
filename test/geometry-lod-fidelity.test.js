@@ -213,7 +213,6 @@ test('infantry firing rigs use right trigger hands and right-side rifle actions'
 test('right-side coax mounts align rendered barrels and muzzle markers', () => {
   for (const type of [
     'fr_somua',
-    'fr_renault_r35',
     'fr_hotchkiss_h39',
     'fr_amc35',
     'fr_char_b1bis',
@@ -267,26 +266,37 @@ test('Char B1 hull machine gun remains right of its right-side 75mm gun', () => 
   assert.equal(barrel.position.x, marker.position.x);
 });
 
-test('left-side Panhard coax uses +X in the shared +Z-forward frame', () => {
-  const vehicle = createVehicleMesh('fr_panhard178');
-  const marker = vehicle.userData.weaponMuzzles.coax;
-  assert.equal(marker.userData.mountSide, 'left');
-  assert.ok(marker.position.x > vehicle.userData.muzzle.position.x);
-  const barrel = marker.parent.getObjectByName('coax_barrel');
-  assert.ok(barrel.position.x > 0);
+test('left-side R35 and Panhard coax mounts use +X in the shared +Z-forward frame', () => {
+  for (const type of ['fr_renault_r35', 'fr_panhard178']) {
+    const vehicle = createVehicleMesh(type);
+    const marker = vehicle.userData.weaponMuzzles.coax;
+    assert.equal(marker.userData.mountSide, 'left');
+    assert.ok(marker.position.x > vehicle.userData.muzzle.position.x);
+    const barrels = [];
+    marker.parent.traverse(object => {
+      if (object.isMesh && object.userData.weaponMountId === 'coax') barrels.push(object);
+    });
+    assert.ok(barrels.length > 0);
+    for (const barrel of barrels) {
+      assert.equal(barrel.userData.mountSide, 'left');
+      assert.ok(barrel.position.x > 0);
+      assert.equal(barrel.position.x, marker.position.x);
+    }
+  }
 });
 
 test('blueprint-resolved mount sides retain source provenance', () => {
-  for (const type of [
-    'fr_somua',
-    'fr_renault_r35',
-    'fr_amc35',
-    'fr_char_b1bis',
-    'ger_panzer2'
-  ]) {
+  const expectedSides = new Map([
+    ['fr_somua', 'right'],
+    ['fr_renault_r35', 'left'],
+    ['fr_amc35', 'right'],
+    ['fr_char_b1bis', 'right'],
+    ['ger_panzer2', 'right']
+  ]);
+  for (const [type, expectedSide] of expectedSides) {
     const vehicle = createVehicleMesh(type);
     const marker = vehicle.userData.weaponMuzzles.coax;
-    assert.equal(marker.userData.mountSide, 'right');
+    assert.equal(marker.userData.mountSide, expectedSide);
     assert.match(marker.userData.placementQuality, /blueprint|museum/);
     assert.match(marker.userData.referenceUrl, /^https:\/\//);
   }

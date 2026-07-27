@@ -3,6 +3,10 @@ import {
   FRANCE_1940_VEHICLE_MESH_FACTORIES
 } from './vehicleMeshFactories.js';
 import {
+  createFrance1940VehicleVisualBundles,
+  FRANCE_1940_VEHICLE_VISUAL_BUNDLES
+} from './vehicleVisualBundles.js';
+import {
   createFrance1940UnitMeshFactories,
   FRANCE_1940_INFANTRY_MESH_FACTORIES,
   FRANCE_1940_STRUCTURE_MESH_FACTORIES
@@ -86,6 +90,7 @@ export {
   createFrance1940InfantrySquadMesh,
   createFrance1940TerrainSurfaceProvider,
   createFrance1940UnitMeshFactories,
+  createFrance1940VehicleVisualBundles,
   createFrance1940VehicleMeshFactories,
   createFrance1940VfxProvider,
   FRANCE_1940_INFANTRY_MESH_FACTORIES,
@@ -97,5 +102,6 @@ export {
   FRANCE_1940_STRUCTURE_MESH_FACTORIES,
   FRANCE_1940_TERRAIN_SURFACE_PROVIDER,
   FRANCE_1940_VFX_PROVIDER,
+  FRANCE_1940_VEHICLE_VISUAL_BUNDLES,
   FRANCE_1940_VEHICLE_MESH_FACTORIES
 };

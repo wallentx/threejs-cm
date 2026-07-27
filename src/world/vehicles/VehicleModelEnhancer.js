@@ -47,10 +47,10 @@ const AUXILIARY_MOUNT_LAYOUTS = Object.freeze({
   fr_renault_r35: {
     coax: {
       parent: 'turret',
-      position: [lateralX('right', 0.18), 0.30, 0.80],
-      barrel: [lateralX('right', 0.18), 0.30, 0.56, 0.48],
-      side: 'right',
-      placementQuality: 'blueprint-confirmed front arrangement',
+      position: [lateralX('left', 0.20), 0.29, 0.80],
+      barrel: [lateralX('left', 0.20), 0.29, 0.56, 0.48],
+      side: 'left',
+      placementQuality: 'blueprint-registered against user-supplied front and side elevations',
       referenceUrl: BLUEPRINT_REFERENCES.fr_renault_r35
     }
   },
@@ -200,6 +200,18 @@ function addAuxiliaryWeaponMounts(root, metalMaterial) {
   for (const [id, layout] of Object.entries(layouts)) {
     const parent = layout.parent === 'turret' ? root.userData.turret : root;
     if (!parent) continue;
+    const authoredMarker = root.userData.weaponMuzzles?.[id]
+      ?? parent.getObjectByName(`${id}_muzzle`);
+    if (authoredMarker) {
+      authoredMarker.userData.weaponMountId = id;
+      authoredMarker.userData.forwardAxis ??= '+Z';
+      authoredMarker.userData.mountSide ??= layout.side ?? null;
+      authoredMarker.userData.placementQuality ??=
+        layout.placementQuality ?? 'authored';
+      authoredMarker.userData.referenceUrl ??= layout.referenceUrl ?? null;
+      weaponMuzzles[id] = authoredMarker;
+      continue;
+    }
     if (layout.barrel) {
       const [x, y, z, length] = layout.barrel;
       const barrel = tagMesh(new THREE.Mesh(
@@ -388,15 +400,26 @@ function addTrackedProxy(
   const sourcePath = sourceRunningGear?.userData?.trackParts?.tracks?.[0]?.links
     ?.userData?.instancePath;
   const firstRoadWheel = sourceRunningGear?.userData?.trackParts?.roadWheels?.[0];
-  const trackHeight = sourceDimensions?.beltHeight ?? dimensions.height * 0.27;
-  const trackLength = sourceDimensions?.beltLength ?? dimensions.length * 0.86;
-  const trackWidth = sourceDimensions?.trackWidth ?? dimensions.width * 0.14;
   const trackCenterX = Math.abs(sourcePath?.[0]?.position?.[0] ?? dimensions.width * 0.43);
-  const bottomY = sourcePath?.reduce(
-    (minimum, point) => Math.min(minimum, point.position[1]),
-    Infinity
-  );
-  const centerY = Number.isFinite(bottomY) ? bottomY + trackHeight * 0.5 : trackHeight * 0.5;
+  const sourceBounds = sourceRunningGear
+    ? new THREE.Box3().setFromObject(sourceRunningGear)
+    : null;
+  const sourceSize = sourceBounds?.getSize(new THREE.Vector3());
+  const trackHeight = sourceSize?.y
+    ?? sourceDimensions?.beltHeight
+    ?? dimensions.height * 0.27;
+  const trackLength = sourceSize?.z
+    ?? sourceDimensions?.beltLength
+    ?? dimensions.length * 0.86;
+  const measuredTrackWidth = sourceSize
+    ? sourceSize.x - trackCenterX * 2
+    : null;
+  const trackWidth = measuredTrackWidth > 0
+    ? measuredTrackWidth
+    : sourceDimensions?.trackWidth ?? dimensions.width * 0.14;
+  const centerY = sourceBounds
+    ? (sourceBounds.min.y + sourceBounds.max.y) * 0.5
+    : trackHeight * 0.5;
   firstRoadWheel?.geometry?.computeBoundingBox();
   const roadWheelRadius = firstRoadWheel?.geometry?.boundingBox
     ? (

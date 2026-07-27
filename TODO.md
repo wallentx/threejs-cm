@@ -141,13 +141,19 @@ Status:
   - [ ] Replace provisional rectangular ground fields with scenario-authored surface layers, irregular field boundaries, roads, and riverbank materials.
   - [ ] Expand the village, vegetation, fences, rubble, and small terrain props with authored near/medium/far representations.
 - [ ] Add additional authored LOD models and measure transition popping at near, design, and far cameras.
-  - [x] Blueprint-calibrate all 14 vehicle envelopes, profiles, running gear, turrets, and weapon projections.
+  - [ ] Blueprint-calibrate all 14 vehicle envelopes, profiles, running gear, turrets, and weapon projections.
+    - [x] Add a family-owned visual-bundle registry that composes each vehicle's canonical statistics, profile, calibration record, mesh factory, surface assets, source drawing references, renderer parameters, and validation policy for reusable generic checks.
     - [x] Correct the requested vehicle identities: replace the 8-wheel Sd.Kfz. 231 with the 6-Rad and replace the Laffly V15T tractor with the Laffly S20TL 6x6 troop carrier.
     - [x] Add one provenance-backed visual contract for every catalog vehicle, centralizing historical dimensions, construction, running-gear count, and defining silhouette landmarks.
     - [x] Blueprint-calibrate the Panzer IV Ausf. D, Panzer 35(t), and Panzer 38(t) detailed envelopes, track widths, hull lengths, and turret/deck stacks.
     - [x] Blueprint-calibrate the AMC 35, Panzer II Ausf. C, and Char B1 bis detailed envelopes while separating hull dimensions from gun projection.
     - [x] Rebuild Renault R35, Hotchkiss H39, and Panhard 178 around blueprint-specific cast/armored hull lofts, running gear, deck contacts, and exact rigid envelopes.
-    - [x] Refit R35, H39, and Panhard 178 side profiles against registered source elevations/data sheets; record exact versus inferred datums and preserve authored far hull/turret/gun/running-gear silhouettes through enhancement.
+    - [ ] Refit R35, H39, and Panhard 178 profiles against registered source elevations/data sheets; record exact versus inferred datums and preserve authored far hull/turret/gun/running-gear silhouettes through enhancement.
+      - [x] Register the user-supplied R35 side/front/top raster, crop rectangles, rigid landmarks, source identity, and explicit secondary-source limitations as a replaceable family asset.
+      - [x] Replace the R35 floating driver hood and generic ellipsoid mantlet with a direct glacis slit, source-shaped frontal shield, separate main/lower/coax collars, and authored main/coax muzzle ownership.
+      - [ ] Converge R35 hull, turret, mantlet, and running-gear contours against source-space side/front/top overlays; exact envelope and current-model hash equality alone do not establish fidelity.
+    - [x] Repair the registered tail-less R35 configuration: remove the absent optional trench tail, extend the base track/nose to the 4.02 m envelope, restore the five-wheel spacing, seat detailed track cleats at ground level, and constrain the proxy turret to 2.13 m.
+    - ~~[x] Seat a separate R35 driver hood and rounded generic mantlet.~~ Dropped after source overlay showed both abstractions contradicted the supplied drawing.
     - [x] Refit AMC 35, Laffly S20TL, and Char B1 bis against registered side elevations and published mechanical dimensions; preserve exact envelopes, ground contact, running gear, weapon projections, and authored far silhouettes.
     - [x] Refit Panzer II Ausf. C, Panzer 35(t), and Panzer 38(t) against registered reference elevations; converge hull, turret, running-gear, and gun silhouettes while preserving exact envelopes and articulated far proxies.
     - [x] Refit Panzer IV Ausf. D against a registered multiview reference; converge its stepped hull, four-bogie suspension, faceted turret, short KwK 37, MG mounts, and articulated far proxy.
@@ -160,7 +166,7 @@ Status:
       - [x] Add provenance-backed side/front/top record schemas and validated JSON import/export for all 14 vehicles.
       - [x] Record selected-source transforms and vehicle-specific mechanical/outline landmarks in vehicle-owned calibration metadata, explicitly labeling exact, registered, inferred, and unavailable views.
       - [x] Preload directly loadable vehicle-owned source rasters, crops, mirror/rotation transforms, and registered rigid landmarks into the jig's editable default state; automatically fit seeded landmarks while keeping unavailable or qualitative views explicitly empty.
-    - [x] Refit every detailed vehicle against available registered source outlines; retain exact envelopes while reducing contour and landmark error, without pretending unavailable or unregistered views are measured.
+    - [ ] Refit every detailed vehicle against available registered source outlines; retain exact envelopes while reducing contour and landmark error, without pretending unavailable or unregistered views are measured.
   - [x] Rough pass: authored medium & proxy LOD models for French/German infantry, SOMUA S35, and Panzer III.
   - [x] Seat R35/H39 turrets on their cast decks, keep Panzer III rear deck and period helmet/firearm silhouettes at core distance, preserve French helmet identity in the far proxy, and add per-triangle winding/LOD regressions.
   - [x] Authored all 14 standalone 1940 vehicle 3D models in `src/world/vehicles/` (SOMUA S35, R35, H39, AMC 35, Panhard 178, Laffly S20TL, Char B1 bis, Panzer II, Panzer III, Panzer 35(t), Panzer 38(t), Sd.Kfz. 231 6-Rad, Opel Blitz, and Panzer IV Ausf. D).
@@ -172,7 +178,7 @@ Status:
   - [x] Enforce the shared `+Z`-forward local frame (`-X` right, `+X` left); correct infantry limbs, firing grips, rifle actions, vehicle MGs/visors, and track-side semantics; retain blueprint or museum provenance for resolved asymmetric mounts.
   - [ ] Replace procedural paint approximations with vehicle-specific, historically sourced liveries, markings, UV atlases, and damage variants.
 - [ ] Add deterministic visual capture coverage for high/medium/low LOD, ballistic impacts, and vehicle damage states.
-  - [ ] Add a reproducible CPU silhouette manifest and reviewed baseline for every vehicle, side/front/top view, and high/medium/core/proxy tier.
+  - [x] Add a reproducible CPU silhouette manifest and reviewed regression baseline for every vehicle, side/front/top view, and high/medium/core/proxy tier; document that hashes detect changes but do not prove historical fidelity.
   - [ ] Add deterministic browser captures for representative ballistic impacts and authoritative vehicle damage states.
 - [ ] Remove the remaining 500 kB production chunk warning.
   - [x] Split application code from the Three.js vendor chunk; the application bundle is about 250 kB, while the minified Three.js chunk remains about 501 kB.

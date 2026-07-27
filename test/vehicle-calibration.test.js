@@ -217,21 +217,30 @@ test('jig defaults normalize multiview crops, rotation, and source URLs', () => 
   assert.equal(sdkfz.top.rotationDegrees, 90);
 });
 
-test('jig defaults do not pretend a source page is a directly loadable raster', () => {
+test('R35 jig defaults load the registered multiview raster without source-page guessing', () => {
   const views = createVehicleOwnedRegistrations(
     createVehicleMesh('fr_renault_r35'),
-    BLUEPRINT_CALIBRATION_RECORDS.fr_renault_r35
+    BLUEPRINT_CALIBRATION_RECORDS.fr_renault_r35,
+    { referenceRegistry: FRANCE_1940_CALIBRATION_REFERENCES }
   );
-  for (const view of Object.values(views)) {
-    assert.equal(view.imageUrl, null);
-    assert.equal(view.rotationDegrees, 0);
+  for (const viewName of ['side', 'front', 'top']) {
+    const view = views[viewName];
+    assert.equal(
+      view.imageUrl,
+      '/assets/blueprints/france1940/renault-r-35-2.png'
+    );
+    assert.equal(view.autoFit, true);
+    assert.ok(Object.keys(view.landmarks).length >= 5);
   }
+  assert.equal(views.side.rotationDegrees, 0);
+  assert.equal(views.front.rotationDegrees, 0);
+  assert.equal(views.top.rotationDegrees, -90);
 });
 
-test('R35 record exposes side-fit mechanics without claiming absent orthographic views', () => {
+test('R35 record exposes source-backed side, front, and top fit mechanics', () => {
   const record = BLUEPRINT_CALIBRATION_RECORDS.fr_renault_r35;
-  assert.match(record.dataQuality, /side elevation/);
-  assert.match(record.dataQuality, /front\/top unregistered/);
+  assert.match(record.dataQuality, /side, front, and top registered/);
+  assert.doesNotMatch(record.dataQuality, /front\/top unregistered/);
   const ids = new Set(record.landmarks.map(landmark => landmark.id));
   for (const id of [
     'road-wheel-rear-center',

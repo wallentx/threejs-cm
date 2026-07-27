@@ -9,7 +9,9 @@ export const FRANCE_1940_ASSET_IDS = Object.freeze({
   battlefieldVfxProvider: 'france1940.vfx.battlefield.default',
   battlefieldAudioProvider: 'france1940.audio.battlefield.default',
   somuaSideCalibrationReference:
-    'france1940.calibration.vehicle.fr_somua.side.reference'
+    'france1940.calibration.vehicle.fr_somua.side.reference',
+  renaultR35MultiviewCalibrationReference:
+    'france1940.calibration.vehicle.fr_renault_r35.multiview.reference'
 });
 
 export const FRANCE_1940_ASSET_MANIFEST = defineAssetManifest({
@@ -147,6 +149,23 @@ export const FRANCE_1940_ASSET_MANIFEST = defineAssetManifest({
         modelId: 'fr_somua',
         views: ['side'],
         role: 'orthographic-shape-registration'
+      }
+    },
+    [FRANCE_1940_ASSET_IDS.renaultR35MultiviewCalibrationReference]: {
+      id: FRANCE_1940_ASSET_IDS.renaultR35MultiviewCalibrationReference,
+      kind: 'calibration-reference-image',
+      source: {
+        type: 'url',
+        url: '/assets/blueprints/france1940/renault-r-35-2.png'
+      },
+      provenance:
+        'user-supplied Renault R35 four-elevation drawing; calibration use only',
+      metadata: {
+        modelId: 'fr_renault_r35',
+        views: ['side', 'front', 'top'],
+        role: 'orthographic-shape-registration',
+        sha256:
+          '11ef1ab07dcfc0672016c5ebad845894c5750d056c682419fb5177b033ba8df5'
       }
     }
   }

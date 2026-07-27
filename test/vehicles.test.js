@@ -257,6 +257,24 @@ test('blueprint-calibrated vehicles preserve measured envelopes and running-gear
   }
 });
 
+test('Renault R35 matches the registered tail-less production configuration', () => {
+  const mesh = createRenaultR35Mesh();
+  const namedParts = [];
+  mesh.traverse(object => {
+    if (object.name) namedParts.push(object.name);
+  });
+
+  assert.equal(
+    namedParts.some(name => name.includes('TrenchTail')),
+    false,
+    'Registered tail-less R35 must not contain optional trench-tail geometry'
+  );
+  assert.ok(
+    mesh.userData.modelMetadata.features.includes('tail-less rear hull'),
+    'R35 metadata must identify the modeled tail-less configuration'
+  );
+});
+
 test('authored vehicle hulls are closed, outward-wound, and non-degenerate', () => {
   for (const style of ['cast', 'riveted', 'boxy', 'armoredCar']) {
     const geometry = createSectionedHullGeometry(5, 2.2, 1.2, style);

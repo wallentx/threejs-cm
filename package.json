@@ -7,6 +7,8 @@
     "dev": "vite --host",
     "calibrate": "vite --host 127.0.0.1",
     "build": "vite build",
+    "audit:silhouettes": "node scripts/audit-vehicle-silhouettes.mjs",
+    "update:silhouette-baseline": "node scripts/audit-vehicle-silhouettes.mjs --update-baseline",
     "test": "node --test",
     "preview": "vite preview"
   },

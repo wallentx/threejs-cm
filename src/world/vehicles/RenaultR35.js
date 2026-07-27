@@ -1,79 +1,47 @@
 import * as THREE from 'three';
+import {
+  RENAULT_R35_VISUAL_DATA
+} from '../../content/france1940/vehicleData/RenaultR35VisualData.js';
 import { setVehicleMaterialSlot } from './VehicleMaterialLibrary.js';
 import { createTrackedRunningGear } from './TrackedRunningGear.js';
 import { getVehicleVisualProfile } from './VehicleVisualProfiles.js';
 
 const PROFILE = getVehicleVisualProfile('fr_renault_r35');
+const VISUAL = RENAULT_R35_VISUAL_DATA.geometry;
 
-const R35_BLUEPRINT_FIT = Object.freeze({
-  source: Object.freeze({
-    title: 'Renault R35',
-    url: 'https://www.the-blueprints.com/blueprints/tanks/tanks-r/50737/view/renault_r35/',
-    imagePixels: Object.freeze({ width: 705, height: 347 }),
-    evidence: 'source-page dimensions; side-elevation raster'
-  }),
-  outlineLandmarks: Object.freeze([
-    Object.freeze({
-      id: 'rigid-envelope',
-      modelMeters: Object.freeze({ length: 4.02, width: 1.87, height: 2.13 }),
-      evidence: 'historical dimensions from vehicle visual profile'
-    }),
-    Object.freeze({
-      id: 'ground-line',
-      axis: 'y',
-      modelMeters: 0,
-      evidence: 'inferred from raster track contact'
-    }),
-    Object.freeze({
-      id: 'upper-track-run',
-      axis: 'y',
-      modelMeters: 1.10,
-      evidence: 'approximation inferred from registered side outline'
-    }),
-    Object.freeze({
-      id: 'turret-ring',
-      modelMeters: Object.freeze({ y: 1.36, z: 0.05 }),
-      evidence: 'approximation inferred from registered side outline'
-    }),
-    Object.freeze({
-      id: 'main-gun-axis',
-      axis: 'y',
-      modelMeters: 1.79,
-      evidence: 'approximation inferred from registered side outline'
-    }),
-    Object.freeze({
-      id: 'road-wheel-centers',
-      axis: 'z',
-      modelMeters: Object.freeze([-0.98, -0.54, 0.06, 0.50, 0.95]),
-      evidence: 'approximation inferred from five visible wheel centers'
-    })
-  ])
-});
-
-// Metres, +Y up and +Z forward. This factory keeps the visible trench tail
-// inside the repository's 4.02 m visual-envelope contract.
+// Metres, +Y up and +Z forward. The registered drawing shows the tail-less
+// production configuration: the cast nose and track run own the 4.02 m rigid
+// envelope. The optional trench-crossing tail is deliberately not fitted.
 const R35 = Object.freeze({
   overallLength: PROFILE.dimensionsMeters.length,
   overallWidth: PROFILE.dimensionsMeters.width,
   overallHeight: PROFILE.dimensionsMeters.height,
-  noseZ: 1.85,
-  hullRearZ: -1.52,
-  tailZ: 1.85 - PROFILE.dimensionsMeters.length,
-  trackWidth: 0.29,
-  trackCenterX: 0.7842,
-  trackLength: 3.42,
-  trackHeight: 1.03,
-  trackCenterY: 0.55,
-  turretCenterZ: 0.05,
-  turretDeckY: 1.36,
-  turretBodyHeight: 0.63,
-  gunX: 0.14,
-  gunY: 0.43,
-  gunLength: 0.40,
-  gunMuzzleZ: 0.95,
-  runningGearOffsetZ: 0.075693,
-  roadWheelCentersZ: R35_BLUEPRINT_FIT.outlineLandmarks[5].modelMeters
+  noseZ: PROFILE.dimensionsMeters.length / 2,
+  hullRearZ: VISUAL.hullStations[0].z,
+  trackWidth: VISUAL.runningGear.trackWidth,
+  trackCenterX: VISUAL.runningGear.trackCenterX,
+  trackLength: VISUAL.runningGear.trackLength,
+  // The detailed links add 0.0638 m beyond the belt path. This path height
+  // seats their cleats on y=0 while retaining the registered 1.10 m top run.
+  trackHeight: VISUAL.runningGear.trackHeight,
+  trackCenterY: VISUAL.runningGear.trackCenterY,
+  turretCenterZ: VISUAL.turret.centerZ,
+  turretDeckY: VISUAL.turret.deckY,
+  turretBodyHeight: VISUAL.turret.sections.at(-1).y,
+  gunX: VISUAL.mainGun.x,
+  gunY: VISUAL.mainGun.y,
+  gunLength: VISUAL.mainGun.barrelLength,
+  gunMuzzleZ: VISUAL.mainGun.muzzleZ,
+  coaxX: VISUAL.coax.x,
+  coaxY: VISUAL.coax.y,
+  runningGearOffsetZ: 0,
+  roadWheelCentersZ: VISUAL.runningGear.roadWheelCentersZ
 });
+
+const R35_HULL_STATIONS = VISUAL.hullStations;
+const R35_PROXY_HULL_STATIONS = Object.freeze(
+  VISUAL.proxyHullStationIndices.map(index => R35_HULL_STATIONS[index])
+);
 
 function createCastHullGeometry(stations) {
   const ringSize = 10;
@@ -129,10 +97,14 @@ function createCastTurretGeometry(rings, segments = 12) {
   for (const ring of rings) {
     for (let segment = 0; segment < segments; segment++) {
       const angle = (segment / segments) * Math.PI * 2;
+      const sine = Math.sin(angle);
+      const halfLength = sine >= 0
+        ? ring.frontLength ?? ring.halfLength
+        : ring.rearLength ?? ring.halfLength;
       positions.push(
         Math.cos(angle) * ring.halfWidth,
         ring.y,
-        ring.centerZ + Math.sin(angle) * ring.halfLength
+        ring.centerZ + sine * halfLength
       );
     }
   }
@@ -172,20 +144,18 @@ function createCastTurretGeometry(rings, segments = 12) {
   return geometry;
 }
 
-function createSideProfilePrismGeometry(profile, xMin, xMax, name) {
+function createFrontPlateGeometry(outline, depth, name) {
   const shape = new THREE.Shape();
-  shape.moveTo(profile[0][0], profile[0][1]);
-  for (let index = 1; index < profile.length; index++) {
-    shape.lineTo(profile[index][0], profile[index][1]);
+  shape.moveTo(outline[0][0], outline[0][1]);
+  for (let index = 1; index < outline.length; index++) {
+    shape.lineTo(outline[index][0], outline[index][1]);
   }
   shape.closePath();
   const geometry = new THREE.ExtrudeGeometry(shape, {
-    depth: xMax - xMin,
+    depth,
     steps: 1,
     bevelEnabled: false
   });
-  geometry.rotateY(-Math.PI / 2);
-  geometry.translate(xMax, 0, 0);
   geometry.computeVertexNormals();
   geometry.computeBoundingBox();
   geometry.name = name;
@@ -199,6 +169,34 @@ function tag(mesh, lodBand, name) {
   mesh.receiveShadow = true;
   return mesh;
 }
+
+function createForwardCylinder(radius, depth, segments, material, name, lodBand) {
+  const mesh = tag(new THREE.Mesh(
+    new THREE.CylinderGeometry(radius, radius, depth, segments),
+    material
+  ), lodBand, name);
+  mesh.rotation.x = Math.PI / 2;
+  return mesh;
+}
+
+const R35_BLUEPRINT_CALIBRATION = Object.freeze({
+  source: Object.freeze({
+    title: 'Renault R35 four-elevation line drawing',
+    url: RENAULT_R35_VISUAL_DATA.blueprint.sourcePageUrl,
+    imageUrl: RENAULT_R35_VISUAL_DATA.blueprint.imageUrl,
+    imageSizePixels: RENAULT_R35_VISUAL_DATA.blueprint.imagePixels,
+    sha256: RENAULT_R35_VISUAL_DATA.blueprint.sha256,
+    provenance: RENAULT_R35_VISUAL_DATA.blueprint.provenance,
+    limitations: RENAULT_R35_VISUAL_DATA.blueprint.limitations
+  }),
+  imageRegistration: Object.freeze({
+    sourceImagePixels: RENAULT_R35_VISUAL_DATA.blueprint.imagePixels,
+    views: RENAULT_R35_VISUAL_DATA.blueprint.views
+  }),
+  dimensionPolicy: 'rigid tail-less envelope 4.02m x 1.87m x 2.13m',
+  geometryAuthority:
+    'source-space side, front, and top registration; emitted mesh is not its own reference'
+});
 
 export function createRenaultR35Mesh() {
   const tankGroup = new THREE.Group();
@@ -218,110 +216,37 @@ export function createRenaultR35Mesh() {
     color: '#111512', metalness: 0.82, roughness: 0.38
   }), 'metal');
 
-  // The ring stations preserve the R35's three-piece cast character: a
-  // pinched engine rear, broad central shoulders, and a low rounded nose.
-  // Extra lower/upper shoulder controls avoid the old triangular front view.
-  const hull = tag(new THREE.Mesh(createCastHullGeometry([
-    {
-      z: R35.hullRearZ, bottomHalfWidth: 0.48, bottomY: 0.66,
-      lowerHalfWidth: 0.62, lowerY: 0.76,
-      halfWidth: 0.71, shoulderY: 1.00,
-      upperHalfWidth: 0.66, upperY: 1.20,
-      deckHalfWidth: 0.55, deckY: 1.32
-    },
-    {
-      z: -1.28, bottomHalfWidth: 0.57, bottomY: 0.62,
-      lowerHalfWidth: 0.68, lowerY: 0.75,
-      halfWidth: 0.75, shoulderY: 1.01,
-      upperHalfWidth: 0.69, upperY: 1.22,
-      deckHalfWidth: 0.62, deckY: 1.35
-    },
-    {
-      z: -0.72, bottomHalfWidth: 0.61, bottomY: 0.60,
-      lowerHalfWidth: 0.70, lowerY: 0.74,
-      halfWidth: 0.755, shoulderY: 1.02,
-      upperHalfWidth: 0.70, upperY: 1.23,
-      deckHalfWidth: 0.64, deckY: 1.36
-    },
-    {
-      z: -0.08, bottomHalfWidth: 0.63, bottomY: 0.59,
-      lowerHalfWidth: 0.72, lowerY: 0.74,
-      halfWidth: 0.76, shoulderY: 1.02,
-      upperHalfWidth: 0.70, upperY: 1.23,
-      deckHalfWidth: 0.64, deckY: 1.36
-    },
-    {
-      z: 0.56, bottomHalfWidth: 0.63, bottomY: 0.59,
-      lowerHalfWidth: 0.71, lowerY: 0.73,
-      halfWidth: 0.75, shoulderY: 1.01,
-      upperHalfWidth: 0.68, upperY: 1.21,
-      deckHalfWidth: 0.61, deckY: 1.34
-    },
-    {
-      z: 1.10, bottomHalfWidth: 0.58, bottomY: 0.62,
-      lowerHalfWidth: 0.67, lowerY: 0.74,
-      halfWidth: 0.70, shoulderY: 0.96,
-      upperHalfWidth: 0.62, upperY: 1.14,
-      deckHalfWidth: 0.51, deckY: 1.25
-    },
-    {
-      z: 1.42, bottomHalfWidth: 0.52, bottomY: 0.65,
-      lowerHalfWidth: 0.62, lowerY: 0.75,
-      halfWidth: 0.64, shoulderY: 0.86,
-      upperHalfWidth: 0.53, upperY: 0.98,
-      deckHalfWidth: 0.39, deckY: 1.05
-    },
-    {
-      z: 1.64, bottomHalfWidth: 0.43, bottomY: 0.66,
-      lowerHalfWidth: 0.54, lowerY: 0.72,
-      halfWidth: 0.57, shoulderY: 0.74,
-      upperHalfWidth: 0.45, upperY: 0.83,
-      deckHalfWidth: 0.31, deckY: 0.88
-    }
-  ]), bodyMat), 'core', 'R35_CastHull');
+  // One continuous loft preserves the rear/centre casting, lowers the missing
+  // belly, and compiles the rounded final-drive nose into the same surface.
+  const hull = tag(new THREE.Mesh(
+    createCastHullGeometry(R35_HULL_STATIONS),
+    bodyMat
+  ), 'core', 'R35_CastHull');
   hull.userData.surfaceRole = 'primary-hull';
   hull.userData.authoredHull = true;
+  hull.userData.includesIntegratedNose = true;
   tankGroup.add(hull);
 
-  // Transverse cylindrical nose is the recognizable cast final-drive cover
-  // and establishes the forward end of the non-weapon envelope.
-  const castNose = tag(new THREE.Mesh(
-    new THREE.CylinderGeometry(0.30, 0.30, 1.22, 18),
-    bodyMat
-  ), 'core', 'R35_CastNose');
-  castNose.rotation.z = Math.PI / 2;
-  castNose.position.set(0, 0.55, R35.noseZ - 0.30);
-  tankGroup.add(castNose);
-
-  const driverHood = tag(new THREE.Mesh(
-    createSideProfilePrismGeometry([
-      [0.68, 1.35],
-      [0.76, 1.52],
-      [1.13, 1.54],
-      [1.36, 1.34],
-      [1.38, 1.28],
-      [0.70, 1.28]
-    ], 0.03, 0.47, 'R35DriverHoodGeometry'),
-    bodyMat
-  ), 'core', 'R35_DriverHood');
-  tankGroup.add(driverHood);
-
+  // The source shows a slit in the cast glacis, not a separate raised hood.
   const visorSlit = tag(new THREE.Mesh(
-    new THREE.BoxGeometry(0.25, 0.055, 0.07),
+    new THREE.BoxGeometry(...VISUAL.driverVisor.size),
     metalMat
   ), 'high', 'R35_DriverVisor');
-  visorSlit.position.set(0.25, 1.42, 1.29);
-  visorSlit.rotation.x = -0.72;
+  visorSlit.position.set(...VISUAL.driverVisor.center);
+  visorSlit.rotation.x = VISUAL.driverVisor.slopeRadians;
+  visorSlit.userData.mountSide = VISUAL.driverVisor.side;
+  visorSlit.userData.surfaceRole = 'surfaceDetail';
+  visorSlit.userData.envelopeRole = 'surfaceDetail';
   tankGroup.add(visorSlit);
 
   // Separate fenders leave the track faces visible and hold the narrow French
   // hull between the full 1.87 m outside-track width.
   for (const side of [-1, 1]) {
     const fender = tag(new THREE.Mesh(
-      new THREE.BoxGeometry(0.24, 0.045, 3.24),
+      new THREE.BoxGeometry(0.24, 0.045, 3.72),
       bodyMat
     ), 'core', `${side < 0 ? 'Right' : 'Left'}Fender`);
-    fender.position.set(side * 0.79, 1.10, 0.08);
+    fender.position.set(side * 0.79, 1.10, 0.04);
     tankGroup.add(fender);
 
     const lamp = tag(new THREE.Mesh(
@@ -340,25 +265,6 @@ export function createRenaultR35Mesh() {
   exhaust.rotation.x = Math.PI / 2;
   exhaust.position.set(0.70, 1.12, -0.94);
   tankGroup.add(exhaust);
-
-  // The tail arms start at the cast rear and slope down toward the transverse
-  // roller. The roller owns the exact rear endpoint of the 4.02 m envelope.
-  for (const side of [-0.39, 0.39]) {
-    const tailArm = tag(new THREE.Mesh(
-      new THREE.BoxGeometry(0.075, 0.10, 0.58),
-      metalMat
-    ), 'medium', `${side < 0 ? 'Right' : 'Left'}TrenchTailArm`);
-    tailArm.position.set(side, 1.00, -1.80);
-    tailArm.rotation.x = -0.12;
-    tankGroup.add(tailArm);
-  }
-  const tailRoller = tag(new THREE.Mesh(
-    new THREE.CylinderGeometry(0.05, 0.05, 0.84, 10),
-    metalMat
-  ), 'medium', 'R35_TrenchTailRoller');
-  tailRoller.rotation.z = Math.PI / 2;
-  tailRoller.position.set(0, 0.95, R35.tailZ + 0.05);
-  tankGroup.add(tailRoller);
 
   const runningGear = createTrackedRunningGear({
     id: 'R35RunningGear',
@@ -386,9 +292,6 @@ export function createRenaultR35Mesh() {
       wheel.position.z = R35.roadWheelCentersZ[wheelIndex] - R35.runningGearOffsetZ;
     }
   }
-  // Link geometry extends slightly beyond its path centreline; this offset
-  // keeps the complete detailed silhouette on the exact 4.02 m contract.
-  runningGear.position.z = R35.runningGearOffsetZ;
   tankGroup.add(runningGear);
   tankGroup.userData.runningGear = runningGear;
 
@@ -416,40 +319,103 @@ export function createRenaultR35Mesh() {
   // APX-R section loft. Its high cast roof replaces the old generic cone plus
   // oversized separate cupola while retaining deliberate facets.
   const turret = tag(new THREE.Mesh(
-    createCastTurretGeometry([
-      { y: 0.00, halfWidth: 0.50, halfLength: 0.52, centerZ: 0.00 },
-      { y: 0.08, halfWidth: 0.57, halfLength: 0.57, centerZ: 0.00 },
-      { y: 0.25, halfWidth: 0.53, halfLength: 0.53, centerZ: -0.01 },
-      { y: 0.46, halfWidth: 0.45, halfLength: 0.46, centerZ: -0.03 },
-      { y: R35.turretBodyHeight, halfWidth: 0.34, halfLength: 0.35, centerZ: -0.05 }
-    ]),
+    createCastTurretGeometry(VISUAL.turret.sections),
     turretMat
   ), 'core', 'R35_APXR_Turret');
   turretGroup.add(turret);
 
+  // The registered front elevation owns this irregular cast shield and its
+  // three circular collars. A generic box or ellipsoid is not source-shaped.
+  const mantletData = VISUAL.turret.mantlet;
   const mantlet = tag(new THREE.Mesh(
-    new THREE.BoxGeometry(0.38, 0.27, 0.16),
+    createFrontPlateGeometry(
+      mantletData.outline,
+      mantletData.depth,
+      'R35SA18MantletShieldGeometry'
+    ),
     turretMat
-  ), 'core', 'R35_SA18_Mantlet');
-  mantlet.position.set(R35.gunX, R35.gunY, 0.55);
+  ), 'core', 'R35_SA18_MantletShield');
+  mantlet.position.z = mantletData.frontZ - mantletData.depth;
+  mantlet.userData.surfaceRole = 'embedded-mantlet-shield';
+  mantlet.userData.sourceView = 'front';
   turretGroup.add(mantlet);
 
+  const mainCollar = createForwardCylinder(
+    mantletData.mainCollar.radius,
+    mantletData.mainCollar.depth,
+    14,
+    turretMat,
+    'R35_SA18_MainCollar',
+    'core'
+  );
+  mainCollar.position.set(
+    mantletData.mainCollar.x,
+    mantletData.mainCollar.y,
+    mantletData.frontZ + mantletData.mainCollar.depth / 2
+  );
+  mainCollar.userData.mountSide = VISUAL.mainGun.side;
+  turretGroup.add(mainCollar);
+
+  const lowerCover = createForwardCylinder(
+    mantletData.lowerCover.radius,
+    mantletData.lowerCover.depth,
+    14,
+    turretMat,
+    'R35_SA18_LowerCover',
+    'medium'
+  );
+  lowerCover.position.set(
+    mantletData.lowerCover.x,
+    mantletData.lowerCover.y,
+    mantletData.frontZ + mantletData.lowerCover.depth / 2
+  );
+  lowerCover.userData.mountSide = VISUAL.mainGun.side;
+  turretGroup.add(lowerCover);
+
+  const coaxCollar = createForwardCylinder(
+    mantletData.coaxCollar.radius,
+    mantletData.coaxCollar.depth,
+    12,
+    turretMat,
+    'R35_MAC31_CoaxCollar',
+    'medium'
+  );
+  coaxCollar.position.set(
+    mantletData.coaxCollar.x,
+    mantletData.coaxCollar.y,
+    mantletData.frontZ + mantletData.coaxCollar.depth / 2
+  );
+  coaxCollar.userData.mountSide = VISUAL.coax.side;
+  turretGroup.add(coaxCollar);
+
   // Shallow roof boss only; APX-R roof height belongs to the cast turret.
+  const cupolaData = VISUAL.turret.cupola;
   const cupola = tag(new THREE.Mesh(
-    new THREE.CylinderGeometry(0.19, 0.24, 0.10, 10),
+    new THREE.SphereGeometry(1, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2),
     turretMat
   ), 'medium', 'R35_APXR_Cupola');
-  cupola.position.set(-0.04, 0.68, -0.10);
+  cupola.position.set(
+    cupolaData.centerX,
+    cupolaData.baseY,
+    cupolaData.centerZ
+  );
+  cupola.scale.set(cupolaData.radius, cupolaData.height, cupolaData.radius);
   turretGroup.add(cupola);
 
+  const hatchData = VISUAL.turret.hatch;
   const hatch = tag(new THREE.Mesh(
-    new THREE.CylinderGeometry(0.215, 0.215, 0.04, 8),
+    new THREE.CylinderGeometry(
+      hatchData.radius,
+      hatchData.radius,
+      hatchData.height,
+      8
+    ),
     turretMat
   ), 'high', 'R35_CupolaHatch');
   hatch.position.set(
-    -0.04,
-    R35.overallHeight - R35.turretDeckY - 0.02,
-    -0.08
+    hatchData.centerX,
+    hatchData.centerY,
+    hatchData.centerZ
   );
   turretGroup.add(hatch);
 
@@ -462,56 +428,52 @@ export function createRenaultR35Mesh() {
   barrel.position.set(R35.gunX, R35.gunY, barrelCenterZ);
   barrel.userData.restZ = barrel.position.z;
   barrel.userData.envelopeRole = 'weaponProjection';
+  barrel.userData.mountSide = VISUAL.mainGun.side;
   turretGroup.add(barrel);
 
   const coax = tag(new THREE.Mesh(
-    new THREE.CylinderGeometry(0.014, 0.02, 0.48, 7),
+    new THREE.CylinderGeometry(0.014, 0.02, VISUAL.coax.barrelLength, 7),
     metalMat
   ), 'high', 'coax_barrel');
   coax.rotation.x = Math.PI / 2;
-  coax.position.set(-0.18, 0.30, 0.80 - 0.24);
+  coax.position.set(
+    R35.coaxX,
+    R35.coaxY,
+    VISUAL.coax.muzzleZ - VISUAL.coax.barrelLength / 2
+  );
   coax.userData.weaponMountId = 'coax';
   coax.userData.envelopeRole = 'weaponProjection';
+  coax.userData.mountSide = VISUAL.coax.side;
   turretGroup.add(coax);
+
+  const coaxMuzzle = new THREE.Object3D();
+  coaxMuzzle.name = 'coax_muzzle';
+  coaxMuzzle.position.set(R35.coaxX, R35.coaxY, VISUAL.coax.muzzleZ);
+  coaxMuzzle.userData.forwardAxis = '+Z';
+  coaxMuzzle.userData.weaponMountId = 'coax';
+  coaxMuzzle.userData.mountSide = VISUAL.coax.side;
+  coaxMuzzle.userData.placementQuality =
+    'blueprint-registered against user-supplied front and side elevations';
+  turretGroup.add(coaxMuzzle);
 
   const muzzle = new THREE.Object3D();
   muzzle.name = 'R35_Muzzle';
   muzzle.position.set(R35.gunX, R35.gunY, R35.gunMuzzleZ);
   muzzle.userData.forwardAxis = '+Z';
   muzzle.userData.weaponMountId = 'main';
+  muzzle.userData.mountSide = VISUAL.mainGun.side;
   turretGroup.add(muzzle);
 
   tankGroup.add(turretGroup);
   tankGroup.userData.turret = turretGroup;
   tankGroup.userData.barrel = barrel;
   tankGroup.userData.muzzle = muzzle;
+  tankGroup.userData.weaponMuzzles = { coax: coaxMuzzle };
 
   const proxyGroup = new THREE.Group();
   proxyGroup.name = 'Proxy';
   const proxyBody = new THREE.Mesh(
-    createCastHullGeometry([
-      {
-        z: R35.hullRearZ, bottomHalfWidth: 0.48, bottomY: 0.66,
-        lowerHalfWidth: 0.62, lowerY: 0.76,
-        halfWidth: 0.71, shoulderY: 1.00,
-        upperHalfWidth: 0.66, upperY: 1.20,
-        deckHalfWidth: 0.55, deckY: 1.32
-      },
-      {
-        z: -0.08, bottomHalfWidth: 0.63, bottomY: 0.59,
-        lowerHalfWidth: 0.72, lowerY: 0.74,
-        halfWidth: 0.76, shoulderY: 1.02,
-        upperHalfWidth: 0.70, upperY: 1.23,
-        deckHalfWidth: 0.64, deckY: 1.36
-      },
-      {
-        z: 1.64, bottomHalfWidth: 0.43, bottomY: 0.66,
-        lowerHalfWidth: 0.54, lowerY: 0.72,
-        halfWidth: 0.57, shoulderY: 0.74,
-        upperHalfWidth: 0.45, upperY: 0.83,
-        deckHalfWidth: 0.31, deckY: 0.88
-      }
-    ]),
+    createCastHullGeometry(R35_PROXY_HULL_STATIONS),
     bodyMat
   );
   proxyBody.name = 'R35_ProxyCastHull';
@@ -521,9 +483,9 @@ export function createRenaultR35Mesh() {
 
   const proxyTurret = new THREE.Mesh(
     createCastTurretGeometry([
-      { y: 0.00, halfWidth: 0.50, halfLength: 0.52, centerZ: 0.00 },
-      { y: 0.08, halfWidth: 0.57, halfLength: 0.57, centerZ: 0.00 },
-      { y: 0.82, halfWidth: 0.34, halfLength: 0.35, centerZ: -0.05 }
+      VISUAL.turret.sections[0],
+      VISUAL.turret.sections[1],
+      VISUAL.turret.sections.at(-1)
     ], 8),
     turretMat
   );
@@ -532,13 +494,33 @@ export function createRenaultR35Mesh() {
   proxyTurret.userData.lodBand = 'proxy';
   proxyTurret.visible = false;
   proxyGroup.add(proxyTurret);
+
+  const proxyRoofBoss = new THREE.Mesh(
+    new THREE.SphereGeometry(1, 8, 3, 0, Math.PI * 2, 0, Math.PI / 2),
+    turretMat
+  );
+  proxyRoofBoss.name = 'R35_ProxyAPXRRoofBoss';
+  proxyRoofBoss.position.set(
+    VISUAL.turret.cupola.centerX,
+    R35.turretDeckY + VISUAL.turret.cupola.baseY,
+    R35.turretCenterZ + VISUAL.turret.cupola.centerZ
+  );
+  proxyRoofBoss.scale.set(
+    VISUAL.turret.cupola.radius,
+    R35.overallHeight - R35.turretDeckY - VISUAL.turret.cupola.baseY,
+    VISUAL.turret.cupola.radius
+  );
+  proxyRoofBoss.userData.lodBand = 'proxy';
+  proxyRoofBoss.visible = false;
+  proxyGroup.add(proxyRoofBoss);
   tankGroup.add(proxyGroup);
 
   tankGroup.userData.modelMetadata = {
     designation: PROFILE.designation,
     dimensionsMeters: { ...PROFILE.dimensionsMeters },
     features: [...PROFILE.silhouetteFeatures],
-    blueprintFit: R35_BLUEPRINT_FIT
+    blueprintCalibration: R35_BLUEPRINT_CALIBRATION,
+    representedConfiguration: 'tail-less production Renault R35'
   };
 
   return tankGroup;

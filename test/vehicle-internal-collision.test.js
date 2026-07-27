@@ -217,7 +217,7 @@ test('Panzer III paths distinguish front transmission, rear engine, side racks, 
   );
 });
 
-test('R35 paths follow left driver hood, front drive, side racks, rear engine, and turret', () => {
+test('R35 paths follow left driver visor, front drive, side racks, rear engine, and turret', () => {
   const renault = unit(VEHICLES.RENAULT_R35);
   assert.deepEqual(
     traceVehicleInternalPath({

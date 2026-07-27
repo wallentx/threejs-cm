@@ -97,30 +97,30 @@ export const VEHICLE_VISUAL_PROFILES = Object.freeze({
       {
         id: 'road-wheel-rear-center',
         label: 'Rear road-wheel centre',
-        world: [0, 0.245, -0.98],
+        world: [0, 0.245, -1.08],
         views: ['side'],
         quality: 'approximation inferred from registered side raster'
       },
       {
         id: 'road-wheel-front-center',
         label: 'Front road-wheel centre',
-        world: [0, 0.245, 0.95],
+        world: [0, 0.245, 1.08],
         views: ['side'],
         quality: 'approximation inferred from registered side raster'
       },
       {
         id: 'turret-ring-center',
         label: 'Turret-ring centre',
-        world: [0, 1.36, 0.05],
+        world: [0, 1.35, -0.23],
         views: ['side', 'top'],
-        quality: 'approximation inferred from registered side raster'
+        quality: 'registered against the user-supplied side and top elevations'
       },
       {
         id: 'gun-axis-root',
         label: 'Main-gun axis at mantlet',
-        world: [0.14, 1.79, 0.60],
+        world: [-0.16, 1.70, 0.305],
         views: ['side', 'front'],
-        quality: 'approximation inferred from registered side raster'
+        quality: 'registered against the user-supplied side and front elevations'
       },
       {
         id: 'upper-track-run',
@@ -133,11 +133,11 @@ export const VEHICLE_VISUAL_PROFILES = Object.freeze({
     kind: 'tracked',
     hullConstruction: 'cast',
     roadWheelsPerSide: 5,
-    silhouetteFeatures: ['short rounded cast hull', 'high track run', 'rear trench tail', 'APX-R turret'],
+    silhouetteFeatures: ['short rounded cast hull', 'high track run', 'tail-less rear hull', 'APX-R turret'],
     references: [
       'https://www.the-blueprints.com/blueprints/tanks/tanks-r/50737/view/renault_r35/'
     ],
-    dataQuality: 'historical dimensions; registered painted side elevation; front/top unregistered'
+    dataQuality: 'historical tail-less dimensions; side, front, and top registered from a user-supplied secondary four-elevation drawing; hidden casting radii inferred between views'
   }),
   fr_hotchkiss_h39: freezeProfile({
     designation: 'Hotchkiss H39',

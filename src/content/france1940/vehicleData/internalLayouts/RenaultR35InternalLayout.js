@@ -1,3 +1,14 @@
+import {
+  RENAULT_R35_VISUAL_DATA
+} from '../RenaultR35VisualData.js';
+
+const VISUAL = RENAULT_R35_VISUAL_DATA.geometry;
+const TURRET_CENTER = Object.freeze([
+  0,
+  VISUAL.turret.deckY,
+  VISUAL.turret.centerZ
+]);
+
 export function createRenaultR35InternalLayout(referenceUrl) {
   return {
     version: 'model-local-obb-path-v1',
@@ -5,7 +16,7 @@ export function createRenaultR35InternalLayout(referenceUrl) {
     entryOffsetMeters: 0.015,
     dataQuality: [
       'historical two-man crew and one-man APX-R turret',
-      'driver side follows the authored hood and visor',
+      'driver side follows the registered glacis visor',
       'crew, powertrain, fuel, and stowage bounds are gameplay approximations'
     ].join('; '),
     referenceUrl,
@@ -46,7 +57,7 @@ export function createRenaultR35InternalLayout(referenceUrl) {
         id: 'module-turret-traverse',
         kind: 'component',
         componentId: 'turret_traverse',
-        center: [0, 1.39, 0.05],
+        center: [...TURRET_CENTER],
         halfExtents: [0.48, 0.13, 0.47],
         dataQuality: 'turret-ring datum model-registered; mechanism volume is a gameplay approximation'
       },
@@ -54,7 +65,7 @@ export function createRenaultR35InternalLayout(referenceUrl) {
         id: 'crew-commander-gunner',
         kind: 'crew',
         crewRoles: ['COMMANDER_GUNNER'],
-        center: [0, 1.36, 0.05],
+        center: [...TURRET_CENTER],
         offset: [0, 0.36, -0.05],
         halfExtents: [0.33, 0.38, 0.33],
         followsTurret: true,
@@ -64,27 +75,27 @@ export function createRenaultR35InternalLayout(referenceUrl) {
         id: 'module-breech',
         kind: 'component',
         componentId: 'breech',
-        center: [0, 1.36, 0.05],
-        offset: [0.14, 0.28, 0.35],
+        center: [...TURRET_CENTER],
+        offset: [VISUAL.mainGun.x, VISUAL.mainGun.y, 0.36],
         halfExtents: [0.20, 0.17, 0.30],
         followsTurret: true,
-        dataQuality: 'gun-axis datum model-registered; volume is a gameplay approximation'
+        dataQuality: 'vehicle-right gun-axis datum model-registered and museum-photo cross-checked; volume is a gameplay approximation'
       },
       {
         id: 'module-coax',
         kind: 'component',
         componentId: 'coax',
-        center: [0, 1.36, 0.05],
-        offset: [-0.18, 0.30, 0.36],
+        center: [...TURRET_CENTER],
+        offset: [VISUAL.coax.x, VISUAL.coax.y, 0.36],
         halfExtents: [0.09, 0.09, 0.26],
         followsTurret: true,
-        dataQuality: 'rendered right-side mount model-backed; volume is a gameplay approximation'
+        dataQuality: 'rendered vehicle-left mount model-backed and museum-photo cross-checked; volume is a gameplay approximation'
       },
       {
         id: 'module-optics',
         kind: 'component',
         componentId: 'optics',
-        center: [0, 1.36, 0.05],
+        center: [...TURRET_CENTER],
         offset: [0.29, 0.33, 0.26],
         halfExtents: [0.10, 0.13, 0.16],
         followsTurret: true,
