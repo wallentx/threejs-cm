@@ -198,6 +198,7 @@ Status:
 
 ## Completed
 
+- [x] Add repo-local agent-agnostic workflow skills for blueprint vehicle authoring, deterministic simulation slices, delegated-work quality gating, and live WebGPU/Three.js runtime debugging.
 - [x] Give every infantryman independent AI, health, suppression, movement, stance, target, and attack state.
 - [x] Remove dead infantrymen from available firepower.
 - [x] Spawn infantry projectiles from each visible weapon muzzle.

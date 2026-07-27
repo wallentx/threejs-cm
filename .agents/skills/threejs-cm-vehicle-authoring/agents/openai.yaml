@@ -1,0 +1,4 @@
+interface:
+  display_name: "Three.js CM Vehicle Authoring"
+  short_description: "Blueprint-to-playable vehicle workflow"
+  default_prompt: "Use $threejs-cm-vehicle-authoring to add or refit a vehicle from blueprint evidence."

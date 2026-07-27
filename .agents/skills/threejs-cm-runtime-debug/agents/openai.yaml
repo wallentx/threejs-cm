@@ -1,0 +1,4 @@
+interface:
+  display_name: "Three.js CM Runtime Debug"
+  short_description: "Diagnose WebGPU scenes and browser runtime"
+  default_prompt: "Use $threejs-cm-runtime-debug to diagnose the live game scene and renderer."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Three.js CM Agent Quality Gate"
+  short_description: "Review scoped agent work and validation"
+  default_prompt: "Use $threejs-cm-agent-quality-gate to review this agent packet and produce corrective findings."

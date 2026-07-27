@@ -1,0 +1,4 @@
+interface:
+  display_name: "Three.js CM Simulation Slice"
+  short_description: "Build deterministic gameplay mechanics end to end"
+  default_prompt: "Use $threejs-cm-simulation-slice to implement this gameplay mechanic as a deterministic vertical slice."
