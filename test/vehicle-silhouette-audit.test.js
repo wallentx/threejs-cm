@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, mkdtemp, rm, mkdir, access } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
@@ -26,14 +27,6 @@ import {
 
 const execFileAsync = promisify(execFile);
 const baselinePath = resolve('./test/fixtures/vehicle-silhouette-baseline.json');
-
-function getTmpDir() {
-  const tmpDir = process.env.TMPDIR;
-  if (!tmpDir || tmpDir.trim() === '') {
-    throw new Error('Environment variable TMPDIR must be set');
-  }
-  return tmpDir;
-}
 
 test('vehicle silhouette audit generates valid manifest structure and same-process determinism', () => {
   const manifest1 = createVehicleSilhouetteManifest({
@@ -350,7 +343,7 @@ test('baseline comparator tests missing key, extra key, triangle count, svgHash,
 });
 
 test('CLI script enforces error handling, missing TMPDIR validation, and baseline preservation', async () => {
-  const baseTmp = getTmpDir();
+  const baseTmp = tmpdir();
   const testDir = await mkdtemp(join(baseTmp, 'vehicle-silhouette-test-'));
 
   try {
@@ -362,22 +355,22 @@ test('CLI script enforces error handling, missing TMPDIR validation, and baselin
 
     // Fast CLI argument preflight rejections (<50ms each)
     await assert.rejects(
-      execFileAsync('node', [scriptPath, '--bogus-flag'], { stdio: ['ignore', 'pipe', 'pipe'] }),
+      execFileAsync('node', [scriptPath, '--bogus-flag']),
       (err) => (err.code === 1 || err.exitCode === 1) && err.stderr.includes('Unknown CLI flag')
     );
 
     await assert.rejects(
-      execFileAsync('node', [scriptPath, outA, outB], { stdio: ['ignore', 'pipe', 'pipe'] }),
+      execFileAsync('node', [scriptPath, outA, outB]),
       (err) => (err.code === 1 || err.exitCode === 1) && err.stderr.includes('Multiple positional destination')
     );
 
     await assert.rejects(
-      execFileAsync('node', [scriptPath, '--update-baseline', outA], { stdio: ['ignore', 'pipe', 'pipe'] }),
+      execFileAsync('node', [scriptPath, '--update-baseline', outA]),
       (err) => (err.code === 1 || err.exitCode === 1) && err.stderr.includes('combined with --update-baseline')
     );
 
     await assert.rejects(
-      execFileAsync('node', [scriptPath], { env: { ...process.env, TMPDIR: '' }, stdio: ['ignore', 'pipe', 'pipe'] }),
+      execFileAsync('node', [scriptPath], { env: { ...process.env, TMPDIR: '' } }),
       (err) => (err.code === 1 || err.exitCode === 1) && err.stderr.includes('Environment variable TMPDIR must be set')
     );
 
@@ -387,7 +380,7 @@ test('CLI script enforces error handling, missing TMPDIR validation, and baselin
     const targetInReadOnly = join(readOnlyDir, 'nested', 'audit.json');
 
     await assert.rejects(
-      execFileAsync('node', [scriptPath, targetInReadOnly], { stdio: ['ignore', 'pipe', 'pipe'] }),
+      execFileAsync('node', [scriptPath, targetInReadOnly]),
       (err) => {
         const isCodeOne = (err.code === 1 || err.exitCode === 1);
         const hasStderrError = err.stderr && (err.stderr.includes('EACCES') || err.stderr.includes('EPERM') || err.stderr.includes('mkdir') || err.stderr.includes('atomic') || err.stderr.includes('write'));
@@ -399,8 +392,8 @@ test('CLI script enforces error handling, missing TMPDIR validation, and baselin
     await assert.rejects(access(targetInReadOnly), 'Target file in unwritable directory must not exist');
 
     // Full process execution: both outputs must match the reviewed baseline.
-    await execFileAsync('node', [scriptPath, outA], { stdio: ['ignore', 'pipe', 'pipe'] });
-    await execFileAsync('node', [scriptPath, outB], { stdio: ['ignore', 'pipe', 'pipe'] });
+    await execFileAsync('node', [scriptPath, outA]);
+    await execFileAsync('node', [scriptPath, outB]);
 
     // Normal audit runs never modify the baseline fixture.
     const postAuditBaselineBytes = await readFile(baselinePath, 'utf8');

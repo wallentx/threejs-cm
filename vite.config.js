@@ -16,8 +16,10 @@ export default defineConfig({
         calibration: fileURLToPath(new URL('./calibration.html', import.meta.url))
       },
       output: {
-        manualChunks: {
-          'three-webgpu': ['three/webgpu']
+        manualChunks(id) {
+          return id.includes('/node_modules/three/')
+            ? 'three-webgpu'
+            : undefined;
         }
       }
     }

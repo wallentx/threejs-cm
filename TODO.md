@@ -195,6 +195,7 @@ Status:
   - [x] Split application code from the Three.js vendor chunk; the application bundle is about 250 kB, while the minified Three.js chunk remains about 501 kB.
   - [ ] Reassess code splitting after the WebGPU renderer migration; the current r185 WebGPU vendor chunk is about 806 kB minified and the application chunk is about 467 kB.
   - [x] Keep the warning visible during reassessment instead of suppressing it by raising Vite's warning threshold.
+  - [x] Preserve Termux and desktop-Linux build/test portability by using Rolldown-compatible functional chunk assignment, the Node system temp-directory API in test setup, and standard buffered `execFile` output capture.
 
 ## Completed
 
