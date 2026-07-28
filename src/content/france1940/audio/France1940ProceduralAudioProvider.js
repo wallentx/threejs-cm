@@ -14,6 +14,9 @@ export const FRANCE_1940_AUDIO_EVENT_IDS = Object.freeze({
   lightCannon: 'weapon.cannon.light',
   mediumCannon: 'weapon.cannon.medium',
   explosion: 'battlefield.explosion.general',
+  buildingDamaged: 'building.damage.damaged',
+  buildingBreached: 'building.damage.breached',
+  buildingCollapsed: 'building.damage.collapsed',
   uiClick: 'ui.command.click'
 });
 
@@ -21,6 +24,7 @@ const VOICE_LIMITS = Object.freeze({
   smallArms: 12,
   cannon: 4,
   explosion: 3,
+  buildingDamage: 2,
   ui: 2
 });
 
@@ -121,6 +125,60 @@ const EVENTS = deepFreeze({
       }
     ]
   },
+  // First-order gameplay presentation approximations, not recorded historical evidence.
+  [FRANCE_1940_AUDIO_EVENT_IDS.buildingDamaged]: {
+    category: 'buildingDamage',
+    layers: [{
+      type: 'noise',
+      durationSeconds: 0.24,
+      cutoffStartHz: 920,
+      cutoffEndHz: 110,
+      gain: 0.32,
+      seed: 1204
+    }]
+  },
+  [FRANCE_1940_AUDIO_EVENT_IDS.buildingBreached]: {
+    category: 'buildingDamage',
+    layers: [
+      {
+        type: 'noise',
+        durationSeconds: 0.46,
+        cutoffStartHz: 760,
+        cutoffEndHz: 72,
+        gain: 0.5,
+        seed: 1205
+      },
+      {
+        type: 'oscillator',
+        waveform: 'triangle',
+        durationSeconds: 0.32,
+        startHz: 115,
+        endHz: 48,
+        gain: 0.16
+      }
+    ]
+  },
+  [FRANCE_1940_AUDIO_EVENT_IDS.buildingCollapsed]: {
+    category: 'buildingDamage',
+    layers: [
+      {
+        type: 'noise',
+        durationSeconds: 0.78,
+        cutoffStartHz: 610,
+        cutoffEndHz: 42,
+        gain: 0.72,
+        seed: 1206
+      },
+      {
+        type: 'oscillator',
+        waveform: 'sine',
+        durationSeconds: 0.62,
+        startHz: 72,
+        endHz: 24,
+        gain: 0.28
+      }
+    ]
+  },
   [FRANCE_1940_AUDIO_EVENT_IDS.uiClick]: {
     category: 'ui',
     layers: [{
@@ -146,6 +204,16 @@ function resolveWeaponEvent(weapon) {
   return FRANCE_1940_AUDIO_EVENT_IDS.rifle;
 }
 
+function resolveBuildingDamageEvent(context) {
+  switch (context?.severity) {
+    case 'collapsed': return FRANCE_1940_AUDIO_EVENT_IDS.buildingCollapsed;
+    case 'breached': return FRANCE_1940_AUDIO_EVENT_IDS.buildingBreached;
+    case 'damaged': return FRANCE_1940_AUDIO_EVENT_IDS.buildingDamaged;
+    default:
+      throw new Error(`unknown building damage severity ${context?.severity ?? 'missing'}`);
+  }
+}
+
 export const FRANCE_1940_PROCEDURAL_AUDIO_PROVIDER = Object.freeze({
   id: FRANCE_1940_PROCEDURAL_AUDIO_IMPLEMENTATION_ID,
   kind: 'battlefield-audio-provider',
@@ -163,6 +231,7 @@ export const FRANCE_1940_PROCEDURAL_AUDIO_PROVIDER = Object.freeze({
       resolveUiEvent() {
         return FRANCE_1940_AUDIO_EVENT_IDS.uiClick;
       },
+      resolveBuildingDamageEvent,
       dispose() {
         if (disposed) return false;
         disposed = true;

@@ -7,11 +7,13 @@ import {
 } from '../src/scenario/FamilyRegistry.js';
 import { WEAPONS } from '../src/game/WeaponCatalog.js';
 import { VEHICLES } from '../src/game/VehicleCatalog.js';
+import { STRUCTURES } from '../src/game/StructureCatalog.js';
 import {
   createFrance1940Family,
   FRANCE_1940_FACTIONS,
   FRANCE_1940_FORMATIONS,
   FRANCE_1940_PRESENTATION,
+  FRANCE_1940_STRUCTURES,
   FRANCE_1940_VEHICLES,
   FRANCE_1940_WEAPONS
 } from '../src/content/france1940/index.js';
@@ -112,6 +114,48 @@ test('family definition validates catalog and content references', () => {
   };
   assert.throws(() => validateFamilyDefinition(invalidMount), /mount coax references unknown weapon/);
 
+  const missingStructures = {
+    ...family,
+    catalogs: {
+      ...family.catalogs,
+      structures: undefined
+    }
+  };
+  assert.throws(
+    () => validateFamilyDefinition(missingStructures),
+    /structures must be a record keyed by stable IDs/
+  );
+
+  const malformedStructures = {
+    ...family,
+    catalogs: {
+      ...family.catalogs,
+      structures: []
+    }
+  };
+  assert.throws(
+    () => validateFamilyDefinition(malformedStructures),
+    /structures must be a record keyed by stable IDs/
+  );
+
+  const invalidStructureWeapon = {
+    ...family,
+    catalogs: {
+      ...family.catalogs,
+      structures: {
+        ...family.catalogs.structures,
+        GERMAN_MG34_BUNKER: {
+          ...family.catalogs.structures.GERMAN_MG34_BUNKER,
+          weaponId: 'MISSING'
+        }
+      }
+    }
+  };
+  assert.throws(
+    () => validateFamilyDefinition(invalidStructureWeapon),
+    /structure GERMAN_MG34_BUNKER references unknown weapon/
+  );
+
   const duplicateVehicleOwner = {
     ...family,
     factions: {
@@ -200,6 +244,24 @@ test('family definition rejects stable key/id mismatches', () => {
   };
 
   assert.throws(() => validateFamilyDefinition(invalid), /formations key\/id mismatch/);
+
+  const invalidStructure = {
+    ...family,
+    catalogs: {
+      ...family.catalogs,
+      structures: {
+        ...family.catalogs.structures,
+        GERMAN_MG34_BUNKER: {
+          ...family.catalogs.structures.GERMAN_MG34_BUNKER,
+          id: 'WRONG_ID'
+        }
+      }
+    }
+  };
+  assert.throws(
+    () => validateFamilyDefinition(invalidStructure),
+    /structures key\/id mismatch/
+  );
 });
 
 test('family definition validates explicit support-ammunition allocations', () => {
@@ -331,7 +393,10 @@ test('France 1940 owns canonical frozen catalogs and ignores obsolete adapters',
   const vehicles = {
     TEST_VEHICLE: { id: 'TEST_VEHICLE', mainGun: { ap: 'TEST_RIFLE' }, weaponMounts: [] }
   };
-  const family = createFrance1940Family({ weapons, vehicles });
+  const structures = {
+    TEST_STRUCTURE: { id: 'TEST_STRUCTURE', weaponId: 'TEST_RIFLE' }
+  };
+  const family = createFrance1940Family({ weapons, vehicles, structures });
 
   assert.equal(Object.isFrozen(family), true);
   assert.equal(Object.isFrozen(family.catalogs), true);
@@ -343,12 +408,25 @@ test('France 1940 owns canonical frozen catalogs and ignores obsolete adapters',
   assert.equal(family.catalogs.weapons, WEAPONS, 'legacy shim must preserve catalog identity');
   assert.equal(family.catalogs.vehicles, FRANCE_1940_VEHICLES);
   assert.equal(family.catalogs.vehicles, VEHICLES, 'legacy shim must preserve catalog identity');
+  assert.equal(family.catalogs.structures, FRANCE_1940_STRUCTURES);
+  assert.equal(
+    family.catalogs.structures,
+    STRUCTURES,
+    'legacy shim must preserve catalog identity'
+  );
   assert.notEqual(family.catalogs.weapons, weapons, 'surplus transitional weapon injection is ignored');
   assert.notEqual(family.catalogs.vehicles, vehicles, 'surplus transitional vehicle injection is ignored');
+  assert.notEqual(
+    family.catalogs.structures,
+    structures,
+    'surplus transitional structure injection is ignored'
+  );
   assert.equal(Object.isFrozen(weapons), false);
   assert.equal(Object.isFrozen(vehicles), false);
+  assert.equal(Object.isFrozen(structures), false);
   assert.equal(weapons.TEST_RIFLE.id, 'TEST_RIFLE');
   assert.equal(vehicles.TEST_VEHICLE.id, 'TEST_VEHICLE');
+  assert.equal(structures.TEST_STRUCTURE.id, 'TEST_STRUCTURE');
 });
 
 test('family registry and France content stay renderer and runtime independent', async () => {
@@ -359,6 +437,7 @@ test('family registry and France content stay renderer and runtime independent',
     '../src/content/france1940/presentation.js',
     '../src/content/france1940/weapons.js',
     '../src/content/france1940/vehicles.js',
+    '../src/content/france1940/structures.js',
     '../src/content/france1940/catalogPorts.js',
     '../src/content/france1940/index.js'
   ].map(path => readFile(new URL(path, import.meta.url), 'utf8')));

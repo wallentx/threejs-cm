@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { FR_HOUSE_12X9_2F } from '../src/maps/france/FranceHouse12x9_2F.js';
+import { FR_FARMHOUSE_8X6_1F } from '../src/maps/france/FranceFarmhouse8x6_1F.js';
 import { BuildingSystem } from '../src/simulation/buildings/index.js';
 import { TerrainBuilder } from './helpers/France1940TestTerrain.js';
 import { STONNE_1940_MAP } from '../src/maps/france/stonne.js';
@@ -14,12 +15,16 @@ import {
 } from '../src/world/buildings/FrenchHouse.js';
 
 const STRUCTURE_ADAPTERS = Object.freeze({
-  [FR_HOUSE_12X9_2F.id]: createFrenchHouseVisualAdapter(FR_HOUSE_12X9_2F)
+  [FR_HOUSE_12X9_2F.id]: createFrenchHouseVisualAdapter(FR_HOUSE_12X9_2F),
+  [FR_FARMHOUSE_8X6_1F.id]:
+    createFrenchHouseVisualAdapter(FR_FARMHOUSE_8X6_1F)
 });
 
 function createTerrain(buildingSystem = new BuildingSystem()) {
-  if (!buildingSystem.descriptors.has(FR_HOUSE_12X9_2F.id)) {
-    buildingSystem.registerDescriptor(FR_HOUSE_12X9_2F);
+  for (const descriptor of [FR_HOUSE_12X9_2F, FR_FARMHOUSE_8X6_1F]) {
+    if (!buildingSystem.descriptors.has(descriptor.id)) {
+      buildingSystem.registerDescriptor(descriptor);
+    }
   }
   return new TerrainBuilder(new THREE.Scene(), {
     mapDescriptor: STONNE_1940_MAP,
@@ -84,6 +89,49 @@ test('French house renderer exposes semantic shell sections, openings, stairs, a
     assert.equal(leftWindow.visible, false, `${tier.lod} does not replace openings with a solid proxy box`);
   }
   disposeFrenchHouseVisual(house);
+});
+
+test('French house disposal releases each unique owned resource exactly once', () => {
+  const house = createFrenchHouseVisual({
+    descriptor: FR_FARMHOUSE_8X6_1F,
+    centerX: 0,
+    centerZ: 0,
+    foundationTopY: 0,
+    getHeightAt: () => 0
+  });
+  const geometries = new Set();
+  const materials = new Set();
+  let meshCount = 0;
+  house.traverse(object => {
+    if (!object.isMesh) return;
+    meshCount++;
+    geometries.add(object.geometry);
+    for (const candidate of Array.isArray(object.material)
+      ? object.material
+      : [object.material]) {
+      if (candidate?.userData?.houseVisualMaterial) materials.add(candidate);
+    }
+  });
+  assert.ok(materials.size < meshCount, 'rubble meshes exercise a shared owned material');
+
+  const disposeCounts = new Map(
+    [...geometries, ...materials].map(resource => [resource, 0])
+  );
+  for (const resource of disposeCounts.keys()) {
+    resource.addEventListener('dispose', () => {
+      disposeCounts.set(resource, disposeCounts.get(resource) + 1);
+    });
+  }
+
+  disposeFrenchHouseVisual(house);
+  disposeFrenchHouseVisual(house);
+
+  assert.ok(disposeCounts.size > 0);
+  assert.ok(
+    [...disposeCounts.values()].every(count => count === 1),
+    'each unique instance-owned geometry and material emits one dispose event'
+  );
+  assert.equal(house.userData.houseVisualDisposed, true);
 });
 
 test('occupied or transiting house fades every LOD shell and restores owned materials after exit', () => {

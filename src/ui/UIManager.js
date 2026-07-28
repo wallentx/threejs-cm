@@ -156,6 +156,17 @@ export class UIManager {
       if (e.code === 'KeyT') this.triggerCommand('TARGET');
       if (e.code === 'KeyO') this.triggerCommand('FACE');
       if (e.code === 'KeyH') this.handleDirectAction('HIDE');
+      if (e.code === 'KeyE') {
+        const selectedUnit = this.runtime.selectedUnit;
+        const eligible = selectedUnit?.type === 'infantry_squad'
+          && selectedUnit.soldierAI?.agents?.some(
+            agent => Boolean(agent.buildingLocation)
+          );
+        if (eligible && this.canIssueOrders()) {
+          e.preventDefault();
+          this.handleDirectAction('EXIT_BUILDING');
+        }
+      }
     });
   }
 
@@ -203,7 +214,6 @@ export class UIManager {
       ],
       special: [
         { label: 'HIDE', action: 'HIDE', key: 'H' },
-        { label: 'DEPLOY', action: 'DEPLOY', key: 'D' },
         ...(this.runtime.selectedUnit?.soldierAI?.agents.some(
           agent => Boolean(agent.buildingLocation)
         )
@@ -215,11 +225,7 @@ export class UIManager {
       ]
     };
 
-    const currentBtns = [
-      ...(tabButtons[this.activeTab] || []),
-      { label: 'CANCEL TOOL', action: 'CANCEL_ACTION', key: 'ESC' },
-      { label: 'DESELECT', action: 'DESELECT', key: 'X' }
-    ];
+    const currentBtns = tabButtons[this.activeTab] || [];
 
     currentBtns.forEach(btnDef => {
       const btn = document.createElement('button');
@@ -822,6 +828,31 @@ export class UIManager {
   }
 
   showFloorSelectorModal(unit, pointVec3, buildingId, orderType = 'MOVE') {
+    const choices = this.runtime.getBuildingFloorIds(buildingId)
+      .map(floorId => ({
+        floorId,
+        ...(floorId === 'ground-floor'
+          ? {
+              action: 'ENTER_GROUND',
+              buttonId: 'btn-floor-ground',
+              label: 'Ground Floor',
+              toast: 'Ordered to Ground Floor'
+            }
+          : floorId === 'upper-floor'
+            ? {
+                action: 'ENTER_UPPER',
+                buttonId: 'btn-floor-upper',
+                label: 'Upper Floor',
+                toast: 'Ordered to Upper Floor'
+              }
+            : {})
+      }))
+      .filter(choice => choice.action);
+    if (choices.length === 0) {
+      this.showToast('Building has no enterable floors', 'warn');
+      return false;
+    }
+
     const existing = document.getElementById('building-floor-modal');
     if (existing) existing.remove();
 
@@ -832,8 +863,9 @@ export class UIManager {
       <div class="floor-modal-content">
         <div class="floor-modal-title">Select Target Floor</div>
         <div class="floor-modal-buttons">
-          <button id="btn-floor-ground" class="btn-floor">Ground Floor</button>
-          <button id="btn-floor-upper" class="btn-floor">Upper Floor</button>
+          ${choices.map(choice => `
+            <button id="${choice.buttonId}" class="btn-floor">${choice.label}</button>
+          `).join('')}
           <button id="btn-floor-cancel" class="btn-floor btn-cancel">Cancel</button>
         </div>
       </div>
@@ -841,32 +873,21 @@ export class UIManager {
     document.body.appendChild(modal);
 
     const close = () => modal.remove();
-    modal.querySelector('#btn-floor-ground')?.addEventListener('click', () => {
-      close();
-      const result = this.runtime.issueBuildingOrder(
-        unit, 'ENTER_GROUND', pointVec3, buildingId
-      );
-      if (result?.accepted) {
-        this.runtime.cancelCommandMode();
-        this.renderCommandGrid();
-        this.showToast('Ordered to Ground Floor', 'info');
-      } else {
-        this.showToast(result?.reason ?? 'Unable to enter building', 'warn');
-      }
-    });
-    modal.querySelector('#btn-floor-upper')?.addEventListener('click', () => {
-      close();
-      const result = this.runtime.issueBuildingOrder(
-        unit, 'ENTER_UPPER', pointVec3, buildingId
-      );
-      if (result?.accepted) {
-        this.runtime.cancelCommandMode();
-        this.renderCommandGrid();
-        this.showToast('Ordered to Upper Floor', 'info');
-      } else {
-        this.showToast(result?.reason ?? 'Unable to enter building', 'warn');
-      }
-    });
+    for (const choice of choices) {
+      modal.querySelector(`#${choice.buttonId}`)?.addEventListener('click', () => {
+        close();
+        const result = this.runtime.issueBuildingOrder(
+          unit, choice.action, pointVec3, buildingId
+        );
+        if (result?.accepted) {
+          this.runtime.cancelCommandMode();
+          this.renderCommandGrid();
+          this.showToast(choice.toast, 'info');
+        } else {
+          this.showToast(result?.reason ?? 'Unable to enter building', 'warn');
+        }
+      });
+    }
     modal.querySelector('#btn-floor-cancel')?.addEventListener('click', close);
     return true;
   }

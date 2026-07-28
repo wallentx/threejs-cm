@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { BallisticsSystem } from './BallisticsSystem.js';
-import { worldToLocalPoint } from '../simulation/buildings/BuildingTransforms.js';
+import {
+  localToWorldPoint,
+  worldToLocalPoint
+} from '../simulation/buildings/BuildingTransforms.js';
 import {
   validateBattlefieldVfxProvider,
   validateCombatVfxResourceSet
@@ -13,9 +16,111 @@ const UP = new THREE.Vector3(0, 1, 0);
 const scratchAim = new THREE.Vector3();
 const scratchDirection = new THREE.Vector3();
 const scratchRicochetNormal = new THREE.Vector3();
+const scratchDebrisPosition = new THREE.Vector3();
 const PROJECTILE_SUBSTEP_EPSILON = 1e-8;
 const MAX_PROJECTILE_CONTACTS_PER_SUBSTEP = 4;
 const MAX_TRAJECTORY_POINTS = 128;
+const BUILDING_DEBRIS_POSITION_SOURCES = Object.freeze({
+  sectionCentroid: 'section-collider-centroid',
+  buildingOriginFallback: 'building-origin-fallback'
+});
+const BUILDING_DEBRIS_SEVERITY_RANK = Object.freeze({
+  damaged: 1,
+  breached: 2,
+  collapsed: 3
+});
+const EMPTY_BUILDING_DEBRIS_EVENTS = Object.freeze([]);
+
+function selectBuildingDamageSoundEvent(events) {
+  let selected = null;
+  for (const event of events) {
+    const rank = BUILDING_DEBRIS_SEVERITY_RANK[event?.severity] ?? 0;
+    if (
+      rank > (BUILDING_DEBRIS_SEVERITY_RANK[selected?.severity] ?? 0)
+      || (
+        rank === (BUILDING_DEBRIS_SEVERITY_RANK[selected?.severity] ?? 0)
+        && rank > 0
+        && String(event.sectionId).localeCompare(String(selected.sectionId)) < 0
+      )
+    ) {
+      selected = event;
+    }
+  }
+  return selected;
+}
+
+function finitePointArray(value) {
+  const point = value?.toArray?.() ?? value;
+  if (
+    !Array.isArray(point)
+    || point.length < 3
+    || !point.slice(0, 3).every(Number.isFinite)
+  ) {
+    return null;
+  }
+  return [point[0], point[1], point[2]];
+}
+
+function buildingDebrisSeverity(result) {
+  // `collapsed` is persistent section state in BuildingSystem results. A
+  // repeated hit on an already-collapsed section reports collapsed=true with
+  // applied=0, so only a result that applied new damage can describe a direct
+  // damage/breach/collapse presentation event. Newly cascaded collapses arrive
+  // separately through `collapsedSections`.
+  if (!Number.isFinite(result?.applied) || result.applied <= 0) return null;
+  if (result?.collapsed) return 'collapsed';
+  if (result?.breached) return 'breached';
+  return 'damaged';
+}
+
+function stableSectionCentroid(section) {
+  const parts = [...(section?.colliderParts ?? [])]
+    .filter(part => finitePointArray(part?.center))
+    .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  if (parts.length === 0) {
+    return {
+      localPosition: [0, 0, 0],
+      positionSource: BUILDING_DEBRIS_POSITION_SOURCES.buildingOriginFallback
+    };
+  }
+  if (parts.length === 1) {
+    return {
+      localPosition: [...parts[0].center],
+      positionSource: BUILDING_DEBRIS_POSITION_SOURCES.sectionCentroid
+    };
+  }
+  const centroid = [0, 0, 0];
+  let totalWeight = 0;
+  for (const part of parts) {
+    const halfExtents = finitePointArray(part.halfExtents);
+    const weight = halfExtents
+      ? Math.max(Number.EPSILON, halfExtents[0] * halfExtents[1] * halfExtents[2])
+      : 1;
+    centroid[0] += part.center[0] * weight;
+    centroid[1] += part.center[1] * weight;
+    centroid[2] += part.center[2] * weight;
+    totalWeight += weight;
+  }
+  return {
+    localPosition: centroid.map(component => component / totalWeight),
+    positionSource: BUILDING_DEBRIS_POSITION_SOURCES.sectionCentroid
+  };
+}
+
+function validBuildingDebrisStyle(style) {
+  return Boolean(
+    style
+    && Number.isFinite(style.color)
+    && Number.isFinite(style.initialOpacity)
+    && style.initialOpacity >= 0
+    && Number.isFinite(style.maxLife)
+    && style.maxLife > 0
+    && Number.isFinite(style.growthPerSecond)
+    && style.growthPerSecond >= 0
+    && Number.isFinite(style.initialScale)
+    && style.initialScale > 0
+  );
+}
 
 function appendTrajectoryPoint(projectile, point, force = false) {
   projectile.trajectoryPoints ??= [
@@ -215,7 +320,7 @@ export class CombatSystem {
       this.vfxProvider.createCombatResources()
     );
     this.vfxAssetBinding = this.vfxResources.assetBinding ?? null;
-    this.effectPools = { impact: [], explosion: [] };
+    this.effectPools = { impact: [], explosion: [], buildingDebris: [] };
     this.effectGeometries = this.vfxResources.effectGeometries;
     this.effectCaps = this.vfxResources.effectCaps;
     this.shotSequence = 0;
@@ -228,6 +333,7 @@ export class CombatSystem {
     this.onAuditoryEvent = typeof options.onAuditoryEvent === 'function'
       ? options.onAuditoryEvent
       : null;
+    this.disposed = false;
     this.ballistics = new BallisticsSystem({
       terrain: options.terrain ?? null,
       getUnits: options.getUnits ?? (() => []),
@@ -771,7 +877,7 @@ export class CombatSystem {
   }
 
   processBuildingDamageResult(buildingId, damageResult, reason, position) {
-    if (!damageResult) return;
+    if (!damageResult) return EMPTY_BUILDING_DEBRIS_EVENTS;
     const consequences = [...(damageResult.occupantConsequences ?? [])]
       .sort((a, b) => String(a.soldierKey).localeCompare(String(b.soldierKey)))
       .map(consequence => ({
@@ -792,6 +898,104 @@ export class CombatSystem {
       damageResult: JSON.parse(JSON.stringify(damageResult)),
       collisionSnapshot: this.buildingSystem?.getCollisionSnapshot?.(buildingId) ?? null
     });
+    let debrisEvents = EMPTY_BUILDING_DEBRIS_EVENTS;
+    try {
+      debrisEvents = this.projectBuildingDebrisEvents(
+        buildingId,
+        damageResult,
+        reason,
+        position
+      );
+    } catch {
+      return debrisEvents;
+    }
+    for (const event of debrisEvents) {
+      try {
+        this.createBuildingDebrisEffect(event);
+      } catch {
+        // Transient presentation must not become building-damage authority.
+      }
+    }
+    const soundEvent = selectBuildingDamageSoundEvent(debrisEvents);
+    if (soundEvent) {
+      try {
+        this.sound?.playBuildingDamage?.(soundEvent);
+      } catch {
+        // Transient presentation must not become building-damage authority.
+      }
+    }
+    return debrisEvents;
+  }
+
+  projectBuildingDebrisEvents(buildingId, damageResult, reason, position) {
+    if (!damageResult || !this.buildingSystem) {
+      return EMPTY_BUILDING_DEBRIS_EVENTS;
+    }
+    const severityBySection = new Map();
+    const retainSeverity = (sectionId, severity) => {
+      if (sectionId == null || !severity) return;
+      const stableId = String(sectionId);
+      const current = severityBySection.get(stableId);
+      if (
+        !current
+        || BUILDING_DEBRIS_SEVERITY_RANK[severity]
+          > BUILDING_DEBRIS_SEVERITY_RANK[current]
+      ) {
+        severityBySection.set(stableId, severity);
+      }
+    };
+    retainSeverity(
+      damageResult.result?.sectionId,
+      buildingDebrisSeverity(damageResult.result)
+    );
+    for (const result of damageResult.results ?? []) {
+      retainSeverity(result?.sectionId, buildingDebrisSeverity(result));
+    }
+    for (const sectionId of damageResult.collapsedSections ?? []) {
+      retainSeverity(sectionId, 'collapsed');
+    }
+    if (severityBySection.size === 0) return EMPTY_BUILDING_DEBRIS_EVENTS;
+
+    const stableBuildingId = String(buildingId);
+    const descriptor = this.buildingSystem.getDescriptorForBuilding?.(
+      stableBuildingId
+    );
+    const snapshot = this.buildingSystem.getBuildingSnapshot?.(
+      stableBuildingId
+    );
+    if (!descriptor || !snapshot) return EMPTY_BUILDING_DEBRIS_EVENTS;
+    const sectionById = new Map(
+      descriptor.sections.map(section => [String(section.id), section])
+    );
+    const impactPosition = finitePointArray(position);
+    const events = [];
+    for (const sectionId of [...severityBySection.keys()]
+      .sort((a, b) => a.localeCompare(b))) {
+      const section = sectionById.get(sectionId);
+      if (!section) continue;
+      const { localPosition, positionSource } = stableSectionCentroid(section);
+      const worldPosition = finitePointArray(
+        localToWorldPoint(localPosition, snapshot.transform)
+      );
+      if (!worldPosition) continue;
+      const severity = severityBySection.get(sectionId);
+      events.push(Object.freeze({
+        eventKey: `${stableBuildingId}:${sectionId}`,
+        buildingId: stableBuildingId,
+        sectionId,
+        materialLabel: String(section.material),
+        severity,
+        worldPosition: Object.freeze(worldPosition),
+        impactPosition: impactPosition
+          ? Object.freeze([...impactPosition])
+          : null,
+        positionSource,
+        reason: String(reason ?? 'building-damage')
+      }));
+    }
+    return events.length > 0
+      ? Object.freeze(events)
+      : EMPTY_BUILDING_DEBRIS_EVENTS;
   }
 
   acquireEffect(kind) {
@@ -810,7 +1014,10 @@ export class CombatSystem {
         material,
         active: false,
         lifetime: 0,
-        maxLife: 0
+        maxLife: 0,
+        initialOpacity: 0,
+        growthPerSecond: 0,
+        debrisEvent: null
       };
       effect.mesh.visible = false;
       pool.push(effect);
@@ -823,20 +1030,33 @@ export class CombatSystem {
     return effect;
   }
 
-  startEffect(kind, pos, { color, scale = 1, maxLife }) {
+  startEffect(kind, pos, {
+    color,
+    scale = 1,
+    maxLife,
+    initialOpacity = this.vfxResources.styles[kind]?.initialOpacity ?? 0.9,
+    growthPerSecond =
+      this.vfxResources.styles[kind]?.growthPerSecond ?? 2.4,
+    debrisEvent = null
+  }) {
     const effect = this.acquireEffect(kind);
-    if (!effect) return;
+    if (!effect) return null;
     effect.active = true;
     effect.lifetime = 0;
     effect.maxLife = maxLife;
+    effect.initialOpacity = initialOpacity;
+    effect.growthPerSecond = growthPerSecond;
+    effect.debrisEvent = debrisEvent;
     effect.material.color.setHex(color);
-    effect.material.opacity =
-      this.vfxResources.styles[kind]?.initialOpacity ?? 0.9;
+    effect.material.opacity = initialOpacity;
     effect.mesh.position.copy(pos);
     effect.mesh.scale.setScalar(scale);
     effect.mesh.visible = true;
+    if (debrisEvent) effect.mesh.userData.buildingDebrisEvent = debrisEvent;
+    else delete effect.mesh.userData.buildingDebrisEvent;
     if (effect.mesh.parent !== this.scene) this.scene.add(effect.mesh);
     this.effects.push(effect);
+    return effect;
   }
 
   retireEffect(effect) {
@@ -845,6 +1065,8 @@ export class CombatSystem {
     effect.active = false;
     effect.mesh.visible = false;
     effect.material.opacity = 0;
+    effect.debrisEvent = null;
+    delete effect.mesh.userData.buildingDebrisEvent;
     if (effect.mesh.parent) effect.mesh.parent.remove(effect.mesh);
   }
 
@@ -864,6 +1086,27 @@ export class CombatSystem {
       color: style.color,
       scale,
       maxLife: style.maxLife
+    });
+  }
+
+  createBuildingDebrisEffect(event) {
+    const style = this.vfxResources.resolveBuildingDebrisStyle(
+      event?.materialLabel,
+      event?.severity
+    );
+    if (!validBuildingDebrisStyle(style)) {
+      throw new TypeError('building debris material-style resolver returned invalid style');
+    }
+    const position = finitePointArray(event?.worldPosition);
+    if (!position) return null;
+    scratchDebrisPosition.fromArray(position);
+    return this.startEffect('buildingDebris', scratchDebrisPosition, {
+      color: style.color,
+      scale: style.initialScale,
+      maxLife: style.maxLife,
+      initialOpacity: style.initialOpacity,
+      growthPerSecond: style.growthPerSecond,
+      debrisEvent: event
     });
   }
 
@@ -956,10 +1199,13 @@ export class CombatSystem {
       const effect = this.effects[i];
       effect.lifetime += delta;
       const progress = effect.lifetime / effect.maxLife;
-      const growthPerSecond =
-        this.vfxResources.styles[effect.kind]?.growthPerSecond ?? 2.4;
+      const growthPerSecond = effect.kind === 'buildingDebris'
+        ? effect.growthPerSecond
+        : this.vfxResources.styles[effect.kind]?.growthPerSecond ?? 2.4;
       effect.mesh.scale.multiplyScalar(1 + delta * growthPerSecond);
-      effect.material.opacity = 1 - progress;
+      effect.material.opacity = effect.kind === 'buildingDebris'
+        ? effect.initialOpacity * Math.max(0, 1 - progress)
+        : 1 - progress;
       if (effect.lifetime >= effect.maxLife) {
         this.retireEffect(effect);
       }
@@ -972,11 +1218,14 @@ export class CombatSystem {
   }
 
   dispose() {
+    if (this.disposed) return false;
+    this.disposed = true;
     this.reset();
     for (const pool of Object.values(this.effectPools)) {
       for (const effect of pool) effect.material.dispose();
     }
     this.vfxResources.dispose();
+    return true;
   }
 
   disposeProjectileResources() {

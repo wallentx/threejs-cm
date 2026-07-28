@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { UnitFactory } from '../world/UnitFactory.js';
 import { SoldierAI } from './SoldierAI.js';
-import { getStructure } from './StructureCatalog.js';
 import {
   applyStructureDamage,
   createStructureState,
@@ -36,6 +35,12 @@ import {
   hasEffectiveVehicleCrewRole,
   restoreVehicleCrewTaskState
 } from '../simulation/vehicles/VehicleCrewTasks.js';
+import {
+  INFANTRY_COLLISION_RADIUS
+} from '../simulation/infantry/InfantrySeparationSystem.js';
+import {
+  InfantryBuddyBounds
+} from '../simulation/infantry/InfantryBuddyBounds.js';
 
 function wrapAngle(angle) {
   return Math.atan2(Math.sin(angle), Math.cos(angle));
@@ -69,8 +74,9 @@ export class Unit {
       || typeof this.catalogPorts?.weapons?.idFromName !== 'function'
       || typeof this.catalogPorts?.vehicles?.get !== 'function'
       || typeof this.catalogPorts?.vehicles?.defaultIdForFaction !== 'function'
+      || typeof this.catalogPorts?.structures?.get !== 'function'
     ) {
-      throw new Error('Unit requires weapon and vehicle catalog ports');
+      throw new Error('Unit requires weapon, vehicle, and structure catalog ports');
     }
     this.weaponLookup = this.catalogPorts.weapons.get;
     this.visualFactories = config.visualFactories;
@@ -101,8 +107,23 @@ export class Unit {
           : null
       );
     this.vehicleSpec = this.catalogPorts.vehicles.get(this.vehicleId);
-    this.structureSpec = getStructure(config.structureId);
-    if (config.structureId && !this.structureSpec) {
+    const structureRecords = this.catalogPorts.structures.records;
+    const structureId = config.structureId;
+    const resolvedStructure = structureId
+      ? this.catalogPorts.structures.get(structureId)
+      : null;
+    if (
+      structureId
+      && (
+        !structureRecords
+        || !Object.hasOwn(structureRecords, structureId)
+        || resolvedStructure !== structureRecords[structureId]
+      )
+    ) {
+      throw new Error(`Unit ${this.id} requires canonical structure ${structureId}`);
+    }
+    this.structureSpec = resolvedStructure;
+    if (structureId && !this.structureSpec) {
       throw new Error(`Unit ${this.id} references unknown structure ${config.structureId}`);
     }
     if (this.type === 'bunker' && !this.structureSpec) {
@@ -112,7 +133,7 @@ export class Unit {
     const vehicleDimensions = this.vehicleSpec?.dimensionsMeters;
     this.collisionRadius = vehicleDimensions
       ? vehicleDimensions.width * 0.5 + 0.08
-      : this.type === 'infantry_squad' ? 0.32 : 0;
+      : this.type === 'infantry_squad' ? INFANTRY_COLLISION_RADIUS : 0;
     this.collisionOffsets = vehicleDimensions
       ? createCapsuleOffsets(vehicleDimensions.length, this.collisionRadius)
       : [];
@@ -192,6 +213,9 @@ export class Unit {
     // 3D Mesh
     this.mesh = null;
     this.initMesh();
+    this.infantryBuddyBounds = this.type === 'infantry_squad'
+      ? new InfantryBuddyBounds()
+      : null;
     this.soldierAI = this.type === 'infantry_squad' ? new SoldierAI(this) : null;
     this.refreshAmmoSummary();
   }
@@ -290,6 +314,7 @@ export class Unit {
     this.roster = cloneRoster(roster);
     this.squadSize = this.roster.length;
     this.initMesh();
+    this.infantryBuddyBounds?.reset();
     this.soldierAI = new SoldierAI(this);
     this.refreshAmmoSummary();
     return previousMesh;
@@ -297,6 +322,7 @@ export class Unit {
 
   addWaypoint(posVec3, orderType = 'QUICK', pauseSec = 0) {
     if (this.currentWaypointIndex >= this.waypoints.length && this.waypoints.length > 0) {
+      this.infantryBuddyBounds?.reset();
       this.waypoints = [];
       this.currentWaypointIndex = 0;
     }
@@ -320,12 +346,14 @@ export class Unit {
   }
 
   clearWaypoints() {
+    this.infantryBuddyBounds?.reset();
     this.waypoints = [];
     this.currentWaypointIndex = 0;
   }
 
   pruneCompletedWaypoints() {
     if (this.currentWaypointIndex <= 0) return;
+    this.infantryBuddyBounds?.reset();
     this.waypoints = this.waypoints.slice(this.currentWaypointIndex);
     this.currentWaypointIndex = 0;
   }
@@ -1415,6 +1443,8 @@ export class Unit {
           .map(([id, mount]) => [id, captureVehicleMountState(mount)])
       ),
       currentLOD: this.currentLOD,
+      infantryBuddyBounds:
+        this.infantryBuddyBounds?.captureState() ?? null,
       roster: this.soldierAI
         ? this.soldierAI.captureRoster()
         : this.roster.map(soldier => ({ ...soldier }))
@@ -1422,6 +1452,12 @@ export class Unit {
   }
 
   restoreState(state, unitMap) {
+    this.infantryBuddyBounds?.restoreState(
+      state.infantryBuddyBounds,
+      Array.isArray(state.roster)
+        ? state.roster.map(soldier => soldier.id)
+        : []
+    );
     this.position.fromArray(state.position);
     this.rotation = state.rotation;
     this.morale = state.morale;
@@ -1473,6 +1509,15 @@ export class Unit {
     this.soldierAI?.applySquadStance();
   }
 
+  reconcileBuddyBoundObservation(hasDirectPrecisionObservation) {
+    if (hasDirectPrecisionObservation || !this.infantryBuddyBounds) {
+      return false;
+    }
+    this.infantryBuddyBounds.reset();
+    this.soldierAI?.clearBuddyBoundDiagnostics();
+    return true;
+  }
+
   areLivingInfantryAtFormation(orderType, tolerance = 0.75) {
     if (!this.soldierAI) return true;
     const cosine = Math.cos(this.rotation);
@@ -1492,7 +1537,10 @@ export class Unit {
   }
 
   update(delta, terrain, options = {}) {
-    const { haltMovement = false } = options;
+    const {
+      haltMovement = false,
+      hasDirectPrecisionObservation = false
+    } = options;
     if (this.suppression > 0) {
       this.suppression = Math.max(0, this.suppression - delta * 4.0);
       if (this.suppression < 15 && this.morale === 'Pinned') {
@@ -1605,7 +1653,11 @@ export class Unit {
       }
     }
 
-    this.soldierAI?.update(delta, terrain, { anchorMoving, orderType: activeOrderType });
+    this.soldierAI?.update(delta, terrain, {
+      anchorMoving,
+      orderType: activeOrderType,
+      hasDirectPrecisionObservation
+    });
     if (infantryAwaitingArrival
         && this.areLivingInfantryAtFormation(activeOrderType)) {
       if (infantryAwaitingArrival.remainingPause > 0) {

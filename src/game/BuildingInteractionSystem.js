@@ -45,6 +45,13 @@ function livingAgents(unit) {
     .sort((left, right) => compareId(left.id, right.id));
 }
 
+function unavailableAgent(agent) {
+  const health = Number(agent?.health);
+  return agent?.isAlive === false
+    || (Number.isFinite(health) && health <= 0)
+    || ['KIA', 'INCAPACITATED', 'DEAD'].includes(agent?.status);
+}
+
 function setPosition(agent, position) {
   if (!agent?.position || !position) return;
   if (typeof agent.position.set === 'function') {
@@ -275,9 +282,37 @@ function portalIndex(descriptor) {
   return new Map(descriptor.portals.map(portal => [portal.id, portal]));
 }
 
-function entryPortal(descriptor) {
-  return descriptor.portals.find(portal => portal.kind === 'door'
-    && (portal.from === 'outside' || portal.to === 'outside')) ?? null;
+function entryPortal(descriptor, portalId = null) {
+  const exteriorDoors = descriptor.portals.filter(portal => portal.kind === 'door'
+    && (portal.from === 'outside' || portal.to === 'outside'));
+  if (portalId != null) {
+    return exteriorDoors.find(portal =>
+      String(portal.id) === String(portalId)) ?? null;
+  }
+  return exteriorDoors[0] ?? null;
+}
+
+function validEntryPortals(descriptor, roomId, invalidPortalIds = []) {
+  const invalid = new Set(invalidPortalIds.map(String));
+  return descriptor.portals
+    .filter(portal => portal.kind === 'door'
+      && ((portal.from === 'outside' && portal.to === roomId)
+        || (portal.to === 'outside' && portal.from === roomId))
+      && !invalid.has(String(portal.id)))
+    .sort((left, right) => compareId(left.id, right.id));
+}
+
+function routeDistanceXZ(worldStart, route) {
+  const start = Array.isArray(worldStart)
+    ? worldStart
+    : [worldStart?.x ?? 0, worldStart?.y ?? 0, worldStart?.z ?? 0];
+  let previous = start;
+  let distance = 0;
+  for (const point of route) {
+    distance += Math.hypot(point[0] - previous[0], point[2] - previous[2]);
+    previous = point;
+  }
+  return distance;
 }
 
 function lowerFloorId(descriptor) {
@@ -326,10 +361,10 @@ export class BuildingInteractionSystem {
     return null;
   }
 
-  getEntryApproachPosition(buildingId) {
+  getEntryApproachPosition(buildingId, portalId = null) {
     const state = this.buildingSystem.getBuildingSnapshot(buildingId);
     const descriptor = this.buildingSystem.getDescriptorForBuilding(buildingId);
-    const portal = entryPortal(descriptor);
+    const portal = entryPortal(descriptor, portalId);
     if (!portal?.aperture) return [...state.transform.position];
     const [x, , z] = portal.aperture.center;
     const length = Math.hypot(x, z) || 1;
@@ -342,13 +377,13 @@ export class BuildingInteractionSystem {
     ], state.transform);
   }
 
-  getEntryApproachRoute(buildingId, worldStart) {
+  getEntryApproachRoute(buildingId, worldStart, portalId = null) {
     const state = this.buildingSystem.getBuildingSnapshot(buildingId);
     const descriptor = this.buildingSystem.getDescriptorForBuilding(buildingId);
     const startWorld = Array.isArray(worldStart)
       ? worldStart
       : [worldStart?.x ?? 0, worldStart?.y ?? 0, worldStart?.z ?? 0];
-    const targetWorld = this.getEntryApproachPosition(buildingId);
+    const targetWorld = this.getEntryApproachPosition(buildingId, portalId);
     const startLocal = worldToLocalPoint(startWorld, state.transform);
     const targetLocal = worldToLocalPoint(targetWorld, state.transform);
     const bounds = {
@@ -376,6 +411,9 @@ export class BuildingInteractionSystem {
   issueEnter(unit, buildingId, floorId = null) {
     if (unit?.type !== 'infantry_squad') {
       return { accepted: false, reason: 'infantry_only', assigned: [] };
+    }
+    if (this.orders.get(String(unit.id))?.action === 'ENTER') {
+      return { accepted: false, reason: 'enter_in_progress', assigned: [] };
     }
     const state = this.buildingSystem.getBuildingSnapshot(buildingId);
     const descriptor = this.buildingSystem.getDescriptorForBuilding(buildingId);
@@ -410,6 +448,33 @@ export class BuildingInteractionSystem {
     if (count === 0) {
       return { accepted: false, reason: 'no_free_slots', assigned: [] };
     }
+    const entryRoomId = slotIndex(descriptor).get(entrySlots[0].id)?.roomId;
+    const portalCandidates = validEntryPortals(
+      descriptor,
+      entryRoomId,
+      state.invalidPortals
+    ).map(portal => {
+      const approachRoute = this.getEntryApproachRoute(
+        buildingId,
+        unit.position,
+        portal.id
+      );
+      return {
+        portal,
+        approachRoute,
+        approachPosition: this.getEntryApproachPosition(buildingId, portal.id),
+        distance: routeDistanceXZ(unit.position, approachRoute)
+      };
+    }).sort((left, right) => {
+      if (left.distance < right.distance - EPSILON) return -1;
+      if (left.distance > right.distance + EPSILON) return 1;
+      return compareId(left.portal.id, right.portal.id);
+    });
+    const selectedEntry = portalCandidates[0];
+    if (!selectedEntry) {
+      return { accepted: false, reason: 'no_valid_entry_portal', assigned: [] };
+    }
+    const entryPortalId = String(selectedEntry.portal.id);
     const sequence = ++this.orderSequence;
     const requests = [];
     for (let index = 0; index < count; index++) {
@@ -443,6 +508,7 @@ export class BuildingInteractionSystem {
         soldierId: String(agent.id),
         action: 'ENTER',
         routeStage: 'door',
+        entryPortalId,
         targetFloorId: resolvedFloorId,
         targetSlotId: finalSlots[index].id,
         entrySlotId: entrySlots[index].id
@@ -461,15 +527,15 @@ export class BuildingInteractionSystem {
       sequence,
       assigned: [...assigned]
     });
-    const approachRoute = this.getEntryApproachRoute(buildingId, unit.position);
-    this.#recoverApproachOverlaps(unit, buildingId, assigned);
+    this.#recoverApproachOverlaps(unit, buildingId, assigned, entryPortalId);
     return {
       accepted: true,
       reason: null,
       assigned,
       unassigned: agents.length - assigned.length,
-      approachPosition: this.getEntryApproachPosition(buildingId),
-      approachRoute,
+      entryPortalId,
+      approachPosition: selectedEntry.approachPosition,
+      approachRoute: selectedEntry.approachRoute,
       stateVersion: state.eventVersion
     };
   }
@@ -485,26 +551,44 @@ export class BuildingInteractionSystem {
       return { accepted: false, reason: 'not_inside', assigned: [] };
     }
     const sequence = ++this.orderSequence;
-    const buildingId = String(agents[0].buildingLocation.buildingId);
-    const descriptor = this.buildingSystem.getDescriptorForBuilding(buildingId);
-    const groundSlots = slotsOnFloor(descriptor, lowerFloorId(descriptor));
-    const assigned = [];
+    const assignments = [];
 
     // Ground-floor occupants start through the door first. Their released
     // slots then become deterministic landing slots for upstairs occupants.
     for (const agent of agents) {
       const location = agent.buildingLocation;
+      const buildingId = String(location.buildingId);
+      const descriptor = this.buildingSystem.getDescriptorForBuilding(buildingId);
+      const groundSlots = slotsOnFloor(descriptor, lowerFloorId(descriptor));
+      const slot = slotIndex(descriptor).get(location.nodeId);
+      const slotFloorId = descriptor.rooms
+        .find(room => room.id === slot?.roomId)?.floorId ?? null;
+      const key = String(location.soldierKey ?? soldierKey(unit.id, agent.id));
+      assignments.push({
+        soldierKey: key,
+        soldierId: String(agent.id),
+        buildingId,
+        floorId: slotFloorId,
+        slotId: location.nodeId ?? null,
+        entryPortalId: location.entryPortalId ?? null
+      });
       if (location.phase === 'approaching') {
-        this.buildingSystem.releaseSoldier(buildingId, location.soldierKey);
+        this.buildingSystem.releaseSoldier(buildingId, key);
         agent.buildingLocation = null;
         agent.state = 'OBSERVING';
         agent.stance = 'STANDING';
         syncAgent(agent);
-        assigned.push(soldierKey(unit.id, agent.id));
         continue;
       }
-      const slot = slotIndex(descriptor).get(location.nodeId);
-      const slotFloorId = descriptor.rooms.find(room => room.id === slot?.roomId)?.floorId;
+      if (location.action === 'ENTER'
+          && (location.phase === 'transit' || location.phase === 'exiting')) {
+        this.#ejectOutside(agent, buildingId, descriptor);
+        continue;
+      }
+      if (location.action === 'EXIT'
+          && ['transit', 'exiting', 'exit-waiting'].includes(location.phase)) {
+        continue;
+      }
       location.action = 'EXIT';
       location.targetFloorId = null;
       location.targetSlotId = null;
@@ -518,7 +602,6 @@ export class BuildingInteractionSystem {
         location.exitGroundSlots = groundSlots.map(candidate => candidate.id);
         syncAgent(agent);
       }
-      assigned.push(soldierKey(unit.id, agent.id));
     }
     // ENTER owns the approach path. EXIT supersedes that order as well as any
     // portal/occupancy state, so a cancelled squad cannot keep walking into
@@ -526,18 +609,21 @@ export class BuildingInteractionSystem {
     unit.clearWaypoints?.();
     this.orders.set(String(unit.id), {
       unitId: String(unit.id),
-      buildingId,
       action: 'EXIT',
       floorId: null,
       sequence,
-      assigned: [...assigned]
+      assignments: assignments.map(clone)
     });
+    const assigned = assignments.map(assignment => assignment.soldierKey);
     return { accepted: true, reason: null, assigned };
   }
 
   advance(deltaSeconds) {
     const delta = Math.max(0, Number(deltaSeconds) || 0);
-    const units = new Map((this.getUnits() ?? []).map(unit => [String(unit.id), unit]));
+    const knownUnits = [...(this.getUnits() ?? [])]
+      .sort((left, right) => compareId(left.id, right.id));
+    this.#cleanupUnavailableOccupants(knownUnits);
+    const units = new Map(knownUnits.map(unit => [String(unit.id), unit]));
     for (const order of [...this.orders.values()]
       .sort((left, right) => left.sequence - right.sequence || compareId(left.unitId, right.unitId))) {
       const unit = units.get(order.unitId);
@@ -545,23 +631,25 @@ export class BuildingInteractionSystem {
         this.orders.delete(order.unitId);
         continue;
       }
-      for (const agent of livingAgents(unit)) {
-        const location = agent.buildingLocation;
-        if (!location || location.buildingId !== order.buildingId) continue;
+      const agentsByKey = new Map(
+        (unit.soldierAI?.agents ?? []).map(agent => [
+          soldierKey(unit.id, agent.id),
+          agent
+        ])
+      );
+      const assignments = this.#orderAssignments(order);
+      for (const assignment of assignments) {
+        const agent = agentsByKey.get(assignment.soldierKey);
+        const location = agent?.buildingLocation;
+        if (!location
+            || String(location.buildingId) !== assignment.buildingId) continue;
         this.#advanceAgent(agent, location, delta);
       }
-      for (const agent of unit.soldierAI?.agents ?? []) {
-        if (agent.isAlive || !agent.buildingLocation?.buildingId) continue;
-        this.buildingSystem.handleCasualty(
-          agent.buildingLocation.buildingId,
-          soldierKey(unit.id, agent.id)
-        );
-        agent.buildingLocation = null;
-        syncAgent(agent);
-      }
-      const pending = (unit.soldierAI?.agents ?? []).some(agent => {
-        const location = agent.buildingLocation;
-        if (!location || location.buildingId !== order.buildingId) return false;
+      const pending = assignments.some(assignment => {
+        const agent = agentsByKey.get(assignment.soldierKey);
+        const location = agent?.buildingLocation;
+        if (!location
+            || String(location.buildingId) !== assignment.buildingId) return false;
         if (order.action === 'ENTER') return !['occupied', 'outside'].includes(location.phase);
         return location.phase !== 'outside';
       });
@@ -689,13 +777,56 @@ export class BuildingInteractionSystem {
     );
   }
 
+  #cleanupUnavailableOccupants(units) {
+    for (const unit of units) {
+      let cleaned = false;
+      const agents = [...(unit.soldierAI?.agents ?? [])]
+        .sort((left, right) => compareId(left.id, right.id));
+      for (const agent of agents) {
+        const location = agent.buildingLocation;
+        if (!location?.buildingId || !unavailableAgent(agent)) continue;
+        this.buildingSystem.handleCasualty(
+          String(location.buildingId),
+          String(location.soldierKey ?? soldierKey(unit.id, agent.id))
+        );
+        agent.buildingLocation = null;
+        syncAgent(agent);
+        cleaned = true;
+      }
+      if (cleaned) unit.soldierAI?.syncMeshes?.();
+    }
+  }
+
+  #orderAssignments(order) {
+    const assignments = Array.isArray(order.assignments)
+      ? order.assignments
+      : (order.assigned ?? []).map(key => ({
+        soldierKey: key,
+        buildingId: order.buildingId
+      }));
+    return assignments
+      .map(assignment => ({
+        ...assignment,
+        soldierKey: String(assignment.soldierKey),
+        buildingId: String(assignment.buildingId)
+      }))
+      .sort((left, right) => compareId(left.soldierKey, right.soldierKey));
+  }
+
   #advanceAgent(agent, location, delta) {
     const buildingId = location.buildingId;
     const descriptor = this.buildingSystem.getDescriptorForBuilding(buildingId);
     if (location.phase === 'approaching') {
-      const approach = this.getEntryApproachPosition(buildingId);
+      const portal = entryPortal(descriptor, location.entryPortalId);
+      if (!portal) {
+        this.#ejectOutside(agent, buildingId, descriptor);
+        return;
+      }
+      const approach = this.getEntryApproachPosition(
+        buildingId,
+        location.entryPortalId
+      );
       if (distanceXZ(agent, approach) > APPROACH_DISTANCE_METERS) return;
-      const portal = entryPortal(descriptor);
       const started = this.buildingSystem.startTransit(buildingId, {
         unitId: location.unitId,
         soldierId: location.soldierId,
@@ -756,7 +887,12 @@ export class BuildingInteractionSystem {
     if (location.phase === 'occupied') this.#setOccupiedPose(agent);
   }
 
-  #recoverApproachOverlaps(unit, buildingId, assignedSoldierKeys) {
+  #recoverApproachOverlaps(
+    unit,
+    buildingId,
+    assignedSoldierKeys,
+    entryPortalId
+  ) {
     const state = this.buildingSystem.getBuildingSnapshot(buildingId);
     const descriptor = this.buildingSystem.getDescriptorForBuilding(buildingId);
     const unitLocal = worldToLocalPoint(
@@ -767,7 +903,7 @@ export class BuildingInteractionSystem {
       [unitLocal[0], unitLocal[2]],
       descriptor.bounds
     );
-    const entrySectionId = entryPortal(descriptor)?.sectionId;
+    const entrySectionId = entryPortal(descriptor, entryPortalId)?.sectionId;
     const entrySection = descriptor.sections
       .find(section => section.id === entrySectionId);
     const wallHalfThickness = Math.max(
@@ -895,7 +1031,8 @@ export class BuildingInteractionSystem {
 
   #startDoorExit(agent, buildingId, descriptor) {
     const location = agent.buildingLocation;
-    const portal = entryPortal(descriptor);
+    const portal = entryPortal(descriptor, location.entryPortalId);
+    if (!portal) return false;
     const started = this.buildingSystem.startTransit(buildingId, {
       unitId: location.unitId,
       soldierId: location.soldierId,
@@ -942,7 +1079,8 @@ export class BuildingInteractionSystem {
     setPosition(agent, this.#exteriorWorldPosition(
       buildingId,
       descriptor,
-      location?.soldierKey ?? agent.id
+      location?.soldierKey ?? agent.id,
+      location?.entryPortalId
     ));
     agent.buildingLocation = null;
     agent.velocity?.set?.(0, 0, 0);
@@ -956,9 +1094,9 @@ export class BuildingInteractionSystem {
     syncAgent(agent);
   }
 
-  #exteriorWorldPosition(buildingId, descriptor, key) {
+  #exteriorWorldPosition(buildingId, descriptor, key, entryPortalId = null) {
     const state = this.buildingSystem.getBuildingSnapshot(buildingId);
-    const portal = entryPortal(descriptor);
+    const portal = entryPortal(descriptor, entryPortalId);
     if (!portal?.aperture) return [...state.transform.position];
     const [x, , z] = portal.aperture.center;
     const length = Math.hypot(x, z) || 1;
@@ -981,16 +1119,28 @@ export class BuildingInteractionSystem {
     const progress = stillInTransit
       ? Math.min(1, (after.transitElapsed ?? 0) / duration)
       : 1;
-    const from = this.#nodeWorldPosition(buildingId, descriptor, before.fromNodeId);
-    const to = this.#nodeWorldPosition(buildingId, descriptor, before.toNodeId);
+    const from = this.#nodeWorldPosition(
+      buildingId,
+      descriptor,
+      before.fromNodeId,
+      before.entryPortalId
+    );
+    const to = this.#nodeWorldPosition(
+      buildingId,
+      descriptor,
+      before.toNodeId,
+      before.entryPortalId
+    );
     setPosition(agent, lerpPosition(from, to, progress));
     agent.velocity?.set?.(0, 0, 0);
     agent.state = before.routeStage === 'stairs' ? 'MOVING' : 'MOVING';
     agent.stance = 'STANDING';
   }
 
-  #nodeWorldPosition(buildingId, descriptor, nodeId) {
-    if (nodeId === 'outside') return this.getEntryApproachPosition(buildingId);
+  #nodeWorldPosition(buildingId, descriptor, nodeId, entryPortalId = null) {
+    if (nodeId === 'outside') {
+      return this.getEntryApproachPosition(buildingId, entryPortalId);
+    }
     return this.#slotWorldPosition(buildingId, descriptor, nodeId);
   }
 
@@ -1003,7 +1153,7 @@ export class BuildingInteractionSystem {
   }
 
   #routeFields(location) {
-    return {
+    const fields = {
       action: location.action,
       routeStage: location.routeStage,
       targetFloorId: location.targetFloorId ?? null,
@@ -1011,5 +1161,9 @@ export class BuildingInteractionSystem {
       entrySlotId: location.entrySlotId ?? null,
       exitGroundSlots: location.exitGroundSlots ? [...location.exitGroundSlots] : null
     };
+    if (Object.hasOwn(location, 'entryPortalId')) {
+      fields.entryPortalId = location.entryPortalId;
+    }
+    return fields;
   }
 }

@@ -27,11 +27,15 @@ function assertScenarioDefinition(scenario) {
 }
 
 function requireCatalogRecord(catalog, id, label, unitId) {
-  const record = catalog?.[id];
-  if (!record) {
+  if (
+    !catalog
+    || typeof id !== 'string'
+    || !Object.hasOwn(catalog, id)
+    || !catalog[id]
+  ) {
     throw new Error(`Scenario unit ${unitId} references unknown ${label} ${id}`);
   }
-  return record;
+  return catalog[id];
 }
 
 function assertFamilyMatch(record, expectedFaction, label, id, unitId) {
@@ -182,6 +186,14 @@ function resolveFamilyUnitDefinition(definition, family) {
       assertFamilyMatch(vehicle, definition.faction, 'vehicle', definition.vehicleId, definition.id);
     }
   }
+  if (definition.structureId) {
+    requireCatalogRecord(
+      family.catalogs?.structures,
+      definition.structureId,
+      'structure',
+      definition.id
+    );
+  }
   return resolved;
 }
 
@@ -315,7 +327,8 @@ function validateCatalogPorts(scenario, familyRegistry, catalogPorts) {
   }
   for (const [name, requiredFunctions] of Object.entries({
     weapons: ['get', 'idFromName'],
-    vehicles: ['get', 'defaultIdForFaction']
+    vehicles: ['get', 'defaultIdForFaction'],
+    structures: ['get']
   })) {
     const port = catalogPorts[name];
     if (!port || typeof port !== 'object') {

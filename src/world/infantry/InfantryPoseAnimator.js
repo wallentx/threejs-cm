@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 
 const IDLE_SPEED_THRESHOLD = 0.12;
+export const INFANTRY_CASUALTY_FALL_DURATION_SECONDS = 0.75;
+const CASUALTY_FALL_CLOCK_TICKS_PER_SECOND = 1_000_000_000;
 const DOWN = new THREE.Vector3(0, -1, 0);
 const scratchTargetWorld = new THREE.Vector3();
 const scratchTargetLocal = new THREE.Vector3();
@@ -10,6 +12,264 @@ const scratchBend = new THREE.Vector3();
 const scratchElbow = new THREE.Vector3();
 const scratchForearm = new THREE.Vector3();
 const scratchInverse = new THREE.Quaternion();
+
+function applyFirstOrderProneCrawlPose(parts, stridePhase) {
+  // First-order procedural presentation approximation, driven only by the
+  // resolved distance phase rather than an animation clock or pose history.
+  const stride = Math.sin(stridePhase ?? 0);
+  parts.leftLeg.rotation.x = 0.12 + stride * 0.24;
+  parts.rightLeg.rotation.x = -0.12 - stride * 0.24;
+  parts.torso.rotation.z = stride * 0.035;
+}
+
+function applyFirstOrderWoundedMovePose(parts, stridePhase) {
+  // First-order gameplay presentation approximation: a generalized guarded
+  // torso cue, driven solely by the resolved distance phase.
+  const stride = Math.sin(stridePhase ?? 0);
+  parts.torso.rotation.x = -0.055 - stride * 0.018;
+  parts.torso.rotation.z = stride * 0.028;
+}
+
+function resetArmRigFromGripIk(arm) {
+  const rig = arm?.userData.armRig;
+  if (!rig) return;
+  updateArmLengths(arm, rig.upperLength, rig.lowerLength);
+  rig.elbow.quaternion.identity();
+  arm.userData.gripBinding = null;
+}
+
+const KIA_END_POSES = [
+  {
+    root: [Math.PI / 2, -0.08, 0.34],
+    leftLeg: [0.18, 0, 0.08],
+    rightLeg: [-0.28, 0, -0.12],
+    leftArm: [0.42, 0, 0.62],
+    rightArm: [0.15, 0, -0.38],
+    weaponPosition: [0.34, 0.08, 0.18],
+    weaponRotation: [-Math.PI / 2, 0, 1.25]
+  },
+  {
+    root: [0, Math.PI / 2, 0.45],
+    leftLeg: [-0.45, 0, 0.25],
+    rightLeg: [-0.85, 0, -0.15],
+    leftArm: [0.7, 0, 0.2],
+    rightArm: [0.15, 0, -0.2],
+    weaponPosition: [-0.35, 0.1, 0.2],
+    weaponRotation: [0, 0, Math.PI / 2]
+  },
+  {
+    root: [0, -Math.PI / 2, 0.45],
+    leftLeg: [-0.8, 0, 0.18],
+    rightLeg: [-0.38, 0, -0.28],
+    leftArm: [0.18, 0, 0.2],
+    rightArm: [0.72, 0, -0.18],
+    weaponPosition: [0.35, 0.1, 0.2],
+    weaponRotation: [0, 0, -Math.PI / 2]
+  },
+  {
+    root: [Math.PI / 2, 0.12, 0.36],
+    leftLeg: [0.12, 0, 0.22],
+    rightLeg: [-0.12, 0, -0.18],
+    leftArm: [0.82, 0, 0.48],
+    rightArm: [0.58, 0, -0.52],
+    weaponPosition: [0.28, 0.08, 0.16],
+    weaponRotation: [-Math.PI / 2, 0, -1.05]
+  }
+];
+
+function isCasualtyFallStartStance(stance) {
+  return stance === 'STANDING'
+    || stance === 'KNEELING'
+    || stance === 'CROUCHED'
+    || stance === 'PRONE';
+}
+
+function getKiaEndPose(stableRoll) {
+  const variant = stableRoll < -0.2
+    ? 0
+    : stableRoll < 0
+      ? 1
+      : stableRoll < 0.2
+        ? 2
+        : 3;
+  return KIA_END_POSES[variant];
+}
+
+function setKiaPose(mesh, parts, pose) {
+  mesh.rotation.x = pose.root[0];
+  mesh.rotation.z = pose.root[1];
+  mesh.position.y = pose.root[2];
+  parts.leftLeg.rotation.set(...pose.leftLeg);
+  parts.rightLeg.rotation.set(...pose.rightLeg);
+  parts.leftArm.rotation.set(...pose.leftArm);
+  parts.rightArm.rotation.set(...pose.rightArm);
+  parts.weapon.position.set(...pose.weaponPosition);
+  parts.weapon.rotation.set(...pose.weaponRotation);
+}
+
+function applyFirstOrderKiaFallStartPose(mesh, parts, stance) {
+  const weaponRest = parts.weapon.userData.restPosition;
+  const weaponRestX = weaponRest?.[0] ?? -0.18;
+  mesh.rotation.z = 0;
+
+  if (stance === 'PRONE') {
+    mesh.rotation.x = Math.PI / 2;
+    mesh.position.y = 0.2;
+    parts.leftLeg.rotation.set(0.12, 0, 0);
+    parts.rightLeg.rotation.set(-0.12, 0, 0);
+    parts.leftArm.rotation.set(0, 0, 0);
+    parts.rightArm.rotation.set(0, 0, 0);
+    parts.weapon.position.set(0.34, 0.08, 0.18);
+    parts.weapon.rotation.set(-Math.PI / 2, 0, 1.25);
+    return;
+  }
+
+  mesh.rotation.x = 0;
+  parts.weapon.position.set(
+    weaponRestX,
+    weaponRest?.[1] ?? 1.46,
+    weaponRest?.[2] ?? 0.06
+  );
+  parts.weapon.rotation.set(-0.16, 0, 0.08);
+
+  if (stance === 'KNEELING') {
+    mesh.position.y = -0.34;
+    parts.leftLeg.rotation.set(-1.3, 0, 0);
+    parts.rightLeg.rotation.set(-1.3, 0, 0);
+    parts.leftArm.rotation.set(-0.96, 0, 0.18);
+    parts.rightArm.rotation.set(-0.84, 0, -0.2);
+    return;
+  }
+
+  if (stance === 'CROUCHED') {
+    mesh.position.y = -0.08;
+    parts.leftLeg.rotation.set(-0.72, 0, 0);
+    parts.rightLeg.rotation.set(-0.46, 0, 0);
+    parts.leftArm.rotation.set(-0.9, 0, 0.18);
+    parts.rightArm.rotation.set(-0.8, 0, -0.2);
+    return;
+  }
+
+  mesh.position.y = 0;
+  parts.leftLeg.rotation.set(0, 0, 0);
+  parts.rightLeg.rotation.set(0, 0, 0);
+  parts.leftArm.rotation.set(-0.82, 0, 0.18);
+  parts.rightArm.rotation.set(-0.72, 0, -0.2);
+}
+
+function lerpEuler(rotation, target, alpha) {
+  rotation.x = THREE.MathUtils.lerp(rotation.x, target[0], alpha);
+  rotation.y = THREE.MathUtils.lerp(rotation.y, target[1], alpha);
+  rotation.z = THREE.MathUtils.lerp(rotation.z, target[2], alpha);
+}
+
+function lerpPosition(position, target, alpha) {
+  position.x = THREE.MathUtils.lerp(position.x, target[0], alpha);
+  position.y = THREE.MathUtils.lerp(position.y, target[1], alpha);
+  position.z = THREE.MathUtils.lerp(position.z, target[2], alpha);
+}
+
+function applyFirstOrderKiaFallPose(mesh, parts, soldier) {
+  // First-order gameplay presentation approximation. The captured stance and
+  // simulation-owned pose time drive a bounded authored fall into the existing
+  // stable-identity end pose; this is not biomechanics or a physics result.
+  resetArmRigFromGripIk(parts.leftArm);
+  resetArmRigFromGripIk(parts.rightArm);
+  parts.weaponRig.userData.activeGripAssignments = null;
+  const endPose = getKiaEndPose(mesh.rotation.z);
+  const startStance = soldier.casualtyFallStartStance;
+  if (!isCasualtyFallStartStance(startStance)) {
+    setKiaPose(mesh, parts, endPose);
+    return;
+  }
+
+  const poseTime = Number.isFinite(soldier.poseTime) ? soldier.poseTime : 0;
+  const progress = THREE.MathUtils.clamp(
+    poseTime / INFANTRY_CASUALTY_FALL_DURATION_SECONDS,
+    0,
+    1
+  );
+  if (progress === 1) {
+    setKiaPose(mesh, parts, endPose);
+    return;
+  }
+
+  applyFirstOrderKiaFallStartPose(mesh, parts, startStance);
+  const alpha = THREE.MathUtils.smoothstep(progress, 0, 1);
+  let proneSideRollProgress = null;
+  if (startStance === 'PRONE' && endPose.root[0] === 0) {
+    // Turn the already-horizontal body before rolling onto its side. Blending
+    // both Euler axes together would briefly stand a prone casualty upright.
+    const turnProgress = Math.min(1, alpha * 2);
+    const rollProgress = Math.max(0, alpha * 2 - 1);
+    proneSideRollProgress = rollProgress;
+    mesh.rotation.z = THREE.MathUtils.lerp(0, endPose.root[1], turnProgress);
+    mesh.rotation.x = THREE.MathUtils.lerp(Math.PI / 2, 0, rollProgress);
+  } else {
+    mesh.rotation.x = THREE.MathUtils.lerp(mesh.rotation.x, endPose.root[0], alpha);
+    mesh.rotation.z = THREE.MathUtils.lerp(mesh.rotation.z, endPose.root[1], alpha);
+  }
+  mesh.position.y = THREE.MathUtils.lerp(mesh.position.y, endPose.root[2], alpha);
+  const stanceDescent = startStance === 'KNEELING'
+    ? 0.1
+    : startStance === 'CROUCHED'
+      ? 0.035
+      : startStance === 'STANDING'
+        ? 0.04
+        : 0;
+  mesh.position.y -= Math.sin(Math.PI * progress) * stanceDescent;
+  if (proneSideRollProgress != null) {
+    mesh.position.y += Math.sin(Math.PI * proneSideRollProgress) * 0.015;
+  }
+  const limbAlpha = proneSideRollProgress ?? alpha;
+  const armAlpha = proneSideRollProgress == null
+    ? alpha
+    : Math.max(0, proneSideRollProgress * 2 - 1);
+  lerpEuler(parts.leftLeg.rotation, endPose.leftLeg, limbAlpha);
+  lerpEuler(parts.rightLeg.rotation, endPose.rightLeg, limbAlpha);
+  if (startStance === 'KNEELING') {
+    // Fold the simple one-segment legs beneath the falling body instead of
+    // sweeping them through terrain on the shorter Euler path.
+    parts.leftLeg.rotation.x = THREE.MathUtils.lerp(
+      -1.3,
+      endPose.leftLeg[0] - Math.PI * 2,
+      alpha
+    );
+    parts.rightLeg.rotation.x = THREE.MathUtils.lerp(
+      -1.3,
+      endPose.rightLeg[0] - Math.PI * 2,
+      alpha
+    );
+  }
+  lerpEuler(parts.leftArm.rotation, endPose.leftArm, armAlpha);
+  lerpEuler(parts.rightArm.rotation, endPose.rightArm, armAlpha);
+  const weaponAlpha = startStance === 'PRONE' && endPose.root[0] === 0
+    ? proneSideRollProgress
+    : alpha;
+  lerpPosition(parts.weapon.position, endPose.weaponPosition, weaponAlpha);
+  lerpEuler(parts.weapon.rotation, endPose.weaponRotation, weaponAlpha);
+  if (proneSideRollProgress != null) {
+    if (endPose.root[1] > 0) {
+      parts.weapon.position.x = proneSideRollProgress <= 0.75
+        ? 0.34
+        : THREE.MathUtils.lerp(
+            0.34,
+            endPose.weaponPosition[0],
+            (proneSideRollProgress - 0.75) * 4
+          );
+    } else {
+      parts.weapon.position.x = proneSideRollProgress <= 0.25
+        ? THREE.MathUtils.lerp(0.34, 0, proneSideRollProgress * 4)
+        : proneSideRollProgress <= 0.75
+          ? 0
+          : THREE.MathUtils.lerp(
+              0,
+              endPose.weaponPosition[0],
+              (proneSideRollProgress - 0.75) * 4
+            );
+    }
+  }
+}
 
 function updateArmLengths(arm, upperLength, lowerLength) {
   const rig = arm?.userData.armRig;
@@ -105,7 +365,15 @@ function solveTwoBoneArm(mesh, arm, grip, side) {
 
 export function advanceInfantryAnimation(record, deltaSeconds) {
   const dt = Math.max(0, Number.isFinite(deltaSeconds) ? deltaSeconds : 0);
-  record.poseTime = (record.poseTime ?? 0) + dt;
+  const nextPoseTime = (record.poseTime ?? 0) + dt;
+  record.poseTime = record.status === 'KIA'
+    && isCasualtyFallStartStance(record.casualtyFallStartStance)
+    ? Math.min(
+        INFANTRY_CASUALTY_FALL_DURATION_SECONDS,
+        Math.round(nextPoseTime * CASUALTY_FALL_CLOCK_TICKS_PER_SECOND)
+          / CASUALTY_FALL_CLOCK_TICKS_PER_SECOND
+      )
+    : nextPoseTime;
 }
 
 export function applyInfantrySecondaryPose(mesh, soldier) {
@@ -121,7 +389,10 @@ export function applyInfantrySecondaryPose(mesh, soldier) {
   const speed = velocity.isVector3
     ? velocity.length()
     : Math.hypot(velocity[0], velocity[1], velocity[2]);
-  const alive = soldier.status !== 'KIA' && (soldier.health ?? 100) > 0;
+  const unavailable = soldier.status === 'KIA'
+    || soldier.status === 'INCAPACITATED'
+    || soldier.status === 'DEAD';
+  const alive = !unavailable && (soldier.health ?? 100) > 0;
   const idle = alive && speed < IDLE_SPEED_THRESHOLD
     && !['RELOADING', 'CASUALTY', 'MOVING', 'ADVANCING'].includes(soldier.state);
   const time = soldier.poseTime ?? 0;
@@ -141,6 +412,25 @@ export function applyInfantrySecondaryPose(mesh, soldier) {
     parts.weaponRig.rotation.z += weightShift * 0.008;
   }
 
+  const actionPose = soldier.state === 'RELOADING'
+    || (soldier.recoilTime ?? 0) > 0
+    || soldier.state === 'AIMING'
+    || soldier.state === 'OBSERVING';
+  const crawling = alive
+    && soldier.stance === 'PRONE'
+    && speed >= IDLE_SPEED_THRESHOLD
+    && !actionPose;
+  const woundedMoving = alive
+    && soldier.status === 'WOUNDED'
+    && speed >= IDLE_SPEED_THRESHOLD
+    && !actionPose
+    && (soldier.stance === 'STANDING'
+      || soldier.stance === 'KNEELING'
+      || soldier.stance === 'CROUCHED');
+  if (crawling) applyFirstOrderProneCrawlPose(parts, soldier.stridePhase);
+  if (woundedMoving) applyFirstOrderWoundedMovePose(parts, soldier.stridePhase);
+  if (soldier.status === 'KIA') applyFirstOrderKiaFallPose(mesh, parts, soldier);
+
   const pose = soldier.status === 'KIA'
     ? 'casualty'
     : soldier.state === 'RELOADING'
@@ -150,7 +440,7 @@ export function applyInfantrySecondaryPose(mesh, soldier) {
           : ['AIMING', 'OBSERVING'].includes(soldier.state)
               ? 'aim'
               : speed >= IDLE_SPEED_THRESHOLD
-                  ? 'move'
+                  ? crawling ? 'crawl' : woundedMoving ? 'wounded-move' : 'move'
                   : 'idle';
 
   parts.weaponRig.userData.activePose = pose;

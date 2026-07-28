@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import {
   DEFAULT_THREAT_MEMORY_POLICY,
   THREAT_MEMORY_APPROXIMATION,
+  THREAT_MEMORY_CLOCK_PRECISION_SECONDS,
   ThreatMemory
 } from '../src/simulation/infantry/ThreatMemory.js';
 import { Unit } from './helpers/France1940TestUnit.js';
@@ -83,7 +84,7 @@ test('threat memory rejects invalid policy, event, position, intensity, clock, a
     /deltaSeconds/
   );
   assert.throws(
-    () => new ThreatMemory().restoreState({ version: 2 }),
+    () => new ThreatMemory().restoreState({ version: 3 }),
     /unsupported threat-memory version/
   );
 });
@@ -154,7 +155,17 @@ test('refresh replaces an immutable observation without growing state', () => {
     impactPosition: [10, 11, 12],
     intensity: 1.5,
     observedAtSeconds: 2,
-    expiresAtSeconds: 14
+    expiresAtSeconds: 14,
+    observedClock: {
+      clockWholeSeconds: 2,
+      clockPicoseconds: 0,
+      clockCompensationSeconds: 0
+    },
+    expiresClock: {
+      clockWholeSeconds: 14,
+      clockPicoseconds: 0,
+      clockCompensationSeconds: 0
+    }
   });
 });
 
@@ -221,6 +232,216 @@ test('whole and partitioned advancement produce byte-identical state and selecti
   assert.deepEqual(
     checkpointRestored.captureState(),
     checkpointSource.captureState()
+  );
+});
+
+test('non-tick partitions share one canonical exact-expiry boundary', () => {
+  const lifetimeSeconds = 0.1234567894;
+  const whole = new ThreatMemory({ lifetimeSeconds });
+  const partitioned = new ThreatMemory({ lifetimeSeconds });
+  for (const memory of [whole, partitioned]) {
+    observe(memory, 'non-tick-boundary');
+  }
+
+  whole.advance(lifetimeSeconds);
+  for (let step = 0; step < 3; step++) {
+    partitioned.advance(lifetimeSeconds / 3);
+  }
+
+  assert.equal(whole.getStrongest(), null);
+  assert.equal(partitioned.getStrongest(), null);
+  assert.deepEqual(partitioned.captureState(), whole.captureState());
+
+  const wholeBefore = new ThreatMemory({ lifetimeSeconds });
+  const partitionedBefore = new ThreatMemory({ lifetimeSeconds });
+  for (const memory of [wholeBefore, partitionedBefore]) {
+    observe(memory, 'before-non-tick-boundary');
+  }
+  const beforeExpirySeconds = lifetimeSeconds - 1e-10;
+  wholeBefore.advance(beforeExpirySeconds);
+  for (let step = 0; step < 3; step++) {
+    partitionedBefore.advance(beforeExpirySeconds / 3);
+  }
+  assert.equal(wholeBefore.getStrongest().eventId, 'before-non-tick-boundary');
+  assert.deepEqual(
+    partitionedBefore.captureState(),
+    wholeBefore.captureState()
+  );
+
+  wholeBefore.advance(1e-10);
+  partitionedBefore.advance(1e-10);
+  assert.equal(wholeBefore.getStrongest(), null);
+  assert.deepEqual(
+    partitionedBefore.captureState(),
+    wholeBefore.captureState()
+  );
+});
+
+test('active non-tick partitions capture one canonical mid-clock state', () => {
+  const whole = new ThreatMemory();
+  const partitioned = new ThreatMemory();
+  for (const memory of [whole, partitioned]) {
+    observe(memory, 'active-non-tick');
+  }
+
+  const elapsedSeconds = 0.1234567894;
+  whole.advance(elapsedSeconds);
+  for (let step = 0; step < 3; step++) {
+    partitioned.advance(elapsedSeconds / 3);
+  }
+
+  assert.equal(whole.getStrongest().eventId, 'active-non-tick');
+  assert.deepEqual(partitioned.captureState(), whole.captureState());
+});
+
+test('half-picosecond ties have one byte-identical half-open representation', () => {
+  const halfPicosecond = THREAT_MEMORY_CLOCK_PRECISION_SECONDS / 2;
+  const whole = new ThreatMemory();
+  const partitioned = new ThreatMemory();
+
+  whole.advance(halfPicosecond);
+  partitioned.advance(halfPicosecond / 2);
+  partitioned.advance(halfPicosecond / 2);
+  for (const memory of [whole, partitioned]) {
+    observe(memory, 'half-picosecond-tie');
+  }
+
+  const canonicalState = whole.captureState();
+  assert.deepEqual(partitioned.captureState(), canonicalState);
+  assert.equal(canonicalState.clockPicoseconds, 1);
+  assert.equal(
+    canonicalState.clockCompensationSeconds,
+    -halfPicosecond
+  );
+  assert.deepEqual(canonicalState.records[0].observedClock, {
+    clockWholeSeconds: 0,
+    clockPicoseconds: 1,
+    clockCompensationSeconds: -halfPicosecond
+  });
+  assert.deepEqual(
+    new ThreatMemory().restoreState(canonicalState).captureState(),
+    canonicalState,
+    'the inclusive negative half boundary must restore canonically'
+  );
+
+  const alternatePositiveHalf = structuredClone(canonicalState);
+  alternatePositiveHalf.clockPicoseconds = 0;
+  alternatePositiveHalf.clockCompensationSeconds = halfPicosecond;
+  assert.equal(
+    alternatePositiveHalf.clockSeconds,
+    canonicalState.clockSeconds
+  );
+  assert.throws(
+    () => new ThreatMemory().restoreState(alternatePositiveHalf),
+    /canonical clock components are invalid/
+  );
+});
+
+test('nonzero clocks retain a sub-nanosecond pre-expiry interval', () => {
+  const memory = new ThreatMemory();
+  memory.advance(100000);
+  observe(memory, 'large-clock-boundary');
+
+  memory.advance(DEFAULT_THREAT_MEMORY_POLICY.lifetimeSeconds - 1e-10);
+  assert.equal(memory.getStrongest().eventId, 'large-clock-boundary');
+  const beforeExpiry = memory.captureState();
+  assert.deepEqual(
+    new ThreatMemory().restoreState(beforeExpiry).captureState(),
+    beforeExpiry
+  );
+
+  memory.advance(1e-10);
+  assert.equal(memory.getStrongest(), null);
+  assert.equal(memory.size, 0);
+  assert.equal(
+    memory.captureState().clockSeconds,
+    100000 + DEFAULT_THREAT_MEMORY_POLICY.lifetimeSeconds
+  );
+});
+
+test('canonical record clocks retain 100 picoseconds at ten million seconds', () => {
+  const memory = new ThreatMemory();
+  memory.advance(10_000_000);
+  observe(memory, 'large-clock-canonical-boundary');
+
+  memory.advance(DEFAULT_THREAT_MEMORY_POLICY.lifetimeSeconds - 1e-10);
+  const beforeExpiry = memory.captureState();
+  const record = beforeExpiry.records[0];
+  assert.equal(
+    beforeExpiry.clockSeconds,
+    record.expiresAtSeconds,
+    'projected doubles intentionally lose the remaining 100 picoseconds'
+  );
+  assert.deepEqual(record.observedClock, {
+    clockWholeSeconds: 10_000_000,
+    clockPicoseconds: 0,
+    clockCompensationSeconds: 0
+  });
+  assert.deepEqual(record.expiresClock, {
+    clockWholeSeconds: 10_000_012,
+    clockPicoseconds: 0,
+    clockCompensationSeconds: 0
+  });
+  const strongest = memory.getStrongest();
+  assert.equal(strongest.eventId, 'large-clock-canonical-boundary');
+  assert.equal(strongest.ageSeconds, 11.9999999999);
+  assert.ok(strongest.score > 0);
+
+  const restored = new ThreatMemory().restoreState(beforeExpiry);
+  assert.deepEqual(restored.captureState(), beforeExpiry);
+  assert.deepEqual(restored.getStrongest(), strongest);
+
+  const tamperedExpiry = structuredClone(beforeExpiry);
+  tamperedExpiry.records[0].expiresClock.clockPicoseconds = 1;
+  assert.throws(
+    () => new ThreatMemory().restoreState(tamperedExpiry),
+    /expiresAtSeconds.*canonical|observation lifetime/
+  );
+
+  memory.advance(1e-10);
+  restored.advance(1e-10);
+  assert.equal(memory.getStrongest(), null);
+  assert.deepEqual(restored.captureState(), memory.captureState());
+});
+
+test('finite clock, expiry, and score invariants keep every capture restorable', () => {
+  const extremeClock = new ThreatMemory({
+    lifetimeSeconds: Number.MAX_VALUE
+  });
+  const beforeRejectedOperations = extremeClock.captureState();
+  assert.throws(
+    () => observe(extremeClock, 'overflow-expiry'),
+    /expiry.*finite.*representable/
+  );
+  assert.throws(
+    () => extremeClock.advance(Number.MAX_VALUE),
+    /clock.*finite.*representable/
+  );
+  assert.deepEqual(extremeClock.captureState(), beforeRejectedOperations);
+  assert.deepEqual(
+    new ThreatMemory().restoreState(beforeRejectedOperations).captureState(),
+    beforeRejectedOperations
+  );
+
+  const boundedScore = new ThreatMemory({
+    lifetimeSeconds: 1e-10
+  });
+  boundedScore.advance(100000);
+  const observation = observe(boundedScore, 'bounded-score', {
+    intensity: Number.MAX_VALUE
+  });
+  const boundedRecord = boundedScore.captureState().records[0];
+  const unboundedFraction =
+    (boundedRecord.expiresAtSeconds - boundedRecord.observedAtSeconds)
+    / boundedScore.policy.lifetimeSeconds;
+  assert.ok(unboundedFraction > 1);
+  assert.equal(Number.MAX_VALUE * unboundedFraction, Infinity);
+  assert.equal(observation.score, Number.MAX_VALUE);
+  assert.ok(Number.isFinite(observation.score));
+  const boundedState = boundedScore.captureState();
+  assert.deepEqual(
+    new ThreatMemory().restoreState(boundedState).captureState(),
+    boundedState
   );
 });
 
@@ -304,6 +525,65 @@ test('mid-lifetime roster restore and replay preserve memory and tactical decisi
   );
 });
 
+test('version-one compensated clocks preserve continuation when migrated', () => {
+  const clockSeconds = 1000.1234567894002;
+  const clockCompensationSeconds = 5.2007009809784677e-14;
+  const deltaSeconds = 1e-13;
+  const legacy = {
+    version: 1,
+    approximationLabel: THREAT_MEMORY_APPROXIMATION,
+    capacity: 4,
+    lifetimeSeconds: 12,
+    scoreDecay: 'linear-to-zero',
+    clockSeconds,
+    clockCompensationSeconds,
+    records: [{
+      eventId: 'legacy-clock',
+      threatPosition: [0, 1.2, 12],
+      impactPosition: [0, 0, 0],
+      intensity: 1,
+      observedAtSeconds: 1000,
+      expiresAtSeconds: 1012
+    }]
+  };
+
+  const correctedDelta =
+    deltaSeconds - legacy.clockCompensationSeconds;
+  const legacyAdvancedClock =
+    legacy.clockSeconds + correctedDelta;
+  const legacyAdvancedCompensation =
+    (legacyAdvancedClock - legacy.clockSeconds) - correctedDelta;
+  const advanceAfterMigration = new ThreatMemory().restoreState(legacy);
+  advanceAfterMigration.advance(deltaSeconds);
+  const migrateAfterLegacyAdvance = new ThreatMemory().restoreState({
+    ...legacy,
+    clockSeconds: legacyAdvancedClock,
+    clockCompensationSeconds: legacyAdvancedCompensation
+  });
+
+  assert.deepEqual(
+    advanceAfterMigration.captureState(),
+    migrateAfterLegacyAdvance.captureState()
+  );
+  assert.deepEqual(
+    advanceAfterMigration.getStrongest(),
+    migrateAfterLegacyAdvance.getStrongest()
+  );
+  assert.equal(advanceAfterMigration.captureState().version, 2);
+
+  const target = new ThreatMemory();
+  observe(target, 'preserved-on-rejection');
+  const beforeRejectedRestore = target.captureState();
+  assert.throws(
+    () => target.restoreState({
+      ...legacy,
+      clockCompensationSeconds: Number.MAX_VALUE
+    }),
+    /clock compensation exceeds machine-epsilon drift/
+  );
+  assert.deepEqual(target.captureState(), beforeRejectedRestore);
+});
+
 test('legacy roster state restores empty memory while preserving immediate fire state', () => {
   const squad = makeSquad('threat_memory_legacy');
   const agent = squad.soldierAI.agents[0];
@@ -324,7 +604,7 @@ test('legacy roster state restores empty memory while preserving immediate fire 
   );
 
   const invalidFuture = squad.captureState();
-  invalidFuture.roster[0].threatMemory.version = 2;
+  invalidFuture.roster[0].threatMemory.version = 3;
   assert.throws(
     () => squad.restoreState(invalidFuture, new Map([[squad.id, squad]])),
     /unsupported threat-memory version/
@@ -349,6 +629,11 @@ test('dead and incapacitated soldiers do not record or consume threat memory', (
       status
     );
     const before = agent.threatMemory.captureState();
+    assert.equal(
+      before.clockSeconds,
+      status === 'INCAPACITATED' ? 1 : 0,
+      `${status} memory clock`
+    );
     squad.registerIncomingFire(
       new THREE.Vector3(0, 1.2, 12),
       agent.position,
@@ -356,6 +641,31 @@ test('dead and incapacitated soldiers do not record or consume threat memory', (
     );
     assert.deepEqual(agent.threatMemory.captureState(), before);
   }
+});
+
+test('positive-health incapacitated soldiers passively expire memory without reacting', () => {
+  const squad = makeSquad('threat_memory_incapacitated_expiry');
+  const agent = squad.soldierAI.agents[0];
+  observe(agent.threatMemory, 'existing');
+  agent.status = 'INCAPACITATED';
+  agent.health = 25;
+  agent.record.incomingFireTimer = 0;
+  agent.suppression = 0;
+  agent.syncRecord();
+
+  squad.soldierAI.update(DEFAULT_THREAT_MEMORY_POLICY.lifetimeSeconds, coverTerrain);
+
+  assert.equal(agent.health, 25);
+  assert.equal(agent.status, 'INCAPACITATED');
+  assert.equal(agent.threatMemory.size, 0);
+  assert.equal(
+    agent.threatMemory.captureState().clockSeconds,
+    DEFAULT_THREAT_MEMORY_POLICY.lifetimeSeconds
+  );
+  assert.doesNotMatch(
+    agent.record.tacticalDecision.reason,
+    /^threat-memory-/
+  );
 });
 
 test('the policy remains explicitly labeled as a first-order gameplay approximation', () => {

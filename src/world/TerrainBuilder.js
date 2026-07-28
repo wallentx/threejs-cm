@@ -875,6 +875,7 @@ export class TerrainBuilder {
         runtime = this.buildingSystem.addBuilding({
           id: placement.id,
           descriptor,
+          destructionThresholds: placement.destructionThresholds,
           transform: {
             position: [centerX, foundationTopY, centerZ],
             rotationY

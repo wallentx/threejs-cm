@@ -20,6 +20,7 @@ function runtimeHarness() {
     updateStanceVisuals: () => calls.push(['stance'])
   };
   let selectedUnit = unit;
+  const buildingFloorIds = ['ground-floor', 'upper-floor'];
   const wego = {
     playMode: 'wego',
     phase: 'COMMAND_PHASE',
@@ -78,6 +79,8 @@ function runtimeHarness() {
     getVisibilityProjection: () => ({ visibleUnitIds: ['blue-1'], contacts: [] }),
     getBocageObstacles: () => [{ id: 'hedge-1' }],
     getImpacts: () => [{ id: 9 }],
+    getBuildingFloorIds: buildingId =>
+      buildingId === 'house-1' ? buildingFloorIds : [],
     selectUnit: next => { selectedUnit = next; },
     deselectUnit: () => { selectedUnit = null; },
     splitUnit: selected => calls.push(['split', selected.id]),
@@ -95,6 +98,13 @@ test('UI runtime port exposes explicit queries and delegates named commands', ()
   assert.equal(port.getFactionPresentation('red').flagGlyph, 'R');
   assert.deepEqual(port.mapDimensions, { width: 300, depth: 180 });
   assert.deepEqual(port.getImpacts(), [{ id: 9 }]);
+  const floorIds = port.getBuildingFloorIds('house-1');
+  assert.deepEqual(floorIds, ['ground-floor', 'upper-floor']);
+  floorIds.pop();
+  assert.deepEqual(port.getBuildingFloorIds('house-1'), [
+    'ground-floor',
+    'upper-floor'
+  ]);
   assert.equal(port.canIssueOrders(), true);
 
   port.executeTurn();

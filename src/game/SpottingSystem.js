@@ -25,6 +25,14 @@ import {
 import {
   projectWeaponReportContacts
 } from '../simulation/observation/SoundContacts.js';
+import {
+  beginVisualIdentification,
+  decayIdentificationNanoseconds,
+  identificationProjection,
+  normalizeIdentificationProgress,
+  progressIdentificationNanoseconds,
+  validateIdentificationProjection
+} from '../simulation/observation/IdentificationQuality.js';
 import { intersectSegmentOrientedBox3D } from '../simulation/geometry/OrientedBox.js';
 
 const EXPERIENCE_RANGE_M = Object.freeze({
@@ -55,6 +63,9 @@ const DEFAULT_SETTINGS = Object.freeze({
 
 const TIME_PRECISION = 1e9;
 const PROGRESS_PRECISION = 1e12;
+const CLOCK_HALF_NANOSECOND_SECONDS = 0.5 / TIME_PRECISION;
+const CLOCK_SUB_NANOSECOND_DRIFT_SECONDS = 1e-15;
+const ACQUISITION_PROGRESS_TICKS = BigInt(PROGRESS_PRECISION);
 
 function finite(value, fallback = 0) {
   return Number.isFinite(value) ? value : fallback;
@@ -64,19 +75,478 @@ function canonicalTime(value) {
   return Math.round(finite(value) * TIME_PRECISION) / TIME_PRECISION;
 }
 
-function normalizeTimeAccumulator(value) {
-  const accumulated = Math.max(0, finite(value));
-  const canonical = canonicalTime(accumulated);
-  const roundingNoise = Number.EPSILON
-    * Math.max(1, Math.abs(accumulated))
-    * 16;
-  return Math.abs(accumulated - canonical) <= roundingNoise
-    ? canonical
-    : accumulated;
+function normalizeClockCompensation(value) {
+  if (Math.abs(value) <= CLOCK_SUB_NANOSECOND_DRIFT_SECONDS) return 0;
+  return Object.is(value, -0) ? 0 : value;
 }
 
-function canonicalProgress(value) {
-  return Math.round(finite(value) * PROGRESS_PRECISION) / PROGRESS_PRECISION;
+function normalizeClockParts({
+  timeWholeSeconds,
+  timeNanoseconds,
+  timeCompensationSeconds
+}) {
+  if (!Number.isSafeInteger(timeWholeSeconds)
+      || !Number.isSafeInteger(timeNanoseconds)
+      || !Number.isFinite(timeCompensationSeconds)) {
+    throw new RangeError('spotting clock must remain safely representable');
+  }
+  if (timeCompensationSeconds >= CLOCK_HALF_NANOSECOND_SECONDS) {
+    timeNanoseconds++;
+    timeCompensationSeconds -= 1 / TIME_PRECISION;
+  } else if (timeCompensationSeconds < -CLOCK_HALF_NANOSECOND_SECONDS) {
+    timeNanoseconds--;
+    timeCompensationSeconds += 1 / TIME_PRECISION;
+  }
+  timeCompensationSeconds = normalizeClockCompensation(
+    timeCompensationSeconds
+  );
+  const wholeCarry = Math.floor(timeNanoseconds / TIME_PRECISION);
+  timeWholeSeconds += wholeCarry;
+  timeNanoseconds -= wholeCarry * TIME_PRECISION;
+  if (!Number.isSafeInteger(timeWholeSeconds)
+      || timeWholeSeconds < 0
+      || !Number.isSafeInteger(timeNanoseconds)
+      || timeNanoseconds < 0
+      || timeNanoseconds >= TIME_PRECISION
+      || !Number.isFinite(timeCompensationSeconds)
+      || timeCompensationSeconds < -CLOCK_HALF_NANOSECOND_SECONDS
+      || timeCompensationSeconds >= CLOCK_HALF_NANOSECOND_SECONDS) {
+    throw new RangeError('spotting clock must remain safely representable');
+  }
+  return {
+    timeWholeSeconds,
+    timeNanoseconds,
+    timeCompensationSeconds
+  };
+}
+
+function splitClockDelta(deltaSeconds) {
+  if (!Number.isFinite(deltaSeconds) || deltaSeconds < 0) {
+    throw new RangeError(
+      'spotting clock delta must be finite and non-negative'
+    );
+  }
+  const wholeSeconds = Math.trunc(deltaSeconds);
+  if (!Number.isSafeInteger(wholeSeconds)) {
+    throw new RangeError('spotting clock delta must remain safely representable');
+  }
+  const fractionalSeconds = deltaSeconds - wholeSeconds;
+  const roundedNanoseconds = Math.round(
+    fractionalSeconds * TIME_PRECISION
+  );
+  return normalizeClockParts({
+    timeWholeSeconds: wholeSeconds,
+    timeNanoseconds: Object.is(roundedNanoseconds, -0)
+      ? 0
+      : roundedNanoseconds,
+    timeCompensationSeconds:
+      fractionalSeconds - roundedNanoseconds / TIME_PRECISION
+  });
+}
+
+function addClockDelta(clock, deltaSeconds) {
+  const delta = splitClockDelta(deltaSeconds);
+  return normalizeClockParts({
+    timeWholeSeconds: clock.timeWholeSeconds + delta.timeWholeSeconds,
+    timeNanoseconds: clock.timeNanoseconds + delta.timeNanoseconds,
+    timeCompensationSeconds:
+      clock.timeCompensationSeconds + delta.timeCompensationSeconds
+  });
+}
+
+function clockFromAbsoluteSeconds(seconds) {
+  return addClockDelta({
+    timeWholeSeconds: 0,
+    timeNanoseconds: 0,
+    timeCompensationSeconds: 0
+  }, seconds);
+}
+
+function clockTime(clock) {
+  const value = canonicalTime(
+    clock.timeWholeSeconds
+      + clock.timeNanoseconds / TIME_PRECISION
+  );
+  if (!Number.isFinite(value) || value < 0) {
+    throw new RangeError('spotting clock must remain safely representable');
+  }
+  return value;
+}
+
+function clockAccumulator(clock) {
+  const value = clockTime(clock) + clock.timeCompensationSeconds;
+  if (!Number.isFinite(value) || value < 0) {
+    throw new RangeError('spotting clock must remain safely representable');
+  }
+  return value;
+}
+
+function clockNanosecondDifference(later, earlier) {
+  return BigInt(later.timeWholeSeconds - earlier.timeWholeSeconds)
+    * BigInt(TIME_PRECISION)
+    + BigInt(later.timeNanoseconds - earlier.timeNanoseconds);
+}
+
+function addClockNanoseconds(clock, nanoseconds) {
+  if (typeof nanoseconds !== 'bigint' || nanoseconds < 0n) {
+    throw new TypeError('spotting nanosecond offset must be non-negative');
+  }
+  const wholeSeconds = nanoseconds / BigInt(TIME_PRECISION);
+  const fractionalNanoseconds = nanoseconds % BigInt(TIME_PRECISION);
+  if (wholeSeconds > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new RangeError('spotting clock offset must remain safely representable');
+  }
+  return normalizeClockParts({
+    timeWholeSeconds: clock.timeWholeSeconds + Number(wholeSeconds),
+    timeNanoseconds:
+      clock.timeNanoseconds + Number(fractionalNanoseconds),
+    timeCompensationSeconds: clock.timeCompensationSeconds
+  });
+}
+
+function validateCapturedClock(state) {
+  if (!Number.isSafeInteger(state?.timeWholeSeconds)
+      || state.timeWholeSeconds < 0
+      || !Number.isSafeInteger(state?.timeNanoseconds)
+      || state.timeNanoseconds < 0
+      || state.timeNanoseconds >= TIME_PRECISION
+      || !Number.isFinite(state?.timeCompensationSeconds)
+      || state.timeCompensationSeconds
+        < -CLOCK_HALF_NANOSECOND_SECONDS
+      || state.timeCompensationSeconds
+        >= CLOCK_HALF_NANOSECOND_SECONDS
+      || (
+        state.timeCompensationSeconds !== 0
+        && Math.abs(state.timeCompensationSeconds)
+          <= CLOCK_SUB_NANOSECOND_DRIFT_SECONDS
+      )) {
+    throw new TypeError(
+      'spotting version 4 canonical clock components are invalid'
+    );
+  }
+  const clock = {
+    timeWholeSeconds: state?.timeWholeSeconds,
+    timeNanoseconds: state?.timeNanoseconds,
+    timeCompensationSeconds: Object.is(
+      state?.timeCompensationSeconds,
+      -0
+    )
+      ? 0
+      : state?.timeCompensationSeconds
+  };
+  if (state.time !== clockTime(clock)
+      || state.timeAccumulator !== clockAccumulator(clock)) {
+    throw new TypeError(
+      'spotting version 4 time projections must match canonical clock components'
+    );
+  }
+  return clock;
+}
+
+function acquisitionRequirementNanoseconds(seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    throw new TypeError(
+      'spotting acquisition duration must be positive and finite'
+    );
+  }
+  const wholeSeconds = Math.trunc(seconds);
+  const nanoseconds = BigInt(wholeSeconds) * BigInt(TIME_PRECISION)
+    + BigInt(Math.round((seconds - wholeSeconds) * TIME_PRECISION));
+  if (nanoseconds <= 0n
+      || nanoseconds > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new RangeError(
+      'spotting acquisition duration must remain safely representable'
+    );
+  }
+  return Number(nanoseconds);
+}
+
+function acquisitionProjection({
+  acquisitionWorkTicks,
+  acquisitionWorkRemainder,
+  acquisitionRequiredNanoseconds
+}) {
+  if (acquisitionRequiredNanoseconds === null) {
+    return acquisitionWorkTicks / PROGRESS_PRECISION;
+  }
+  const required = BigInt(acquisitionRequiredNanoseconds);
+  const numerator = BigInt(acquisitionWorkTicks) * required
+    + BigInt(acquisitionWorkRemainder);
+  const roundedTicks = (
+    numerator * 2n + required
+  ) / (required * 2n);
+  return Number(roundedTicks) / PROGRESS_PRECISION;
+}
+
+function validateAcquisitionCapture(saved) {
+  const ticks = saved?.acquisitionWorkTicks;
+  const remainder = saved?.acquisitionWorkRemainder;
+  const required = saved?.acquisitionRequiredNanoseconds;
+  if (!Number.isSafeInteger(ticks)
+      || ticks < 0
+      || ticks > PROGRESS_PRECISION
+      || !Number.isSafeInteger(remainder)
+      || remainder < 0
+      || (
+        required !== null
+        && (
+          !Number.isSafeInteger(required)
+          || required <= 0
+          || remainder >= required
+        )
+      )
+      || (required === null && remainder !== 0)
+      || (ticks === PROGRESS_PRECISION && remainder !== 0)) {
+    throw new TypeError(
+      'spotting observation acquisition work state is invalid'
+    );
+  }
+  const acquisition = acquisitionProjection({
+    acquisitionWorkTicks: ticks,
+    acquisitionWorkRemainder: remainder,
+    acquisitionRequiredNanoseconds: required
+  });
+  if (!Number.isFinite(saved.acquisition)
+      || saved.acquisition !== acquisition) {
+    throw new TypeError(
+      'spotting observation acquisition must match acquisition work state'
+    );
+  }
+  return {
+    acquisition,
+    acquisitionWorkTicks: ticks,
+    acquisitionWorkRemainder: remainder,
+    acquisitionRequiredNanoseconds: required
+  };
+}
+
+function finiteCapturePosition(position) {
+  const values = Array.isArray(position)
+    ? position
+    : [position?.x, position?.y, position?.z];
+  return values.length === 3
+    && values.every(Number.isFinite);
+}
+
+function validateObservationEpisodeCapture(
+  saved,
+  acquisitionState,
+  maximumTime
+) {
+  if (typeof saved?.visibleNow !== 'boolean'
+      || typeof saved?.directEpisodeActive !== 'boolean') {
+    throw new TypeError(
+      'spotting version 4 observation visibility and direct episode flags must be boolean'
+    );
+  }
+  const acquired =
+    acquisitionState.acquisitionWorkTicks === PROGRESS_PRECISION;
+  if (saved.visibleNow !== acquired) {
+    throw new TypeError(
+      'spotting version 4 observation visibility must match canonical acquisition work'
+    );
+  }
+  if (saved.directEpisodeActive !== saved.visibleNow) {
+    throw new TypeError(
+      'spotting version 4 observation direct episode activity must match visibility'
+    );
+  }
+  if (!Number.isSafeInteger(saved.directEpisodeSequence)
+      || saved.directEpisodeSequence < 0) {
+    throw new TypeError(
+      'spotting version 4 observation directEpisodeSequence must be a non-negative safe integer'
+    );
+  }
+  const hasAcquiredAt = saved.directEpisodeAcquiredAt !== null;
+  const hasSnapshot = saved.directEpisodeSnapshot !== null;
+  if (hasAcquiredAt !== hasSnapshot) {
+    throw new TypeError(
+      'spotting version 4 observation direct episode boundary and snapshot must be present together'
+    );
+  }
+  if (hasAcquiredAt
+      && (
+        !Number.isFinite(saved.directEpisodeAcquiredAt)
+        || saved.directEpisodeAcquiredAt < 0
+        || saved.directEpisodeAcquiredAt > maximumTime
+        || !finiteCapturePosition(saved.directEpisodeSnapshot?.position)
+      )) {
+    throw new TypeError(
+      'spotting version 4 observation direct episode snapshot is invalid'
+    );
+  }
+  if (saved.directEpisodeActive && !hasAcquiredAt) {
+    throw new TypeError(
+      'spotting version 4 active observation requires a direct episode snapshot'
+    );
+  }
+}
+
+function validateDirectObservationEpisodeCapture(saved, maximumTime) {
+  if (typeof saved?.active !== 'boolean'
+      || !Number.isSafeInteger(saved?.episodeSequence)
+      || saved.episodeSequence < 0
+      || !Number.isFinite(saved?.acquiredAt)
+      || saved.acquiredAt < 0
+      || saved.acquiredAt > maximumTime
+      || !finiteCapturePosition(saved?.position)) {
+    throw new TypeError(
+      'spotting version 4 direct observation episode is invalid'
+    );
+  }
+}
+
+function validateDirectEpisodeCoherence(observations, episodes) {
+  const visiblePairs = new Set();
+  for (const targetMap of observations.values()) {
+    for (const observation of targetMap.values()) {
+      if (!observation.visibleNow) continue;
+      visiblePairs.add(directEpisodeKey(
+        observation.observerUnitId,
+        observation.targetUnitId
+      ));
+    }
+  }
+  for (const key of visiblePairs) {
+    if (episodes.get(key)?.active !== true) {
+      throw new TypeError(
+        'spotting version 4 visible observation requires an active direct observation episode'
+      );
+    }
+  }
+  for (const [key, episode] of episodes) {
+    if (episode.active !== visiblePairs.has(key)) {
+      throw new TypeError(
+        'spotting version 4 direct observation episode activity must match visible observations'
+      );
+    }
+  }
+}
+
+function legacyObservationIsAcquired(saved, version) {
+  const visible = saved?.visibleNow === true;
+  return version >= 3
+    ? visible && saved?.directEpisodeActive === true
+    : visible;
+}
+
+function migrateAcquisitionState(saved, legacyAcquired) {
+  const acquisition = Math.max(
+    0,
+    Math.min(1, finite(saved?.acquisition))
+  );
+  const ticks = legacyAcquired
+    ? PROGRESS_PRECISION
+    : Math.min(
+        PROGRESS_PRECISION - 1,
+        Math.round(acquisition * PROGRESS_PRECISION)
+      );
+  return {
+    acquisition: ticks / PROGRESS_PRECISION,
+    acquisitionWorkTicks: ticks,
+    acquisitionWorkRemainder: 0,
+    acquisitionRequiredNanoseconds:
+      ticks > 0 ? TIME_PRECISION : null
+  };
+}
+
+function advanceAcquisitionWork(observation, requiredInput, deltaNanoseconds) {
+  if (typeof deltaNanoseconds !== 'bigint' || deltaNanoseconds < 0n) {
+    throw new TypeError('spotting acquisition delta must be non-negative');
+  }
+  if (observation.acquisitionRequiredNanoseconds === null) {
+    observation.acquisitionRequiredNanoseconds = requiredInput;
+    observation.acquisitionWorkRemainder = 0;
+  } else if (
+    observation.acquisitionRequiredNanoseconds !== requiredInput
+    && observation.acquisitionWorkTicks < PROGRESS_PRECISION
+  ) {
+    // Preserve the exact accumulated fraction below one picoprogress tick
+    // when current observation conditions change the acquisition duration.
+    const previousRequired = BigInt(
+      observation.acquisitionRequiredNanoseconds
+    );
+    const nextRequired = BigInt(requiredInput);
+    const rebasedRemainder = (
+      BigInt(observation.acquisitionWorkRemainder)
+        * nextRequired * 2n
+      + previousRequired
+    ) / (previousRequired * 2n);
+    if (rebasedRemainder >= nextRequired) {
+      observation.acquisitionWorkTicks++;
+      observation.acquisitionWorkRemainder = 0;
+    } else {
+      observation.acquisitionWorkRemainder =
+        Number(rebasedRemainder);
+    }
+    observation.acquisitionRequiredNanoseconds = requiredInput;
+  }
+  const required = BigInt(observation.acquisitionRequiredNanoseconds);
+  const previousTicks = BigInt(observation.acquisitionWorkTicks);
+  const previousRemainder = BigInt(
+    observation.acquisitionWorkRemainder
+  );
+  const remainingWork = (
+    ACQUISITION_PROGRESS_TICKS - previousTicks
+  ) * required - previousRemainder;
+  const nanosecondsToAcquire = remainingWork <= 0n
+    ? 0n
+    : (
+        remainingWork + ACQUISITION_PROGRESS_TICKS - 1n
+      ) / ACQUISITION_PROGRESS_TICKS;
+  const accumulatedRemainder = previousRemainder
+    + deltaNanoseconds * ACQUISITION_PROGRESS_TICKS;
+  const gainedTicks = accumulatedRemainder / required;
+  let nextTicks = previousTicks + gainedTicks;
+  let nextRemainder = accumulatedRemainder % required;
+  if (nextTicks >= ACQUISITION_PROGRESS_TICKS) {
+    nextTicks = ACQUISITION_PROGRESS_TICKS;
+    nextRemainder = 0n;
+  }
+  observation.acquisitionWorkTicks = Number(nextTicks);
+  observation.acquisitionWorkRemainder = Number(nextRemainder);
+  observation.acquisition = acquisitionProjection(observation);
+  return {
+    visibleNow: nextTicks === ACQUISITION_PROGRESS_TICKS,
+    nanosecondsToAcquire
+  };
+}
+
+function decayAcquisitionWork(
+  observation,
+  deltaNanoseconds,
+  lossTicksPerNanosecond
+) {
+  const required = observation.acquisitionRequiredNanoseconds;
+  if (required === null) {
+    const nextTicks = BigInt(observation.acquisitionWorkTicks)
+      - deltaNanoseconds * BigInt(lossTicksPerNanosecond);
+    observation.acquisitionWorkTicks = Number(
+      nextTicks < 0n ? 0n : nextTicks
+    );
+  } else {
+    const requiredBigInt = BigInt(required);
+    const currentWork =
+      BigInt(observation.acquisitionWorkTicks) * requiredBigInt
+      + BigInt(observation.acquisitionWorkRemainder);
+    const lostWork = deltaNanoseconds
+      * BigInt(lossTicksPerNanosecond)
+      * requiredBigInt;
+    const nextWork = currentWork > lostWork
+      ? currentWork - lostWork
+      : 0n;
+    observation.acquisitionWorkTicks = Number(
+      nextWork / requiredBigInt
+    );
+    observation.acquisitionWorkRemainder = Number(
+      nextWork % requiredBigInt
+    );
+  }
+  if (observation.acquisitionWorkTicks === 0
+      && observation.acquisitionWorkRemainder === 0) {
+    observation.acquisitionRequiredNanoseconds = null;
+  }
+  observation.acquisition = acquisitionProjection(observation);
 }
 
 function positionObject(position) {
@@ -157,18 +627,34 @@ function cloneAcquisitionSnapshot(snapshot) {
   };
 }
 
-function cloneObservation(observation) {
-  return {
+function cloneObservation(
+  observation,
+  { projectIdentification = false } = {}
+) {
+  const cloned = {
     ...observation,
+    identificationProgress: normalizeIdentificationProgress(
+      observation.identificationProgress ?? 0
+    ),
     lastSeenPosition: clonePosition(observation.lastSeenPosition),
     directEpisodeSnapshot: cloneAcquisitionSnapshot(
       observation.directEpisodeSnapshot
     )
   };
+  if (projectIdentification) {
+    Object.assign(
+      cloned,
+      identificationProjection(cloned.identificationProgress)
+    );
+  }
+  return cloned;
 }
 
-function cloneDirectObservationEpisode(episode) {
-  return {
+function cloneDirectObservationEpisode(
+  episode,
+  { projectIdentification = false } = {}
+) {
+  const cloned = {
     senderUnitId: episode.senderUnitId,
     targetUnitId: episode.targetUnitId,
     episodeSequence: episode.episodeSequence,
@@ -177,7 +663,50 @@ function cloneDirectObservationEpisode(episode) {
     sourceSoldierId: episode.sourceSoldierId ?? null,
     targetSoldierId: episode.targetSoldierId ?? null,
     position: clonePosition(episode.position),
-    confidence: finite(episode.confidence)
+    confidence: finite(episode.confidence),
+    identificationProgress: normalizeIdentificationProgress(
+      episode.identificationProgress ?? 0
+    )
+  };
+  if (projectIdentification) {
+    Object.assign(
+      cloned,
+      identificationProjection(cloned.identificationProgress)
+    );
+  }
+  return cloned;
+}
+
+function withoutIdentificationProjection(record) {
+  const {
+    identificationTier: _tier,
+    identificationApproximationLabel: _approximation,
+    ...authoritative
+  } = record;
+  return authoritative;
+}
+
+function validateContactIdentificationCapture(contact, field, maximumTime) {
+  const progress = validateIdentificationProjection(contact, field);
+  if (!Number.isFinite(contact.identificationEvaluatedAt)
+      || contact.identificationEvaluatedAt < 0) {
+    throw new TypeError(
+      `${field}.identificationEvaluatedAt must be finite and non-negative`
+    );
+  }
+  if (contact.identificationEvaluatedAt > maximumTime) {
+    throw new TypeError(
+      `${field}.identificationEvaluatedAt cannot be later than spotting time`
+    );
+  }
+  return progress;
+}
+
+function captureContact(contact) {
+  const cloned = cloneContact(contact);
+  return {
+    ...cloned,
+    ...identificationProjection(cloned.identificationProgress ?? 0)
   };
 }
 
@@ -256,9 +785,21 @@ export class SpottingSystem {
     }
     this.settings.relayDelayApproximation =
       COMMUNICATION_RELAY_DELAY_APPROXIMATION;
+    const lossTicksPerNanosecond =
+      this.settings.lostAcquisitionDecayRate
+      * PROGRESS_PRECISION / TIME_PRECISION;
+    if (!Number.isSafeInteger(lossTicksPerNanosecond)
+        || lossTicksPerNanosecond < 0) {
+      throw new TypeError(
+        'lostAcquisitionDecayRate must resolve to whole acquisition progress ticks per nanosecond'
+      );
+    }
+    this.lossAcquisitionTicksPerNanosecond =
+      lossTicksPerNanosecond;
+    this.timeWholeSeconds = 0;
+    this.timeNanoseconds = 0;
+    this.timeCompensationSeconds = 0;
     this.time = 0;
-    // Preserve fractional input while exposing only canonical simulation
-    // seconds, avoiding partition-dependent drift from rounding every delta.
     this.timeAccumulator = 0;
     this.observations = new Map();
     this.directObservationEpisodes = new Map();
@@ -457,7 +998,13 @@ export class SpottingSystem {
     return best;
   }
 
-  updateObservation(observerUnit, observer, targetUnit, deltaSeconds) {
+  updateObservation(
+    observerUnit,
+    observer,
+    targetUnit,
+    deltaNanoseconds,
+    intervalStartClock
+  ) {
     const key = observerKey(observerUnit.id, observer.id);
     let targetMap = this.observations.get(key);
     if (!targetMap) {
@@ -469,20 +1016,22 @@ export class SpottingSystem {
       observerSoldierId: observer.id,
       targetUnitId: targetUnit.id,
       acquisition: 0,
+      acquisitionWorkTicks: 0,
+      acquisitionWorkRemainder: 0,
+      acquisitionRequiredNanoseconds: null,
       visibleNow: false,
       lastSeenPosition: null,
       lastSeenTargetSoldierId: null,
       lastSeenAt: null,
       confidence: 0,
+      identificationProgress: 0,
       directEpisodeSequence: 0,
       directEpisodeActive: false,
       directEpisodeAcquiredAt: null,
       directEpisodeSnapshot: null
     };
-    const intervalStart = canonicalTime(this.time - deltaSeconds);
-    const previousAcquisition = Math.max(
-      0,
-      Math.min(1, finite(existing.acquisition))
+    const previousIdentification = normalizeIdentificationProgress(
+      existing.identificationProgress ?? 0
     );
     const wasEpisodeActive = existing.directEpisodeActive === true;
     let acquisitionEvent = null;
@@ -501,33 +1050,56 @@ export class SpottingSystem {
     );
 
     if (evaluation) {
-      const requiredSeconds = canonicalTime(evaluation.acquisitionSeconds);
-      existing.acquisition = Math.min(
-        1,
-        canonicalProgress(
-          previousAcquisition + deltaSeconds / requiredSeconds
-        )
+      const requiredNanoseconds = acquisitionRequirementNanoseconds(
+        evaluation.acquisitionSeconds
       );
-      existing.visibleNow = existing.acquisition >= 1 - 1e-12;
+      const acquisition = advanceAcquisitionWork(
+        existing,
+        requiredNanoseconds,
+        deltaNanoseconds
+      );
+      existing.visibleNow = acquisition.visibleNow;
       if (existing.visibleNow) {
+        let identificationAtAcquisition = previousIdentification;
+        let directObservationNanoseconds = deltaNanoseconds;
+        let acquisitionBoundaryAt = null;
+        if (!wasEpisodeActive) {
+          const nanosecondsToAcquire = acquisition.nanosecondsToAcquire
+            > deltaNanoseconds
+            ? deltaNanoseconds
+            : acquisition.nanosecondsToAcquire;
+          acquisitionBoundaryAt = clockTime(
+            addClockNanoseconds(
+              intervalStartClock,
+              nanosecondsToAcquire
+            )
+          );
+          identificationAtAcquisition = beginVisualIdentification(
+            decayIdentificationNanoseconds(
+              previousIdentification,
+              nanosecondsToAcquire
+            )
+          );
+          directObservationNanoseconds =
+            deltaNanoseconds - nanosecondsToAcquire;
+        }
+        existing.identificationProgress =
+          progressIdentificationNanoseconds(
+          identificationAtAcquisition,
+          directObservationNanoseconds
+        );
         existing.lastSeenPosition = clonePosition(evaluation.targetPosition);
         existing.lastSeenTargetSoldierId = evaluation.targetSoldierId;
         existing.lastSeenAt = this.time;
         existing.confidence = 1;
         if (!wasEpisodeActive) {
-          const secondsToAcquire = Math.max(
-            0,
-            (1 - previousAcquisition) * requiredSeconds
-          );
           existing.directEpisodeSequence = Math.max(
             0,
             Number.isSafeInteger(existing.directEpisodeSequence)
               ? existing.directEpisodeSequence
               : 0
           ) + 1;
-          existing.directEpisodeAcquiredAt = canonicalTime(
-            Math.min(this.time, intervalStart + secondsToAcquire)
-          );
+          existing.directEpisodeAcquiredAt = acquisitionBoundaryAt;
           existing.directEpisodeSnapshot = {
             position: clonePosition(evaluation.targetPosition),
             targetSoldierId: evaluation.targetSoldierId ?? null
@@ -540,22 +1112,29 @@ export class SpottingSystem {
             observerEpisodeSequence: existing.directEpisodeSequence,
             acquiredAt: existing.directEpisodeAcquiredAt,
             position: clonePosition(evaluation.targetPosition),
-            confidence: 1
+            confidence: 1,
+            identificationProgress: identificationAtAcquisition
           };
         }
         existing.directEpisodeActive = true;
       } else {
+        existing.identificationProgress = decayIdentificationNanoseconds(
+          previousIdentification,
+          deltaNanoseconds
+        );
         existing.directEpisodeActive = false;
       }
     } else {
-      existing.acquisition = Math.max(
-        0,
-        canonicalProgress(
-          previousAcquisition
-            - deltaSeconds * this.settings.lostAcquisitionDecayRate
-        )
+      decayAcquisitionWork(
+        existing,
+        deltaNanoseconds,
+        this.lossAcquisitionTicksPerNanosecond
       );
       existing.visibleNow = false;
+      existing.identificationProgress = decayIdentificationNanoseconds(
+        previousIdentification,
+        deltaNanoseconds
+      );
       existing.directEpisodeActive = false;
     }
 
@@ -586,7 +1165,8 @@ export class SpottingSystem {
             sourceSoldierId: observer.id,
             channel: CONTACT_CHANNEL.DIRECT,
             confidence: state.confidence,
-            uncertaintyM: 0
+            uncertaintyM: 0,
+            identificationProgress: state.identificationProgress
           });
           contacts.set(
             state.targetUnitId,
@@ -638,7 +1218,8 @@ export class SpottingSystem {
           targetSoldierId: direct.targetSoldierId ?? null,
           acquiredAt: direct.observedAt,
           position: direct.position,
-          confidence: direct.confidence
+          confidence: direct.confidence,
+          identificationProgress: direct.identificationProgress
         };
         const episode = {
           senderUnitId,
@@ -649,7 +1230,10 @@ export class SpottingSystem {
           sourceSoldierId: acquisition.sourceSoldierId,
           targetSoldierId: acquisition.targetSoldierId ?? null,
           position: clonePosition(acquisition.position),
-          confidence: Math.max(0, Math.min(1, finite(acquisition.confidence)))
+          confidence: Math.max(0, Math.min(1, finite(acquisition.confidence))),
+          identificationProgress: normalizeIdentificationProgress(
+            acquisition.identificationProgress ?? 0
+          )
         };
         this.directObservationEpisodes.set(key, episode);
         acquiredEpisodes.push(cloneDirectObservationEpisode(episode));
@@ -725,6 +1309,7 @@ export class SpottingSystem {
           episodeSequence: episode.episodeSequence,
           channel,
           confidence: episode.confidence,
+          identificationProgress: episode.identificationProgress,
           acquiredAt: episode.acquiredAt,
           delaySeconds,
           dueAt: canonicalTime(episode.acquiredAt + delaySeconds),
@@ -766,6 +1351,8 @@ export class SpottingSystem {
         channel: report.channel,
         confidence: report.confidence * confidenceScale,
         uncertaintyM: report.channel === CONTACT_CHANNEL.VOICE ? 1 : 2,
+        identificationProgress: report.identificationProgress,
+        identificationEvaluatedAt: report.acquiredAt,
         approximationLabel: report.approximationLabel
       });
       const relayed = decayContact(baseContact, this.time, {
@@ -785,16 +1372,29 @@ export class SpottingSystem {
 
   advance(allUnits, deltaSeconds) {
     const requestedDelta = Math.max(0, finite(deltaSeconds));
-    const intervalStart = this.time;
-    this.timeAccumulator = normalizeTimeAccumulator(
-      this.timeAccumulator + requestedDelta
+    const intervalStartClock = {
+      timeWholeSeconds: this.timeWholeSeconds,
+      timeNanoseconds: this.timeNanoseconds,
+      timeCompensationSeconds: this.timeCompensationSeconds
+    };
+    const nextClock = addClockDelta(
+      intervalStartClock,
+      requestedDelta
     );
-    this.time = canonicalTime(this.timeAccumulator);
-    const delta = Math.max(0, this.time - intervalStart);
+    const deltaNanoseconds = clockNanosecondDifference(
+      nextClock,
+      intervalStartClock
+    );
+    this.timeWholeSeconds = nextClock.timeWholeSeconds;
+    this.timeNanoseconds = nextClock.timeNanoseconds;
+    this.timeCompensationSeconds = nextClock.timeCompensationSeconds;
+    this.time = clockTime(nextClock);
+    this.timeAccumulator = clockAccumulator(nextClock);
     this.refreshBuildingColliders();
     const units = sortedUnits(allUnits ?? []);
     const unitIds = new Set(units.map(unit => unit.id));
     const liveObserverKeys = new Set();
+    const updatedTargetsByObserver = new Map();
     const acquisitionEvents = [];
     for (const targetMap of this.observations.values()) {
       for (const observation of targetMap.values()) {
@@ -820,8 +1420,13 @@ export class SpottingSystem {
             observerUnit,
             observer,
             targetUnit,
-            delta
+            deltaNanoseconds,
+            intervalStartClock
           );
+          if (!updatedTargetsByObserver.has(key)) {
+            updatedTargetsByObserver.set(key, new Set());
+          }
+          updatedTargetsByObserver.get(key).add(targetUnit.id);
           if (update.acquisitionEvent) {
             acquisitionEvents.push(update.acquisitionEvent);
           }
@@ -831,8 +1436,15 @@ export class SpottingSystem {
     for (const key of this.observations.keys()) {
       if (!liveObserverKeys.has(key)) this.observations.delete(key);
     }
-    for (const targetMap of this.observations.values()) {
+    for (const [key, targetMap] of this.observations) {
       for (const observation of targetMap.values()) {
+        if (!updatedTargetsByObserver.get(key)?.has(observation.targetUnitId)) {
+          observation.identificationProgress =
+            decayIdentificationNanoseconds(
+            observation.identificationProgress ?? 0,
+            deltaNanoseconds
+          );
+        }
         if (!observation.visibleNow) observation.directEpisodeActive = false;
       }
     }
@@ -922,7 +1534,9 @@ export class SpottingSystem {
     const observation = this.observations
       .get(observerKey(observerUnitId, observerSoldierId))
       ?.get(targetUnitId);
-    return observation ? cloneObservation(observation) : null;
+    return observation
+      ? cloneObservation(observation, { projectIdentification: true })
+      : null;
   }
 
   hasDirectObservation(observerUnitOrId, targetUnitOrId) {
@@ -994,7 +1608,9 @@ export class SpottingSystem {
     const observations = [];
     for (const targetMap of this.observations.values()) {
       for (const observation of targetMap.values()) {
-        observations.push(cloneObservation(observation));
+        observations.push(cloneObservation(observation, {
+          projectIdentification: true
+        }));
       }
     }
     observations.sort((left, right) =>
@@ -1005,7 +1621,7 @@ export class SpottingSystem {
     const contacts = [];
     for (const [unitId, targetMap] of this.unitContacts) {
       for (const contact of targetMap.values()) {
-        contacts.push({ unitId, contact: cloneContact(contact) });
+        contacts.push({ unitId, contact: captureContact(contact) });
       }
     }
     contacts.sort((left, right) =>
@@ -1021,11 +1637,16 @@ export class SpottingSystem {
           directEpisodeKey(right.senderUnitId, right.targetUnitId)
         )
       )
-      .map(cloneDirectObservationEpisode);
+      .map(episode => cloneDirectObservationEpisode(episode, {
+        projectIdentification: true
+      }));
     return {
-      version: 3,
+      version: 4,
       time: this.time,
       timeAccumulator: this.timeAccumulator,
+      timeWholeSeconds: this.timeWholeSeconds,
+      timeNanoseconds: this.timeNanoseconds,
+      timeCompensationSeconds: this.timeCompensationSeconds,
       relayPolicy: {
         approximationLabel: this.settings.relayDelayApproximation,
         voiceDelaySeconds: this.settings.voiceRelayDelaySeconds,
@@ -1040,23 +1661,55 @@ export class SpottingSystem {
 
   restoreState(state) {
     const version = state?.version ?? 1;
-    if (version !== 1 && version !== 2 && version !== 3) {
+    if (version !== 1 && version !== 2 && version !== 3 && version !== 4) {
       throw new TypeError(`unsupported spotting state version ${version}`);
     }
-    this.time = canonicalTime(Math.max(0, finite(state?.time)));
-    if (version === 3 && state?.timeAccumulator !== undefined) {
-      if (!Number.isFinite(state.timeAccumulator)
-          || state.timeAccumulator < 0
-          || canonicalTime(state.timeAccumulator) !== this.time) {
+    let restoredClock;
+    if (version === 4) {
+      if (!Number.isFinite(state?.time)
+          || state.time < 0
+          || !Number.isFinite(state?.timeAccumulator)
+          || state.timeAccumulator < 0) {
         throw new TypeError(
-          'spotting timeAccumulator must be finite, non-negative, and match time'
+          'spotting version 4 time and timeAccumulator must be finite and non-negative'
         );
       }
-      this.timeAccumulator = state.timeAccumulator;
+      try {
+        restoredClock = validateCapturedClock(state);
+      } catch (error) {
+        if (error instanceof TypeError) throw error;
+        throw new TypeError(
+          'spotting version 4 canonical clock components are invalid'
+        );
+      }
     } else {
-      this.timeAccumulator = this.time;
+      // Versions 1-3 predate canonical clock components. Preserve their
+      // migration behavior: an absent/non-finite public time becomes zero,
+      // while an explicitly stored v3 accumulator must itself be valid and
+      // project to that migrated public time.
+      const legacyTime = canonicalTime(
+        Math.max(0, finite(state?.time))
+      );
+      let legacyAccumulator = legacyTime;
+      if (version === 3 && state?.timeAccumulator !== undefined) {
+        if (!Number.isFinite(state.timeAccumulator)
+            || state.timeAccumulator < 0
+            || canonicalTime(state.timeAccumulator) !== legacyTime) {
+          throw new TypeError(
+            'spotting timeAccumulator must be finite, non-negative, and match time'
+          );
+        }
+        legacyAccumulator = state.timeAccumulator;
+      }
+      restoredClock = clockFromAbsoluteSeconds(legacyAccumulator);
     }
-    if (version === 3) {
+    this.timeWholeSeconds = restoredClock.timeWholeSeconds;
+    this.timeNanoseconds = restoredClock.timeNanoseconds;
+    this.timeCompensationSeconds =
+      restoredClock.timeCompensationSeconds;
+    this.time = clockTime(restoredClock);
+    this.timeAccumulator = clockAccumulator(restoredClock);
+    if (version >= 3) {
       const relayPolicy = state?.relayPolicy ?? {};
       if (relayPolicy.approximationLabel
           !== COMMUNICATION_RELAY_DELAY_APPROXIMATION) {
@@ -1087,38 +1740,88 @@ export class SpottingSystem {
     }
     this.observations = new Map();
     for (const saved of state?.observations ?? []) {
+      const legacyAcquired = version === 4
+        ? null
+        : legacyObservationIsAcquired(saved, version);
+      const identificationProgress = version === 4
+        ? validateIdentificationProjection(
+            saved,
+            'spotting observation identification'
+          )
+        : 0;
+      const acquisitionState = version === 4
+        ? validateAcquisitionCapture(saved)
+        : migrateAcquisitionState(saved, legacyAcquired);
+      if (version === 4) {
+        validateObservationEpisodeCapture(
+          saved,
+          acquisitionState,
+          this.time
+        );
+      }
+      const authoritativeSaved = withoutIdentificationProjection(saved);
       const key = observerKey(saved.observerUnitId, saved.observerSoldierId);
       if (!this.observations.has(key)) this.observations.set(key, new Map());
       const observation = cloneObservation({
-        ...saved,
-        directEpisodeSequence: Number.isSafeInteger(saved.directEpisodeSequence)
-          && saved.directEpisodeSequence >= 0
-          ? saved.directEpisodeSequence
-          : 0,
-        directEpisodeActive: version === 3
-          ? saved.directEpisodeActive === true
-          : saved.visibleNow === true,
-        directEpisodeAcquiredAt: version === 3
-          ? saved.directEpisodeAcquiredAt ?? null
-          : saved.visibleNow ? saved.lastSeenAt ?? this.time : null,
-        directEpisodeSnapshot: version === 3
-          ? saved.directEpisodeSnapshot ?? null
-          : saved.visibleNow
+        ...authoritativeSaved,
+        ...acquisitionState,
+        visibleNow: version === 4
+          ? authoritativeSaved.visibleNow
+          : legacyAcquired,
+        identificationProgress,
+        directEpisodeSequence: version === 4
+          ? authoritativeSaved.directEpisodeSequence
+          : Number.isSafeInteger(
+              authoritativeSaved.directEpisodeSequence
+            )
+          && authoritativeSaved.directEpisodeSequence >= 0
+            ? authoritativeSaved.directEpisodeSequence
+            : 0,
+        directEpisodeActive: version === 4
+          ? authoritativeSaved.directEpisodeActive
+          : legacyAcquired,
+        directEpisodeAcquiredAt: version >= 3
+          ? authoritativeSaved.directEpisodeAcquiredAt ?? null
+          : authoritativeSaved.visibleNow
+            ? authoritativeSaved.lastSeenAt ?? this.time
+            : null,
+        directEpisodeSnapshot: version >= 3
+          ? authoritativeSaved.directEpisodeSnapshot ?? null
+          : authoritativeSaved.visibleNow
             ? {
-                position: saved.lastSeenPosition,
-                targetSoldierId: saved.lastSeenTargetSoldierId ?? null
+                position: authoritativeSaved.lastSeenPosition,
+                targetSoldierId:
+                  authoritativeSaved.lastSeenTargetSoldierId ?? null
               }
             : null
       });
       this.observations.get(key).set(saved.targetUnitId, observation);
     }
     this.directObservationEpisodes = new Map();
-    if (version === 3) {
+    if (version >= 3) {
       for (const saved of state?.directObservationEpisodes ?? []) {
-        const episode = cloneDirectObservationEpisode(saved);
+        const identificationProgress = version === 4
+          ? validateIdentificationProjection(
+              saved,
+              'direct observation episode identification'
+          )
+          : 0;
+        if (version === 4) {
+          validateDirectObservationEpisodeCapture(saved, this.time);
+        }
+        const episode = cloneDirectObservationEpisode({
+          ...withoutIdentificationProjection(saved),
+          identificationProgress
+        });
         this.directObservationEpisodes.set(
           directEpisodeKey(episode.senderUnitId, episode.targetUnitId),
           episode
+        );
+      }
+      if (version === 4) {
+        validateDirectEpisodeCoherence(
+          this.observations,
+          this.directObservationEpisodes
         );
       }
     } else {
@@ -1138,7 +1841,8 @@ export class SpottingSystem {
             sourceSoldierId: observation.observerSoldierId,
             targetSoldierId: observation.lastSeenTargetSoldierId ?? null,
             position: clonePosition(observation.lastSeenPosition),
-            confidence: observation.confidence
+            confidence: observation.confidence,
+            identificationProgress: 0
           };
           const previous = this.directObservationEpisodes.get(key);
           if (!previous
@@ -1151,15 +1855,36 @@ export class SpottingSystem {
       }
     }
     this.relayQueue = new CommunicationRelayQueue();
-    if (version === 3) {
+    if (version >= 3) {
+      if (version === 4 && state?.relayQueue?.version !== 2) {
+        throw new TypeError(
+          'spotting version 4 requires communication relay queue version 2'
+        );
+      }
       this.relayQueue.restoreState(state?.relayQueue);
     }
     this.unitContacts = new Map();
     for (const saved of state?.contacts ?? []) {
+      const identificationProgress = version === 4
+        ? validateContactIdentificationCapture(
+            saved.contact,
+            'spotting contact identification',
+            this.time
+          )
+        : 0;
+      const authoritativeContact = withoutIdentificationProjection(
+        saved.contact
+      );
       if (!this.unitContacts.has(saved.unitId)) this.unitContacts.set(saved.unitId, new Map());
       this.unitContacts.get(saved.unitId).set(
         saved.contact.targetUnitId,
-        cloneContact(saved.contact)
+        cloneContact({
+          ...authoritativeContact,
+          identificationProgress,
+          identificationEvaluatedAt: version === 4
+            ? authoritativeContact.identificationEvaluatedAt
+            : this.time
+        })
       );
     }
     this.spottingMap = this.unitContacts;

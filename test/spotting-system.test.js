@@ -13,6 +13,14 @@ import {
 import {
   COMMUNICATION_RELAY_DELAY_APPROXIMATION
 } from '../src/simulation/observation/CommunicationRelayQueue.js';
+import {
+  IDENTIFICATION_QUALITY_APPROXIMATION,
+  IDENTIFICATION_QUALITY_POLICY,
+  IDENTIFICATION_TIER,
+  beginVisualIdentification,
+  decayIdentification,
+  progressIdentification
+} from '../src/simulation/observation/IdentificationQuality.js';
 
 function makeUnit({
   id,
@@ -81,6 +89,21 @@ function makeSpotting(
 
 function acquire(spotting, units, seconds = 4) {
   spotting.advance(units, seconds);
+}
+
+function advancePartitioned(spotting, units, seconds, frequency) {
+  let previousTime = 0;
+  const steps = Math.ceil(seconds * frequency);
+  for (let index = 1; index <= steps; index++) {
+    const nextTime = Math.round(
+      Math.min(seconds, index / frequency) * 1e9
+    ) / 1e9;
+    spotting.advance(
+      index % 2 === 0 ? units : [...units].reverse(),
+      nextTime - previousTime
+    );
+    previousTime = nextTime;
+  }
 }
 
 const blockingWall = Object.freeze({
@@ -313,7 +336,7 @@ test('first report waits from exact acquisition time and prefers voice over radi
   assert.equal(spotting.canPrecisionTarget(receiver, target), false);
 
   let state = spotting.captureState();
-  assert.equal(state.version, 3);
+  assert.equal(state.version, 4);
   assert.deepEqual(state.relayPolicy, {
     approximationLabel: COMMUNICATION_RELAY_DELAY_APPROXIMATION,
     voiceDelaySeconds,
@@ -365,6 +388,415 @@ test('first report waits from exact acquisition time and prefers voice over radi
     spotting.captureState().relayQueue.deliveredEpisodeWatermarks.length,
     1
   );
+});
+
+test('direct identification credits only post-acquisition time and relays the frozen boundary quality', () => {
+  const terrain = makeTerrain([blockingWall]);
+  const sender = makeUnit({
+    id: 'sender',
+    faction: 'blue',
+    x: 0,
+    z: 0
+  });
+  const receiver = makeUnit({
+    id: 'receiver',
+    faction: 'blue',
+    x: 12,
+    z: 0
+  });
+  const target = makeUnit({
+    id: 'target',
+    faction: 'red',
+    x: 0,
+    z: 40
+  });
+  const units = [sender, receiver, target];
+  const relayDelay = 5;
+  const spotting = makeSpotting(terrain, [], {
+    voiceRelayDelaySeconds: relayDelay
+  });
+  const requiredSeconds = Math.round(spotting.evaluateObservation(
+    sender,
+    sender.roster[0],
+    target,
+    false
+  ).acquisitionSeconds * 1e9) / 1e9;
+  const postAcquisitionSeconds = 1.123456789;
+
+  spotting.advance(
+    units,
+    requiredSeconds + postAcquisitionSeconds
+  );
+
+  const acquiredProgress = beginVisualIdentification(0);
+  const expectedDirect = progressIdentification(
+    acquiredProgress,
+    postAcquisitionSeconds
+  );
+  const observation = spotting.getObservation(
+    sender.id,
+    sender.roster[0].id,
+    target.id
+  );
+  assert.equal(observation.identificationProgress, expectedDirect);
+  assert.equal(
+    observation.identificationTier,
+    IDENTIFICATION_TIER.DEVELOPING
+  );
+  assert.equal(
+    observation.identificationApproximationLabel,
+    IDENTIFICATION_QUALITY_APPROXIMATION
+  );
+  assert.equal(
+    spotting.getContactForUnit(sender, target).identificationProgress,
+    expectedDirect
+  );
+
+  let captured = spotting.captureState();
+  assert.equal(captured.version, 4);
+  assert.equal(captured.relayQueue.version, 2);
+  assert.equal(captured.relayQueue.pendingReports.length, 1);
+  assert.equal(
+    captured.relayQueue.pendingReports[0].identificationProgress,
+    acquiredProgress,
+    'the first report must freeze quality at the acquisition boundary'
+  );
+  assert.equal(
+    captured.directObservationEpisodes[0].identificationProgress,
+    acquiredProgress
+  );
+
+  const frozenPosition = [
+    target.position.x,
+    target.position.y,
+    target.position.z
+  ];
+  sender.position.set(2, 0, 0);
+  target.position.set(0, 0, 80);
+  terrain.bocageObstacles.push({
+    minX: -3,
+    maxX: 3,
+    minZ: 10,
+    maxZ: 12,
+    height: 4,
+    type: 'wall'
+  });
+  const dueAt = captured.relayQueue.pendingReports[0].dueAt;
+  spotting.advance(units, dueAt - spotting.time);
+
+  const relayed = spotting.getContactForUnit(receiver, target);
+  assert.equal(relayed.channel, CONTACT_CHANNEL.VOICE);
+  assert.equal(
+    relayed.identificationProgress,
+    decayIdentification(acquiredProgress, relayDelay)
+  );
+  assert.ok(relayed.identificationProgress <= acquiredProgress);
+  assert.deepEqual(relayed.position, frozenPosition);
+  assert.equal(spotting.canPrecisionTarget(receiver, target), false);
+  assert.equal(
+    spotting.getVisibilityProjection('blue', units).visibleUnitIds.includes(
+      target.id
+    ),
+    false
+  );
+  for (const leaked of [
+    'targetType',
+    'targetModel',
+    'targetRoster',
+    'targetSoldier'
+  ]) {
+    assert.equal(Object.hasOwn(relayed, leaked), false);
+  }
+
+  captured = spotting.captureState();
+  assert.equal(captured.relayQueue.pendingReports.length, 0);
+  assert.equal(
+    captured.contacts.find(entry =>
+      entry.unitId === receiver.id
+        && entry.contact.targetUnitId === target.id
+    ).contact.identificationProgress,
+    relayed.identificationProgress
+  );
+
+  const elevatedState = structuredClone(captured);
+  const elevated = elevatedState.contacts.find(entry =>
+    entry.unitId === receiver.id
+      && entry.contact.targetUnitId === target.id
+  ).contact;
+  const originalUncertainty = elevated.uncertaintyM;
+  elevated.identificationProgress = 1;
+  elevated.identificationTier = IDENTIFICATION_TIER.CONFIRMED;
+  const elevatedRestore = makeSpotting(terrain);
+  elevatedRestore.restoreState(elevatedState);
+  const elevatedContact = elevatedRestore.getContactForUnit(receiver, target);
+  assert.equal(elevatedContact.identificationProgress, 1);
+  assert.equal(elevatedContact.uncertaintyM, originalUncertainty);
+  assert.deepEqual(elevatedContact.position, frozenPosition);
+  assert.equal(elevatedRestore.canPrecisionTarget(receiver, target), false);
+  assert.equal(
+    elevatedRestore.getVisibilityProjection('blue', units)
+      .visibleUnitIds.includes(target.id),
+    false
+  );
+});
+
+test('identification acquisition, decay, and reacquisition are byte-identical for whole, 30 Hz, and 60 Hz advances', () => {
+  function setup() {
+    const terrain = makeTerrain([blockingWall]);
+    const sender = makeUnit({
+      id: 'sender',
+      faction: 'blue',
+      x: 0,
+      z: 0
+    });
+    const receiver = makeUnit({
+      id: 'receiver',
+      faction: 'blue',
+      x: 12,
+      z: 0
+    });
+    const target = makeUnit({
+      id: 'target',
+      faction: 'red',
+      x: 0,
+      z: 40
+    });
+    return {
+      terrain,
+      units: [sender, receiver, target],
+      spotting: makeSpotting(terrain, [], {
+        voiceRelayDelaySeconds: 20
+      })
+    };
+  }
+
+  const whole = setup();
+  const hz30 = setup();
+  const hz60 = setup();
+  const requiredSeconds = Math.round(whole.spotting.evaluateObservation(
+    whole.units[0],
+    whole.units[0].roster[0],
+    whole.units[2],
+    false
+  ).acquisitionSeconds * 1e9) / 1e9;
+
+  const visibleDuration = requiredSeconds + 2.123456789;
+  whole.spotting.advance(whole.units, visibleDuration);
+  advancePartitioned(hz30.spotting, hz30.units, visibleDuration, 30);
+  advancePartitioned(hz60.spotting, hz60.units, visibleDuration, 60);
+  const midProgression = whole.spotting.captureState();
+  assert.deepEqual(hz30.spotting.captureState(), midProgression);
+  assert.deepEqual(hz60.spotting.captureState(), midProgression);
+  const replay = setup();
+  replay.spotting.restoreState(midProgression);
+  assert.deepEqual(replay.spotting.captureState(), midProgression);
+
+  for (const fixture of [whole, hz30, hz60, replay]) {
+    fixture.terrain.bocageObstacles.push({
+      minX: -1,
+      maxX: 1,
+      minZ: 10,
+      maxZ: 12,
+      height: 4,
+      type: 'wall'
+    });
+  }
+  const occludedDuration = 1.987654321;
+  whole.spotting.advance(whole.units, occludedDuration);
+  advancePartitioned(hz30.spotting, hz30.units, occludedDuration, 30);
+  advancePartitioned(hz60.spotting, hz60.units, occludedDuration, 60);
+  replay.spotting.advance(replay.units, occludedDuration);
+  assert.deepEqual(hz30.spotting.captureState(), whole.spotting.captureState());
+  assert.deepEqual(hz60.spotting.captureState(), whole.spotting.captureState());
+  assert.deepEqual(replay.spotting.captureState(), whole.spotting.captureState());
+  const stalePosition = whole.spotting.getContactForUnit('sender', 'target')
+    .position;
+  assert.deepEqual(stalePosition, [0, 0, 40]);
+
+  for (const fixture of [whole, hz30, hz60, replay]) {
+    fixture.terrain.bocageObstacles.pop();
+  }
+  const reacquisitionDuration = requiredSeconds + 0.765432109;
+  whole.spotting.advance(whole.units, reacquisitionDuration);
+  advancePartitioned(
+    hz30.spotting,
+    hz30.units,
+    reacquisitionDuration,
+    30
+  );
+  advancePartitioned(
+    hz60.spotting,
+    hz60.units,
+    reacquisitionDuration,
+    60
+  );
+  replay.spotting.advance(replay.units, reacquisitionDuration);
+
+  const wholeState = whole.spotting.captureState();
+  assert.deepEqual(hz30.spotting.captureState(), wholeState);
+  assert.deepEqual(hz60.spotting.captureState(), wholeState);
+  assert.deepEqual(replay.spotting.captureState(), wholeState);
+  assert.deepEqual(
+    hz30.spotting.getContactForUnit('sender', 'target'),
+    whole.spotting.getContactForUnit('sender', 'target')
+  );
+  assert.deepEqual(
+    hz60.spotting.getVisibilityProjection('blue', hz60.units),
+    whole.spotting.getVisibilityProjection('blue', whole.units)
+  );
+  assert.equal(
+    wholeState.directObservationEpisodes[0].episodeSequence,
+    2
+  );
+});
+
+test('initial and repeat acquisition change state exactly at the canonical nanosecond boundary', () => {
+  const requiredSeconds = 0.656256841;
+  const requiredNanoseconds = 656256841;
+
+  function setup() {
+    const terrain = makeTerrain();
+    const observer = makeUnit({
+      id: 'observer',
+      faction: 'blue',
+      x: 0,
+      z: 0
+    });
+    const target = makeUnit({
+      id: 'target',
+      faction: 'red',
+      x: 0,
+      z: 40
+    });
+    const spotting = makeSpotting(terrain);
+    spotting.acquisitionSeconds = () => requiredSeconds;
+    return { terrain, units: [observer, target], spotting };
+  }
+
+  function targetObservation(fixture) {
+    return fixture.spotting.captureState().observations.find(
+      observation => observation.observerUnitId === 'observer'
+        && observation.targetUnitId === 'target'
+    );
+  }
+
+  function advanceVariants(duration, prepare = () => {}) {
+    const whole = setup();
+    const hz30 = setup();
+    const hz60 = setup();
+    for (const fixture of [whole, hz30, hz60]) prepare(fixture);
+    whole.spotting.advance(whole.units, duration);
+    advancePartitioned(hz30.spotting, hz30.units, duration, 30);
+    advancePartitioned(hz60.spotting, hz60.units, duration, 60);
+    const state = whole.spotting.captureState();
+    assert.deepEqual(hz30.spotting.captureState(), state);
+    assert.deepEqual(hz60.spotting.captureState(), state);
+    return { whole, observation: targetObservation(whole) };
+  }
+
+  for (const nanosecondOffset of [-1, 0, 1]) {
+    const duration =
+      (requiredNanoseconds + nanosecondOffset) / 1e9;
+    const initial = advanceVariants(duration);
+    assert.equal(
+      initial.observation.visibleNow,
+      nanosecondOffset >= 0
+    );
+    assert.equal(
+      initial.observation.directEpisodeSequence,
+      nanosecondOffset >= 0 ? 1 : 0
+    );
+    if (nanosecondOffset === 0) {
+      assert.equal(
+        initial.observation.identificationProgress,
+        IDENTIFICATION_QUALITY_POLICY.acquiredVisualProgress
+      );
+    } else if (nanosecondOffset === 1) {
+      assert.equal(
+        initial.observation.identificationProgress,
+        0.35000000025
+      );
+    }
+
+    const reacquired = advanceVariants(duration, fixture => {
+      fixture.spotting.advance(fixture.units, requiredSeconds);
+      fixture.terrain.bocageObstacles.push({
+        minX: -1,
+        maxX: 1,
+        minZ: 10,
+        maxZ: 12,
+        height: 4,
+        type: 'wall'
+      });
+      fixture.spotting.advance(fixture.units, 2);
+      fixture.terrain.bocageObstacles.length = 0;
+    });
+    assert.equal(
+      reacquired.observation.visibleNow,
+      nanosecondOffset >= 0
+    );
+    assert.equal(
+      reacquired.observation.directEpisodeSequence,
+      nanosecondOffset >= 0 ? 2 : 1
+    );
+    if (nanosecondOffset === 0) {
+      assert.equal(
+        reacquired.observation.identificationProgress,
+        IDENTIFICATION_QUALITY_POLICY.acquiredVisualProgress
+      );
+    } else if (nanosecondOffset === 1) {
+      assert.equal(
+        reacquired.observation.identificationProgress,
+        0.35000000025
+      );
+    }
+  }
+});
+
+test('post-acquisition identification credit is exact at small and large absolute clocks', () => {
+  const requiredSeconds = 0.656256841;
+  const duration = requiredSeconds + 1e-9;
+
+  function setup(startTime) {
+    const observer = makeUnit({
+      id: 'observer',
+      faction: 'blue',
+      x: 0,
+      z: 0
+    });
+    const target = makeUnit({
+      id: 'target',
+      faction: 'red',
+      x: 0,
+      z: 40
+    });
+    const spotting = makeSpotting();
+    spotting.acquisitionSeconds = () => requiredSeconds;
+    spotting.advance([], startTime);
+    return { units: [observer, target], spotting };
+  }
+
+  for (const startTime of [0, 100000, 10000000]) {
+    const whole = setup(startTime);
+    const hz30 = setup(startTime);
+    const hz60 = setup(startTime);
+    whole.spotting.advance(whole.units, duration);
+    advancePartitioned(hz30.spotting, hz30.units, duration, 30);
+    advancePartitioned(hz60.spotting, hz60.units, duration, 60);
+    const wholeState = whole.spotting.captureState();
+    assert.deepEqual(hz30.spotting.captureState(), wholeState);
+    assert.deepEqual(hz60.spotting.captureState(), wholeState);
+    const observation = wholeState.observations.find(saved =>
+      saved.observerUnitId === 'observer'
+        && saved.targetUnitId === 'target'
+    );
+    assert.equal(observation.visibleNow, true);
+    assert.equal(
+      observation.identificationProgress,
+      0.35000000025,
+      `one post-boundary nanosecond must be credited at ${startTime}s`
+    );
+  }
 });
 
 test('voice relay includes the boundary, excludes units beyond it, and never grants precision fire', () => {
@@ -422,6 +854,16 @@ test('radio relay requires both operational endpoints, live operators, and one c
   assert.equal(
     operational.getContactForUnit(receiver, target).channel,
     CONTACT_CHANNEL.RADIO
+  );
+  assert.ok(
+    operational.getContactForUnit(receiver, target)
+      .identificationProgress
+      <= IDENTIFICATION_QUALITY_POLICY.acquiredVisualProgress
+  );
+  assert.equal(
+    operational.getContactForUnit(receiver, target)
+      .identificationApproximationLabel,
+    IDENTIFICATION_QUALITY_APPROXIMATION
   );
   assert.equal(operational.canPrecisionTarget(receiver, target), false);
 
@@ -751,7 +1193,21 @@ test('mid-delay rollback replays exactly and legacy spotting states restore safe
     });
     compatible.restoreState(legacy);
     const compatibleState = compatible.captureState();
-    assert.equal(compatibleState.version, 3);
+    assert.equal(compatibleState.version, 4);
+    assert.ok(
+      compatibleState.observations.every(
+        observation => observation.identificationProgress === 0
+          && observation.identificationTier
+            === IDENTIFICATION_TIER.UNIDENTIFIED
+      )
+    );
+    assert.ok(
+      compatibleState.contacts.every(
+        entry => entry.contact.identificationProgress === 0
+          && entry.contact.identificationTier
+            === IDENTIFICATION_TIER.UNIDENTIFIED
+      )
+    );
     assert.equal(compatibleState.relayQueue.pendingReports.length, 0);
     assert.equal(
       compatibleState.relayQueue.deliveredEpisodeWatermarks.length,
@@ -762,13 +1218,382 @@ test('mid-delay rollback replays exactly and legacy spotting states restore safe
         episode => episode.episodeSequence === 0
       )
     );
+    const compatibleRoundTrip = makeSpotting(terrain);
+    compatibleRoundTrip.restoreState(compatibleState);
+    assert.deepEqual(
+      compatibleRoundTrip.captureState(),
+      compatibleState,
+      `version ${version} migration must emit a strict-restorable v4 snapshot`
+    );
     compatible.advance(units, 10);
     assert.equal(compatible.getContactForUnit(receiver, target), null);
   }
 
+  const legacyThree = structuredClone(restoredCopy);
+  legacyThree.version = 3;
+  for (const observation of legacyThree.observations) {
+    delete observation.identificationProgress;
+    delete observation.identificationTier;
+    delete observation.identificationApproximationLabel;
+  }
+  for (const episode of legacyThree.directObservationEpisodes) {
+    delete episode.identificationProgress;
+    delete episode.identificationTier;
+    delete episode.identificationApproximationLabel;
+  }
+  for (const entry of legacyThree.contacts) {
+    delete entry.contact.identificationProgress;
+    delete entry.contact.identificationTier;
+    delete entry.contact.identificationApproximationLabel;
+    delete entry.contact.identificationEvaluatedAt;
+  }
+  legacyThree.relayQueue.version = 1;
+  for (const report of legacyThree.relayQueue.pendingReports) {
+    delete report.identificationProgress;
+    delete report.identificationTier;
+    delete report.identificationApproximationLabel;
+  }
+  const compatibleThree = makeSpotting(terrain);
+  compatibleThree.restoreState(legacyThree);
+  const migratedThree = compatibleThree.captureState();
+  assert.equal(migratedThree.version, 4);
+  assert.ok(
+    migratedThree.observations.every(
+      observation => observation.identificationProgress === 0
+    )
+  );
+  assert.ok(
+    migratedThree.directObservationEpisodes.every(
+      episode => episode.identificationProgress === 0
+    )
+  );
+  assert.ok(
+    migratedThree.contacts.every(
+      entry => entry.contact.identificationProgress === 0
+    )
+  );
+  assert.ok(
+    migratedThree.relayQueue.pendingReports.every(
+      report => report.identificationProgress === 0
+    )
+  );
+  const compatibleThreeRoundTrip = makeSpotting(terrain);
+  compatibleThreeRoundTrip.restoreState(migratedThree);
+  assert.deepEqual(
+    compatibleThreeRoundTrip.captureState(),
+    migratedThree,
+    'version 3 migration must emit a strict-restorable v4 snapshot'
+  );
+
+  const oldToleranceVisible = structuredClone(legacyThree);
+  const oldVisibleObservation = oldToleranceVisible.observations.find(
+    observation => observation.visibleNow
+      && observation.directEpisodeActive
+  );
+  assert.ok(oldVisibleObservation);
+  oldVisibleObservation.acquisition = 0.999999999999;
+  const migratedOldVisible = makeSpotting(terrain);
+  migratedOldVisible.restoreState(oldToleranceVisible);
+  const visibleV4 = migratedOldVisible.captureState();
+  const visibleV4Observation = visibleV4.observations.find(
+    observation =>
+      observation.observerUnitId
+        === oldVisibleObservation.observerUnitId
+      && observation.observerSoldierId
+        === oldVisibleObservation.observerSoldierId
+      && observation.targetUnitId
+        === oldVisibleObservation.targetUnitId
+  );
+  assert.equal(visibleV4Observation.acquisitionWorkTicks, 1000000000000);
+  assert.equal(visibleV4Observation.acquisition, 1);
+  assert.equal(visibleV4Observation.visibleNow, true);
+  assert.equal(visibleV4Observation.directEpisodeActive, true);
+  assert.equal(visibleV4Observation.identificationProgress, 0);
+  const visibleV4RoundTrip = makeSpotting(terrain);
+  visibleV4RoundTrip.restoreState(visibleV4);
+  assert.deepEqual(visibleV4RoundTrip.captureState(), visibleV4);
+
+  const oldToleranceHidden = structuredClone(oldToleranceVisible);
+  const oldHiddenObservation = oldToleranceHidden.observations.find(
+    observation =>
+      observation.observerUnitId
+        === oldVisibleObservation.observerUnitId
+      && observation.observerSoldierId
+        === oldVisibleObservation.observerSoldierId
+      && observation.targetUnitId
+        === oldVisibleObservation.targetUnitId
+  );
+  oldHiddenObservation.visibleNow = false;
+  oldHiddenObservation.directEpisodeActive = false;
+  const hiddenPairEpisode =
+    oldToleranceHidden.directObservationEpisodes.find(
+      episode =>
+        episode.senderUnitId === oldHiddenObservation.observerUnitId
+        && episode.targetUnitId === oldHiddenObservation.targetUnitId
+    );
+  assert.ok(hiddenPairEpisode);
+  hiddenPairEpisode.active = false;
+  const migratedOldHidden = makeSpotting(terrain);
+  migratedOldHidden.restoreState(oldToleranceHidden);
+  const hiddenV4 = migratedOldHidden.captureState();
+  const hiddenV4Observation = hiddenV4.observations.find(
+    observation =>
+      observation.observerUnitId
+        === oldHiddenObservation.observerUnitId
+      && observation.observerSoldierId
+        === oldHiddenObservation.observerSoldierId
+      && observation.targetUnitId
+        === oldHiddenObservation.targetUnitId
+  );
+  assert.equal(hiddenV4Observation.acquisitionWorkTicks, 999999999999);
+  assert.equal(hiddenV4Observation.acquisition, 0.999999999999);
+  assert.equal(hiddenV4Observation.visibleNow, false);
+  assert.equal(hiddenV4Observation.directEpisodeActive, false);
+  assert.equal(hiddenV4Observation.identificationProgress, 0);
+  const hiddenV4RoundTrip = makeSpotting(terrain);
+  hiddenV4RoundTrip.restoreState(hiddenV4);
+  assert.deepEqual(hiddenV4RoundTrip.captureState(), hiddenV4);
+
   assert.throws(
-    () => makeSpotting().restoreState({ version: 4 }),
-    /unsupported spotting state version 4/
+    () => makeSpotting().restoreState({ version: 5 }),
+    /unsupported spotting state version 5/
+  );
+});
+
+test('spotting v4 rejects malformed identification state and returns mutation-safe projections', () => {
+  const terrain = makeTerrain([blockingWall]);
+  const sender = makeUnit({
+    id: 'sender',
+    faction: 'blue',
+    x: 0,
+    z: 0
+  });
+  const receiver = makeUnit({
+    id: 'receiver',
+    faction: 'blue',
+    x: 12,
+    z: 0
+  });
+  const target = makeUnit({
+    id: 'target',
+    faction: 'red',
+    x: 0,
+    z: 40
+  });
+  const units = [sender, receiver, target];
+  const original = makeSpotting(terrain, [], {
+    voiceRelayDelaySeconds: 8
+  });
+  original.advance(units, 4);
+  const valid = original.captureState();
+  assert.equal(valid.relayQueue.pendingReports.length, 1);
+
+  function rejected(mutator, pattern) {
+    const malformed = structuredClone(valid);
+    mutator(malformed);
+    assert.throws(
+      () => makeSpotting(terrain).restoreState(malformed),
+      pattern
+    );
+  }
+
+  rejected(
+    state => {
+      state.observations[0].identificationProgress = Number.NaN;
+    },
+    /identificationProgress/
+  );
+  rejected(
+    state => {
+      state.observations[0].identificationTier =
+        IDENTIFICATION_TIER.CONFIRMED;
+    },
+    /identificationTier/
+  );
+  rejected(
+    state => {
+      state.directObservationEpisodes[0]
+        .identificationApproximationLabel = 'fabricated';
+    },
+    /identificationApproximationLabel/
+  );
+  rejected(
+    state => {
+      state.contacts[0].contact.identificationProgress = 1.1;
+    },
+    /identificationProgress/
+  );
+  rejected(
+    state => {
+      state.contacts[0].contact.identificationEvaluatedAt = Infinity;
+    },
+    /identificationEvaluatedAt/
+  );
+  rejected(
+    state => {
+      state.relayQueue.pendingReports[0].identificationTier =
+        IDENTIFICATION_TIER.CONFIRMED;
+    },
+    /identificationTier/
+  );
+  rejected(
+    state => {
+      state.relayQueue.version = 1;
+    },
+    /requires communication relay queue version 2/
+  );
+  rejected(
+    state => {
+      state.time = Number.NaN;
+    },
+    /version 4 time/
+  );
+  rejected(
+    state => {
+      state.time += 1e-9;
+    },
+    /time projections/
+  );
+  rejected(
+    state => {
+      state.timeAccumulator += 1e-9;
+    },
+    /time projections/
+  );
+  rejected(
+    state => {
+      delete state.timeNanoseconds;
+    },
+    /canonical clock/
+  );
+  rejected(
+    state => {
+      state.observations[0].acquisitionWorkTicks--;
+    },
+    /acquisition/
+  );
+  rejected(
+    state => {
+      const observation = state.observations.find(
+        saved => saved.visibleNow && saved.directEpisodeActive
+      );
+      observation.acquisitionWorkTicks = 500000000000;
+      observation.acquisitionWorkRemainder = 0;
+      observation.acquisition = 0.5;
+    },
+    /visibility must match canonical acquisition work/
+  );
+  rejected(
+    state => {
+      const observation = state.observations.find(
+        saved => saved.visibleNow
+      );
+      observation.directEpisodeActive = false;
+    },
+    /direct episode activity must match visibility/
+  );
+  rejected(
+    state => {
+      const episode = state.directObservationEpisodes.find(
+        saved => saved.active
+      );
+      episode.active = false;
+    },
+    /active direct observation episode/
+  );
+
+  const restored = makeSpotting(terrain);
+  restored.restoreState(valid);
+  const observation = restored.getObservation(
+    sender.id,
+    sender.roster[0].id,
+    target.id
+  );
+  const contact = restored.getContactForUnit(sender, target);
+  const queueSnapshot = restored.captureState().relayQueue;
+  observation.identificationProgress = 0;
+  observation.lastSeenPosition[0] = 999;
+  contact.identificationProgress = 0;
+  contact.position[0] = 999;
+  queueSnapshot.pendingReports[0].identificationProgress = 0;
+  queueSnapshot.pendingReports[0].position[0] = 999;
+
+  const authoritative = restored.captureState();
+  const authoritativeObservation = authoritative.observations.find(saved =>
+    saved.observerUnitId === sender.id
+      && saved.observerSoldierId === sender.roster[0].id
+      && saved.targetUnitId === target.id
+  );
+  const authoritativeContact = authoritative.contacts.find(entry =>
+    entry.unitId === sender.id
+      && entry.contact.targetUnitId === target.id
+  ).contact;
+  assert.notEqual(
+    authoritativeObservation.lastSeenPosition[0],
+    999
+  );
+  assert.notEqual(
+    authoritativeContact.position[0],
+    999
+  );
+  assert.notEqual(
+    authoritative.relayQueue.pendingReports[0].position[0],
+    999
+  );
+  assert.ok(
+    authoritative.observations.some(
+      saved => saved.identificationProgress > 0
+    )
+  );
+  assert.ok(
+    authoritative.contacts.some(
+      entry => entry.contact.identificationProgress > 0
+    )
+  );
+  assert.equal(
+    authoritative.relayQueue.pendingReports[0].identificationProgress,
+    IDENTIFICATION_QUALITY_POLICY.acquiredVisualProgress
+  );
+});
+
+test('legacy spotting clock migration is explicit for versions 1 through 3', () => {
+  for (const version of [1, 2]) {
+    const restored = makeSpotting();
+    restored.restoreState({
+      version,
+      time: Number.NaN,
+      observations: [],
+      contacts: []
+    });
+    assert.equal(restored.captureState().time, 0);
+  }
+
+  const legacyThree = {
+    version: 3,
+    time: Number.NaN,
+    timeAccumulator: 0,
+    relayPolicy: {
+      approximationLabel: COMMUNICATION_RELAY_DELAY_APPROXIMATION,
+      voiceDelaySeconds: 1,
+      radioDelaySeconds: 2
+    },
+    observations: [],
+    directObservationEpisodes: [],
+    relayQueue: {
+      version: 1,
+      pendingReports: [],
+      deliveredEpisodeWatermarks: []
+    },
+    contacts: []
+  };
+  const migrated = makeSpotting();
+  migrated.restoreState(legacyThree);
+  assert.equal(migrated.captureState().time, 0);
+
+  legacyThree.timeAccumulator = Infinity;
+  assert.throws(
+    () => makeSpotting().restoreState(legacyThree),
+    /timeAccumulator/
   );
 });
 

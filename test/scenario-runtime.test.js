@@ -6,6 +6,7 @@ import {
   loadScenario,
   resolveScenarioUnitDefinitions
 } from '../src/scenario/ScenarioRuntime.js';
+import { Unit } from '../src/game/Unit.js';
 import { createFamilyRegistry } from '../src/scenario/FamilyRegistry.js';
 import { STONNE_1940_SCENARIO } from '../src/scenarios/france1940/stonne1940.js';
 import { STONNE_1940_MAP } from '../src/maps/france/stonne.js';
@@ -19,6 +20,9 @@ import {
 import {
   FRANCE_1940_PRESENTATION
 } from '../src/content/france1940/presentation.js';
+import {
+  FRANCE_1940_STRUCTURES
+} from '../src/content/france1940/structures.js';
 import {
   OBSERVATION_EQUIPMENT,
   observerHasEquipment
@@ -99,11 +103,18 @@ const FAMILY_FIXTURE = Object.freeze({
       MAS36: Object.freeze({ name: 'MAS-36 Rifle' }),
       FM2429: Object.freeze({ name: 'FM 24/29 LMG' }),
       MAS38: Object.freeze({ name: 'MAS-38 SMG' }),
-      KAR98K: Object.freeze({ name: 'Kar98k' })
+      KAR98K: Object.freeze({ name: 'Kar98k' }),
+      MG34: Object.freeze({ name: 'MG 34' })
     }),
     vehicles: Object.freeze({
       SOMUA_S35: Object.freeze({ factionId: 'french', modelId: 'fr_somua' }),
       PANZER_III_D: Object.freeze({ factionId: 'german', modelId: 'ger_panzer3' })
+    }),
+    structures: Object.freeze({
+      GERMAN_MG34_BUNKER: Object.freeze({
+        id: 'GERMAN_MG34_BUNKER',
+        weaponId: 'MG34'
+      })
     })
   })
 });
@@ -346,6 +357,24 @@ test('family validation rejects bad descriptors before any Unit construction', (
   );
   assertRejectedBeforeConstruction(
     scenarioFixture([{
+      ...scenarioFixture().units[2],
+      structureId: 'UNKNOWN_STRUCTURE'
+    }]),
+    familyRegistry(),
+    /unknown structure UNKNOWN_STRUCTURE/
+  );
+  for (const inheritedStructureId of ['toString', 'constructor', '__proto__']) {
+    assertRejectedBeforeConstruction(
+      scenarioFixture([{
+        ...scenarioFixture().units[2],
+        structureId: inheritedStructureId
+      }]),
+      familyRegistry(),
+      new RegExp(`unknown structure ${inheritedStructureId}`)
+    );
+  }
+  assertRejectedBeforeConstruction(
+    scenarioFixture([{
       ...scenarioFixture().units[0],
       soldierEquipment: { 'squad-leadr': ['BINOCULARS'] }
     }]),
@@ -385,7 +414,7 @@ test('resolved rosters are isolated and generic Units reject unported constructi
       gameFamilyId: undefined,
       units: [{ ...scenario.units[0], formationId: undefined }]
     }),
-    /Unit requires weapon and vehicle catalog ports/
+    /Unit requires weapon, vehicle, and structure catalog ports/
   );
 });
 
@@ -504,6 +533,62 @@ test('scenario construction injects identity-matched catalog ports before Unit c
       {
         catalogPorts: {
           ...FRANCE_1940_CATALOG_PORTS,
+          structures: undefined
+        }
+      }
+    ),
+    /require structures/
+  );
+  assert.equal(received.length, 0);
+
+  assert.throws(
+    () => instantiateScenarioUnits(
+      STONNE_1940_SCENARIO,
+      PortAwareUnit,
+      PRODUCTION_FAMILY_REGISTRY,
+      {
+        catalogPorts: {
+          ...FRANCE_1940_CATALOG_PORTS,
+          structures: {
+            ...FRANCE_1940_CATALOG_PORTS.structures,
+            records: {}
+          }
+        }
+      }
+    ),
+    /do not match registered structures/
+  );
+  assert.equal(received.length, 0);
+
+  assert.throws(
+    () => instantiateScenarioUnits(
+      STONNE_1940_SCENARIO,
+      PortAwareUnit,
+      PRODUCTION_FAMILY_REGISTRY,
+      {
+        catalogPorts: {
+          ...FRANCE_1940_CATALOG_PORTS,
+          structures: {
+            ...FRANCE_1940_CATALOG_PORTS.structures,
+            get: id => ({
+              ...FRANCE_1940_CATALOG_PORTS.structures.get(id)
+            })
+          }
+        }
+      }
+    ),
+    /structures\.get must return registered record/
+  );
+  assert.equal(received.length, 0);
+
+  assert.throws(
+    () => instantiateScenarioUnits(
+      STONNE_1940_SCENARIO,
+      PortAwareUnit,
+      PRODUCTION_FAMILY_REGISTRY,
+      {
+        catalogPorts: {
+          ...FRANCE_1940_CATALOG_PORTS,
           weapons: {
             ...FRANCE_1940_CATALOG_PORTS.weapons,
             records: {}
@@ -556,6 +641,96 @@ test('scenario construction injects identity-matched catalog ports before Unit c
   assert.equal(received.length, 0);
 });
 
+test('Unit rejects a catalog port whose structure lookup changes after validation', () => {
+  let lookupCount = 0;
+  const changingStructurePort = Object.freeze({
+    records: FRANCE_1940_STRUCTURES,
+    get: id => {
+      lookupCount += 1;
+      const canonical = FRANCE_1940_STRUCTURES[id] ?? null;
+      return lookupCount <= 1 || !canonical
+        ? canonical
+        : Object.freeze({ ...canonical });
+    }
+  });
+  const received = [];
+  class ConstructingUnit extends Unit {
+    constructor(definition) {
+      super(definition);
+      received.push(this);
+    }
+  }
+
+  assert.throws(
+    () => instantiateScenarioUnits(
+      scenarioFixture([scenarioFixture().units[2]]),
+      ConstructingUnit,
+      PRODUCTION_FAMILY_REGISTRY,
+      {
+        catalogPorts: Object.freeze({
+          ...FRANCE_1940_CATALOG_PORTS,
+          structures: changingStructurePort
+        }),
+        visualFactories: FRANCE_1940_VISUAL_FACTORIES
+      }
+    ),
+    /requires canonical structure GERMAN_MG34_BUNKER/
+  );
+  assert.equal(received.length, 0);
+});
+
+test('generic Unit resolves a valid custom structure only through its injected port', () => {
+  const canonicalFamily = createFrance1940Family();
+  const customStructure = Object.freeze({
+    ...FRANCE_1940_STRUCTURES.GERMAN_MG34_BUNKER,
+    id: 'CUSTOM_PORT_BUNKER',
+    name: 'Injected custom-port bunker'
+  });
+  const customStructures = Object.freeze({
+    CUSTOM_PORT_BUNKER: customStructure
+  });
+  const customFamily = Object.freeze({
+    ...canonicalFamily,
+    catalogs: Object.freeze({
+      ...canonicalFamily.catalogs,
+      structures: customStructures
+    })
+  });
+  const customCatalogPorts = Object.freeze({
+    ...FRANCE_1940_CATALOG_PORTS,
+    structures: Object.freeze({
+      records: customStructures,
+      get: id => customStructures[id] ?? null
+    })
+  });
+  const customVisualFactories = Object.freeze({
+    ...FRANCE_1940_VISUAL_FACTORIES,
+    structureMeshes: Object.freeze({
+      ...FRANCE_1940_VISUAL_FACTORIES.structureMeshes,
+      CUSTOM_PORT_BUNKER:
+        FRANCE_1940_VISUAL_FACTORIES.structureMeshes.GERMAN_MG34_BUNKER
+    })
+  });
+  const customScenario = scenarioFixture([{
+    ...scenarioFixture().units[2],
+    structureId: 'CUSTOM_PORT_BUNKER'
+  }]);
+
+  const [bunker] = instantiateScenarioUnits(
+    customScenario,
+    undefined,
+    createFamilyRegistry([customFamily]),
+    {
+      catalogPorts: customCatalogPorts,
+      visualFactories: customVisualFactories
+    }
+  );
+
+  assert.equal(bunker.structureSpec, customStructure);
+  assert.equal(bunker.catalogPorts, customCatalogPorts);
+  assert.equal(bunker.mesh.name, 'ger_Bunker');
+});
+
 test('scenario runtime instantiates, validates, grounds, and indexes units generically', () => {
   const added = [];
   const terrain = { getHeightAt: (x, z) => (x + z) * 0.01 };
@@ -603,6 +778,10 @@ test('Stonne descriptor instantiates every production Unit model', () => {
   const frenchInfantry = units.find(unit => unit.id === 'fr_hq');
   const germanInfantry = units.find(unit => unit.id === 'ger_sq1');
   const bunker = units.find(unit => unit.structureSpec);
+  assert.equal(
+    bunker.structureSpec,
+    FRANCE_1940_STRUCTURES.GERMAN_MG34_BUNKER
+  );
   assert.equal(frenchTank.mesh.name, 'fr_somua');
   assert.equal(germanTank.mesh.name, 'ger_panzer4');
   assert.equal(

@@ -94,6 +94,18 @@ class FakeAudioContext {
   close() { this.closed = true; }
 }
 
+class ThrowingOscillatorAudioContext extends FakeAudioContext {
+  constructor() {
+    super();
+    this.throwOscillator = true;
+  }
+
+  createOscillator() {
+    if (this.throwOscillator) throw new Error('test oscillator creation failure');
+    return super.createOscillator();
+  }
+}
+
 function withFakeAudio(testFn) {
   return async () => {
     const previousWindow = globalThis.window;
@@ -153,3 +165,57 @@ test('cannon and UI oscillator sources receive scheduled stops and cleanup', wit
   assert.equal(click.disconnected, true);
   sound.dispose();
 }));
+
+test('building damage playback is capped, reuses seeded buffers, and disposes once', withFakeAudio(() => {
+  const sound = new SoundEngine({
+    audioProvider: FRANCE_1940_PROCEDURAL_AUDIO_PROVIDER,
+    voiceLimits: { buildingDamage: 1 }
+  });
+  assert.equal(sound.playBuildingDamage({ severity: 'damaged' }), true);
+  assert.equal(sound.lastEventId, FRANCE_1940_AUDIO_EVENT_IDS.buildingDamaged);
+  const context = sound.ctx;
+  const first = context.sources.at(-1);
+  assert.equal(context.bufferCreations, 1);
+  assert.equal(sound.playBuildingDamage({ severity: 'collapsed' }), false);
+  first.end();
+  assert.equal(sound.activeVoices.size, 0);
+
+  assert.equal(sound.playBuildingDamage({ severity: 'damaged' }), true);
+  assert.equal(context.bufferCreations, 1);
+  context.sources.at(-1).end();
+  assert.equal(sound.dispose(), true);
+  assert.equal(sound.dispose(), false);
+  assert.equal(context.closed, true);
+}));
+
+test('partial multi-layer building playback releases its reservation and recovers', async () => {
+  const previousWindow = globalThis.window;
+  globalThis.window = { AudioContext: ThrowingOscillatorAudioContext };
+  try {
+    const sound = new SoundEngine({
+      audioProvider: FRANCE_1940_PROCEDURAL_AUDIO_PROVIDER,
+      voiceLimits: { buildingDamage: 1 }
+    });
+    assert.throws(
+      () => sound.playBuildingDamage({ severity: 'collapsed' }),
+      /oscillator creation failure/
+    );
+    const context = sound.ctx;
+    const partialNoise = context.sources[0];
+    assert.equal(sound.activeVoices.size, 0);
+    assert.equal(partialNoise.onended, null);
+    assert.equal(partialNoise.disconnected, true);
+    assert.equal(partialNoise.stops.length, 2, 'scheduled and cleanup stops both run');
+
+    context.throwOscillator = false;
+    assert.equal(sound.playBuildingDamage({ severity: 'collapsed' }), true);
+    assert.equal(sound.activeVoices.get('buildingDamage').size, 1);
+    context.sources.slice(1).forEach(source => source.end());
+    assert.equal(sound.activeVoices.size, 0);
+    assert.equal(sound.dispose(), true);
+    assert.equal(sound.dispose(), false);
+    assert.equal(context.closed, true);
+  } finally {
+    globalThis.window = previousWindow;
+  }
+});

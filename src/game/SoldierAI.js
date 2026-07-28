@@ -96,6 +96,53 @@ function canReactToThreat(agent) {
   );
 }
 
+function canParticipateInBuddyBounds(agent, unit, livingCount) {
+  const buildingPhase = agent.buildingLocation?.phase ?? null;
+  return Boolean(
+    canReactToThreat(agent)
+    && (
+      !buildingPhase
+      || ['outside', 'approaching'].includes(buildingPhase)
+    )
+  )
+    && agent.reloadTimer <= 0
+    && agent.magazineAmmo > 0
+    && agent.suppression < 35
+    && !['PINNED', 'ROUTED'].includes(agent.moraleTier)
+    && !['Pinned', 'Broken'].includes(unit.morale)
+    && agent.threatMemory.size === 0
+    && (agent.record.incomingFireTimer ?? 0) <= 0
+    && (agent.record.casualtyResponseTimer ?? 0) <= 0
+    && agent.suppression - (agent.record.lastSuppression ?? agent.suppression) < 4
+    && livingCount >= (agent.record.knownLivingCount ?? livingCount);
+}
+
+function hasStableUnitId(unit) {
+  return (typeof unit?.id === 'string' && unit.id.length > 0)
+    || (typeof unit?.id === 'number' && Number.isFinite(unit.id));
+}
+
+function hasValidRetainedDirectTarget(unit) {
+  const target = unit.targetUnit;
+  return Boolean(
+    target
+    && target !== unit
+    && hasStableUnitId(target)
+    && typeof target.faction === 'string'
+    && target.faction.length > 0
+    && target.faction !== unit.faction
+    && typeof target.isCombatEffective === 'function'
+    && target.isCombatEffective()
+  );
+}
+
+function isBuildingTransitActive(agents) {
+  return agents.some(agent => {
+    const phase = agent.buildingLocation?.phase;
+    return phase && !['outside', 'approaching'].includes(phase);
+  });
+}
+
 function segmentIntersectsBounds(start, end, bounds) {
   let minimum = 0;
   let maximum = 1;
@@ -261,6 +308,7 @@ export class SoldierAI {
     this.agents = this.unit.roster.map((soldier, index) =>
       new SoldierAgent(this.unit, soldier, meshes[index], index)
     );
+    this.formationGoals = this.agents.map(() => new THREE.Vector3());
     this.syncMeshes();
   }
 
@@ -297,14 +345,88 @@ export class SoldierAI {
       ?? this.unit.targetUnit?.position
       ?? this.unit.targetPos
       ?? null;
+    const cosine = Math.cos(this.unit.rotation);
+    const sine = Math.sin(this.unit.rotation);
+    for (let index = 0; index < this.agents.length; index++) {
+      const agent = this.agents[index];
+      const formationOffset = this.getFormationOffset(index, orderType);
+      agent.slotOffset.copy(formationOffset);
+      const formationGoal = this.formationGoals[index];
+      formationGoal.set(
+        this.unit.position.x
+          + cosine * formationOffset.x
+          + sine * formationOffset.z,
+        0,
+        this.unit.position.z
+          - sine * formationOffset.x
+          + cosine * formationOffset.z
+      );
+      formationGoal.y = terrain.getHeightAt(
+        formationGoal.x,
+        formationGoal.z
+      );
+    }
+
+    const waypointIndex = this.unit.currentWaypointIndex;
+    const activeWaypoint = this.unit.waypoints[waypointIndex] ?? null;
+    const finalWaypoint = waypointIndex === this.unit.waypoints.length - 1;
+    const nearFinalWaypoint = Boolean(
+      activeWaypoint
+      && finalWaypoint
+      && Math.hypot(
+        activeWaypoint.position.x - this.unit.position.x,
+        activeWaypoint.position.z - this.unit.position.z
+      ) < 0.8
+    );
+    const coordinatorActive = Boolean(
+      activeWaypoint
+      && activeWaypoint.orderType === 'QUICK'
+      && orderType === 'QUICK'
+      && hasValidRetainedDirectTarget(this.unit)
+      && context.hasDirectPrecisionObservation === true
+      && !isBuildingTransitActive(this.agents)
+    );
+    const waypointKey = activeWaypoint
+      ? [
+          waypointIndex,
+          activeWaypoint.orderType,
+          activeWaypoint.position.x,
+          activeWaypoint.position.y,
+          activeWaypoint.position.z
+        ].join(':')
+      : null;
+    const boundMembers = coordinatorActive
+      ? this.agents
+          .map((agent, index) => ({
+            agent,
+            goal: this.formationGoals[index]
+          }))
+          .filter(({ agent }) =>
+            canParticipateInBuddyBounds(agent, this.unit, livingCount))
+          .map(({ agent, goal }) => ({
+            id: agent.id,
+            x: agent.position.x,
+            z: agent.position.z,
+            goalX: goal.x,
+            goalZ: goal.z
+          }))
+      : [];
+    const boundDirectives = this.unit.infantryBuddyBounds?.update({
+      active: coordinatorActive,
+      reform: nearFinalWaypoint,
+      waypointKey,
+      members: boundMembers
+    }) ?? new Map();
+
     for (let index = 0; index < this.agents.length; index++) {
       const agent = this.agents[index];
       const soldier = agent.record;
       advanceInfantryAnimation(soldier, dt);
       const canReact = canReactToThreat(agent);
-      const rememberedThreat = canReact
+      const currentMemory = agent.isAlive
         ? agent.threatMemory.advance(dt)
         : null;
+      const rememberedThreat = canReact ? currentMemory : null;
 
       soldier.incomingFireTimer = Math.max(0, (soldier.incomingFireTimer ?? 0) - dt);
       if (soldier.incomingFireTimer === 0) soldier.incomingFireIntensity = 0;
@@ -315,16 +437,22 @@ export class SoldierAI {
         soldier.casualtyResponseTimer = Math.max(soldier.casualtyResponseTimer, 3.2);
       }
 
-      const formationOffset = this.getFormationOffset(index, orderType);
-      agent.slotOffset.copy(formationOffset);
       const goal = scratchGoal
-        .copy(formationOffset)
-        .applyAxisAngle(UP, this.unit.rotation)
-        .add(this.unit.position);
-      goal.y = terrain.getHeightAt(goal.x, goal.z);
+        .copy(this.formationGoals[index]);
+      const boundDirective =
+        this.unit.infantryBuddyBounds?.getDirective(
+          boundDirectives,
+          agent.id
+        ) ?? null;
+      const hasBoundRole = boundDirective?.role === 'mover'
+        || boundDirective?.role === 'coverer';
 
       const spacing = spacingCorrection(agent, this.agents);
-      if (Number.isFinite(spacing.nearest) && spacing.nearest < 1.05) {
+      if (
+        !hasBoundRole
+        && Number.isFinite(spacing.nearest)
+        && spacing.nearest < 1.05
+      ) {
         goal.x += spacing.x * 0.55;
         goal.z += spacing.z * 0.55;
         goal.y = terrain.getHeightAt(goal.x, goal.z);
@@ -353,8 +481,8 @@ export class SoldierAI {
       const cover = reactionReason && canReact
         ? selectNearbyCover(agent, terrain, threatPosition, this.agents)
         : null;
-      if (cover) goal.copy(cover.position);
-      const spacingReaction = spacing.nearest < 1.05;
+      if (cover && !hasBoundRole) goal.copy(cover.position);
+      const spacingReaction = !hasBoundRole && spacing.nearest < 1.05;
       const reactingToEnvironment = Boolean(
         (cover || spacingReaction) && agent.position.distanceToSquared(goal) > 0.18 * 0.18
       );
@@ -371,6 +499,10 @@ export class SoldierAI {
       decision.coverSide = cover?.side ?? null;
       decision.coverScore = cover ? Number(cover.score.toFixed(4)) : null;
       decision.shielded = cover?.shielded ?? false;
+      decision.buddyId = boundDirective?.buddyId ?? null;
+      decision.boundPairId = boundDirective?.pairId ?? null;
+      decision.boundRole = boundDirective?.role ?? null;
+      decision.boundSequence = boundDirective?.sequence ?? null;
       decision.nearestNeighborMeters = Number.isFinite(spacing.nearest)
         ? Number(spacing.nearest.toFixed(4))
         : null;
@@ -432,7 +564,9 @@ export class SoldierAI {
       );
 
       agent.updateMovement(delta, terrain, {
-        anchorMoving: anchorMoving || reactingToEnvironment,
+        anchorMoving: boundDirective?.holdMovement
+          ? false
+          : anchorMoving || reactingToEnvironment,
         orderType,
         goal,
         neighbors: this.agents,
@@ -441,7 +575,9 @@ export class SoldierAI {
         threatDirection: threatDir,
         cover,
         isShielded: cover?.shielded ?? false,
-        hasLeaderNearby
+        hasLeaderNearby,
+        coveringHold: boundDirective?.holdMovement ?? false,
+        buddyBoundMover: boundDirective?.blockFire ?? false
       });
       soldier.lastSuppression = agent.suppression;
       soldier.knownLivingCount = livingCount;
@@ -760,6 +896,17 @@ export class SoldierAI {
     this.syncMeshes();
   }
 
+  clearBuddyBoundDiagnostics() {
+    for (const agent of this.agents) {
+      const decision = agent.record.tacticalDecision;
+      if (!decision) continue;
+      decision.buddyId = null;
+      decision.boundPairId = null;
+      decision.boundRole = null;
+      decision.boundSequence = null;
+    }
+  }
+
   getLivingSoldiers() {
     return this.getLivingAgents().map(agent => agent.record);
   }
@@ -774,6 +921,7 @@ export class SoldierAI {
       && agent.suppression < 58
       && agent.state !== 'MOVING'
       && agent.state !== 'REACTING'
+      && agent.state !== 'BOUNDING'
     );
   }
 

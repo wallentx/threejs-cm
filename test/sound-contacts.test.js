@@ -12,6 +12,10 @@ import {
   weaponReportSignature
 } from '../src/simulation/observation/SoundContacts.js';
 import { SpottingSystem } from '../src/game/SpottingSystem.js';
+import {
+  IDENTIFICATION_QUALITY_APPROXIMATION,
+  IDENTIFICATION_TIER
+} from '../src/simulation/observation/IdentificationQuality.js';
 
 function makePerson(id, overrides = {}) {
   return {
@@ -101,6 +105,15 @@ test('weapon report creates a displaced SOUND contact without direct observation
   assert.equal(contact.sourceUnitId, listener.id);
   assert.equal(contact.sourceSoldierId, 0);
   assert.equal(contact.sourceEventId, event.id);
+  assert.equal(contact.identificationProgress, 0);
+  assert.equal(
+    contact.identificationTier,
+    IDENTIFICATION_TIER.UNIDENTIFIED
+  );
+  assert.equal(
+    contact.identificationApproximationLabel,
+    IDENTIFICATION_QUALITY_APPROXIMATION
+  );
   assert.notDeepEqual(contact.position, event.origin);
   assert.ok(horizontalDistance(contact.position, event.origin) > 0);
   assert.ok(
@@ -117,7 +130,7 @@ test('weapon report creates a displaced SOUND contact without direct observation
   );
 
   const captured = spotting.captureState();
-  assert.equal(captured.version, 3);
+  assert.equal(captured.version, 4);
   assert.equal(Object.hasOwn(captured.contacts[0].contact, 'origin'), false);
   assert.equal(captured.contacts[0].contact.targetSoldierId, null);
   assert.equal(Object.isFrozen(event), true);
@@ -325,7 +338,7 @@ test('SOUND decay, expiry, capture, and replay are deterministic', () => {
   versionOne.version = 1;
   const compatible = makeSpotting();
   assert.doesNotThrow(() => compatible.restoreState(versionOne));
-  assert.equal(compatible.captureState().version, 3);
+  assert.equal(compatible.captureState().version, 4);
   assert.equal(
     compatible.getContactForUnit('listener', 'shooter').sourceEventId,
     event.id

@@ -69,6 +69,7 @@ function createHarness() {
     getVisibilityProjection: () => null,
     getBocageObstacles: () => [],
     getImpacts: () => [],
+    getBuildingFloorIds: () => ['ground-floor', 'upper-floor'],
     selectUnit: unitToSelect => { selectedUnit = unitToSelect; },
     deselectUnit: () => {
       calls.deselect++;
@@ -516,7 +517,19 @@ test('selection-dependent HUD restores content and interactivity after reselecti
     };
 
     ui.renderCommandGrid();
-    assert.ok(commandGrid.children.length > 0);
+    assert.equal(commandGrid.children.length, 6);
+    assert.doesNotMatch(
+      commandGrid.children.map(child => child.innerHTML).join(' '),
+      /CANCEL TOOL|DESELECT/
+    );
+    ui.activeTab = 'special';
+    ui.renderCommandGrid();
+    assert.doesNotMatch(
+      commandGrid.children.map(child => child.innerHTML).join(' '),
+      /DEPLOY/
+    );
+    ui.activeTab = 'move';
+    ui.renderCommandGrid();
     assert.equal(panels['panel-commands'].inert, false);
     assert.equal(panels['panel-team-roster'].inert, false);
 
@@ -538,6 +551,156 @@ test('selection-dependent HUD restores content and interactivity after reselecti
   } finally {
     if (previousDocument === undefined) delete globalThis.document;
     else globalThis.document = previousDocument;
+  }
+});
+
+test('building floor choices come from the target descriptor and never invent an upper floor', () => {
+  const previousDocument = globalThis.document;
+  let modal = null;
+  const buttonListeners = new Map();
+  globalThis.document = {
+    getElementById: id => id === 'building-floor-modal' ? modal : null,
+    createElement: () => ({
+      id: '',
+      className: '',
+      innerHTML: '',
+      remove() {
+        modal = null;
+      },
+      querySelector(selector) {
+        const id = selector.startsWith('#') ? selector.slice(1) : selector;
+        if (!this.innerHTML.includes(`id="${id}"`)) return null;
+        if (!buttonListeners.has(id)) {
+          buttonListeners.set(id, {
+            addEventListener(type, listener) {
+              if (type === 'click') this.click = listener;
+            },
+            click() {}
+          });
+        }
+        return buttonListeners.get(id);
+      }
+    }),
+    body: {
+      appendChild(element) {
+        modal = element;
+      }
+    }
+  };
+
+  try {
+    const orders = [];
+    const floorIds = new Map([
+      ['farmhouse', ['ground-floor']],
+      ['big-house', ['ground-floor', 'upper-floor']]
+    ]);
+    const ui = Object.create(UIManager.prototype);
+    ui.runtime = {
+      getBuildingFloorIds: buildingId => [...(floorIds.get(buildingId) ?? [])],
+      issueBuildingOrder: (...args) => {
+        orders.push(args);
+        return { accepted: true };
+      },
+      cancelCommandMode() {},
+      selectedUnit: null
+    };
+    ui.renderCommandGrid = () => {};
+    ui.showToast = () => {};
+    const unit = { id: 'squad' };
+    const point = { x: 2, y: 0, z: 3 };
+
+    assert.equal(
+      ui.showFloorSelectorModal(unit, point, 'farmhouse', 'QUICK'),
+      true
+    );
+    assert.match(modal.innerHTML, /Ground Floor/);
+    assert.doesNotMatch(modal.innerHTML, /Upper Floor/);
+    modal.querySelector('#btn-floor-ground').click();
+    assert.deepEqual(orders.pop(), [
+      unit,
+      'ENTER_GROUND',
+      point,
+      'farmhouse'
+    ]);
+
+    assert.equal(
+      ui.showFloorSelectorModal(unit, point, 'big-house', 'QUICK'),
+      true
+    );
+    assert.match(modal.innerHTML, /Ground Floor/);
+    assert.match(modal.innerHTML, /Upper Floor/);
+    modal.querySelector('#btn-floor-upper').click();
+    assert.deepEqual(orders.pop(), [
+      unit,
+      'ENTER_UPPER',
+      point,
+      'big-house'
+    ]);
+
+    assert.equal(
+      ui.showFloorSelectorModal(unit, point, 'unknown', 'QUICK'),
+      false
+    );
+    assert.equal(modal, null);
+    assert.equal(orders.length, 0);
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  }
+});
+
+test('E issues one building exit only for an eligible selected infantry unit', () => {
+  const previousWindow = globalThis.window;
+  let keydown = null;
+  globalThis.window = {
+    addEventListener(type, listener) {
+      if (type === 'keydown') keydown = listener;
+    }
+  };
+
+  try {
+    const actions = [];
+    const ui = Object.create(UIManager.prototype);
+    ui.runtime = {
+      selectedUnit: {
+        type: 'infantry_squad',
+        soldierAI: {
+          agents: [{ buildingLocation: { buildingId: 'house' } }]
+        }
+      }
+    };
+    ui.canIssueOrders = () => true;
+    ui.handleDirectAction = action => actions.push(action);
+    ui.initHotkeys();
+
+    let prevented = 0;
+    keydown({
+      code: 'KeyE',
+      target: { tagName: 'DIV', isContentEditable: false },
+      preventDefault() { prevented++; }
+    });
+    assert.deepEqual(actions, ['EXIT_BUILDING']);
+    assert.equal(prevented, 1);
+
+    keydown({
+      code: 'KeyE',
+      target: { tagName: 'INPUT', isContentEditable: false },
+      preventDefault() { prevented++; }
+    });
+    ui.runtime.selectedUnit = {
+      type: 'infantry_squad',
+      soldierAI: { agents: [{ buildingLocation: null }] }
+    };
+    keydown({
+      code: 'KeyE',
+      target: { tagName: 'DIV', isContentEditable: false },
+      preventDefault() { prevented++; }
+    });
+    assert.deepEqual(actions, ['EXIT_BUILDING']);
+    assert.equal(prevented, 1);
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
   }
 });
 

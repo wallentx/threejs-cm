@@ -132,6 +132,7 @@ test('replacement audio provider reaches live weapon playback and disposal', asy
   try {
     const implementationId = 'test-battlefield-audio-v1';
     const replacementEventId = 'test.weapon.rifle';
+    const replacementBuildingEventId = 'test.building.damage';
     let resourceCreates = 0;
     let resourceDisposals = 0;
     const replacementProvider = Object.freeze({
@@ -144,10 +145,16 @@ test('replacement audio provider reaches live weapon playback and disposal', asy
           ...base,
           events: Object.freeze({
             ...base.events,
-            [replacementEventId]: base.events[FRANCE_1940_AUDIO_EVENT_IDS.rifle]
+            [replacementEventId]: base.events[FRANCE_1940_AUDIO_EVENT_IDS.rifle],
+            [replacementBuildingEventId]: base.events[
+              FRANCE_1940_AUDIO_EVENT_IDS.buildingDamaged
+            ]
           }),
           resolveWeaponEvent() {
             return replacementEventId;
+          },
+          resolveBuildingDamageEvent() {
+            return replacementBuildingEventId;
           },
           dispose() {
             resourceDisposals++;
@@ -177,6 +184,9 @@ test('replacement audio provider reaches live weapon playback and disposal', asy
       true
     );
     assert.equal(sound.lastEventId, replacementEventId);
+    sound.ctx.sources.forEach(source => source.end());
+    assert.equal(sound.playBuildingDamage({ severity: 'damaged' }), true);
+    assert.equal(sound.lastEventId, replacementBuildingEventId);
     const voice = [...sound.activeVoices.values()][0].values().next().value;
     assert.deepEqual(voice.assetBinding, expectedBinding);
     sound.ctx.sources.forEach(source => source.end());
@@ -213,7 +223,36 @@ test('France audio provider resolves actual weapon records by class and caliber'
     resources.resolveWeaponEvent({ kind: 'cannon_he', caliberMm: 75 }),
     FRANCE_1940_AUDIO_EVENT_IDS.mediumCannon
   );
+  assert.equal(
+    resources.resolveBuildingDamageEvent({ severity: 'damaged' }),
+    FRANCE_1940_AUDIO_EVENT_IDS.buildingDamaged
+  );
+  assert.equal(
+    resources.resolveBuildingDamageEvent({ severity: 'breached' }),
+    FRANCE_1940_AUDIO_EVENT_IDS.buildingBreached
+  );
+  assert.equal(
+    resources.resolveBuildingDamageEvent({ severity: 'collapsed' }),
+    FRANCE_1940_AUDIO_EVENT_IDS.buildingCollapsed
+  );
+  assert.ok(resources.voiceLimits.buildingDamage > 0);
   resources.dispose();
+});
+
+test('audio resources reject a missing building-damage resolver', () => {
+  const malformedProvider = Object.freeze({
+    id: 'missing-building-resolver',
+    kind: 'battlefield-audio-provider',
+    createResources() {
+      const base = FRANCE_1940_PROCEDURAL_AUDIO_PROVIDER.createResources();
+      const { resolveBuildingDamageEvent, ...incomplete } = base;
+      return incomplete;
+    }
+  });
+  assert.throws(
+    () => new SoundEngine({ audioProvider: malformedProvider }),
+    /resolveBuildingDamageEvent/
+  );
 });
 
 test('audio binding rejects missing, mismatched, and incomplete providers', () => {

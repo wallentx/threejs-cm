@@ -158,16 +158,37 @@ function houseRoofProfile(descriptor) {
   };
 }
 
-function terrainFoundation({ centerX, centerZ, width, depth, topY, getHeightAt }) {
+function terrainFoundation({
+  centerX,
+  centerZ,
+  width,
+  depth,
+  topY,
+  getHeightAt,
+  rotationY = 0
+}) {
   const hw = width * 0.5;
   const hd = depth * 0.5;
-  const corners = [
-    [centerX - hw, centerZ + hd], [centerX + hw, centerZ + hd],
-    [centerX + hw, centerZ - hd], [centerX - hw, centerZ - hd]
+  const localCorners = [
+    [-hw, hd], [hw, hd],
+    [hw, -hd], [-hw, -hd]
   ];
+  const cosine = Math.cos(rotationY);
+  const sine = Math.sin(rotationY);
+  const worldCorners = localCorners.map(([localX, localZ]) => [
+    centerX + localX * cosine + localZ * sine,
+    centerZ - localX * sine + localZ * cosine
+  ]);
   const positions = [];
   const uvs = [];
-  const bottom = corners.map(([x, z]) => new THREE.Vector3(x - centerX, getHeightAt(x, z) - topY, z - centerZ));
+  const bottom = localCorners.map(([localX, localZ], index) => {
+    const [worldX, worldZ] = worldCorners[index];
+    return new THREE.Vector3(
+      localX,
+      getHeightAt(worldX, worldZ) - topY,
+      localZ
+    );
+  });
   const top = bottom.map(point => point.clone().setY(0));
   const quad = (a, b, c, d) => {
     for (const point of [a, b, c, a, c, d]) positions.push(point.x, point.y, point.z);
@@ -181,7 +202,13 @@ function terrainFoundation({ centerX, centerZ, width, depth, topY, getHeightAt }
   geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geometry.computeVertexNormals();
   geometry.computeBoundingBox();
-  geometry.userData.worldFootprintCorners = corners.map(([x, z], index) => [x, bottom[index].y + topY, z]);
+  geometry.userData.worldFootprintCorners = worldCorners.map(
+    ([worldX, worldZ], index) => [
+      worldX,
+      bottom[index].y + topY,
+      worldZ
+    ]
+  );
   geometry.userData.topY = topY;
   return geometry;
 }
@@ -474,14 +501,23 @@ function buildRubble(descriptor) {
 export function createFrenchHouseVisual({ descriptor, runtime, centerX, centerZ, foundationTopY, getHeightAt }) {
   const root = new THREE.Group();
   root.name = 'FrenchVillageHouse';
+  const rotationY = runtime?.transform?.rotationY ?? 0;
   root.position.set(centerX, foundationTopY, centerZ);
-  root.rotation.y = runtime?.transform?.rotationY ?? 0;
+  root.rotation.y = rotationY;
   const width = descriptor.bounds.max[0] - descriptor.bounds.min[0];
   const depth = descriptor.bounds.max[2] - descriptor.bounds.min[2];
   const foundationWidth = width + 0.36;
   const foundationDepth = depth + 0.36;
   const foundation = new THREE.Mesh(
-    terrainFoundation({ centerX, centerZ, width: foundationWidth, depth: foundationDepth, topY: foundationTopY, getHeightAt }),
+    terrainFoundation({
+      centerX,
+      centerZ,
+      width: foundationWidth,
+      depth: foundationDepth,
+      topY: foundationTopY,
+      getHeightAt,
+      rotationY
+    }),
     material('#777164')
   );
   foundation.name = 'HouseFoundation';
@@ -616,14 +652,22 @@ export function createFrenchHouseVisualAdapter(descriptor) {
 
 /** Dispose only renderer-owned resources created by createFrenchHouseVisual(). */
 export function disposeFrenchHouseVisual(root) {
+  if (!root || root.userData?.houseVisualDisposed) return;
+  root.userData.houseVisualDisposed = true;
+  const geometries = new Set();
+  const materials = new Set();
   root?.traverse(object => {
     if (!object.isMesh) return;
-    object.geometry?.dispose?.();
-    const materials = Array.isArray(object.material) ? object.material : [object.material];
-    for (const candidate of materials) {
-      if (candidate?.userData?.houseVisualMaterial) candidate.dispose?.();
+    if (object.geometry?.dispose) geometries.add(object.geometry);
+    const candidates = Array.isArray(object.material) ? object.material : [object.material];
+    for (const candidate of candidates) {
+      if (candidate?.userData?.houseVisualMaterial && candidate.dispose) {
+        materials.add(candidate);
+      }
     }
   });
+  for (const geometry of geometries) geometry.dispose();
+  for (const candidate of materials) candidate.dispose();
 }
 
 export { LOD_DISTANCES as FRENCH_HOUSE_LOD_DISTANCES };

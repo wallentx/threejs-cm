@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Weapon Review UI</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; overflow: hidden; background-color: #111; color: white; font-family: sans-serif; }
+        
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.85);
+            padding: 8px 16px;
+            z-index: 1000;
+            border-radius: 8px;
+            border: 1px solid #555;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        }
+        
+        #grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 1fr 1fr;
+            width: 100vw;
+            height: 100vh;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 10;
+            pointer-events: none;
+        }
+        
+        .view-cell {
+            position: relative;
+            border: 1px solid #333;
+            overflow: hidden;
+            pointer-events: auto;
+            cursor: grab;
+        }
+        .view-cell:active {
+            cursor: grabbing;
+        }
+        
+        .view-label {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            padding: 4px 10px;
+            border-radius: 4px;
+            pointer-events: none;
+            z-index: 100;
+            font-weight: bold;
+            font-size: 13px;
+            border: 1px solid #444;
+        }
+
+        .bg-controls {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            z-index: 100;
+            background: rgba(0,0,0,0.85);
+            padding: 8px 12px;
+            font-size: 12px;
+            border-radius: 6px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            border: 1px solid #444;
+        }
+        .bg-controls input[type="file"] {
+            width: 160px;
+        }
+        .control-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .control-row span {
+            min-width: 40px;
+        }
+
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 2;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="controls">
+        <label for="weapon-select"><strong>Select Weapon:</strong></label>
+        <select id="weapon-select">
+            <option value="MAS-36 Rifle">MAS-36 Rifle</option>
+            <option value="MAS-38 SMG">MAS-38 SMG</option>
+            <option value="FM 24/29 LMG">FM 24/29 LMG</option>
+            <option value="Kar98k">Kar98k</option>
+            <option value="MG34 LMG">MG34 LMG</option>
+            <option value="MP40">MP40</option>
+        </select>
+
+        <label for="view-mode-select" style="margin-left: 12px;"><strong>Mode:</strong></label>
+        <select id="view-mode-select">
+            <option value="weapon">Weapon Only</option>
+            <option value="soldier">Weapon + Soldier</option>
+        </select>
+
+        <label for="stance-select" style="margin-left: 12px;"><strong>Stance:</strong></label>
+        <select id="stance-select">
+            <option value="STANDING_LOW_READY">Standing Low-Ready</option>
+            <option value="STANDING_AIMING">Standing Aiming</option>
+            <option value="STANDING_AT_EASE">Standing At-Ease</option>
+            <option value="KNEELING">Kneeling Ready</option>
+            <option value="CROUCHED">Crouched Ready</option>
+            <option value="PRONE">Prone Idle</option>
+        </select>
+
+        <label style="margin-left: 12px; font-size: 13px;">
+            <input type="checkbox" id="animate-toggle" checked> Animate Idle
+        </label>
+    </div>
+    
+    <div id="grid">
+        <!-- Top Left: Side View -->
+        <div id="cell-tl" class="view-cell">
+            <div class="view-label">Side View (Locked 90°) - Drag to Pan, Scroll to Zoom</div>
+            <div class="bg-controls">
+                <div class="control-row">
+                    <span>Blueprint:</span>
+                    <input type="file" accept="image/*" onchange="setBg(this, 'tl')">
+                </div>
+                <div class="control-row">
+                    <span>Scale:</span>
+                    <input type="range" min="10" max="300" value="100" oninput="updateBg('tl', this)">
+                </div>
+                <div class="control-row">
+                    <span>Offset X:</span>
+                    <input type="range" min="-500" max="500" value="0" oninput="updateBg('tl', this)">
+                </div>
+                <div class="control-row">
+                    <span>Offset Y:</span>
+                    <input type="range" min="-500" max="500" value="0" oninput="updateBg('tl', this)">
+                </div>
+            </div>
+        </div>
+        
+        <!-- Top Right: Top View -->
+        <div id="cell-tr" class="view-cell">
+            <div class="view-label">Top View (Locked 90°) - Drag to Pan, Scroll to Zoom</div>
+            <div class="bg-controls">
+                <div class="control-row">
+                    <span>Blueprint:</span>
+                    <input type="file" accept="image/*" onchange="setBg(this, 'tr')">
+                </div>
+                <div class="control-row">
+                    <span>Scale:</span>
+                    <input type="range" min="10" max="300" value="100" oninput="updateBg('tr', this)">
+                </div>
+                <div class="control-row">
+                    <span>Offset X:</span>
+                    <input type="range" min="-500" max="500" value="0" oninput="updateBg('tr', this)">
+                </div>
+                <div class="control-row">
+                    <span>Offset Y:</span>
+                    <input type="range" min="-500" max="500" value="0" oninput="updateBg('tr', this)">
+                </div>
+            </div>
+        </div>
+        
+        <!-- Bottom Left: Front View -->
+        <div id="cell-bl" class="view-cell">
+            <div class="view-label">Front View (Locked 90°) - Drag to Pan, Scroll to Zoom</div>
+            <div class="bg-controls">
+                <div class="control-row">
+                    <span>Blueprint:</span>
+                    <input type="file" accept="image/*" onchange="setBg(this, 'bl')">
+                </div>
+                <div class="control-row">
+                    <span>Scale:</span>
+                    <input type="range" min="10" max="300" value="100" oninput="updateBg('bl', this)">
+                </div>
+                <div class="control-row">
+                    <span>Offset X:</span>
+                    <input type="range" min="-500" max="500" value="0" oninput="updateBg('bl', this)">
+                </div>
+                <div class="control-row">
+                    <span>Offset Y:</span>
+                    <input type="range" min="-500" max="500" value="0" oninput="updateBg('bl', this)">
+                </div>
+            </div>
+        </div>
+        
+        <!-- Bottom Right: Free 3D View -->
+        <div id="cell-br" class="view-cell">
+            <div class="view-label">3D View (Free Rotation) - Drag to Rotate, Right-Drag to Pan, Scroll to Zoom</div>
+        </div>
+    </div>
+
+    <div id="canvas-container"></div>
+    
+    <script>
+        function setBg(input, viewKey) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    window.dispatchEvent(new CustomEvent('bg-loaded', { detail: { viewKey, src: e.target.result } }));
+                    const controls = input.closest('.bg-controls').querySelectorAll('input[type="range"]');
+                    controls.forEach(c => {
+                        if(c.previousElementSibling.innerText.includes('Scale')) c.value = 100;
+                        else c.value = 0;
+                    });
+                    updateBg(viewKey, controls[0]);
+                }
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+        function updateBg(viewKey, sliderElement) {
+            const controls = sliderElement.closest('.bg-controls').querySelectorAll('input[type="range"]');
+            const scale = parseFloat(controls[0].value);
+            const x = parseFloat(controls[1].value);
+            const y = parseFloat(controls[2].value);
+            window.dispatchEvent(new CustomEvent('bg-update', { detail: { viewKey, scale, x, y } }));
+        }
+    </script>
+    <script type="module" src="/src/weapon-review.js"></script>
+</body>
+</html>

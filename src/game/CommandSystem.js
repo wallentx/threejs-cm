@@ -125,7 +125,8 @@ export class CommandSystem {
             : null;
           const routeStart = pendingWaypoint?.position ?? this.activeUnit.position;
           // Unit advances to the next waypoint once its anchor is within 0.8 m.
-          // Keep formation goals clear even at that early-acceptance boundary.
+          // Keep corner arrival tolerance separate from the formation envelope
+          // that must remain clear along every route segment.
           const waypointArrivalTolerance = 0.8;
           const formationClearance = Math.max(
             0,
@@ -133,13 +134,16 @@ export class CommandSystem {
               const offset = this.activeUnit.soldierAI.getFormationOffset?.(agent.index, orderType);
               return typeof offset?.length === 'function' ? offset.length() : 0;
             }) ?? [])
-          ) + waypointArrivalTolerance;
+          );
           const plannedRoute = this.activeUnit.collisionWorld?.getNavigationPath?.(
             { x: routeStart.x, z: routeStart.z },
             { x: pointVec3.x, z: pointVec3.z },
             this.activeUnit.collisionRadius,
             'infantry',
-            { waypointClearance: formationClearance }
+            {
+              clearance: formationClearance,
+              waypointClearance: waypointArrivalTolerance
+            }
           );
           const routePoints = Array.isArray(plannedRoute) && plannedRoute.length > 0
             ? plannedRoute

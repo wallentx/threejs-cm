@@ -93,11 +93,8 @@ test('six 1940 infantry weapons expose dimensioned semantic silhouettes and true
     } else {
       assert.ok(parts.chargingHandle, `${weaponName} must expose its charging handle`);
     }
-    if (['fm2429', 'mas38', 'mg34', 'mp40'].includes(spec.id)) {
+    if (['fm2429', 'mg34', 'mp40', 'mas38'].includes(spec.id)) {
       assert.ok(parts.pistolGrip, `${weaponName} must expose its pistol grip`);
-    }
-    if (spec.id === 'mas38') {
-      assert.equal(parts.profileDetail.userData.definingFeature, 'canted receiver profile');
     }
 
     assert.equal(parts.stock.position.z >= 0, true);

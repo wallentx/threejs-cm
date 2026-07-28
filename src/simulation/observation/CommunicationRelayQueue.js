@@ -1,4 +1,9 @@
 import { CONTACT_CHANNEL, clonePosition } from './ContactState.js';
+import {
+  identificationProjection,
+  normalizeIdentificationProgress,
+  validateIdentificationProjection
+} from './IdentificationQuality.js';
 
 export const COMMUNICATION_RELAY_DELAY_APPROXIMATION =
   'first-report voice/radio delay gameplay approximation v1';
@@ -50,8 +55,8 @@ function positionValues(position) {
     : [position?.x, position?.y, position?.z];
 }
 
-function cloneReport(report) {
-  return {
+function cloneReport(report, { projectIdentification = false } = {}) {
+  const cloned = {
     senderUnitId: report.senderUnitId,
     receiverUnitId: report.receiverUnitId,
     targetUnitId: report.targetUnitId,
@@ -60,12 +65,22 @@ function cloneReport(report) {
     episodeSequence: report.episodeSequence,
     channel: report.channel,
     confidence: report.confidence,
+    identificationProgress: normalizeIdentificationProgress(
+      report.identificationProgress ?? 0
+    ),
     acquiredAt: report.acquiredAt,
     delaySeconds: report.delaySeconds,
     dueAt: report.dueAt,
     position: clonePosition(report.position),
     approximationLabel: report.approximationLabel
   };
+  if (projectIdentification) {
+    Object.assign(
+      cloned,
+      identificationProjection(cloned.identificationProgress)
+    );
+  }
+  return cloned;
 }
 
 function validateReport(report) {
@@ -82,6 +97,10 @@ function validateReport(report) {
       || report.confidence > 1) {
     throw new TypeError('relay confidence must be between zero and one');
   }
+  normalizeIdentificationProgress(
+    report.identificationProgress,
+    'relay identificationProgress'
+  );
   if (!Number.isFinite(report.acquiredAt) || report.acquiredAt < 0) {
     throw new TypeError('acquiredAt must be finite and non-negative');
   }
@@ -145,7 +164,7 @@ export class CommunicationRelayQueue {
   pendingReports() {
     return [...this.pendingByRoute.values()]
       .sort(compareReports)
-      .map(cloneReport);
+      .map(report => cloneReport(report));
   }
 
   cancel(report) {
@@ -189,10 +208,12 @@ export class CommunicationRelayQueue {
 
   captureState() {
     return {
-      version: 1,
+      version: 2,
       pendingReports: [...this.pendingByRoute.values()]
         .sort((left, right) => routeKey(left).localeCompare(routeKey(right)))
-        .map(cloneReport),
+        .map(report => cloneReport(report, {
+          projectIdentification: true
+        })),
       deliveredEpisodeWatermarks: [...this.deliveredByRoute.values()]
         .sort((left, right) => routeKey(left).localeCompare(routeKey(right)))
         .map(cloneWatermark)
@@ -200,13 +221,23 @@ export class CommunicationRelayQueue {
   }
 
   restoreState(state) {
-    if ((state?.version ?? 1) !== 1) {
-      throw new TypeError(`unsupported communication relay queue version ${state.version}`);
+    const version = state?.version ?? 1;
+    if (version !== 1 && version !== 2) {
+      throw new TypeError(
+        `unsupported communication relay queue version ${state.version}`
+      );
     }
     const pending = new Map();
     for (const saved of state?.pendingReports ?? []) {
-      validateReport(saved);
-      const report = cloneReport(saved);
+      const identificationProgress = version === 2
+        ? validateIdentificationProjection(saved, 'relay report identification')
+        : 0;
+      const migrated = {
+        ...saved,
+        identificationProgress
+      };
+      validateReport(migrated);
+      const report = cloneReport(migrated);
       const key = routeKey(report);
       const previous = pending.get(key);
       if (!previous || previous.episodeSequence < report.episodeSequence) {
@@ -224,7 +255,17 @@ export class CommunicationRelayQueue {
       }
     }
     for (const [key, report] of pending) {
-      if (delivered.get(key)?.episodeSequence >= report.episodeSequence) {
+      const deliveredEpisodeSequence =
+        delivered.get(key)?.episodeSequence;
+      if (version === 2
+          && deliveredEpisodeSequence === report.episodeSequence) {
+        throw new TypeError(
+          'communication relay queue version 2 cannot contain the same route and episode in pending and delivered state'
+        );
+      }
+      // Version 1 snapshots predate the strict queue ownership contract.
+      // Migrate their stale pending record by retaining the delivered state.
+      if (deliveredEpisodeSequence >= report.episodeSequence) {
         pending.delete(key);
       }
     }

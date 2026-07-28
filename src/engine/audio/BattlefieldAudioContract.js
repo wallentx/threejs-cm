@@ -76,6 +76,7 @@ export function validateBattlefieldAudioResourceSet(resources) {
     'resolveWeaponEvent',
     'resolveExplosionEvent',
     'resolveUiEvent',
+    'resolveBuildingDamageEvent',
     'dispose'
   ]) {
     if (typeof resources[method] !== 'function') {

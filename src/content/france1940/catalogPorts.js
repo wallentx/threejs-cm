@@ -8,6 +8,10 @@ import {
   getWeapon,
   weaponIdFromName
 } from './weapons.js';
+import {
+  FRANCE_1940_STRUCTURES,
+  getStructure
+} from './structures.js';
 
 const WEAPON_PORT = Object.freeze({
   records: FRANCE_1940_WEAPONS,
@@ -21,6 +25,11 @@ const VEHICLE_PORT = Object.freeze({
   defaultIdForFaction: vehicleIdForFaction
 });
 
+const STRUCTURE_PORT = Object.freeze({
+  records: FRANCE_1940_STRUCTURES,
+  get: getStructure
+});
+
 /**
  * Read-only family catalog boundary for runtime consumers.
  *
@@ -30,6 +39,6 @@ const VEHICLE_PORT = Object.freeze({
 export const FRANCE_1940_CATALOG_PORTS = Object.freeze({
   familyId: 'france-1940',
   weapons: WEAPON_PORT,
-  vehicles: VEHICLE_PORT
+  vehicles: VEHICLE_PORT,
+  structures: STRUCTURE_PORT
 });
-

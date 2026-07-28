@@ -1,7 +1,7 @@
 export const THREAT_MEMORY_APPROXIMATION =
   'bounded per-soldier incoming-fire memory gameplay approximation v1';
 
-export const THREAT_MEMORY_CLOCK_PRECISION_SECONDS = 1e-9;
+export const THREAT_MEMORY_CLOCK_PRECISION_SECONDS = 1e-12;
 
 export const DEFAULT_THREAT_MEMORY_POLICY = Object.freeze({
   approximationLabel: THREAT_MEMORY_APPROXIMATION,
@@ -10,9 +10,16 @@ export const DEFAULT_THREAT_MEMORY_POLICY = Object.freeze({
   scoreDecay: 'linear-to-zero'
 });
 
-const STATE_VERSION = 1;
+const STATE_VERSION = 2;
+const LEGACY_STATE_VERSION = 1;
 const MAX_RECORDS = 4;
-const CLOCK_DRIFT_ULPS = 8;
+const CLOCK_PICOSECONDS_PER_SECOND =
+  1 / THREAT_MEMORY_CLOCK_PRECISION_SECONDS;
+const CLOCK_SUB_PICOSECOND_DRIFT_SECONDS = 1e-14;
+const CLOCK_HALF_PICOSECOND_SECONDS =
+  THREAT_MEMORY_CLOCK_PRECISION_SECONDS / 2;
+const LEGACY_CLOCK_PRECISION_SECONDS = 1e-9;
+const LEGACY_CLOCK_DRIFT_ULPS = 8;
 
 function compareText(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
@@ -80,28 +87,254 @@ function normalizePolicy(policyInput = {}) {
   return Object.freeze(policy);
 }
 
-function clockDriftTolerance(value) {
-  return Number.EPSILON * Math.max(1, Math.abs(value)) * CLOCK_DRIFT_ULPS;
+function normalizeSubPicosecond(value) {
+  if (Math.abs(value) <= CLOCK_SUB_PICOSECOND_DRIFT_SECONDS) return 0;
+  return Object.is(value, -0) ? 0 : value;
 }
 
-function normalizeCanonicalClockDrift(value) {
+function legacyClockDriftTolerance(value) {
+  return Number.EPSILON
+    * Math.max(1, Math.abs(value))
+    * LEGACY_CLOCK_DRIFT_ULPS;
+}
+
+function normalizeLegacyClockDrift(value) {
   const nearestTick = Math.round(
-    value / THREAT_MEMORY_CLOCK_PRECISION_SECONDS
-  ) * THREAT_MEMORY_CLOCK_PRECISION_SECONDS;
-  return Math.abs(value - nearestTick) <= clockDriftTolerance(value)
+    value / LEGACY_CLOCK_PRECISION_SECONDS
+  ) * LEGACY_CLOCK_PRECISION_SECONDS;
+  return Math.abs(value - nearestTick) <= legacyClockDriftTolerance(value)
     ? nearestTick
     : value;
 }
 
-function isOnCanonicalClockTick(value) {
+function isOnLegacyClockTick(value) {
   const nearestTick = Math.round(
-    value / THREAT_MEMORY_CLOCK_PRECISION_SECONDS
-  ) * THREAT_MEMORY_CLOCK_PRECISION_SECONDS;
-  return Math.abs(value - nearestTick) <= clockDriftTolerance(value);
+    value / LEGACY_CLOCK_PRECISION_SECONDS
+  ) * LEGACY_CLOCK_PRECISION_SECONDS;
+  return Math.abs(value - nearestTick) <= legacyClockDriftTolerance(value);
 }
 
-function cloneObservation(record) {
+// Whole seconds and integer picoseconds carry authoritative elapsed time.
+// The fixed sub-picosecond residual uses the unique half-open range
+// [-0.5 ps, +0.5 ps), preserving checkpoint continuation without making
+// expiry tolerance grow with the absolute simulation clock.
+function composeClockSeconds({
+  clockWholeSeconds,
+  clockPicoseconds,
+  clockCompensationSeconds
+}) {
+  const value = clockWholeSeconds
+    + clockPicoseconds * THREAT_MEMORY_CLOCK_PRECISION_SECONDS
+    + clockCompensationSeconds;
+  if (!Number.isFinite(value) || value < 0) {
+    throw new RangeError(
+      'threat-memory clock must remain finite and representable'
+    );
+  }
+  return value;
+}
+
+function cloneClockComponents(clock) {
   return {
+    clockWholeSeconds: clock.clockWholeSeconds,
+    clockPicoseconds: clock.clockPicoseconds,
+    clockCompensationSeconds: clock.clockCompensationSeconds
+  };
+}
+
+function freezeClockComponents(clock) {
+  return Object.freeze(cloneClockComponents(clock));
+}
+
+function canonicalClockFromComponents(clock, label) {
+  if (!clock || typeof clock !== 'object'
+      || !Number.isSafeInteger(clock.clockWholeSeconds)
+      || clock.clockWholeSeconds < 0
+      || !Number.isSafeInteger(clock.clockPicoseconds)
+      || clock.clockPicoseconds < 0
+      || clock.clockPicoseconds >= CLOCK_PICOSECONDS_PER_SECOND
+      || !Number.isFinite(clock.clockCompensationSeconds)
+      || clock.clockCompensationSeconds
+        < -CLOCK_HALF_PICOSECOND_SECONDS
+      || clock.clockCompensationSeconds
+        >= CLOCK_HALF_PICOSECOND_SECONDS
+      || (
+        clock.clockCompensationSeconds !== 0
+        && Math.abs(clock.clockCompensationSeconds)
+          <= CLOCK_SUB_PICOSECOND_DRIFT_SECONDS
+      )) {
+    throw new TypeError(`${label} canonical clock components are invalid`);
+  }
+  const normalizedClock = {
+    clockWholeSeconds: clock.clockWholeSeconds,
+    clockPicoseconds: clock.clockPicoseconds,
+    clockCompensationSeconds:
+      Object.is(clock.clockCompensationSeconds, -0)
+        ? 0
+        : clock.clockCompensationSeconds
+  };
+  let clockSeconds;
+  try {
+    clockSeconds = composeClockSeconds(normalizedClock);
+  } catch {
+    throw new TypeError(`${label} canonical clock components are invalid`);
+  }
+  return {
+    ...normalizedClock,
+    clockSeconds
+  };
+}
+
+function compareCanonicalClocks(left, right) {
+  if (left.clockWholeSeconds !== right.clockWholeSeconds) {
+    return left.clockWholeSeconds < right.clockWholeSeconds ? -1 : 1;
+  }
+  if (left.clockPicoseconds !== right.clockPicoseconds) {
+    return left.clockPicoseconds < right.clockPicoseconds ? -1 : 1;
+  }
+  if (left.clockCompensationSeconds
+      !== right.clockCompensationSeconds) {
+    return left.clockCompensationSeconds
+      < right.clockCompensationSeconds ? -1 : 1;
+  }
+  return 0;
+}
+
+function canonicalClocksEqual(left, right) {
+  return compareCanonicalClocks(left, right) === 0;
+}
+
+function clockDifferenceSeconds(later, earlier) {
+  const difference =
+    (later.clockWholeSeconds - earlier.clockWholeSeconds)
+    + (
+      later.clockPicoseconds - earlier.clockPicoseconds
+    ) * THREAT_MEMORY_CLOCK_PRECISION_SECONDS
+    + (
+      later.clockCompensationSeconds
+      - earlier.clockCompensationSeconds
+    );
+  if (!Number.isFinite(difference)) {
+    throw new RangeError(
+      'threat-memory clock difference must remain finite'
+    );
+  }
+  return Object.is(difference, -0) ? 0 : difference;
+}
+
+function normalizeCanonicalClockParts({
+  clockWholeSeconds,
+  clockPicoseconds,
+  clockCompensationSeconds
+}) {
+  if (!Number.isSafeInteger(clockWholeSeconds)
+      || !Number.isSafeInteger(clockPicoseconds)
+      || !Number.isFinite(clockCompensationSeconds)) {
+    throw new RangeError(
+      'threat-memory clock must remain finite and representable'
+    );
+  }
+
+  // Compare the residual directly. Multiplying an exact half-picosecond by
+  // 1e12 can round just below 0.5, so the scaled quotient cannot own the tie.
+  if (clockCompensationSeconds >= CLOCK_HALF_PICOSECOND_SECONDS) {
+    clockPicoseconds++;
+    clockCompensationSeconds -= THREAT_MEMORY_CLOCK_PRECISION_SECONDS;
+  } else if (
+    clockCompensationSeconds < -CLOCK_HALF_PICOSECOND_SECONDS
+  ) {
+    clockPicoseconds--;
+    clockCompensationSeconds += THREAT_MEMORY_CLOCK_PRECISION_SECONDS;
+  }
+  clockCompensationSeconds = normalizeSubPicosecond(
+    clockCompensationSeconds
+  );
+
+  const wholeCarry = Math.floor(
+    clockPicoseconds / CLOCK_PICOSECONDS_PER_SECOND
+  );
+  clockWholeSeconds += wholeCarry;
+  clockPicoseconds -= wholeCarry * CLOCK_PICOSECONDS_PER_SECOND;
+
+  if (!Number.isSafeInteger(clockWholeSeconds)
+      || clockWholeSeconds < 0
+      || !Number.isSafeInteger(clockPicoseconds)
+      || clockPicoseconds < 0
+      || clockPicoseconds >= CLOCK_PICOSECONDS_PER_SECOND
+      || !Number.isFinite(clockCompensationSeconds)
+      || clockCompensationSeconds
+        < -CLOCK_HALF_PICOSECOND_SECONDS
+      || clockCompensationSeconds
+        >= CLOCK_HALF_PICOSECOND_SECONDS) {
+    throw new RangeError(
+      'threat-memory clock must remain finite and representable'
+    );
+  }
+
+  return {
+    clockWholeSeconds,
+    clockPicoseconds,
+    clockCompensationSeconds
+  };
+}
+
+function splitClockDelta(deltaSeconds) {
+  if (!Number.isFinite(deltaSeconds)) {
+    throw new RangeError(
+      'threat-memory clock delta must be finite and representable'
+    );
+  }
+  const wholeSeconds = Math.trunc(deltaSeconds);
+  if (!Number.isSafeInteger(wholeSeconds)) {
+    throw new RangeError(
+      'threat-memory clock delta must be finite and representable'
+    );
+  }
+  const fractionalSeconds = deltaSeconds - wholeSeconds;
+  const roundedPicoseconds = Math.round(
+    fractionalSeconds * CLOCK_PICOSECONDS_PER_SECOND
+  );
+  const clockPicoseconds = Object.is(roundedPicoseconds, -0)
+    ? 0
+    : roundedPicoseconds;
+  const clockCompensationSeconds =
+    fractionalSeconds
+      - roundedPicoseconds * THREAT_MEMORY_CLOCK_PRECISION_SECONDS;
+  return normalizeCanonicalClockParts({
+    clockWholeSeconds: wholeSeconds,
+    clockPicoseconds,
+    clockCompensationSeconds
+  });
+}
+
+function addCanonicalClock(clock, deltaSeconds) {
+  const delta = splitClockDelta(deltaSeconds);
+  const nextClock = normalizeCanonicalClockParts({
+    clockWholeSeconds:
+      clock.clockWholeSeconds + delta.clockWholeSeconds,
+    clockPicoseconds:
+      clock.clockPicoseconds + delta.clockPicoseconds,
+    clockCompensationSeconds:
+      clock.clockCompensationSeconds
+      + delta.clockCompensationSeconds
+  });
+  return {
+    ...nextClock,
+    clockSeconds: composeClockSeconds(nextClock)
+  };
+}
+
+function clockFromAbsoluteSeconds(clockSeconds) {
+  const clock = addCanonicalClock({
+    clockWholeSeconds: 0,
+    clockPicoseconds: 0,
+    clockCompensationSeconds: 0
+  }, clockSeconds);
+  return clock;
+}
+
+function cloneObservation(record, includeCanonicalClocks = true) {
+  const clone = {
     eventId: record.eventId,
     threatPosition: [...record.threatPosition],
     impactPosition: [...record.impactPosition],
@@ -109,6 +342,11 @@ function cloneObservation(record) {
     observedAtSeconds: record.observedAtSeconds,
     expiresAtSeconds: record.expiresAtSeconds
   };
+  if (includeCanonicalClocks) {
+    clone.observedClock = cloneClockComponents(record.observedClock);
+    clone.expiresClock = cloneClockComponents(record.expiresClock);
+  }
+  return clone;
 }
 
 function freezeObservation({
@@ -117,7 +355,9 @@ function freezeObservation({
   impactPosition,
   intensity,
   observedAtSeconds,
-  expiresAtSeconds
+  expiresAtSeconds,
+  observedClock,
+  expiresClock
 }) {
   return Object.freeze({
     eventId: normalizeEventId(eventId),
@@ -125,7 +365,9 @@ function freezeObservation({
     impactPosition: normalizePosition(impactPosition, 'impactPosition'),
     intensity: normalizeIntensity(intensity),
     observedAtSeconds,
-    expiresAtSeconds
+    expiresAtSeconds,
+    observedClock: freezeClockComponents(observedClock),
+    expiresClock: freezeClockComponents(expiresClock)
   });
 }
 
@@ -133,43 +375,55 @@ function compareRecordIds(left, right) {
   return compareText(eventIdKey(left.eventId), eventIdKey(right.eventId));
 }
 
-function currentScore(record, clockSeconds, lifetimeSeconds) {
-  const remainingFraction = Math.max(
-    0,
-    (record.expiresAtSeconds - clockSeconds) / lifetimeSeconds
+function currentScore(record, clock, lifetimeSeconds) {
+  const rawRemainingFraction =
+    clockDifferenceSeconds(record.expiresClock, clock) / lifetimeSeconds;
+  const remainingFraction = Math.min(
+    1,
+    Math.max(0, rawRemainingFraction)
   );
-  return record.intensity * remainingFraction;
+  const score = record.intensity * remainingFraction;
+  if (!Number.isFinite(score)) {
+    throw new RangeError('threat-memory score must remain finite');
+  }
+  return score;
 }
 
-function compareEvictionCandidates(left, right, clockSeconds, lifetimeSeconds) {
+function compareEvictionCandidates(left, right, clock, lifetimeSeconds) {
   const scoreDifference = currentScore(
     left,
-    clockSeconds,
+    clock,
     lifetimeSeconds
-  ) - currentScore(right, clockSeconds, lifetimeSeconds);
+  ) - currentScore(right, clock, lifetimeSeconds);
   if (scoreDifference !== 0) return scoreDifference;
-  if (left.observedAtSeconds !== right.observedAtSeconds) {
-    return left.observedAtSeconds - right.observedAtSeconds;
-  }
+  const recencyDifference = compareCanonicalClocks(
+    left.observedClock,
+    right.observedClock
+  );
+  if (recencyDifference !== 0) return recencyDifference;
   return compareRecordIds(left, right);
 }
 
-function compareStrongestCandidates(left, right, clockSeconds, lifetimeSeconds) {
+function compareStrongestCandidates(left, right, clock, lifetimeSeconds) {
   const scoreDifference = currentScore(
     right,
-    clockSeconds,
+    clock,
     lifetimeSeconds
-  ) - currentScore(left, clockSeconds, lifetimeSeconds);
+  ) - currentScore(left, clock, lifetimeSeconds);
   if (scoreDifference !== 0) return scoreDifference;
-  if (left.observedAtSeconds !== right.observedAtSeconds) {
-    return right.observedAtSeconds - left.observedAtSeconds;
-  }
+  const recencyDifference = compareCanonicalClocks(
+    right.observedClock,
+    left.observedClock
+  );
+  if (recencyDifference !== 0) return recencyDifference;
   return compareRecordIds(left, right);
 }
 
 export class ThreatMemory {
   constructor(policy = DEFAULT_THREAT_MEMORY_POLICY) {
     this.policy = normalizePolicy(policy);
+    this.clockWholeSeconds = 0;
+    this.clockPicoseconds = 0;
     this.clockSeconds = 0;
     this.clockCompensationSeconds = 0;
     this.recordsById = new Map();
@@ -182,16 +436,32 @@ export class ThreatMemory {
   record({ eventId, threatPosition, impactPosition, intensity }) {
     this.pruneExpired();
     const normalizedEventId = normalizeEventId(eventId);
+    const observedClock = freezeClockComponents(this);
     const observedAtSeconds = this.clockSeconds;
+    let expiryClock;
+    try {
+      expiryClock = addCanonicalClock(this, this.policy.lifetimeSeconds);
+    } catch (error) {
+      if (!(error instanceof RangeError)) throw error;
+      throw new RangeError(
+        'threat-memory expiry must remain finite and representable'
+      );
+    }
+    const expiresAtSeconds = expiryClock.clockSeconds;
+    if (compareCanonicalClocks(expiryClock, observedClock) <= 0) {
+      throw new RangeError(
+        'threat-memory expiry must remain finite and representable'
+      );
+    }
     const observation = freezeObservation({
       eventId: normalizedEventId,
       threatPosition,
       impactPosition,
       intensity,
       observedAtSeconds,
-      expiresAtSeconds: normalizeCanonicalClockDrift(
-        observedAtSeconds + this.policy.lifetimeSeconds
-      )
+      expiresAtSeconds,
+      observedClock,
+      expiresClock: expiryClock
     });
     const key = eventIdKey(normalizedEventId);
     if (this.recordsById.has(key)) {
@@ -205,7 +475,7 @@ export class ThreatMemory {
         compareEvictionCandidates(
           left,
           right,
-          this.clockSeconds,
+          this,
           this.policy.lifetimeSeconds
         ));
       const evicted = candidates[0];
@@ -223,15 +493,12 @@ export class ThreatMemory {
       );
     }
     if (deltaSeconds > 0) {
-      const correctedDelta = deltaSeconds - this.clockCompensationSeconds;
-      const rawClock = this.clockSeconds + correctedDelta;
-      let compensation = (rawClock - this.clockSeconds) - correctedDelta;
-      const normalizedClock = normalizeCanonicalClockDrift(rawClock);
-      if (isOnCanonicalClockTick(rawClock)) compensation = 0;
-      this.clockSeconds = normalizedClock;
-      this.clockCompensationSeconds = Object.is(compensation, -0)
-        ? 0
-        : compensation;
+      const nextClock = addCanonicalClock(this, deltaSeconds);
+      this.clockWholeSeconds = nextClock.clockWholeSeconds;
+      this.clockPicoseconds = nextClock.clockPicoseconds;
+      this.clockSeconds = nextClock.clockSeconds;
+      this.clockCompensationSeconds =
+        nextClock.clockCompensationSeconds;
     }
     this.pruneExpired();
     return this.getStrongest();
@@ -239,7 +506,8 @@ export class ThreatMemory {
 
   pruneExpired() {
     const expired = [...this.recordsById.values()]
-      .filter(record => this.clockSeconds >= record.expiresAtSeconds)
+      .filter(record =>
+        compareCanonicalClocks(this, record.expiresClock) >= 0)
       .sort(compareRecordIds);
     for (const record of expired) {
       this.recordsById.delete(eventIdKey(record.eventId));
@@ -254,7 +522,7 @@ export class ThreatMemory {
         compareStrongestCandidates(
           left,
           right,
-          this.clockSeconds,
+          this,
           this.policy.lifetimeSeconds
         ));
     return strongest ? this.#snapshotRecord(strongest) : null;
@@ -287,10 +555,12 @@ export class ThreatMemory {
       lifetimeSeconds: this.policy.lifetimeSeconds,
       scoreDecay: this.policy.scoreDecay,
       clockSeconds: this.clockSeconds,
+      clockWholeSeconds: this.clockWholeSeconds,
+      clockPicoseconds: this.clockPicoseconds,
       clockCompensationSeconds: this.clockCompensationSeconds,
       records: [...this.recordsById.values()]
         .sort(compareRecordIds)
-        .map(cloneObservation)
+        .map(record => cloneObservation(record, true))
     };
   }
 
@@ -298,7 +568,7 @@ export class ThreatMemory {
     if (!state || typeof state !== 'object') {
       throw new TypeError('threat-memory restore requires a state object');
     }
-    if (state.version !== STATE_VERSION) {
+    if (![LEGACY_STATE_VERSION, STATE_VERSION].includes(state.version)) {
       throw new TypeError(`unsupported threat-memory version ${state.version}`);
     }
     const policy = normalizePolicy({
@@ -307,73 +577,186 @@ export class ThreatMemory {
       lifetimeSeconds: state.lifetimeSeconds,
       scoreDecay: state.scoreDecay
     });
-    if (!Number.isFinite(state.clockSeconds) || state.clockSeconds < 0) {
-      throw new TypeError('threat-memory clockSeconds must be finite and non-negative');
-    }
-    if (!Number.isFinite(state.clockCompensationSeconds)) {
-      throw new TypeError('threat-memory clock compensation must be finite');
-    }
     if (!Array.isArray(state.records) || state.records.length > policy.capacity) {
       throw new TypeError('threat-memory records must be a bounded array');
     }
 
-    const clockSeconds = normalizeCanonicalClockDrift(state.clockSeconds);
-    if (Math.abs(state.clockCompensationSeconds)
-        > clockDriftTolerance(clockSeconds)) {
-      throw new TypeError(
-        'threat-memory clock compensation exceeds machine-epsilon drift'
+    let clock;
+    let legacyClockCompensationSeconds = 0;
+    let legacyClockSeconds = 0;
+    if (state.version === STATE_VERSION) {
+      clock = canonicalClockFromComponents(state, 'threat-memory');
+      if (!Object.is(state.clockSeconds, clock.clockSeconds)) {
+        throw new TypeError(
+          'threat-memory clockSeconds must match its canonical components'
+        );
+      }
+    } else {
+      if (!Number.isFinite(state.clockSeconds)
+          || state.clockSeconds < 0
+          || !Number.isFinite(state.clockCompensationSeconds)) {
+        throw new TypeError(
+          'legacy threat-memory clock must be finite and non-negative'
+        );
+      }
+      legacyClockSeconds = normalizeLegacyClockDrift(
+        state.clockSeconds
       );
+      const legacyCompensationBound =
+        legacyClockDriftTolerance(legacyClockSeconds);
+      if (Math.abs(state.clockCompensationSeconds)
+          > legacyCompensationBound) {
+        throw new TypeError(
+          'legacy threat-memory clock compensation exceeds machine-epsilon drift'
+        );
+      }
+      legacyClockCompensationSeconds =
+        isOnLegacyClockTick(legacyClockSeconds)
+          ? 0
+          : Object.is(state.clockCompensationSeconds, -0)
+          ? 0
+          : state.clockCompensationSeconds;
+      try {
+        clock = addCanonicalClock(
+          clockFromAbsoluteSeconds(legacyClockSeconds),
+          -legacyClockCompensationSeconds
+        );
+      } catch {
+        throw new TypeError(
+          'legacy threat-memory clock must be finite and representable'
+        );
+      }
     }
+    const { clockSeconds } = clock;
     const recordsById = new Map();
     for (const saved of state.records) {
       if (!Number.isFinite(saved?.observedAtSeconds)
           || saved.observedAtSeconds < 0
-          || saved.observedAtSeconds > clockSeconds) {
+          || (
+            state.version === STATE_VERSION
+              ? false
+              : saved.observedAtSeconds > legacyClockSeconds
+          )) {
         throw new TypeError(
           'threat-memory observedAtSeconds must be finite and not in the future'
         );
       }
-      const expectedExpiry = normalizeCanonicalClockDrift(
-        saved.observedAtSeconds + policy.lifetimeSeconds
-      );
-      if (!Number.isFinite(saved.expiresAtSeconds)
-          || Math.abs(saved.expiresAtSeconds - expectedExpiry)
-            > clockDriftTolerance(expectedExpiry)) {
+      let observedClock;
+      let expiresClock;
+      if (state.version === STATE_VERSION) {
+        observedClock = canonicalClockFromComponents(
+          saved.observedClock,
+          'threat-memory observation'
+        );
+        expiresClock = canonicalClockFromComponents(
+          saved.expiresClock,
+          'threat-memory expiry'
+        );
+        if (!Object.is(
+          saved.observedAtSeconds,
+          observedClock.clockSeconds
+        )) {
+          throw new TypeError(
+            'threat-memory observedAtSeconds must match its canonical components'
+          );
+        }
+        if (!Object.is(
+          saved.expiresAtSeconds,
+          expiresClock.clockSeconds
+        )) {
+          throw new TypeError(
+            'threat-memory expiresAtSeconds must match its canonical components'
+          );
+        }
+      } else {
+        let legacyObservedClock;
+        let legacyExpectedExpiry;
+        try {
+          legacyObservedClock = clockFromAbsoluteSeconds(
+            saved.observedAtSeconds
+          );
+          legacyExpectedExpiry = normalizeLegacyClockDrift(
+            saved.observedAtSeconds + policy.lifetimeSeconds
+          );
+          observedClock = legacyObservedClock;
+          if (compareCanonicalClocks(observedClock, clock) > 0
+              && clockDifferenceSeconds(observedClock, clock)
+                <= legacyClockDriftTolerance(legacyClockSeconds)) {
+            observedClock = clock;
+          }
+          expiresClock = addCanonicalClock(
+            observedClock,
+            policy.lifetimeSeconds
+          );
+        } catch {
+          throw new TypeError(
+            'threat-memory expiresAtSeconds must be finite and representable'
+          );
+        }
+        if (!Number.isFinite(saved.expiresAtSeconds)
+            || Math.abs(
+              saved.expiresAtSeconds
+              - legacyExpectedExpiry
+            ) > legacyClockDriftTolerance(legacyExpectedExpiry)) {
+          throw new TypeError(
+            'threat-memory expiresAtSeconds must match its observation lifetime'
+          );
+        }
+      }
+      let expectedExpiryClock;
+      try {
+        expectedExpiryClock = addCanonicalClock(
+          observedClock,
+          policy.lifetimeSeconds
+        );
+      } catch {
+        throw new TypeError(
+          'threat-memory expiresAtSeconds must be finite and representable'
+        );
+      }
+      if (compareCanonicalClocks(observedClock, clock) > 0) {
+        throw new TypeError(
+          'threat-memory observedAtSeconds must be finite and not in the future'
+        );
+      }
+      if (compareCanonicalClocks(expiresClock, observedClock) <= 0
+          || !canonicalClocksEqual(expiresClock, expectedExpiryClock)) {
         throw new TypeError(
           'threat-memory expiresAtSeconds must match its observation lifetime'
         );
       }
       const observation = freezeObservation({
         ...saved,
-        expiresAtSeconds: expectedExpiry
+        observedAtSeconds: observedClock.clockSeconds,
+        expiresAtSeconds: expiresClock.clockSeconds,
+        observedClock,
+        expiresClock
       });
       const key = eventIdKey(observation.eventId);
       if (recordsById.has(key)) {
         throw new TypeError('threat-memory state contains a duplicate eventId');
       }
-      if (clockSeconds < observation.expiresAtSeconds) {
+      if (compareCanonicalClocks(clock, observation.expiresClock) < 0) {
         recordsById.set(key, observation);
       }
     }
 
     this.policy = policy;
+    this.clockWholeSeconds = clock.clockWholeSeconds;
+    this.clockPicoseconds = clock.clockPicoseconds;
     this.clockSeconds = clockSeconds;
-    this.clockCompensationSeconds = isOnCanonicalClockTick(clockSeconds)
-      ? 0
-      : (Object.is(state.clockCompensationSeconds, -0)
-          ? 0
-          : state.clockCompensationSeconds);
+    this.clockCompensationSeconds = clock.clockCompensationSeconds;
     this.recordsById = recordsById;
     return this;
   }
 
   #snapshotRecord(record) {
     return {
-      ...cloneObservation(record),
-      ageSeconds: this.clockSeconds - record.observedAtSeconds,
+      ...cloneObservation(record, false),
+      ageSeconds: clockDifferenceSeconds(this, record.observedClock),
       score: currentScore(
         record,
-        this.clockSeconds,
+        this,
         this.policy.lifetimeSeconds
       )
     };

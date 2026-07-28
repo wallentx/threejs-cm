@@ -1,3 +1,10 @@
+import {
+  decayIdentification,
+  identificationProgressTicks,
+  identificationProjection,
+  normalizeIdentificationProgress
+} from './IdentificationQuality.js';
+
 export const CONTACT_CHANNEL = Object.freeze({
   DIRECT: 'DIRECT',
   VOICE: 'VOICE',
@@ -37,6 +44,8 @@ export function createContact({
   channel,
   confidence,
   uncertaintyM = 0,
+  identificationProgress = 0,
+  identificationEvaluatedAt = updatedAt,
   sourceEventId = null,
   reportKind = null,
   approximationLabel = null
@@ -54,6 +63,9 @@ export function createContact({
     channel,
     confidence: boundedConfidence,
     uncertaintyM: boundedUncertainty,
+    identificationProgress:
+      normalizeIdentificationProgress(identificationProgress),
+    identificationEvaluatedAt,
     baseConfidence: boundedConfidence,
     baseUncertaintyM: boundedUncertainty
   };
@@ -76,12 +88,21 @@ export function decayContact(contact, now, {
   uncertaintyGrowthMps = 0.75
 } = {}) {
   const age = Math.max(0, now - contact.updatedAt);
+  const identificationAge = Math.max(
+    0,
+    now - (contact.identificationEvaluatedAt ?? contact.updatedAt)
+  );
   const baseConfidence = contact.baseConfidence ?? contact.confidence;
   const baseUncertaintyM = contact.baseUncertaintyM ?? contact.uncertaintyM;
   return {
     ...cloneContact(contact),
     confidence: Math.max(0, baseConfidence * (1 - age / lifetimeSeconds)),
-    uncertaintyM: baseUncertaintyM + age * uncertaintyGrowthMps
+    uncertaintyM: baseUncertaintyM + age * uncertaintyGrowthMps,
+    identificationProgress: decayIdentification(
+      contact.identificationProgress ?? 0,
+      identificationAge
+    ),
+    identificationEvaluatedAt: now
   };
 }
 
@@ -107,6 +128,21 @@ export function preferContact(left, right) {
   if (Math.abs(right.confidence - left.confidence) > 1e-12) {
     return cloneContact(right.confidence > left.confidence ? right : left);
   }
+  const rightIdentification = normalizeIdentificationProgress(
+    right.identificationProgress ?? 0
+  );
+  const leftIdentification = normalizeIdentificationProgress(
+    left.identificationProgress ?? 0
+  );
+  const rightIdentificationTicks =
+    identificationProgressTicks(rightIdentification);
+  const leftIdentificationTicks =
+    identificationProgressTicks(leftIdentification);
+  if (rightIdentificationTicks !== leftIdentificationTicks) {
+    return cloneContact(
+      rightIdentificationTicks > leftIdentificationTicks ? right : left
+    );
+  }
   if (lexicalEvent(right) !== lexicalEvent(left)) {
     return cloneContact(lexicalEvent(right) > lexicalEvent(left) ? right : left);
   }
@@ -118,7 +154,11 @@ export function publicContact(contact) {
   const {
     baseConfidence: _baseConfidence,
     baseUncertaintyM: _baseUncertaintyM,
+    identificationEvaluatedAt: _identificationEvaluatedAt,
     ...publicFields
   } = cloneContact(contact);
-  return publicFields;
+  return {
+    ...publicFields,
+    ...identificationProjection(publicFields.identificationProgress ?? 0)
+  };
 }

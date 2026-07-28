@@ -10,6 +10,7 @@ import {
 } from './content/france1940/render/index.js';
 import { STONNE_1940_SCENARIO } from './scenarios/france1940/stonne1940.js';
 import { FR_HOUSE_12X9_2F } from './maps/france/FranceHouse12x9_2F.js';
+import { FR_FARMHOUSE_8X6_1F } from './maps/france/FranceFarmhouse8x6_1F.js';
 import { STONNE_1940_MAP } from './maps/france/stonne.js';
 import {
   createFrenchHouseVisualAdapter
@@ -22,7 +23,9 @@ const visualFactories = createFrance1940VisualFactories({
   assetResolver: FRANCE_1940_ASSET_RESOLVER
 });
 const structureAdapters = Object.freeze({
-  [FR_HOUSE_12X9_2F.id]: createFrenchHouseVisualAdapter(FR_HOUSE_12X9_2F)
+  [FR_HOUSE_12X9_2F.id]: createFrenchHouseVisualAdapter(FR_HOUSE_12X9_2F),
+  [FR_FARMHOUSE_8X6_1F.id]:
+    createFrenchHouseVisualAdapter(FR_FARMHOUSE_8X6_1F)
 });
 const gameDefinition = Object.freeze({
   scenario: STONNE_1940_SCENARIO,
@@ -31,7 +34,10 @@ const gameDefinition = Object.freeze({
   catalogPorts: FRANCE_1940_CATALOG_PORTS,
   visualFactories,
   playerFactionId: 'french',
-  buildingDescriptors: Object.freeze([FR_HOUSE_12X9_2F]),
+  buildingDescriptors: Object.freeze([
+    FR_HOUSE_12X9_2F,
+    FR_FARMHOUSE_8X6_1F
+  ]),
   structureAdapters
 });
 

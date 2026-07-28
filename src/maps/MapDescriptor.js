@@ -1,3 +1,7 @@
+import {
+  normalizeBuildingDestructionThresholds
+} from '../simulation/buildings/BuildingDestructionThresholds.js';
+
 // Plain map-data contract. No renderer, browser, scenario, or runtime imports.
 
 function isPlainRecord(value) {
@@ -373,6 +377,9 @@ export function validateMapDescriptor(map) {
       structure.foundationClearance ?? 0,
       `map.structures[${index}].foundationClearance`
     );
+    normalizeBuildingDestructionThresholds(structure.destructionThresholds, {
+      path: `map.structures[${index}].destructionThresholds`
+    });
   });
 
   if (!Array.isArray(map.foliage)) throw new Error('map.foliage must be an array');

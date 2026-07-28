@@ -106,6 +106,26 @@ test('replacement VFX provider reaches pooled combat and vehicle-damage effects'
   assert.deepEqual(combat.vfxAssetBinding, expectedBinding);
   assert.deepEqual(combat.effects[0].mesh.userData.assetBinding, expectedBinding);
   assert.deepEqual(combat.effects[0].material.userData.assetBinding, expectedBinding);
+  const debrisEvent = Object.freeze({
+    eventKey: 'house-1:wall-a',
+    buildingId: 'house-1',
+    sectionId: 'wall-a',
+    materialLabel: 'masonry',
+    severity: 'breached',
+    worldPosition: Object.freeze([4, 1, -2]),
+    impactPosition: null,
+    positionSource: 'section-collider-centroid',
+    reason: 'replacement-test'
+  });
+  const debris = combat.createBuildingDebrisEffect(debrisEvent);
+  assert.deepEqual(
+    combat.effectGeometries.buildingDebris.userData.assetBinding,
+    expectedBinding
+  );
+  assert.deepEqual(debris.mesh.userData.assetBinding, expectedBinding);
+  assert.deepEqual(debris.material.userData.assetBinding, expectedBinding);
+  assert.equal(debris.mesh.userData.buildingDebrisEvent, debrisEvent);
+  assert.ok(combat.effectCaps.buildingDebris > 0);
   const projectileMesh = combat.vfxResources.createProjectileMesh({
     kind: 'rifle',
     caliberMm: 7.5
@@ -135,10 +155,15 @@ test('VFX resource sets dispose shared GPU resources exactly once', () => {
   const combatResources = FRANCE_1940_VFX_PROVIDER.createCombatResources();
   const vehicleResources = FRANCE_1940_VFX_PROVIDER.createVehicleDamageResources();
   let combatDisposals = 0;
+  let debrisDisposals = 0;
   let vehicleDisposals = 0;
   combatResources.effectGeometries.impact.addEventListener(
     'dispose',
     () => combatDisposals++
+  );
+  combatResources.effectGeometries.buildingDebris.addEventListener(
+    'dispose',
+    () => debrisDisposals++
   );
   vehicleResources.geometries.smoke.addEventListener(
     'dispose',
@@ -150,6 +175,7 @@ test('VFX resource sets dispose shared GPU resources exactly once', () => {
   assert.equal(vehicleResources.dispose(), true);
   assert.equal(vehicleResources.dispose(), false);
   assert.equal(combatDisposals, 1);
+  assert.equal(debrisDisposals, 1);
   assert.equal(vehicleDisposals, 1);
 });
 
@@ -193,6 +219,59 @@ test('VFX asset binding rejects wrong generators and incomplete resource sets', 
     () => provider.createVehicleDamageResources(),
     /require smoke geometry/
   );
+
+  let missingDebrisResources = null;
+  const missingDebrisProvider = Object.freeze({
+    ...PROCEDURAL_BATTLEFIELD_VFX_PROVIDER,
+    id: 'missing-building-debris-vfx',
+    createCombatResources() {
+      const resources =
+        PROCEDURAL_BATTLEFIELD_VFX_PROVIDER.createCombatResources();
+      missingDebrisResources = resources;
+      const {
+        buildingDebris: omittedBuildingDebris,
+        ...remainingGeometries
+      } = resources.effectGeometries;
+      assert.ok(omittedBuildingDebris);
+      return Object.freeze({
+        ...resources,
+        effectGeometries: Object.freeze(remainingGeometries)
+      });
+    }
+  });
+  const missingDebris = replacementResolver(missingDebrisProvider);
+  const missingDebrisBinding = createFrance1940VfxProvider(
+    missingDebris.resolver
+  );
+  assert.throws(
+    () => missingDebrisBinding.createCombatResources(),
+    /require buildingDebris geometry/
+  );
+  missingDebrisResources.dispose();
+
+  let missingResolverResources = null;
+  const missingResolverProvider = Object.freeze({
+    ...PROCEDURAL_BATTLEFIELD_VFX_PROVIDER,
+    id: 'missing-building-debris-resolver-vfx',
+    createCombatResources() {
+      const resources =
+        PROCEDURAL_BATTLEFIELD_VFX_PROVIDER.createCombatResources();
+      missingResolverResources = resources;
+      return Object.freeze({
+        ...resources,
+        resolveBuildingDebrisStyle: null
+      });
+    }
+  });
+  const missingResolver = replacementResolver(missingResolverProvider);
+  const missingResolverBinding = createFrance1940VfxProvider(
+    missingResolver.resolver
+  );
+  assert.throws(
+    () => missingResolverBinding.createCombatResources(),
+    /require building debris material-style resolver/
+  );
+  missingResolverResources.dispose();
 });
 
 test('generic combat and vehicle-damage systems contain no France-family imports', async () => {

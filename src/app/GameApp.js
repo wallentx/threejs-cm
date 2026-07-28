@@ -17,6 +17,9 @@ import { MapEditor } from '../editor/MapEditor.js';
 import { loadScenario } from '../scenario/ScenarioRuntime.js';
 import { FixedStepAccumulator } from '../simulation/FixedStepAccumulator.js';
 import { BuildingSystem } from '../simulation/buildings/index.js';
+import {
+  InfantrySeparationSystem
+} from '../simulation/infantry/InfantrySeparationSystem.js';
 import { buildFactionRosterIndex } from './FactionRosterIndex.js';
 import {
   createMapEditorPort,
@@ -228,6 +231,7 @@ export class GameApp {
       this.movedUnitIds = new Set();
       this.selectedUnit = null;
       this.matchStarted = false;
+      this.infantrySeparation = new InfantrySeparationSystem();
       this.buildingInteraction = new BuildingInteractionSystem({
         buildingSystem: this.buildingSystem,
         getUnits: () => this.units
@@ -287,6 +291,16 @@ export class GameApp {
           ?? this.spotting.getVisibilityProjection(this.playerFactionId, units),
         getBocageObstacles: () => this.terrain.bocageObstacles,
         getImpacts: () => this.combat.telemetry.impacts,
+        getBuildingFloorIds: buildingId => {
+          try {
+            return this.buildingSystem
+              .getDescriptorForBuilding(buildingId)
+              .floors
+              .map(floor => floor.id);
+          } catch {
+            return [];
+          }
+        },
         selectUnit: unit => this.selectUnit(unit),
         deselectUnit: () => this.deselectUnit(),
         splitUnit: unit => this.splitUnit(unit),
@@ -597,11 +611,27 @@ export class GameApp {
       const waypoint = unit.waypoints[unit.currentWaypointIndex];
       const opposingUnits = this.factionRoster.opposingUnitsFor(unit.faction) ?? [];
       const huntStopped = waypoint?.orderType === 'HUNT' && this.hasContact(unit, opposingUnits);
-      unit.update(delta, this.terrain, { haltMovement: huntStopped });
+      const hasDirectPrecisionObservation = Boolean(
+        unit.targetUnit
+        && this.spotting.canPrecisionTarget(unit, unit.targetUnit)
+      );
+      unit.update(delta, this.terrain, {
+        haltMovement: huntStopped,
+        hasDirectPrecisionObservation
+      });
       if (Math.hypot(unit.position.x - previousX, unit.position.z - previousZ) > 1e-5) {
         this.movedUnitIds.add(unit.id);
       }
     });
+    const separation = this.infantrySeparation?.resolve(this.units, this.terrain);
+    if (separation?.correctedUnitIds.length > 0) {
+      const correctedUnitIds = new Set(separation.correctedUnitIds);
+      for (const unit of this.units) {
+        if (correctedUnitIds.has(unit.id)) {
+          unit.soldierAI?.syncMeshes?.();
+        }
+      }
+    }
     this.buildingInteraction.advance(delta);
     this.syncBuildingInteriorPresentation();
     // Building transit owns door/stair movement after ordinary unit movement.
@@ -613,6 +643,17 @@ export class GameApp {
     // Observation is authoritative simulation state. Advance it exactly once,
     // after movement/collision and before any weapon may select a target.
     this.spotting.advance(this.units, delta);
+    // Movement consumed the observation snapshot from the start of this step.
+    // Reconcile any post-movement loss before combat without moving twice.
+    for (const unit of this.units) {
+      const hasDirectPrecisionObservation = Boolean(
+        unit.targetUnit
+        && this.spotting.canPrecisionTarget(unit, unit.targetUnit)
+      );
+      unit.reconcileBuddyBoundObservation?.(
+        hasDirectPrecisionObservation
+      );
+    }
 
     const attemptFire = (attacker, opposingUnits) => {
       if (!attacker.isCombatEffective()) return;

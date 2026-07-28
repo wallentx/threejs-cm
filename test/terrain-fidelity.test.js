@@ -7,6 +7,7 @@ import {
 } from './helpers/France1940TestTerrain.js';
 import { TERRAIN_SCALE } from '../src/world/TerrainScale.js';
 import { FR_HOUSE_12X9_2F } from '../src/maps/france/FranceHouse12x9_2F.js';
+import { FR_FARMHOUSE_8X6_1F } from '../src/maps/france/FranceFarmhouse8x6_1F.js';
 import { STONNE_1940_MAP } from '../src/maps/france/stonne.js';
 import { BuildingSystem } from '../src/simulation/buildings/index.js';
 import {
@@ -15,12 +16,15 @@ import {
 
 const EPSILON = 1e-5;
 const STRUCTURE_ADAPTERS = Object.freeze({
-  [FR_HOUSE_12X9_2F.id]: createFrenchHouseVisualAdapter(FR_HOUSE_12X9_2F)
+  [FR_HOUSE_12X9_2F.id]: createFrenchHouseVisualAdapter(FR_HOUSE_12X9_2F),
+  [FR_FARMHOUSE_8X6_1F.id]:
+    createFrenchHouseVisualAdapter(FR_FARMHOUSE_8X6_1F)
 });
 
 function createTerrain(scene) {
   const buildingSystem = new BuildingSystem();
   buildingSystem.registerDescriptor(FR_HOUSE_12X9_2F);
+  buildingSystem.registerDescriptor(FR_FARMHOUSE_8X6_1F);
   return new TerrainBuilder(scene, {
     mapDescriptor: STONNE_1940_MAP,
     buildingSystem,
@@ -354,7 +358,10 @@ test('bridge and house meshes expose calibrated metre dimensions', () => {
   );
 
   const buildingObstacles = terrain.bocageObstacles.filter(
-    obstacle => obstacle.type === 'building'
+    obstacle => (
+      obstacle.type === 'building'
+      && obstacle.buildingId === 'french_village_house'
+    )
   );
   assert.ok(buildingObstacles.length > 4, 'house collision follows wall sections, not a solid box');
   assert.ok(buildingObstacles.every(obstacle => obstacle.sectionId === 'ground-shell'));

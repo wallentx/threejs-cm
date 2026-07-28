@@ -34,6 +34,17 @@ function validateVehicleWeapons(vehicles, weapons) {
   }
 }
 
+function validateStructureWeapons(structures, weapons) {
+  for (const [structureId, structure] of Object.entries(structures)) {
+    if (structure.weaponId === undefined || structure.weaponId === null) continue;
+    assertWeaponReference(
+      weapons,
+      structure.weaponId,
+      `structure ${structureId}`
+    );
+  }
+}
+
 function validateFactionVehicles(factions, vehicles) {
   const owners = new Map();
   for (const [factionId, faction] of Object.entries(factions)) {
@@ -213,9 +224,10 @@ export function validateFamilyDefinition(family) {
   assertRecordMap(`family ${family.id} presentation`, family.presentation);
   assertRecordMap(`family ${family.id} weapons`, family.catalogs.weapons);
   assertRecordMap(`family ${family.id} vehicles`, family.catalogs.vehicles);
+  assertRecordMap(`family ${family.id} structures`, family.catalogs.structures);
 
   const { factions, formations, presentation } = family;
-  const { weapons, vehicles } = family.catalogs;
+  const { weapons, vehicles, structures } = family.catalogs;
   if (family.assetManifest) {
     validateAssetManifest(family.assetManifest);
     if (family.assetManifest.familyId !== family.id) {
@@ -264,6 +276,7 @@ export function validateFamilyDefinition(family) {
   }
 
   validateVehicleWeapons(vehicles, weapons);
+  validateStructureWeapons(structures, weapons);
   return family;
 }
 

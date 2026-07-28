@@ -72,7 +72,7 @@ test('ordinary infantry commands use the injected graph with formation clearance
     { x: 12, z: 8 },
     0.32,
     'infantry',
-    { waypointClearance: 5.8 }
+    { clearance: 5, waypointClearance: 0.8 }
   ]);
   assert.equal(unit.waypoints.length, 1, 'an unobstructed route remains one command waypoint');
   assert.deepEqual(unit.waypoints[0].position.toArray(), [12, 7, 8]);
@@ -158,6 +158,87 @@ test('a live six-man formation remains clear of a wall at early waypoint accepta
     }
     priorAnchor = waypoint.position.clone();
   }
+});
+
+test('a live six-man formation deterministically detours around a two-metre wall gap and completes', () => {
+  const wallHalfWidth = 8;
+  const wallInnerEdge = 1;
+  const wallCenter = wallHalfWidth + wallInnerEdge;
+  const records = [
+    {
+      id: 'wall:gap:left',
+      type: 'stonewall',
+      centerX: -wallCenter,
+      centerZ: 0,
+      halfX: wallHalfWidth,
+      halfZ: 0.3,
+      blocks: ['infantry']
+    },
+    {
+      id: 'wall:gap:right',
+      type: 'stonewall',
+      centerX: wallCenter,
+      centerZ: 0,
+      halfX: wallHalfWidth,
+      halfZ: 0.3,
+      blocks: ['infantry']
+    }
+  ];
+  const terrain = {
+    getHeightAt: () => 0,
+    getMovementHeightAt: () => 0
+  };
+  const click = new THREE.Vector3(0, 4.25, 8);
+  const issueDetour = (id) => {
+    const unit = new TestUnit({
+      id,
+      position: new THREE.Vector3(0, 0, -8),
+      squadSize: 6
+    });
+    unit.bindCollisionWorld(new StaticCollisionWorld(records));
+    const commands = new CommandSystem(new THREE.Scene(), {
+      terrain,
+      isSetupPhase: () => false
+    });
+    issueMove(commands, unit, click);
+    return unit;
+  };
+
+  const first = issueDetour('navigation-gap-first');
+  const second = issueDetour('navigation-gap-second');
+  const firstWaypointRecords = first.captureState().waypoints;
+  const secondWaypointRecords = second.captureState().waypoints;
+
+  assert.equal(
+    JSON.stringify(secondWaypointRecords),
+    JSON.stringify(firstWaypointRecords),
+    'identical initial formations must receive byte-equal waypoint records'
+  );
+  assert.ok(first.waypoints.length >= 3, 'the full formation must not route through the narrow gap');
+  assert.ok(
+    first.waypoints.slice(0, -1).some(waypoint =>
+      Math.abs(waypoint.position.x) > wallCenter + wallHalfWidth
+    ),
+    'the detour must pass an outer wall end'
+  );
+  assert.ok(first.waypoints.every(waypoint => waypoint.orderType === 'QUICK'));
+  assert.deepEqual(first.waypoints.at(-1).position.toArray(), click.toArray());
+
+  let completedSteps = 0;
+  while (completedSteps < 2400 && first.currentWaypointIndex < first.waypoints.length) {
+    first.update(1 / 30, terrain);
+    completedSteps++;
+  }
+
+  assert.equal(
+    first.currentWaypointIndex,
+    first.waypoints.length,
+    `all living agents must complete the route within 2400 fixed steps; positions: ${
+      JSON.stringify(first.soldierAI.getLivingAgents().map(agent => agent.position.toArray()))
+    }`
+  );
+  assert.ok(first.waypoints.every(waypoint => waypoint.reached));
+  assert.equal(first.areLivingInfantryAtFormation('QUICK'), true);
 });
 
 test('appended routes start at the pending tail and retain existing waypoints', () => {

@@ -6,10 +6,9 @@ import {
 } from './France1940InfantryWeaponFactory.js';
 
 function createSculptedTorsoGeometry() {
-  // Anatomical human torso loft: Flattened front chest & back (oval cross-section X:Z ratio ~ 2:1), broad shoulders, trapezius slope, & tapered waist
-  const geo = new THREE.CylinderGeometry(0.36, 0.30, 0.72, 16, 8);
-  // Flatten depth (Z) relative to width (X) for flat front chest & back
-  geo.scale(1.22, 1.0, 0.58);
+  // Anatomical human torso loft: Lined up with arm attachment points (shoulder width ~ 0.56m, oval chest/back depth ~ 0.28m)
+  const geo = new THREE.CylinderGeometry(0.24, 0.22, 0.72, 16, 8);
+  geo.scale(1.08, 1.0, 0.60);
   const pos = geo.attributes.position;
 
   for (let i = 0; i < pos.count; i++) {
@@ -19,25 +18,36 @@ function createSculptedTorsoGeometry() {
 
     const normalizedY = (y + 0.36) / 0.72; // 0 at waist belt, 1 at shoulder line
 
-    // 1. Upper Chest (Pectoral expansion) & Lower Waist Taper
+    // 1. Upper Chest (Pectoral expansion) & Upper Back Curve
     if (normalizedY > 0.45) {
       const chestFactor = Math.sin((normalizedY - 0.45) / 0.55 * Math.PI);
-      x *= (1.0 + chestFactor * 0.22);
+      x *= (1.0 + chestFactor * 0.12);
+      // Bring front of chest (+Z) out forward slightly & upper back (-Z) out backward slightly
+      if (z > 0) {
+        z += chestFactor * 0.038;
+      } else {
+        z -= chestFactor * 0.026;
+      }
     } else {
-      const waistFactor = Math.cos(normalizedY / 0.45 * (Math.PI / 2));
-      x *= (1.0 - waistFactor * 0.12);
-      z *= (1.0 - waistFactor * 0.08);
+      const stomachFactor = Math.sin(normalizedY / 0.45 * Math.PI);
+      x *= (1.0 - (1.0 - stomachFactor) * 0.08);
+      if (z > 0) {
+        // Bring front of stomach (+Z) out forward slightly
+        z += stomachFactor * 0.028;
+      } else {
+        z *= (1.0 - (1.0 - stomachFactor) * 0.06);
+      }
     }
 
     // 2. Trapezius slope at neck/shoulder junction
     if (normalizedY > 0.82) {
       const trapFactor = (normalizedY - 0.82) / 0.18;
-      x *= (1.0 - trapFactor * 0.16);
+      x *= (1.0 - trapFactor * 0.14);
     }
 
     // 3. Flatten front (+Z) and back (-Z) surfaces
     if (Math.abs(z) > 0.05) {
-      z *= 0.82;
+      z *= 0.84;
     }
 
     pos.setXYZ(i, x, y, z);
@@ -298,7 +308,7 @@ function createCharacterHeadGeometry() {
   return geo;
 }
 
-class France1940UnitMeshFactory {
+export class France1940UnitMeshFactory {
   static createInfantrySquadMesh(
     faction = 'french',
     rosterOrCount = 6,
@@ -441,8 +451,8 @@ class France1940UnitMeshFactory {
       const shoulder = new THREE.Group();
 
       // Smooth Deltoid Shoulder Cap (Blends upper torso into upper arm seamlessly)
-      const deltoidGeo = new THREE.SphereGeometry(0.118, 12, 10);
-      deltoidGeo.scale(1.15, 1.10, 1.0);
+      const deltoidGeo = new THREE.SphereGeometry(0.098, 12, 10);
+      deltoidGeo.scale(1.04, 1.04, 0.95);
       const shoulderCap = new THREE.Mesh(deltoidGeo, material);
       shoulderCap.name = 'ShoulderCap';
       shoulderCap.position.set(0, -0.02, 0);
@@ -612,16 +622,18 @@ class France1940UnitMeshFactory {
         rightTail.rotation.z = 0.15;
         soldierGroup.add(rightTail);
 
-        // Double-breasted coat buttons
+        // Double-breasted coat buttons (Embedded halfway into coat fabric at x = +-0.08)
+        const frenchBtnZ = [0.122, 0.126, 0.128];
         for (let b = 0; b < 3; b++) {
           const yPos = 1.15 + b * 0.11;
+          const zPos = frenchBtnZ[b];
           const bLeft = new THREE.Mesh(geometry.button, brassMat);
-          bLeft.position.set(-0.08, yPos, 0.18);
+          bLeft.position.set(-0.08, yPos, zPos);
           bLeft.userData.lodBand = 'high';
           soldierGroup.add(bLeft);
 
           const bRight = new THREE.Mesh(geometry.button, brassMat);
-          bRight.position.set(0.08, yPos, 0.18);
+          bRight.position.set(0.08, yPos, zPos);
           bRight.userData.lodBand = 'high';
           soldierGroup.add(bRight);
         }
@@ -679,10 +691,11 @@ class France1940UnitMeshFactory {
         pBotRight.userData.lodBand = 'high';
         soldierGroup.add(pBotRight);
 
-        // Center button fly
+        // Center button fly (Embedded halfway into tunic fabric)
+        const germanBtnZ = [0.138, 0.148, 0.173, 0.198];
         for (let b = 0; b < 4; b++) {
           const btn = new THREE.Mesh(geometry.button, metalGearMat);
-          btn.position.set(0, 1.08 + b * 0.09, 0.19);
+          btn.position.set(0, 1.08 + b * 0.09, germanBtnZ[b]);
           btn.userData.lodBand = 'high';
           soldierGroup.add(btn);
         }
@@ -843,7 +856,7 @@ class France1940UnitMeshFactory {
 
       const leftArm = createTwoBoneArm(uniformMat, skinMat);
       leftArm.name = 'LeftArm';
-      leftArm.position.set(lateralX('left', 0.3), 1.52, 0);
+      leftArm.position.set(lateralX('left', 0.28), 1.52, 0);
       leftArm.userData.anatomicalSide = 'left';
       leftArm.rotation.x = -0.82;
       leftArm.rotation.z = 0.18;
@@ -851,7 +864,7 @@ class France1940UnitMeshFactory {
 
       const rightArm = createTwoBoneArm(uniformMat, skinMat);
       rightArm.name = 'RightArm';
-      rightArm.position.set(lateralX('right', 0.3), 1.52, 0);
+      rightArm.position.set(lateralX('right', 0.28), 1.52, 0);
       rightArm.userData.anatomicalSide = 'right';
       rightArm.rotation.x = -0.72;
       rightArm.rotation.z = -0.2;
@@ -859,12 +872,20 @@ class France1940UnitMeshFactory {
 
       const leftHand = leftArm.userData.armRig.hand;
       leftHand.name = 'LeftHand';
+      // Mirror the hand and rotate it 180 degrees so the palm cups upward (facing +Y in world space)
+      // and the thumb is on the correct side for the left hand.
+      leftHand.scale.x = -1;
+      leftHand.rotation.y = Math.PI;
+
       const rightHand = rightArm.userData.armRig.hand;
       rightHand.name = 'RightHand';
+      // Turn the firing palm inward from the weapon's right side while the arm
+      // solver carries the fingers forward along the trigger and receiver.
+      rightHand.rotation.y = -Math.PI / 2;
 
       const pack = new THREE.Mesh(geometry.pack, webbingMat);
       pack.name = 'Pack';
-      pack.position.set(0, 1.28, -0.27);
+      pack.position.set(0, 1.28, -0.222);
       pack.castShadow = true;
       soldierGroup.add(pack);
 

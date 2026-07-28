@@ -32,6 +32,7 @@ Status:
   - [x] Inject the selected family registry into scenario loading and validate faction, formation, weapon, and vehicle ownership before construction.
   - [x] Inject matching family vehicle visual factories from composition through `ScenarioRuntime` and `Unit` into generic `UnitFactory`; reject family mismatches and missing scenario vehicle renderers before constructing any units.
   - [x] Inject strict-identity family catalog ports through scenario construction; migrate `Unit`, `SoldierAgent`, `VehicleSystems`, `CombatSystem`, `UIManager`, and composition off direct legacy weapon/vehicle catalog imports; resolve restored projectiles through their attacker's family port; and reject forged lookup results before constructing units.
+  - [x] Move canonical France 1940 structure data behind an injected strict-identity structure port; retain `StructureCatalog` as a compatibility re-export; and remove generic `Unit`'s direct structure-catalog import.
   - [ ] Move remaining France-specific procedural visual profiles/factories out of generic world paths and inject remaining family presentation dependencies.
     - [x] Move France 1940 infantry-body and bunker mesh construction behind family-owned infantry/structure factory registries; inject exact faction presentation records into `Unit`; make generic `UnitFactory` dispatch-only apart from its family-colored vehicle selection disc; reject forged presentation and missing infantry, vehicle, or structure renderers before constructing units.
     - [x] Move MAS 36, FM 24/29, MAS 38, Kar98k, MG 34, and MP 40 visual contracts, geometry, grip markers, and muzzle markers out of generic `world/infantry` exports into the France 1940 render package; retain only family-neutral pose animation in the generic infantry path.
@@ -86,6 +87,8 @@ Status:
   - [ ] Add projectile breakup, behind-armor spall interaction, partition- and shielding-aware blast, fuze and fragment models, and component repair/abandonment rules.
 - [ ] Add crew task reassignment, replacement-gunner delays, bailout decisions, and abandoned vehicles.
   - [x] Gameplay-approximation slice: add a catalog-driven Panzer III commander-to-main-gunner task transfer with a deterministic 12-second delay, main-gun lockout, stable crew-ID selection, and deep rollback coverage.
+  - [ ] Render every real stable-ID vehicle crewman at an authored station, then add deterministic hatch-owned bailout, dismounted targetable survivors, abandonment, interruption, and deep replay.
+- [ ] Add infantry transport embarkation, carried-passenger ownership, capacity, vehicle-relative presentation, casualties, disembarkation, and deep WEGO replay for real transport vehicles.
 - [ ] Add weapon sighting, target acquisition, aim time, range estimation, and fire-control delays.
   - [x] Deterministic first slice: give every infantryman, vehicle main gun, and auxiliary mount persistent target, phase, aim-progress, required-time, estimated-range, and range-error state; derive aim work from weapon/platform, range, experience, stance, suppression, wounds, target motion, optics, traverse, crew availability, and measured shooter motion; reset on target change; retain tracking through automatic bursts and feeds; apply the estimate to physical holdover and dispersion; expose read-only HUD/telemetry state; and preserve deep WEGO capture/restore with frame-partition, target-switch, cadence, and rollback tests.
   - [ ] Add historical sight, reticle, optic, and rangefinder records; angular target tracking and lead; explicit stabilization behavior; crew target handoff and command delay; and vehicle-specific ranging methods.
@@ -94,7 +97,8 @@ Status:
   - [x] Wire one authoritative post-movement spotting step, direct-only precision targeting, contact-based HUNT cueing, hidden live enemy meshes, frozen uncertainty markers on the tactical map, and WEGO capture/restore.
   - [x] Add deterministic accepted-shot weapon reports and short-lived displaced SOUND contacts for in-range living enemies; preserve uncertainty without precision targeting, hidden-mesh exposure, target-soldier leakage, or same-step relay; and capture/restore the contacts with version-one compatibility.
   - [x] Add deterministic first-report VOICE/RADIO delay: freeze the acquisition report, deliver it at the exact gameplay-approximation boundary through a bounded stable-ID queue, revalidate endpoints, preserve contact precedence, and capture the authoritative fractional clock for byte-identical rollback and frame partitioning.
-  - [ ] Add richer terrain/foliage concealment, sound contacts, identification quality, false reports, and command-delay modeling.
+  - [x] Add deterministic direct identification progression and decay, frozen first-report relay quality, strict legacy/new-state migration, and exact rollback/frame-partition behavior without precision-target leakage.
+  - [ ] Add richer terrain/foliage concealment, broader sound-contact modeling, false reports, and command-delay modeling.
 - [ ] Add ammunition bearers, ammunition transfer, shared LMG belts/magazines, and vehicle ammunition handling.
   - [x] Same-squad feed slice: give the French FM 24/29 and German MG 34 assistant gunners explicit conserved support loads; transfer them only after a deterministic proximity delay using final post-transit individual positions; preserve reserve/reload ownership, interruption, stable IDs, and deep rollback. Cross-unit resupply, carrier movement, shared feed objects, split-team handling, and vehicle ammunition remain.
 - [ ] Add coaxial and hull machine guns with their real crew dependencies and ammunition stores.
@@ -106,14 +110,19 @@ Status:
   - [x] First environmental-reaction pass: per-soldier incoming-fire source/impact/intensity memory, deterministic shielding-cover scoring, spacing correction, casualty response, inspectable decisions, and rewind-safe state.
   - [x] Automated 5-tier morale and suppression recovery: READY (normal), CAUTIOUS (crouched scanning, 0.75x pace), DUCKING (low profile, 0.45x pace), TAKING_COVER (reroute to hard cover), PINNED / COWERING (prone head-covered hold), and ROUTED / FLEEING (sprint away from threat origin vector). Base 18 pts/sec out-of-fire recovery with cover (+8 pts/sec) and leadership (+6 pts/sec) bonuses.
   - [x] Repair individual-fire regression: retain LOS, range, aperture, movement, ordered-target, actual target-position, practical burst cadence, accepted-shot ammunition, deterministic selection, squad pinning, and legacy ammunition restore invariants.
-  - [ ] Add terrain danger maps, concealment/LOS-aware movement, buddy bounds, fire-and-movement, withdrawal, surrender, and persistent memory of observed threats.
+  - [x] Add bounded rollback-safe per-soldier incoming-fire memory with stable event IDs, deterministic decay/expiry/selection, strongest-threat cover consumption, and partition-identical canonical timing.
+  - [x] Add stable-ID known-target QUICK buddy bounds with one mover and one real covering-fire owner per pair, direct-observation loss reconciliation, deterministic role swaps and final reform, unavailable-member handling, and deep rollback coverage.
+  - [ ] Add explicit SNEAK, CRAWL, and ASSAULT orders with individual stance, speed, fire, formation, interruption, realtime/WEGO, and rollback behavior.
+  - [ ] Add terrain danger maps, concealment/LOS-aware movement, broader fire-team bounds and fire-and-movement beyond direct-target QUICK pairs, withdrawal, surrender, and persistent memory of observed threats.
 - [ ] Improve vehicle AI: hull-down positioning, turret-first observation, threat facing, reverse movement, and damaged-vehicle behavior.
 - [ ] Add deterministic movement collision and tactical navigation.
   - [x] First static-world slice: renderer-neutral oriented collider records for terrain-conforming walls, the village building, bridge parapets and abutments, river exclusion, and bunker/rubble; swept vehicle capsules and soldier circles prevent tunneling, retain stand-off, stop-and-slide, route cross-river orders through the bridge, use bridge deck height, and survive WEGO capture/restore without a physics dependency.
   - [x] Harden static movement: collide the infantry squad anchor, wait for living soldiers to finish their individual routes, bind split teams, route near-bank destinations from actual river exclusions, and run live/seek simulation through the same fixed 30 Hz steps.
   - [x] Add stable visibility-graph detours around intervening static walls for building-entry orders; preserve bridge stages, use individual and formation clearance at route corners, and keep target-building portal routing under the building interaction layer.
   - [x] Ordinary-infantry command slice: expand post-setup move orders through the injected deterministic bridge/static-obstacle graph from the live position or pending queue tail; preserve order types, formation-safe early-acceptance clearance, exact destination height, append behavior, and existing waypoint rollback ownership.
-  - [ ] Add unit-to-unit separation, generalize obstacle-graph routing beyond building-entry orders, add reverse-aware vehicle maneuvers, and add deterministic wreck settling.
+  - [x] Route the full living infantry formation envelope around passages too narrow for its current slots while retaining the 0.8 m waypoint-arrival tolerance.
+  - [x] Add deterministic stable-ID personal-space resolution for living individual infantry, projected through static-world collision with bounded passes and rollback-owned positions.
+  - [ ] Generalize obstacle-graph routing beyond building-entry orders, add reverse-aware vehicle maneuvers, and add deterministic wreck settling.
 - [ ] Add enterable multi-floor buildings.
   - [x] Add a renderer-neutral two-floor French house descriptor with a door, stair route, four individual slots per floor, window firing ports, deterministic slot reservations, timed transit, casualty release, and deep capture/restore.
   - [x] Replace the solid house box with a terrain-grounded, segmented door/window/floor/stair/roof model and high/medium/core/proxy LOD tiers; separate projectile/LOS apertures from a movement shell that blocks windows and reserves doors for authorized transit.
@@ -122,11 +131,16 @@ Status:
   - [x] Keep authored footprint, facade openings, floor line, roof profile, damage state, and visual identity consistent across all building LOD tiers.
   - [x] Restore MOVE-click floor selection, individual-occupancy exit controls, and consistent open/closed door-leaf state across every LOD.
   - [x] Enforce authored ENTER target capacity: assign only real valid requested-floor slots, exclude occupied, reserved, and rollback-owned pending claims, preserve deterministic partial acceptance and lifecycle release, and replay pending transit without a new side registry.
+  - [x] Add a second frozen compact one-floor farmhouse descriptor with three real individual slots, generic building/visual-system reuse, rotation-aware terrain grounding, and one explicit non-overlapping Stonne placement.
+  - [x] Deterministically select the shortest valid exterior-door route and persist that stable portal through entry, stairs, exit, ejection, capture, restore, and replay.
   - [ ] Generalize the authored-house slice into reusable building/map records with more floor plans, entrances, interior routes, firing positions, capacity rules, and AI-selected occupation.
 - [ ] Add destructible buildings with persistent tactical consequences.
   - [x] Add section health/resistance, projectile breaches, aperture state, support-loss collapse, rubble colliders, deterministic occupant damage/ejection, collision deltas, and rollback-safe events.
   - [x] Wire live projectile and blast hits, combat telemetry, occupant casualties, dynamic movement/LOS collider refresh, rollback-safe visual restoration, and visibly breached/collapsed/rubble states across every house LOD.
-  - [ ] Add material-specific debris VFX, persistent smoke/fire spread, partial-floor collapse animation, damaged-building sound, and scenario-authored destruction thresholds.
+  - [x] Project bounded material-specific one-shot debris VFX from authoritative section damage, breach, and collapse transitions, with deterministic deduplication, provider-owned styles, pooled lifecycle, and no repeat burst for persistent no-op collapse state.
+  - [x] Add deterministic severity-routed one-shot damaged-building audio with bounded provider/voice lifecycle, no-op suppression, and presentation-failure isolation.
+  - [x] Add validated scenario-placement section-collapse thresholds with stable normalization, existing portal/occupant/rubble/collision consequences, legacy default behavior, and deep rollback replay.
+  - [ ] Add persistent smoke/fire spread and partial-floor collapse animation.
 - [ ] Add terrain and structure collision to projectile sweeps.
   - [x] First structure slice: targetable German MG34 bunker with authoritative reinforced-concrete health, penetrative/direct and blast damage, firing shutdown, visible rubble state, and WEGO capture/restore.
   - [x] Add current 3D building-section sweeps with door/window/breach pass-through, earliest-hit ordering against units and vehicles, resistance/penetration, blast damage, and support collapse.
@@ -135,7 +149,10 @@ Status:
   - [x] Rough pass: stable base pose reset, weapon recoil profiles (LMG, SMG, Rifle), top-fed LMG reload posture, and clear KIA casualty pose.
   - [x] Bind two-segment arms to exact trigger, support, and feed-specific reload grips; add deterministic breathing, head scanning, weapon sway, weight shift, and recognizable period-weapon defining parts.
   - [x] Preserve a visually right-handed stock/shoulder relationship through idle, aim, fire, and reload; put MAS 36/Kar98k actions and verified FM 24/29, MAS 38, and MG 34 charging handles on the right while retaining the MP 40's left-side handle.
-  - [ ] Add blended state transitions, foot placement, turn-in-place, crawling, weapon deployment, wounded locomotion, varied casualty falls, and animation LOD.
+  - [x] Add distance-phased procedural prone crawling with weapon-action precedence, semantic grip retention, clean pose transitions, unavailable-status exclusion, and capture/restore re-projection coverage.
+  - [x] Add phase-derived generalized wounded guarded locomotion with strict positive-health eligibility, action/crawl precedence, grip retention, clean transition resets, and capture/restore re-projection coverage.
+  - [x] Add four stable-identity first-order KIA end poses with complete rig and transient-grip reset, action precedence, grounding, and capture/restore replay coverage.
+  - [ ] Add blended state transitions, foot placement, turn-in-place, weapon deployment, dynamic casualty fall transitions beyond static end poses, and animation LOD.
 - [ ] Improve suspension, track movement, terrain grounding, and wreck physics; evaluate deterministic Rapier specifically for bounded dynamic rigid-body needs.
   - [x] Replace opaque rectangular track slabs on all ten tracked vehicles with shared instanced closed-belt links, cleats, named wheels/sprockets/idlers, and open far-LOD belt-and-wheel silhouettes.
   - [x] Keep authoritative static movement collision game-side and deterministic; reserve a direct Rapier evaluation for dynamic wrecks, suspension, and ragdolls instead of replacing ballistics, building topology, or rollback state.
@@ -143,14 +160,16 @@ Status:
 - [ ] Expand visible vehicle damage into component-local damage variants, persistent wrecks, and layered audio.
   - [x] First presentation pass: resolved impact sparks/scorch, engine smoke, persistent fire, destruction/secondary-explosion bursts, disabled-gun droop, selected-vehicle health, component status, mount state, and ammunition HUD.
   - [x] Bound combat presentation churn: cached WebAudio noise buffers, capped/released audio voices, shared projectile resources, and capped reusable impact/explosion visuals.
-  - [ ] Add dent/hole decals aligned to armor normals, damaged wheels and tracks, deformed engine/gun/turret variants, leaking fuel, crew bailout visuals, persistent wreck smoke lifecycle, and component-specific sounds.
+  - [ ] Add authoritative progressive fuel fires and ammunition cookoff, catastrophic turret separation, broken/shed tracks, dent/hole decals aligned to armor normals, damaged wheels, deformed engine/gun/turret variants, leaking fuel, crew bailout visuals, persistent wreck smoke lifecycle, and component-specific sounds.
 - [ ] Continue battlefield scale and environmental-fidelity pass.
   - [x] Define one metre-scale contract and normalize authored infantry to a 1.75 m standing reference.
   - [x] Replace oversized wall slabs with 72 closed, terrain-conforming masonry segments and matching collision bounds.
   - [x] Unify river bed, water, banks, and bridge dimensions so water stays visible and the bridge reaches both banks.
   - [x] Add a level terrain-conforming house foundation, calibrated house/bridge/tree dimensions, and metre-density masonry UVs.
-  - [x] Scenario-surface polygon slice: validate plain texture-space polygons alongside legacy rectangles; render deterministic ordered Canvas paths; and replace the three provisional Stonne field rectangles plus north/south road rectangle with irregular scenario-authored boundaries. Riverbank materials remain.
-  - [ ] Replace provisional rectangular ground fields with scenario-authored surface layers, irregular field boundaries, roads, and riverbank materials.
+  - [x] Scenario-surface polygon slice: validate plain texture-space polygons alongside legacy rectangles; render deterministic ordered Canvas paths; and replace the three provisional Stonne field rectangles plus north/south road rectangle with irregular scenario-authored boundaries.
+  - [x] Scenario-authored riverbank surface slice: render two bounded terrain-conforming north/south strips through an injected family material role while preserving existing height, collision, navigation, water, and bridge authority.
+  - [x] Scenario surface-detail slice: add an irregular southeast field, two strictly inset field-detail polygons, and a wider north/south road shoulder beneath the unchanged road through the existing ordered visual-only layer owner.
+  - [ ] Finish remaining scenario-authored ground-surface layering and field/road material refinement.
   - [ ] Expand the village, vegetation, fences, rubble, and small terrain props with authored near/medium/far representations.
 - [ ] Add additional authored LOD models and measure transition popping at near, design, and far cameras.
   - [ ] Blueprint-calibrate all 15 vehicle envelopes, profiles, running gear, turrets, and weapon projections.

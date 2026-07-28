@@ -27,6 +27,226 @@ function useLegacyRect(map, rect = [60, 60, 400, 400]) {
   return map;
 }
 
+const GEOMETRY_EPSILON = 1e-9;
+const ROAD_CONTAINMENT_STATION_SPACING = 16;
+
+function orientation(a, b, c) {
+  return (
+    (b[0] - a[0]) * (c[1] - a[1])
+    - (b[1] - a[1]) * (c[0] - a[0])
+  );
+}
+
+function pointOnSegment(point, start, end) {
+  return (
+    Math.abs(orientation(start, end, point)) <= GEOMETRY_EPSILON
+    && point[0] >= Math.min(start[0], end[0]) - GEOMETRY_EPSILON
+    && point[0] <= Math.max(start[0], end[0]) + GEOMETRY_EPSILON
+    && point[1] >= Math.min(start[1], end[1]) - GEOMETRY_EPSILON
+    && point[1] <= Math.max(start[1], end[1]) + GEOMETRY_EPSILON
+  );
+}
+
+function segmentsIntersectOrTouch(a, b, c, d) {
+  const abc = orientation(a, b, c);
+  const abd = orientation(a, b, d);
+  const cda = orientation(c, d, a);
+  const cdb = orientation(c, d, b);
+  if (
+    ((abc > GEOMETRY_EPSILON && abd < -GEOMETRY_EPSILON)
+      || (abc < -GEOMETRY_EPSILON && abd > GEOMETRY_EPSILON))
+    && ((cda > GEOMETRY_EPSILON && cdb < -GEOMETRY_EPSILON)
+      || (cda < -GEOMETRY_EPSILON && cdb > GEOMETRY_EPSILON))
+  ) {
+    return true;
+  }
+  return (
+    pointOnSegment(c, a, b)
+    || pointOnSegment(d, a, b)
+    || pointOnSegment(a, c, d)
+    || pointOnSegment(b, c, d)
+  );
+}
+
+function pointInsidePolygonStrict(point, polygon) {
+  for (let index = 0; index < polygon.length; index++) {
+    if (pointOnSegment(point, polygon[index], polygon[(index + 1) % polygon.length])) {
+      return false;
+    }
+  }
+  let inside = false;
+  for (
+    let index = 0, previous = polygon.length - 1;
+    index < polygon.length;
+    previous = index++
+  ) {
+    const [currentU, currentV] = polygon[index];
+    const [previousU, previousV] = polygon[previous];
+    if (
+      (currentV > point[1]) !== (previousV > point[1])
+      && point[0] < (
+        (previousU - currentU) * (point[1] - currentV)
+        / (previousV - currentV)
+        + currentU
+      )
+    ) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function polygonStrictlyContains(parent, child) {
+  if (!child.every(point => pointInsidePolygonStrict(point, parent))) return false;
+  for (let childIndex = 0; childIndex < child.length; childIndex++) {
+    const childStart = child[childIndex];
+    const childEnd = child[(childIndex + 1) % child.length];
+    for (let parentIndex = 0; parentIndex < parent.length; parentIndex++) {
+      if (
+        segmentsIntersectOrTouch(
+          childStart,
+          childEnd,
+          parent[parentIndex],
+          parent[(parentIndex + 1) % parent.length]
+        )
+      ) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+function nonCollinearTurns(polygon) {
+  return polygon.filter((point, index) => (
+    Math.abs(orientation(
+      polygon[(index + polygon.length - 1) % polygon.length],
+      point,
+      polygon[(index + 1) % polygon.length]
+    )) > GEOMETRY_EPSILON
+  ));
+}
+
+function isSubdividedRectangle(polygon) {
+  const turns = nonCollinearTurns(polygon);
+  if (turns.length !== 4) return false;
+  const sides = turns.map((point, index) => {
+    const next = turns[(index + 1) % turns.length];
+    return [next[0] - point[0], next[1] - point[1]];
+  });
+  const lengths = sides.map(([u, v]) => Math.hypot(u, v));
+  if (lengths.some(length => length <= GEOMETRY_EPSILON)) return false;
+  const approximatelyZero = (value, scale) => (
+    Math.abs(value) <= GEOMETRY_EPSILON * Math.max(1, scale)
+  );
+  const adjacentSidesArePerpendicular = sides.every((side, index) => {
+    const next = sides[(index + 1) % sides.length];
+    return approximatelyZero(
+      side[0] * next[0] + side[1] * next[1],
+      lengths[index] * lengths[(index + 1) % lengths.length]
+    );
+  });
+  const oppositeSidesAreParallel = [0, 1].every(index => {
+    const oppositeIndex = index + 2;
+    return approximatelyZero(
+      sides[index][0] * sides[oppositeIndex][1]
+        - sides[index][1] * sides[oppositeIndex][0],
+      lengths[index] * lengths[oppositeIndex]
+    );
+  });
+  return adjacentSidesArePerpendicular && oppositeSidesAreParallel;
+}
+
+function horizontalBoundaryIntersections(polygon, stationV) {
+  const intersections = [];
+  for (let index = 0; index < polygon.length; index++) {
+    const start = polygon[index];
+    const end = polygon[(index + 1) % polygon.length];
+    if (Math.abs(start[1] - end[1]) <= GEOMETRY_EPSILON) {
+      if (Math.abs(stationV - start[1]) <= GEOMETRY_EPSILON) {
+        intersections.push(start[0], end[0]);
+      }
+      continue;
+    }
+    if (
+      stationV < Math.min(start[1], end[1]) - GEOMETRY_EPSILON
+      || stationV > Math.max(start[1], end[1]) + GEOMETRY_EPSILON
+    ) {
+      continue;
+    }
+    const progress = (stationV - start[1]) / (end[1] - start[1]);
+    if (progress >= -GEOMETRY_EPSILON && progress <= 1 + GEOMETRY_EPSILON) {
+      intersections.push(start[0] + progress * (end[0] - start[0]));
+    }
+  }
+  intersections.sort((a, b) => a - b);
+  return intersections.filter((value, index) => (
+    index === 0 || Math.abs(value - intersections[index - 1]) > GEOMETRY_EPSILON
+  ));
+}
+
+function measureLongitudinalContainment(inner, outer) {
+  const innerV = inner.map(([, v]) => v);
+  const outerV = outer.map(([, v]) => v);
+  const minV = Math.max(Math.min(...innerV), Math.min(...outerV));
+  const maxV = Math.min(Math.max(...innerV), Math.max(...outerV));
+  const breakpoints = [...new Set([
+    minV,
+    maxV,
+    ...innerV.filter(v => v >= minV && v <= maxV),
+    ...outerV.filter(v => v >= minV && v <= maxV)
+  ])].sort((a, b) => a - b);
+  const stations = new Set(breakpoints);
+  // Both contours are piecewise linear and must have exactly two intersections.
+  // Breakpoints plus each interval midpoint cover every boundary-segment pairing;
+  // fixed stations add stable margin evidence across the full map texture.
+  for (let index = 1; index < breakpoints.length; index++) {
+    stations.add((breakpoints[index - 1] + breakpoints[index]) * 0.5);
+  }
+  for (
+    let stationV = minV;
+    stationV <= maxV;
+    stationV += ROAD_CONTAINMENT_STATION_SPACING
+  ) {
+    stations.add(Math.min(stationV, maxV));
+  }
+  stations.add(maxV);
+
+  const samples = [...stations].sort((a, b) => a - b).map(stationV => {
+    const innerIntersections = horizontalBoundaryIntersections(inner, stationV);
+    const outerIntersections = horizontalBoundaryIntersections(outer, stationV);
+    assert.equal(
+      innerIntersections.length,
+      2,
+      `inner road must have two boundary intersections at v=${stationV}`
+    );
+    assert.equal(
+      outerIntersections.length,
+      2,
+      `outer shoulder must have two boundary intersections at v=${stationV}`
+    );
+    return {
+      stationV,
+      leftMargin: innerIntersections[0] - outerIntersections[0],
+      rightMargin: outerIntersections[1] - innerIntersections[1]
+    };
+  });
+  const leftMinimum = samples.reduce((minimum, sample) => (
+    sample.leftMargin < minimum.leftMargin ? sample : minimum
+  ));
+  const rightMinimum = samples.reduce((minimum, sample) => (
+    sample.rightMargin < minimum.rightMargin ? sample : minimum
+  ));
+  return {
+    stationCount: samples.length,
+    leftMargin: leftMinimum.leftMargin,
+    leftMarginStationV: leftMinimum.stationV,
+    rightMargin: rightMinimum.rightMargin,
+    rightMarginStationV: rightMinimum.stationV,
+    samples
+  };
+}
+
 test('Stonne map owns immutable terrain, surface, feature, structure, and deployment records', () => {
   assert.equal(STONNE_1940_MAP.id, 'stonne-1940');
   assert.deepEqual(STONNE_1940_MAP.dimensions, {
@@ -50,17 +270,66 @@ test('Stonne map owns immutable terrain, surface, feature, structure, and deploy
     STONNE_1940_MAP.wallRuns.map(run => run.id),
     ['north_west', 'north_east', 'south_west', 'south_east']
   );
-  assert.equal(STONNE_1940_MAP.structures.length, 1);
+  assert.equal(STONNE_1940_MAP.structures.length, 2);
   assert.deepEqual(STONNE_1940_MAP.structures[0].position, [45, 60]);
+  assert.deepEqual(STONNE_1940_MAP.structures[1], {
+    id: 'french_farmhouse_outbuilding',
+    descriptorId: 'fr_farmhouse_8x6_1f',
+    visualAdapterId: 'fr_farmhouse_8x6_1f',
+    position: [-45, 34],
+    rotationY: Math.PI / 2,
+    foundationClearance: 0.12,
+    destructionThresholds: {
+      approximation: 'gameplay approximation; not historical survey evidence',
+      sectionCollapse: [
+        { sectionId: 'ground-shell', atOrBelowHealthFraction: 0.12 },
+        { sectionId: 'roof', atOrBelowHealthFraction: 0.18 }
+      ]
+    }
+  });
+  assert.equal(Object.isFrozen(STONNE_1940_MAP.structures[1]), true);
   assert.equal(STONNE_1940_MAP.foliage.length, 5);
   assert.ok(STONNE_1940_MAP.surfaces.layers.every(layer => layer.visualOnly));
   assert.deepEqual(
     STONNE_1940_MAP.surfaces.layers.map(layer => layer.id),
     [
       'field-northwest',
+      'field-northwest-detail',
       'field-northeast',
       'field-southwest',
+      'field-southwest-detail',
+      'field-southeast',
+      'road-north-south-shoulder',
       'road-north-south'
+    ]
+  );
+  assert.deepEqual(
+    STONNE_1940_MAP.surfaces.layers.map(({ id, kind, color }) => ({
+      id,
+      kind,
+      color
+    })),
+    [
+      { id: 'field-northwest', kind: 'field', color: '#b09943' },
+      {
+        id: 'field-northwest-detail',
+        kind: 'field-detail',
+        color: '#c0a951'
+      },
+      { id: 'field-northeast', kind: 'field', color: '#567a3a' },
+      { id: 'field-southwest', kind: 'field', color: '#9e893c' },
+      {
+        id: 'field-southwest-detail',
+        kind: 'field-detail',
+        color: '#af9848'
+      },
+      { id: 'field-southeast', kind: 'field', color: '#6f8242' },
+      {
+        id: 'road-north-south-shoulder',
+        kind: 'road-shoulder',
+        color: '#806a4d'
+      },
+      { id: 'road-north-south', kind: 'road', color: '#92704a' }
     ]
   );
   assert.ok(
@@ -70,18 +339,205 @@ test('Stonne map owns immutable terrain, surface, feature, structure, and deploy
   );
   for (const layer of STONNE_1940_MAP.surfaces.layers) {
     assert.ok(layer.polygon.length > 4, `${layer.id} must have an irregular outline`);
-    assert.ok(
-      new Set(layer.polygon.map(([u]) => u)).size > 2,
-      `${layer.id} must not disguise a rectangle`
+    assert.equal(
+      isSubdividedRectangle(layer.polygon),
+      false,
+      `${layer.id} must not be a subdivided rectangle at any orientation`
     );
-    assert.ok(
-      new Set(layer.polygon.map(([, v]) => v)).size > 2,
-      `${layer.id} must not disguise a rectangle`
+  }
+  const fieldDetails = STONNE_1940_MAP.surfaces.layers.filter(
+    layer => layer.kind === 'field-detail'
+  );
+  assert.equal(fieldDetails.length, 2);
+  const southeastField = STONNE_1940_MAP.surfaces.layers.find(
+    layer => layer.id === 'field-southeast'
+  );
+  assert.ok(southeastField.polygon.every(([u, v]) => u > 512 && v > 512));
+  const roadIndex = STONNE_1940_MAP.surfaces.layers.findIndex(
+    layer => layer.id === 'road-north-south'
+  );
+  const road = STONNE_1940_MAP.surfaces.layers[roadIndex];
+  const shoulder = STONNE_1940_MAP.surfaces.layers[roadIndex - 1];
+  assert.equal(shoulder.id, 'road-north-south-shoulder');
+  const roadContainment = measureLongitudinalContainment(
+    road.polygon,
+    shoulder.polygon
+  );
+  assert.equal(roadContainment.stationCount, 77);
+  assert.deepEqual(
+    {
+      leftMargin: roadContainment.leftMargin,
+      leftMarginStationV: roadContainment.leftMarginStationV,
+      rightMargin: roadContainment.rightMargin,
+      rightMarginStationV: roadContainment.rightMarginStationV
+    },
+    {
+      leftMargin: 19,
+      leftMarginStationV: 0,
+      rightMargin: 19,
+      rightMarginStationV: 0
+    }
+  );
+  const layersById = new Map(
+    STONNE_1940_MAP.surfaces.layers.map(layer => [layer.id, layer])
+  );
+  const detailParents = {
+    'field-northwest-detail': 'field-northwest',
+    'field-southwest-detail': 'field-southwest'
+  };
+  assert.deepEqual(fieldDetails.map(layer => layer.id), Object.keys(detailParents));
+  for (const [detailId, parentId] of Object.entries(detailParents)) {
+    assert.equal(
+      polygonStrictlyContains(
+        layersById.get(parentId).polygon,
+        layersById.get(detailId).polygon
+      ),
+      true,
+      `${detailId} must remain strictly inset within ${parentId}`
     );
   }
   assert.ok(STONNE_1940_MAP.foliage.every(entry => entry.visualOnly));
   assert.deepEqual(Object.keys(STONNE_1940_MAP.deploymentZones), ['french', 'german']);
   assertDeepFrozen(STONNE_1940_MAP);
+});
+
+test('surface geometry checks reject shapes accepted by the former weak heuristics', () => {
+  const subdividedRectangle = [
+    [0, 0],
+    [4, 0],
+    [10, 0],
+    [10, 5],
+    [10, 10],
+    [6, 10],
+    [0, 10],
+    [0, 4]
+  ];
+  assert.ok(subdividedRectangle.length > 4);
+  assert.ok(new Set(subdividedRectangle.map(([u]) => u)).size > 2);
+  assert.ok(new Set(subdividedRectangle.map(([, v]) => v)).size > 2);
+  assert.equal(nonCollinearTurns(subdividedRectangle).length, 4);
+  assert.equal(isSubdividedRectangle(subdividedRectangle), true);
+
+  const rotatedSubdividedRectangle = [
+    [0, -4],
+    [2, -2],
+    [4, 0],
+    [2, 2],
+    [0, 4],
+    [-2, 2],
+    [-4, 0],
+    [-2, -2]
+  ];
+  const formerAxisAlignedGate = rotatedSubdividedRectangle.every(
+    (point, index) => {
+      const next = rotatedSubdividedRectangle[
+        (index + 1) % rotatedSubdividedRectangle.length
+      ];
+      return point[0] === next[0] || point[1] === next[1];
+    }
+  );
+  assert.equal(formerAxisAlignedGate, false);
+  assert.equal(nonCollinearTurns(rotatedSubdividedRectangle).length, 4);
+  assert.equal(isSubdividedRectangle(rotatedSubdividedRectangle), true);
+
+  const genuinelyIrregularQuadrilateral = [
+    [0, 0],
+    [6, 1],
+    [4, 6],
+    [-1, 4]
+  ];
+  assert.equal(nonCollinearTurns(genuinelyIrregularQuadrilateral).length, 4);
+  assert.equal(isSubdividedRectangle(genuinelyIrregularQuadrilateral), false);
+
+  const adversarialRoad = [
+    [4, 0],
+    [6, 0],
+    [6, 4],
+    [6, 10],
+    [4, 10],
+    [4, 6]
+  ];
+  const globallyWiderButPinchedShoulder = [
+    [0, 0],
+    [10, 0],
+    [10, 10],
+    [0, 10],
+    [0, 6],
+    [5, 5],
+    [0, 4]
+  ];
+  assert.ok(
+    Math.min(...globallyWiderButPinchedShoulder.map(([u]) => u))
+      < Math.min(...adversarialRoad.map(([u]) => u))
+  );
+  assert.ok(
+    Math.max(...globallyWiderButPinchedShoulder.map(([u]) => u))
+      > Math.max(...adversarialRoad.map(([u]) => u))
+  );
+  const pinchedContainment = measureLongitudinalContainment(
+    adversarialRoad,
+    globallyWiderButPinchedShoulder
+  );
+  assert.ok(pinchedContainment.leftMargin < 0);
+
+  const parentField = [[0, 0], [10, 0], [10, 10], [0, 10]];
+  const escapingFieldDetail = [
+    [2, 2],
+    [8, 1],
+    [12, 5],
+    [8, 9],
+    [3, 8],
+    [1, 5]
+  ];
+  assert.ok(escapingFieldDetail.length > 4);
+  assert.ok(new Set(escapingFieldDetail.map(([u]) => u)).size > 2);
+  assert.ok(new Set(escapingFieldDetail.map(([, v]) => v)).size > 2);
+  assert.equal(polygonStrictlyContains(parentField, escapingFieldDetail), false);
+
+  const concaveParentField = [
+    [0, 0],
+    [10, 0],
+    [10, 10],
+    [7, 10],
+    [7, 3],
+    [3, 3],
+    [3, 10],
+    [0, 10]
+  ];
+  const vertexInsideButEdgeEscapes = [
+    [1, 8],
+    [2, 4],
+    [8, 4],
+    [9, 8],
+    [8, 2],
+    [2, 2]
+  ];
+  assert.equal(
+    vertexInsideButEdgeEscapes.every(
+      point => pointInsidePolygonStrict(point, concaveParentField)
+    ),
+    true
+  );
+  const childEdgeCrossesParent = vertexInsideButEdgeEscapes.some(
+    (childStart, childIndex) => {
+      const childEnd = vertexInsideButEdgeEscapes[
+        (childIndex + 1) % vertexInsideButEdgeEscapes.length
+      ];
+      return concaveParentField.some((parentStart, parentIndex) => (
+        segmentsIntersectOrTouch(
+          childStart,
+          childEnd,
+          parentStart,
+          concaveParentField[(parentIndex + 1) % concaveParentField.length]
+        )
+      ));
+    }
+  );
+  assert.equal(childEdgeCrossesParent, true);
+  assert.equal(
+    polygonStrictlyContains(concaveParentField, vertexInsideButEdgeEscapes),
+    false
+  );
 });
 
 test('scenario references the selected map while the map solely owns deployment zones', () => {

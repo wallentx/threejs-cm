@@ -45,7 +45,12 @@ export class SoundEngine {
       );
       this.masterGain.connect(this.ctx.destination);
     }
-    if (this.ctx.state === 'suspended') this.ctx.resume?.();
+    if (this.ctx.state === 'suspended') {
+      const resume = this.ctx.resume?.();
+      // Resume is presentation-only; a rejected browser gesture must not become
+      // an unhandled rejection outside the synchronous playback boundary.
+      resume?.catch?.(() => {});
+    }
     return true;
   }
 
@@ -163,13 +168,26 @@ export class SoundEngine {
     const voice = this.reserveVoice(event.category, event.layers.length, eventId);
     if (!voice) return false;
     const startAt = this.ctx.currentTime;
-    event.layers.forEach((layer, index) => {
-      if (layer.type === 'noise') {
-        this.playNoiseLayer(voice, eventId, layer, index, startAt);
-      } else {
-        this.playOscillatorLayer(voice, layer, startAt);
+    try {
+      event.layers.forEach((layer, index) => {
+        if (layer.type === 'noise') {
+          this.playNoiseLayer(voice, eventId, layer, index, startAt);
+        } else {
+          this.playOscillatorLayer(voice, layer, startAt);
+        }
+      });
+    } catch (error) {
+      for (const source of voice.sources) {
+        source.onended = null;
+        try {
+          source.stop?.();
+        } catch {
+          // A partial WebAudio graph must still release its voice reservation.
+        }
       }
-    });
+      this.releaseVoice(voice);
+      throw error;
+    }
     this.lastEventId = eventId;
     return true;
   }
@@ -184,6 +202,10 @@ export class SoundEngine {
 
   playUIClick(context = {}) {
     return this.playEvent(this.audioResources.resolveUiEvent(context));
+  }
+
+  playBuildingDamage(context = {}) {
+    return this.playEvent(this.audioResources.resolveBuildingDamageEvent(context));
   }
 
   dispose() {

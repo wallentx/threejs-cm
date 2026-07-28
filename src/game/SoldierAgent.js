@@ -14,11 +14,13 @@ import {
 import {
   restoreThreatMemory
 } from '../simulation/infantry/ThreatMemory.js';
+import {
+  INFANTRY_COLLISION_RADIUS
+} from '../simulation/infantry/InfantrySeparationSystem.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const MAX_INFANTRY_ROUNDS_PER_STEP = 64;
 const INFANTRY_CADENCE_EPSILON = 1e-9;
-const INFANTRY_COLLISION_RADIUS = 0.32;
 
 function hash01(value) {
   let hash = 2166136261;
@@ -69,6 +71,7 @@ export class SoldierAgent {
     this.state = record.state ?? 'READY';
     this.stance = record.stance ?? 'STANDING';
     this.status = record.status ?? 'OK';
+    this.casualtyFallStartStance = record.casualtyFallStartStance ?? null;
     this.moraleTier = record.moraleTier ?? 'READY';
     this.targetUnitId = record.targetUnitId ?? null;
     this.targetSoldierId = record.targetSoldierId ?? null;
@@ -87,10 +90,13 @@ export class SoldierAgent {
   get isWounded() { return this.health < 70 && this.isAlive; }
 
   applyDamage(damage, suppression = 0) {
-    if (!this.isAlive) return;
+    if (this.health <= 0
+        || (this.status !== 'OK' && this.status !== 'WOUNDED')) return;
     this.health = Math.max(0, this.health - Math.max(0, damage));
     this.suppression = Math.min(100, this.suppression + Math.max(0, suppression));
     if (this.health === 0) {
+      this.casualtyFallStartStance = this.stance;
+      this.record.poseTime = 0;
       this.status = 'KIA';
       this.state = 'CASUALTY';
       this.stance = 'PRONE';
@@ -133,6 +139,7 @@ export class SoldierAgent {
     this.state = record.state ?? 'READY';
     this.stance = record.stance ?? 'STANDING';
     this.status = record.status ?? 'OK';
+    this.casualtyFallStartStance = record.casualtyFallStartStance ?? null;
     this.moraleTier = record.moraleTier ?? 'READY';
     if (record.worldPosition) this.position.fromArray(record.worldPosition);
     if (record.velocity) this.velocity.fromArray(record.velocity);
@@ -198,6 +205,12 @@ export class SoldierAgent {
         : null,
       commandWaypoint: this.commandWaypoint
     });
+    if (this.status === 'KIA' && this.casualtyFallStartStance != null) {
+      this.record.casualtyFallStartStance = this.casualtyFallStartStance;
+    } else {
+      this.casualtyFallStartStance = null;
+      delete this.record.casualtyFallStartStance;
+    }
     if (this.supportAmmunitionTransfer) {
       this.record.supportAmmunitionTransfer =
         captureInfantryAmmunitionTransferState(
@@ -306,6 +319,14 @@ export class SoldierAgent {
       } else {
         this.velocity.multiplyScalar(Math.exp(-8 * dt));
       }
+    } else if (context.coveringHold) {
+      this.state = 'COVERING';
+      this.stance = moraleTier === 'DUCKING'
+        ? 'PRONE'
+        : moraleTier === 'CAUTIOUS'
+          ? 'KNEELING'
+          : this.unit.stance;
+      this.velocity.set(0, 0, 0);
     } else if (moraleTier === 'DUCKING') {
       this.state = context.anchorMoving ? 'MOVING' : 'DUCKING';
       this.stance = 'PRONE';
@@ -359,6 +380,9 @@ export class SoldierAgent {
           this.velocity.lerp(direction.multiplyScalar(desiredSpeed), 1 - Math.exp(-7 * dt));
           this.facing = Math.atan2(this.velocity.x, this.velocity.z);
         }
+      } else if (context.buddyBoundMover) {
+        this.state = 'BOUNDING';
+        this.velocity.multiplyScalar(Math.exp(-8 * dt));
       } else {
         this.velocity.multiplyScalar(Math.exp(-7 * dt));
         this.state = this.targetUnitId ? 'AIMING' : 'OBSERVING';
@@ -442,6 +466,7 @@ export class SoldierAgent {
 
     this.fireCooldown = Math.max(-elapsed, this.fireCooldown - elapsed);
     if (this.state === 'MOVING' || this.state === 'REACTING' || this.state === 'ADVANCING'
+        || this.state === 'BOUNDING'
         || this.state === 'TAKING_COVER' || this.state === 'FLEEING') {
       resetFireControlState(this.fireControl, 'MOVING');
       this.targetUnitId = null;

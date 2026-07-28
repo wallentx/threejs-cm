@@ -50,6 +50,22 @@ export const STONNE_1940_MAP = defineMapDescriptor({
         visualOnly: true
       },
       {
+        id: 'field-northwest-detail',
+        kind: 'field-detail',
+        color: '#c0a951',
+        polygon: [
+          [120, 140],
+          [230, 105],
+          [350, 130],
+          [395, 210],
+          [365, 310],
+          [280, 340],
+          [170, 315],
+          [105, 240]
+        ],
+        visualOnly: true
+      },
+      {
         id: 'field-northeast',
         kind: 'field',
         color: '#567a3a',
@@ -83,6 +99,63 @@ export const STONNE_1940_MAP = defineMapDescriptor({
           [160, 948],
           [60, 890],
           [76, 730]
+        ],
+        visualOnly: true
+      },
+      {
+        id: 'field-southwest-detail',
+        kind: 'field-detail',
+        color: '#af9848',
+        polygon: [
+          [130, 650],
+          [235, 610],
+          [350, 635],
+          [400, 710],
+          [375, 835],
+          [300, 900],
+          [180, 880],
+          [105, 805]
+        ],
+        visualOnly: true
+      },
+      {
+        id: 'field-southeast',
+        kind: 'field',
+        color: '#6f8242',
+        polygon: [
+          [585, 575],
+          [720, 558],
+          [855, 575],
+          [950, 625],
+          [960, 760],
+          [938, 900],
+          [850, 960],
+          [705, 948],
+          [585, 925],
+          [560, 805],
+          [570, 675]
+        ],
+        visualOnly: true
+      },
+      {
+        id: 'road-north-south-shoulder',
+        kind: 'road-shoulder',
+        color: '#806a4d',
+        polygon: [
+          [458, 0],
+          [563, 0],
+          [568, 150],
+          [557, 310],
+          [563, 475],
+          [575, 640],
+          [566, 820],
+          [561, 1024],
+          [458, 1024],
+          [462, 820],
+          [455, 650],
+          [459, 480],
+          [449, 310],
+          [462, 150]
         ],
         visualOnly: true
       },
@@ -170,6 +243,21 @@ export const STONNE_1940_MAP = defineMapDescriptor({
       position: [45, 60],
       rotationY: 0,
       foundationClearance: 0.12
+    },
+    {
+      id: 'french_farmhouse_outbuilding',
+      descriptorId: 'fr_farmhouse_8x6_1f',
+      visualAdapterId: 'fr_farmhouse_8x6_1f',
+      position: [-45, 34],
+      rotationY: Math.PI / 2,
+      foundationClearance: 0.12,
+      destructionThresholds: {
+        approximation: 'gameplay approximation; not historical survey evidence',
+        sectionCollapse: [
+          { sectionId: 'ground-shell', atOrBelowHealthFraction: 0.12 },
+          { sectionId: 'roof', atOrBelowHealthFraction: 0.18 }
+        ]
+      }
     }
   ],
   foliage: [

@@ -33,6 +33,7 @@ export function createUIRuntimePort({
   getVisibilityProjection,
   getBocageObstacles,
   getImpacts,
+  getBuildingFloorIds,
   selectUnit,
   deselectUnit,
   splitUnit,
@@ -61,6 +62,7 @@ export function createUIRuntimePort({
     getVisibilityProjection,
     getBocageObstacles,
     getImpacts,
+    getBuildingFloorIds,
     selectUnit,
     deselectUnit,
     splitUnit,
@@ -102,6 +104,12 @@ export function createUIRuntimePort({
     getVisibilityProjection,
     getBocageObstacles,
     getImpacts,
+    getBuildingFloorIds(buildingId) {
+      const floorIds = getBuildingFloorIds(buildingId);
+      return Array.isArray(floorIds)
+        ? floorIds.map(floorId => String(floorId))
+        : [];
+    },
     onBuildingMoveRequested(handler) {
       commands.onBuildingMoveClick = requireFunction(
         handler,

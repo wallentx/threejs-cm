@@ -126,6 +126,30 @@ test('default Stonne surface creation draws every polygon and disposes all resou
       ['fillRect', 0, 0, ...STONNE_1940_MAP.surfaces.textureResolution]
     ]);
     assert.deepEqual(
+      STONNE_1940_MAP.surfaces.layers.map(layer => [layer.id, layer.color]),
+      [
+        ['field-northwest', '#b09943'],
+        ['field-northwest-detail', '#c0a951'],
+        ['field-northeast', '#567a3a'],
+        ['field-southwest', '#9e893c'],
+        ['field-southwest-detail', '#af9848'],
+        ['field-southeast', '#6f8242'],
+        ['road-north-south-shoulder', '#806a4d'],
+        ['road-north-south', '#92704a']
+      ]
+    );
+    assert.deepEqual(
+      operations.slice(2),
+      STONNE_1940_MAP.surfaces.layers.flatMap(layer => [
+        ['fillStyle', layer.color],
+        ['beginPath'],
+        ['moveTo', ...layer.polygon[0]],
+        ...layer.polygon.slice(1).map(point => ['lineTo', ...point]),
+        ['closePath'],
+        ['fill']
+      ])
+    );
+    assert.deepEqual(
       operations
         .filter(([operation]) => operation === 'moveTo')
         .map(([, ...point]) => point),

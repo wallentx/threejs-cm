@@ -35,6 +35,7 @@ src/
 |       |-- catalogPorts.js        # Read-only runtime catalog boundary
 |       |-- assets/manifest.js     # Plain logical family asset records
 |       |-- weapons.js
+|       |-- structures.js
 |       |-- vehicles.js
 |       `-- render/                 # Family-specific mesh factories
 |-- maps/
@@ -81,8 +82,8 @@ The first boundary slice now exists:
   ownership, unique stable formation-member IDs, and every weapon reference without
   importing Three.js, the browser, a concrete family, or a global singleton.
 - `src/content/france1940/` now owns frozen faction, formation, presentation,
-  weapon, vehicle, armor-shape, provenance, internal-layout, and logical asset
-  records.
+  weapon, vehicle, structure, armor-shape, provenance, internal-layout, and
+  logical asset records.
   Scenario equipment and radio records address stable formation-member IDs,
   not array positions.
 - `src/content/france1940/weapons.js` owns the single frozen 26-record weapon
@@ -94,14 +95,18 @@ The first boundary slice now exists:
   `src/game/VehicleCatalog.js` is a narrow strict-identity compatibility
   re-export. Generic line-of-fire armor math now lives under
   `src/simulation/ballistics/ArmorMath.js`.
-- `src/content/france1940/catalogPorts.js` exposes frozen weapon and vehicle
-  lookup ports over those exact registered records. Composition injects the
-  ports through `ScenarioRuntime`; the loader validates family identity,
-  canonical record identity, every ID lookup, and faction vehicle defaults
-  before constructing any unit. `Unit`, `SoldierAgent`, `VehicleSystems`,
-  `CombatSystem`, and `UIManager` consume those ports instead of importing
-  France-specific catalogs. Projectile restore resolves a saved weapon through
-  the restored attacker's port.
+- `src/content/france1940/structures.js` owns the frozen German MG34 bunker
+  record. `src/game/StructureCatalog.js` is a narrow strict-identity
+  compatibility re-export.
+- `src/content/france1940/catalogPorts.js` exposes frozen weapon, vehicle, and
+  structure lookup ports over those exact registered records. Composition
+  injects the ports through `ScenarioRuntime`; the loader validates family
+  identity, canonical record identity, every ID lookup, structure weapon
+  references, and faction vehicle defaults before constructing any unit.
+  `Unit`, `SoldierAgent`, `VehicleSystems`, `CombatSystem`, and `UIManager`
+  consume those ports instead of importing France-specific catalogs.
+  Projectile restore resolves a saved weapon through the restored attacker's
+  port.
 - `src/simulation/combat/FireControl.js` owns pure, renderer-neutral target-key,
   aim-time, aim-progress, tracking-retention, and deterministic range-estimate
   rules. Each `SoldierAgent`, vehicle main gun, and auxiliary mount owns its
@@ -280,6 +285,7 @@ These seams are usable now, before the staged directory migration is complete:
 | Family identity, faction vehicle ownership, formations, presentation records | `content/france1940/*`, injected `FamilyRegistry` | Scenario resolution; future UI/render consumers |
 | France 1940 weapon definitions and aliases | `content/france1940/weapons.js` | Injected `catalogPorts.weapons`; legacy compatibility re-export |
 | France 1940 vehicle, armor, crew, mount, and internal-layout definitions | `content/france1940/vehicles.js`, `content/france1940/vehicleData/*` | Injected `catalogPorts.vehicles`; legacy compatibility re-export |
+| France 1940 structure definitions | `content/france1940/structures.js` | Injected `catalogPorts.structures`; legacy compatibility re-export |
 | Stonne terrain and placement records | `maps/france/stonne.js`, validated by `maps/MapDescriptor.js` | Scenario loader, `TerrainBuilder`, command/deployment systems |
 | Individual infantry state and choices | `SoldierAgent`, `SoldierAI` | Infantry pose renderer, roster HUD |
 | Weapon target acquisition, aim work, tracking, and range estimation | `simulation/combat/FireControl.js` plus per-soldier and per-mount state | `GameApp` target/motion inputs, `CombatSystem` holdover/telemetry, HUD presenters |
@@ -459,7 +465,7 @@ candidates for a future physics evaluation.
 | Simulation | Units, orders, WEGO clock, spotting, ballistics, damage, morale, support effects | Three.js objects, DOM nodes, France-specific catalogs |
 | Scenario runtime | Loaded-session state, deterministic clock/RNG, save/restore, subsystem sequencing | Hard-coded Stonne or France 1940 records |
 | Scenario loader | Validation and resolution of IDs through injected registries | Rendering, global registries, browser state |
-| France 1940 content | Weapons, vehicles, formations, faction data, family-specific visuals | Runtime orchestration, map geometry, UI |
+| France 1940 content | Weapons, vehicles, structures, formations, faction data, family-specific visuals | Runtime orchestration, map geometry, UI |
 | Maps and scenarios | Terrain specification, zones, placements, side composition, objectives | Generic simulation algorithms or engine setup |
 | UI and editor | HUD, minimap, controls, authoring workflows | Direct scene mutation or private simulation state |
 | Assets | Stable logical IDs, files, loading metadata, procedural/external source choice | Gameplay behavior |
@@ -557,11 +563,11 @@ These are tolerated migration inputs, not patterns to copy:
 - Several `src/game/**` systems use Three.js vectors or scene objects directly.
   This includes commands, spotting, combat effects, support, ballistics, and
   soldier agents.
-- `VehicleCatalog.js` and `WeaponCatalog.js` remain strict-identity
-  compatibility re-exports for external and test callers. Production
-  composition injects family catalog ports. Generic `Unit` now requires a
-  stable ID, faction, type, resolved infantry roster, catalog ports, and visual
-  factories; it owns no France 1940 defaults.
+- `VehicleCatalog.js`, `WeaponCatalog.js`, and `StructureCatalog.js` remain
+  strict-identity compatibility re-exports for external and test callers.
+  Production composition injects family catalog ports. Generic `Unit` now
+  requires a stable ID, faction, type, resolved infantry roster, catalog ports,
+  and visual factories; it owns no France 1940 defaults.
 - `src/world/UnitFactory.js` consumes injected infantry, structure, and vehicle
   factory maps. It owns only registry dispatch and a generic family-colored
   vehicle selection disc. France 1940 infantry-body and bunker construction now
@@ -598,11 +604,11 @@ time.
    resolver foundation with a scenario schema, scenario registry, runtime
    facade, and boundary tests without changing visible behavior.
 2. **Extract family data.** Faction, formation, presentation, weapon, vehicle,
-   armor-shape, provenance, internal-layout, and vehicle visual-registration
-   records now live in `content/france1940/`. Injected strict-identity catalog
-   ports serve production consumers. Temporary catalog re-exports remain for
-   external and test imports, while all `Unit` construction now receives
-   explicit catalog and visual dependencies.
+   structure, armor-shape, provenance, internal-layout, and vehicle
+   visual-registration records now live in `content/france1940/`. Injected
+   strict-identity catalog ports serve production consumers. Temporary catalog
+   re-exports remain for external and test imports, while all `Unit`
+   construction now receives explicit catalog and visual dependencies.
 3. **Extract Stonne data.** Terrain parameters, surfaces, features, structures,
    foliage, and deployment zones now live in `maps/france/stonne.js`; forces
    and setup live in `scenarios/france1940/stonne1940.js`.

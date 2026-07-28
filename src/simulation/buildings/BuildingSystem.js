@@ -9,6 +9,9 @@ import { createPortalGraph, findPortalPath } from './BuildingPortalGraph.js';
 import { localToWorldPoint, transformColliderPart } from './BuildingTransforms.js';
 import { calculateSectionDamage, distanceToSection } from './BuildingDamage.js';
 import {
+  normalizeBuildingDestructionThresholds
+} from './BuildingDestructionThresholds.js';
+import {
   buildingSoldierKey,
   compareBuildingId,
   compareReservationRequests,
@@ -84,13 +87,31 @@ export class BuildingSystem {
     return descriptor;
   }
 
-  addBuilding({ id, descriptorId, descriptor, transform = {} }) {
+  addBuilding({
+    id,
+    descriptorId,
+    descriptor,
+    transform = {},
+    destructionThresholds
+  }) {
     const resolved = descriptor ?? this.descriptors.get(descriptorId);
     if (!resolved) throw new Error(`Unknown building descriptor ${descriptorId}`);
     if (!this.descriptors.has(resolved.id)) this.registerDescriptor(resolved);
     const buildingId = String(id);
     if (this.buildings.has(buildingId)) throw new Error(`Building ${buildingId} already exists`);
-    const state = createBuildingState({ id: buildingId, descriptor: resolved, transform });
+    const normalizedThresholds = normalizeBuildingDestructionThresholds(
+      destructionThresholds,
+      {
+        descriptor: resolved,
+        path: `Building ${buildingId} destructionThresholds`
+      }
+    );
+    const state = createBuildingState({
+      id: buildingId,
+      descriptor: resolved,
+      transform,
+      destructionThresholds: normalizedThresholds
+    });
     this.buildings.set(buildingId, state);
     return this.getBuildingSnapshot(buildingId);
   }
@@ -123,10 +144,20 @@ export class BuildingSystem {
   restoreState(saved) {
     const restored = new Map();
     for (const record of saved?.buildings ?? []) {
-      if (!this.descriptors.has(record.descriptorId)) {
+      const descriptor = this.descriptors.get(record.descriptorId);
+      if (!descriptor) {
         throw new Error(`Cannot restore building ${record.id}: descriptor ${record.descriptorId} is not registered`);
       }
-      restored.set(String(record.id), restoreBuildingState(record));
+      const state = restoreBuildingState(record);
+      state.destructionThresholds = normalizeBuildingDestructionThresholds(
+        state.destructionThresholds,
+        {
+          allowNull: true,
+          descriptor,
+          path: `Building ${record.id} destructionThresholds`
+        }
+      );
+      restored.set(String(record.id), state);
     }
     this.buildings = restored;
   }
@@ -581,7 +612,24 @@ export class BuildingSystem {
       penetrated,
       colliderPartId: input.colliderPartId ?? null
     });
-    if (runtime.health <= EPSILON) this.#collapseSection(state, descriptor, section.id, 'health_depleted');
+    const collapseThreshold = state.destructionThresholds?.sectionCollapse
+      .find(entry => entry.sectionId === section.id)
+      ?.atOrBelowHealthFraction
+      ?? 0;
+    if (runtime.health <= EPSILON) {
+      this.#collapseSection(state, descriptor, section.id, 'health_depleted');
+    } else if (
+      applied > 0
+      && collapseThreshold > 0
+      && runtime.health / runtime.maxHealth <= collapseThreshold + EPSILON
+    ) {
+      this.#collapseSection(
+        state,
+        descriptor,
+        section.id,
+        'health_threshold_reached'
+      );
+    }
     return {
       sectionId: section.id,
       applied,

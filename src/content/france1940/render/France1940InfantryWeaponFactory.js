@@ -11,7 +11,7 @@ export const FRANCE_1940_INFANTRY_WEAPON_VISUALS = Object.freeze({
     overallLength: 1.02,
     stockEnd: 0.43,
     receiverEnd: 0.58,
-    handguardEnd: 0.78,
+    handguardEnd: 0.865,
     barrelRadius: 0.012,
     magazine: 'internal',
     definingFeatures: ['dog-leg bolt handle', 'short enclosed internal magazine', 'full wood stock']
@@ -36,7 +36,7 @@ export const FRANCE_1940_INFANTRY_WEAPON_VISUALS = Object.freeze({
     stockEnd: 0.25,
     receiverEnd: 0.47,
     handguardEnd: 0.49,
-    barrelRadius: 0.012,
+    barrelRadius: 0.015,
     magazine: 'bottom-box',
     definingFeatures: ['canted receiver profile', 'bottom box magazine', 'wooden stock']
   }),
@@ -96,6 +96,21 @@ function boxPart(group, material, name, width, height, startZ, endZ, y = 0) {
     name,
     [0, y, (startZ + endZ) * 0.5]
   );
+}
+
+function profilePart(group, material, name, shape, width, zOffset, yOffset = 0) {
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth: width,
+    bevelEnabled: false,
+    curveSegments: 8
+  });
+  // Shape X is the authored forward coordinate. Center the extrusion depth,
+  // then rotate it into the weapon's narrow X width without reflecting faces.
+  geometry.translate(0, 0, -width / 2);
+  geometry.rotateY(-Math.PI / 2);
+  geometry.translate(0, 0, -zOffset);
+  const mesh = meshPart(group, geometry, material, name, [0, yOffset, zOffset]);
+  return mesh;
 }
 
 function cylinderPart(group, material, name, radius, startZ, endZ, x = 0, y = 0, sides = 8) {
@@ -279,7 +294,253 @@ function addFireControls(model, spec, materials) {
   return { triggerGuard, pistolGrip, boltHandle, chargingHandle, ejectionPort };
 }
 
+function buildMas36(spec, materials) {
+  const model = new THREE.Group();
+  model.name = `${spec.designation}_WeaponModel`;
+
+  const stockEnd = spec.stockEnd;
+  const receiverEnd = spec.receiverEnd;
+  const realHandguardEnd = spec.handguardEnd;
+  const frontRingStart = realHandguardEnd;
+  const frontRingEnd = frontRingStart + 0.03;
+
+  // 1. Rear stock from the buttplate to the authored stock-end station.
+  const stockShape = new THREE.Shape();
+  stockShape.moveTo(0, -0.105);
+  stockShape.bezierCurveTo(0.10, -0.105, 0.22, -0.055, stockEnd, -0.04);
+  stockShape.lineTo(stockEnd, 0.01);
+  stockShape.bezierCurveTo(0.22, 0.005, 0.10, 0.01, 0, 0.01);
+  stockShape.lineTo(0, -0.105);
+  const stock = profilePart(model, materials.wood, `${spec.designation}_Stock`, stockShape, 0.042, stockEnd * 0.5, 0);
+
+  // 2. Receiver between the authored stock and receiver stations.
+  const receiverShape = new THREE.Shape();
+  receiverShape.moveTo(stockEnd, -0.04);
+  receiverShape.lineTo(receiverEnd, -0.04);
+  receiverShape.lineTo(receiverEnd, 0.015);
+  receiverShape.lineTo(stockEnd, 0.015);
+  receiverShape.lineTo(stockEnd, -0.04);
+  const receiver = profilePart(model, materials.metal, `${spec.designation}_Receiver`, receiverShape, 0.045, (stockEnd + receiverEnd) * 0.5, 0);
+
+  // Internal magazine floorplate under receiver
+  const magazine = boxPart(model, materials.metal, `${spec.designation}_InternalMagazineFloorplate`, 0.036, 0.015, stockEnd + 0.02, receiverEnd - 0.02, -0.045);
+  magazine.userData.feedType = 'internal';
+
+  // Trigger guard
+  const triggerGuardGeometry = new THREE.TorusGeometry(0.022, 0.004, 6, 12);
+  triggerGuardGeometry.rotateY(Math.PI / 2);
+  const triggerGuard = meshPart(model, triggerGuardGeometry, materials.metal, `${spec.designation}_TriggerGuard`, [0, -0.05, stockEnd + 0.05]);
+
+  // Dog-leg bolt handle (characteristic forward-angled bolt handle on right side)
+  const stemGeometry = new THREE.CylinderGeometry(0.004, 0.005, 0.045, 6);
+  stemGeometry.rotateX(Math.PI / 2);
+  const boltHandle = meshPart(model, stemGeometry, materials.metal, `${spec.designation}_BoltHandle`, [lateralX('right', 0.028), 0.005, stockEnd + 0.06]);
+  boltHandle.rotation.y = 0.4;
+  boltHandle.rotation.x = -0.3;
+  boltHandle.userData.semanticSide = 'right';
+
+  // 3. Wooden forend / handguard, ending inside the front sight band.
+  const handguardShape = new THREE.Shape();
+  handguardShape.moveTo(receiverEnd, -0.038);
+  handguardShape.lineTo(realHandguardEnd, -0.022);
+  handguardShape.lineTo(realHandguardEnd, 0.016);
+  handguardShape.lineTo(receiverEnd, 0.016);
+  handguardShape.lineTo(receiverEnd, -0.038);
+  const handguard = profilePart(model, materials.wood, `${spec.designation}_Handguard`, handguardShape, 0.038, (receiverEnd + realHandguardEnd) * 0.5, 0);
+
+  // Ejection port on right side
+  const ejectionPort = meshPart(model, new THREE.BoxGeometry(0.009, 0.026, 0.075), materials.metal, `${spec.designation}_EjectionPort`, [lateralX('right', 0.016), 0.02, stockEnd + 0.095]);
+  ejectionPort.userData.semanticSide = 'right';
+
+  // 4. Barrel from the receiver to the historical overall length.
+  const barrel = cylinderPart(model, materials.metal, `${spec.designation}_Barrel`, spec.barrelRadius, receiverEnd, spec.overallLength);
+
+  // 5. Metal Barrel Bands (Mid Ring and Front Cap) - made wider/thicker than wood furniture (width 0.048 / 0.046 vs wood 0.038)
+  const midRing = boxPart(model, materials.metal, `${spec.designation}_MidRing`, 0.048, 0.050, 0.67, 0.69, -0.006);
+
+  // Front cap metal band meeting the end of the wooden furniture.
+  const frontRing = boxPart(model, materials.metal, `${spec.designation}_FrontRing`, 0.046, 0.044, frontRingStart, frontRingEnd, -0.005);
+
+  // Front Sight Hood (solid hollow cylinder tube with inner & outer faces, 2.4cm diameter, 3cm length)
+  const hoodShape = new THREE.Shape();
+  hoodShape.absarc(0, 0, 0.012, 0, Math.PI * 2, false);
+  const holePath = new THREE.Path();
+  holePath.absarc(0, 0, 0.009, 0, Math.PI * 2, true);
+  hoodShape.holes.push(holePath);
+  const hoodGeo = new THREE.ExtrudeGeometry(hoodShape, { depth: 0.030, bevelEnabled: false });
+  hoodGeo.translate(0, 0, -0.015);
+  const frontSight = meshPart(model, hoodGeo, materials.metal, `${spec.designation}_FrontSight`, [0, 0.018, (frontRingStart + frontRingEnd) * 0.5]);
+  frontSight.userData.semanticPart = 'frontSight';
+
+  // Reversed-bayonet storage tube emerging forward from the front band.
+  const bayonetTube = cylinderPart(model, materials.metal, `${spec.designation}_BayonetTube`, 0.006, frontRingStart, spec.overallLength - 0.03, 0, -0.022);
+
+  const muzzle = new THREE.Object3D();
+  muzzle.name = `${spec.designation}_Muzzle`;
+  muzzle.position.set(0, 0, spec.overallLength);
+  model.add(muzzle);
+
+  const coreSilhouette = [stock, receiver, handguard, barrel, bayonetTube];
+  for (const part of coreSilhouette) part.userData.lodBand = 'core';
+
+  model.userData.visualContract = { units: 'metres', overallLength: spec.overallLength, definingFeatures: ['dog-leg bolt handle', 'exposed bayonet tube', 'two piece stock', 'barrel band'], ...spec };
+  model.userData.parts = { stock, receiver, handguard, barrel, magazine, muzzle, frontSight, triggerGuard, boltHandle, ejectionPort, chargingHandle: null, coreSilhouette };
+  return model;
+}
+
+function buildMas38(spec, materials) {
+  const model = new THREE.Group();
+  model.name = `${spec.designation}_WeaponModel`;
+
+  const stockEnd = 0.20;
+  const receiverEnd = 0.40;
+
+  // 1. Stock Profile: Realistic curved buttstock
+  const stockShape = new THREE.Shape();
+  stockShape.moveTo(0, -0.105); // Bottom of buttplate
+  stockShape.bezierCurveTo(0.05, -0.105, 0.12, -0.050, stockEnd, -0.040); // Smooth concave bottom line to receiver
+  stockShape.lineTo(stockEnd, 0.020); // Front of stock at receiver top
+  stockShape.bezierCurveTo(0.12, 0.020, 0.05, 0.015, 0, 0.015); // Slightly convex top line to buttplate
+  stockShape.lineTo(0, -0.105);
+
+  const stock = profilePart(model, materials.wood, `${spec.designation}_Stock`, stockShape, 0.046, stockEnd * 0.5, 0);
+
+  // 2. Metal Receiver Box (Z = 0.20 to 0.40)
+  const receiverShape = new THREE.Shape();
+  receiverShape.moveTo(stockEnd, -0.040);
+  receiverShape.lineTo(receiverEnd, -0.040);
+  receiverShape.lineTo(receiverEnd, 0.025);
+  receiverShape.lineTo(stockEnd, 0.025);
+  receiverShape.lineTo(stockEnd, -0.040);
+  const receiver = profilePart(model, materials.metal, `${spec.designation}_Receiver`, receiverShape, 0.044, (stockEnd + receiverEnd) * 0.5, 0);
+
+  // Receiver collar / handguard shroud
+  const handguard = boxPart(model, materials.metal, `${spec.designation}_Handguard`, 0.040, 0.040, receiverEnd - 0.025, receiverEnd + 0.01, -0.005);
+
+  // Cocking handle ring/knob on right side of receiver
+  const cockingRing = cylinderPart(model, materials.metal, 'MAS38_CockingKnob', 0.018, stockEnd + 0.10, stockEnd + 0.13, lateralX('right', 0.024), -0.005);
+  cockingRing.rotation.z = Math.PI / 2;
+  cockingRing.userData.semanticSide = 'right';
+
+  // 3. Pistol Grip (Wood, sitting under rear of receiver, angled BACKWARD towards stock)
+  const pistolGrip = boxPart(model, materials.wood, `${spec.designation}_PistolGrip`, 0.034, 0.11, stockEnd + 0.03, stockEnd + 0.08, -0.085);
+  pistolGrip.rotation.x = 0.22; // Positive rotation angles bottom BACKWARD toward stock!
+
+  // 4. Trigger Guard & Trigger (Z = 0.24 to 0.28)
+  const triggerGuardGeometry = new THREE.TorusGeometry(0.022, 0.004, 6, 12);
+  triggerGuardGeometry.rotateY(Math.PI / 2);
+  const triggerGuard = meshPart(model, triggerGuardGeometry, materials.metal, `${spec.designation}_TriggerGuard`, [0, -0.050, stockEnd + 0.06]);
+
+  // 5. Box Magazine (Metal, further forward near the end of the receiver Z = 0.32 to 0.38, angled slightly outward/forward)
+  const magazine = boxPart(model, materials.metal, `${spec.designation}_BoxMagazine`, 0.030, 0.17, receiverEnd - 0.08, receiverEnd - 0.025, -0.125);
+  magazine.rotation.x = -0.12; // Angled forward/outward
+  magazine.rotation.z = -0.05; // Slightly canted outward
+  magazine.userData.feedType = 'bottom';
+
+  // 6. Barrel (Z = 0.40 to 0.63, robust 3.0cm outer diameter!)
+  const barrel = cylinderPart(model, materials.metal, `${spec.designation}_Barrel`, spec.barrelRadius, receiverEnd, spec.overallLength);
+
+  // 7. Sights
+  // Rear Sight (on receiver at Z = 0.38)
+  const rearSight = boxPart(model, materials.metal, `${spec.designation}_RearSight`, 0.016, 0.018, receiverEnd - 0.035, receiverEnd - 0.01, 0.032);
+
+  // Front Sight Post (near muzzle at Z = 0.60)
+  const frontSight = boxPart(model, materials.metal, `${spec.designation}_FrontSight`, 0.016, 0.035, spec.overallLength - 0.05, spec.overallLength - 0.02, 0.028);
+  frontSight.userData.semanticPart = 'frontSight';
+
+  const muzzle = new THREE.Object3D();
+  muzzle.name = `${spec.designation}_Muzzle`;
+  muzzle.position.set(0, 0, spec.overallLength);
+  model.add(muzzle);
+
+  const coreSilhouette = [stock, receiver, barrel, magazine, pistolGrip];
+  for (const part of coreSilhouette) part.userData.lodBand = 'core';
+
+  model.userData.visualContract = { units: 'metres', overallLength: spec.overallLength, definingFeatures: ['canted receiver', 'bottom box magazine', 'curved wood stock', 'pistol grip'], ...spec };
+  model.userData.parts = { stock, receiver, handguard, barrel, magazine, muzzle, frontSight, triggerGuard, pistolGrip, chargingHandle: cockingRing, boltHandle: null, coreSilhouette };
+  return model;
+}
+
+function buildFm2429(spec, materials) {
+  const model = new THREE.Group();
+  model.name = `${spec.designation}_WeaponModel`;
+
+  const stockShape = new THREE.Shape();
+  stockShape.moveTo(0, 0.01);
+  stockShape.lineTo(0, -0.14);
+  stockShape.lineTo(0.05, -0.14);
+  stockShape.bezierCurveTo(0.15, -0.14, 0.25, -0.07, spec.stockEnd, -0.05);
+  stockShape.lineTo(spec.stockEnd, 0.01);
+  stockShape.lineTo(0, 0.01);
+  const stock = profilePart(model, materials.wood, `${spec.designation}_Stock`, stockShape, 0.045, spec.stockEnd * 0.5, 0);
+
+  const receiverShape = new THREE.Shape();
+  receiverShape.moveTo(spec.stockEnd, -0.04);
+  receiverShape.lineTo(spec.handguardEnd, -0.04);
+  receiverShape.lineTo(spec.handguardEnd, 0.02);
+  receiverShape.lineTo(spec.stockEnd, 0.02);
+  receiverShape.lineTo(spec.stockEnd, -0.04);
+  const receiver = profilePart(model, materials.metal, `${spec.designation}_Receiver`, receiverShape, 0.048, (spec.stockEnd + spec.handguardEnd) * 0.5, 0);
+
+  const handguardShape = new THREE.Shape();
+  handguardShape.moveTo(spec.receiverEnd, -0.08);
+  handguardShape.lineTo(spec.handguardEnd - 0.02, -0.08);
+  handguardShape.lineTo(spec.handguardEnd - 0.02, -0.04);
+  handguardShape.lineTo(spec.receiverEnd, -0.04);
+  handguardShape.lineTo(spec.receiverEnd, -0.08);
+  const handguard = profilePart(model, materials.wood, `${spec.designation}_Handguard`, handguardShape, 0.045, (spec.receiverEnd + spec.handguardEnd - 0.02) * 0.5, 0);
+
+  const barrel = cylinderPart(model, materials.metal, `${spec.designation}_Barrel`, spec.barrelRadius, spec.handguardEnd, spec.overallLength);
+
+  const gasTube = cylinderPart(model, materials.metal, 'FM2429_GasTube', 0.008, spec.handguardEnd, spec.overallLength - 0.09, 0, -0.025);
+
+  const flashHiderGeometry = new THREE.CylinderGeometry(0.018, spec.barrelRadius, 0.06, 8);
+  flashHiderGeometry.rotateX(Math.PI / 2);
+  const flashHider = meshPart(model, flashHiderGeometry, materials.metal, 'FM2429_FlashHider', [0, 0, spec.overallLength - 0.03]);
+
+  const magazine = boxPart(model, materials.metal, 'FM2429_TopMagazine', 0.03, 0.16, spec.stockEnd + 0.07, spec.stockEnd + 0.18, 0.10);
+  magazine.rotation.x = -0.08;
+  magazine.userData.feedType = 'top';
+
+  const muzzle = new THREE.Object3D();
+  muzzle.name = `${spec.designation}_Muzzle`;
+  muzzle.position.set(0, 0, spec.overallLength);
+  model.add(muzzle);
+
+  const triggerGuardGeometry = new THREE.TorusGeometry(0.025, 0.005, 5, 10);
+  triggerGuardGeometry.rotateY(Math.PI / 2);
+  const triggerGuard = meshPart(model, triggerGuardGeometry, materials.metal, `${spec.designation}_TriggerGuard`, [0, -0.055, spec.stockEnd + 0.05]);
+
+  const pistolGrip = boxPart(model, materials.wood, `${spec.designation}_PistolGrip`, 0.032, 0.12, 0, 0.04, -0.105);
+  pistolGrip.position.z = spec.stockEnd + 0.04;
+  pistolGrip.rotation.x = -0.16;
+
+  const stemGeometry = new THREE.CylinderGeometry(0.004, 0.005, 0.04, 5);
+  stemGeometry.rotateX(Math.PI / 2);
+  const chargingHandle = meshPart(model, stemGeometry, materials.metal, `${spec.designation}_ChargingHandle`, [lateralX('right', 0.038), 0.012, spec.stockEnd + 0.12]);
+  chargingHandle.userData.semanticSide = 'right';
+
+  const frontSight = boxPart(model, materials.metal, `${spec.designation}_FrontSight`, 0.018, 0.045, spec.overallLength - 0.09, spec.overallLength - 0.07, 0.03);
+  frontSight.userData.semanticPart = 'frontSight';
+
+  const bipodGeometry = new THREE.CylinderGeometry(0.008, 0.009, 0.34, 5);
+  for (const side of [-1, 1]) {
+    const leg = meshPart(model, bipodGeometry, materials.metal, `${spec.designation}_Bipod_${side < 0 ? 'Left' : 'Right'}`, [side * 0.02, -0.015, spec.overallLength - 0.08 - 0.17]);
+    leg.rotation.x = Math.PI / 2;
+  }
+
+  const coreSilhouette = [stock, receiver, handguard, barrel, gasTube, flashHider, magazine, pistolGrip];
+  for (const part of coreSilhouette) part.userData.lodBand = 'core';
+
+  model.userData.visualContract = { units: 'metres', overallLength: spec.overallLength, definingFeatures: ['top magazine', 'folded bipod', 'cone flash hider', 'club foot', 'gas tube'], ...spec };
+  model.userData.parts = { stock, receiver, handguard, barrel, magazine, muzzle, frontSight, triggerGuard, pistolGrip, chargingHandle, boltHandle: null, coreSilhouette };
+  return model;
+}
+
 function buildWeaponModel(spec, materials) {
+  if (spec.id === 'mas36') return buildMas36(spec, materials);
+  if (spec.id === 'mas38') return buildMas38(spec, materials);
+  if (spec.id === 'fm2429') return buildFm2429(spec, materials);
   const model = new THREE.Group();
   model.name = `${spec.designation}_WeaponModel`;
 
@@ -485,19 +746,20 @@ export function createFrance1940InfantryWeaponRig(weaponName, materials) {
   const weapon = buildWeaponModel(spec, materials);
   rig.add(weapon);
 
+  const hasPistolGrip = ['fm2429', 'mas38', 'mg34', 'mp40'].includes(spec.id);
   const triggerGrip = new THREE.Object3D();
   triggerGrip.name = 'TriggerHandGrip';
   triggerGrip.position.set(
     lateralX('right', 0.045),
-    -0.035,
-    Math.max(0.16, spec.stockEnd - 0.025)
+    hasPistolGrip ? -0.08 : -0.035,
+    hasPistolGrip ? spec.stockEnd + 0.02 : Math.max(0.16, spec.stockEnd - 0.025)
   );
   rig.add(triggerGrip);
 
   const supportGrip = new THREE.Object3D();
   supportGrip.name = 'SupportHandGrip';
   supportGrip.position.set(
-    lateralX('left', 0.045),
+    lateralX('left', 0.025),
     -0.03,
     spec.receiverEnd + (spec.handguardEnd - spec.receiverEnd) * 0.25
   );

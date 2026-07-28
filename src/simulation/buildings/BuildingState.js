@@ -12,7 +12,12 @@ function stageFor(section, health) {
     ?? section.visualStages[section.visualStages.length - 1].id;
 }
 
-export function createBuildingState({ id, descriptor, transform }) {
+export function createBuildingState({
+  id,
+  descriptor,
+  transform,
+  destructionThresholds = null
+}) {
   const sections = {};
   for (const section of descriptor.sections) {
     sections[section.id] = {
@@ -47,6 +52,7 @@ export function createBuildingState({ id, descriptor, transform }) {
     id: String(id),
     descriptorId: descriptor.id,
     transform: normalizeBuildingTransform(transform),
+    destructionThresholds: clone(destructionThresholds),
     openings,
     sections,
     occupancy: {},
@@ -69,7 +75,11 @@ export function captureBuildingState(state) {
 }
 
 export function restoreBuildingState(saved) {
-  return clone(saved);
+  const restored = clone(saved);
+  if (restored && !Object.hasOwn(restored, 'destructionThresholds')) {
+    restored.destructionThresholds = null;
+  }
+  return restored;
 }
 
 export function sectionStage(section, health) {

@@ -4,6 +4,9 @@ import * as THREE from 'three';
 import { Unit } from './helpers/France1940TestUnit.js';
 import { BallisticsSystem } from '../src/game/BallisticsSystem.js';
 import { getWeapon } from '../src/game/WeaponCatalog.js';
+import {
+  FRANCE_1940_STRUCTURES
+} from '../src/content/france1940/structures.js';
 
 function makeBunker() {
   return new Unit({
@@ -25,6 +28,22 @@ function makeProjectile(weapon, attacker) {
     position: new THREE.Vector3(0, 1.3, 9)
   };
 }
+
+test('live bunker retains its injected canonical record outside rollback state', () => {
+  const bunker = makeBunker();
+  const snapshot = bunker.captureState();
+
+  assert.equal(
+    bunker.structureSpec,
+    FRANCE_1940_STRUCTURES.GERMAN_MG34_BUNKER
+  );
+  assert.equal(Object.hasOwn(snapshot, 'structureSpec'), false);
+  bunker.restoreState(snapshot, new Map([[bunker.id, bunker]]));
+  assert.equal(
+    bunker.structureSpec,
+    FRANCE_1940_STRUCTURES.GERMAN_MG34_BUNKER
+  );
+});
 
 test('swept projectiles hit bunker structure and respect concrete resistance', () => {
   const attacker = new Unit({ id: 'attacker', faction: 'french', type: 'infantry_squad', position: new THREE.Vector3(0, 0, -10) });
