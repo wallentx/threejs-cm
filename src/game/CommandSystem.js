@@ -6,6 +6,17 @@ const INFANTRY_ONLY_MOVE_ORDERS = new Set([
   'CRAWL',
   'ASSAULT'
 ]);
+const TARGET_COMMAND_MODES = new Set([
+  'TARGET',
+  'TARGET_LIGHT',
+  'TARGET_AP',
+  'TARGET_HE',
+  'TARGET_MG'
+]);
+
+export function isTargetCommandMode(mode) {
+  return TARGET_COMMAND_MODES.has(mode);
+}
 
 export class CommandSystem {
   constructor(scene, {
@@ -48,6 +59,9 @@ export class CommandSystem {
       PAUSE: 0xffffff,    // White
       TARGET: 0xd90429,   // Red
       TARGET_LIGHT: 0xff9f1c, // Light orange
+      TARGET_AP: 0xff3b30,
+      TARGET_HE: 0xff7b00,
+      TARGET_MG: 0xf4d35e,
       FACE: 0xd4af37      // Gold
     };
   }
@@ -134,7 +148,7 @@ export class CommandSystem {
         }
         this.activeUnit.soldierAI?.syncMeshes();
       } else {
-        if (this.activeUnit.type === 'infantry_squad') {
+        if (this.activeUnit.type === 'infantry_squad' || this.activeUnit.vehicleSpec) {
           const pendingWaypoint = this.activeUnit.currentWaypointIndex < this.activeUnit.waypoints.length
             ? this.activeUnit.waypoints[this.activeUnit.waypoints.length - 1]
             : null;
@@ -143,22 +157,36 @@ export class CommandSystem {
           // Keep corner arrival tolerance separate from the formation envelope
           // that must remain clear along every route segment.
           const waypointArrivalTolerance = 0.8;
-          const formationClearance = Math.max(
-            0,
-            ...(this.activeUnit.soldierAI?.getLivingAgents?.().map(agent => {
-              const offset = this.activeUnit.soldierAI.getFormationOffset?.(agent.index, orderType);
-              return typeof offset?.length === 'function' ? offset.length() : 0;
-            }) ?? [])
-          );
+          const vehicleLongitudinalOffset = this.activeUnit.vehicleSpec
+            ? Math.max(
+                0,
+                ...(this.activeUnit.collisionOffsets ?? [])
+                  .map(offset => Math.abs(offset.z))
+              )
+            : 0;
+          const routeClearance = this.activeUnit.vehicleSpec
+            ? vehicleLongitudinalOffset
+            : Math.max(
+                0,
+                ...(this.activeUnit.soldierAI?.getLivingAgents?.().map(agent => {
+                  const offset = this.activeUnit.soldierAI.getFormationOffset?.(agent.index, orderType);
+                  return typeof offset?.length === 'function' ? offset.length() : 0;
+                }) ?? [])
+              );
+          const routeOptions = {
+            clearance: routeClearance,
+            waypointClearance: waypointArrivalTolerance
+          };
+          if (this.activeUnit.vehicleSpec) {
+            routeOptions.longitudinalClearance =
+              this.activeUnit.collisionRadius + vehicleLongitudinalOffset;
+          }
           const plannedRoute = this.activeUnit.collisionWorld?.getNavigationPath?.(
             { x: routeStart.x, z: routeStart.z },
             { x: pointVec3.x, z: pointVec3.z },
             this.activeUnit.collisionRadius,
-            'infantry',
-            {
-              clearance: formationClearance,
-              waypointClearance: waypointArrivalTolerance
-            }
+            this.activeUnit.vehicleSpec ? 'vehicle' : 'infantry',
+            routeOptions
           );
           const routePoints = Array.isArray(plannedRoute) && plannedRoute.length > 0
             ? plannedRoute
@@ -187,7 +215,7 @@ export class CommandSystem {
       }
       this.renderOverlays();
       return true;
-    } else if (this.activeMode === 'TARGET' || this.activeMode === 'TARGET_LIGHT') {
+    } else if (isTargetCommandMode(this.activeMode)) {
       const result = this.onTargetOrder?.(
         this.activeUnit,
         pointVec3,

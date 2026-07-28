@@ -13,6 +13,7 @@ import {
   cloneThreatMemoryState
 } from '../simulation/infantry/ThreatMemory.js';
 import {
+  getInfantryMovementOrderProfile,
   getInfantryMovementFormationOffset,
   isInfantryOrderMovingFireProhibited
 } from '../simulation/infantry/InfantryMovementOrders.js';
@@ -348,6 +349,71 @@ export class SoldierAI {
       return new THREE.Vector3(slot[0], 0, slot[1]);
     }
     return new THREE.Vector3(((index % 3) - 1) * 1.35, 0, (Math.floor(index / 3) - 0.5) * 1.7);
+  }
+
+  getAnchorSpeedLimit(
+    orderType = 'QUICK',
+    { hasDirectPrecisionObservation = false } = {}
+  ) {
+    if (
+      orderType === 'QUICK'
+      && hasDirectPrecisionObservation
+      && hasValidRetainedDirectTarget(this.unit)
+    ) {
+      return Infinity;
+    }
+    const profile = getInfantryMovementOrderProfile(orderType);
+    const baseSpeed = profile?.individual.speedMetersPerSecond
+      ?? (orderType === 'FAST'
+        ? 5.1
+        : (orderType === 'HUNT' ? 1.75 : 2.75));
+    const eligible = this.getLivingAgents().filter(agent =>
+      !agent.buildingLocation
+      || ['outside', 'approaching'].includes(agent.buildingLocation.phase));
+    if (eligible.length === 0) return baseSpeed;
+    return Math.min(...eligible.map(agent =>
+      baseSpeed * agent.pace * (agent.isWounded ? 0.55 : 1)));
+  }
+
+  getAnchorCohesionScale(
+    orderType = 'QUICK',
+    { hasDirectPrecisionObservation = false } = {}
+  ) {
+    if (getInfantryMovementOrderProfile(orderType)) return 1;
+    if (
+      orderType === 'QUICK'
+      && hasDirectPrecisionObservation
+      && hasValidRetainedDirectTarget(this.unit)
+    ) {
+      return 1;
+    }
+    const cosine = Math.cos(this.unit.rotation);
+    const sine = Math.sin(this.unit.rotation);
+    let maximumLag = 0;
+    for (const agent of this.getLivingAgents()) {
+      // BuildingInteractionSystem owns approach, door, and stair routing.
+      // Its assigned soldiers can intentionally occupy different sides of the
+      // footprint, so they must not deadlock the ordinary squad-anchor tether.
+      if (agent.buildingLocation) continue;
+      const offset = this.getFormationOffset(agent.index, orderType);
+      const goalX =
+        this.unit.position.x + cosine * offset.x + sine * offset.z;
+      const goalZ =
+        this.unit.position.z - sine * offset.x + cosine * offset.z;
+      maximumLag = Math.max(
+        maximumLag,
+        Math.hypot(agent.position.x - goalX, agent.position.z - goalZ)
+      );
+    }
+    const softTetherMeters = 1.5;
+    const hardTetherMeters = 4;
+    const blockedRouteCrawlScale = 0.2;
+    if (maximumLag <= softTetherMeters) return 1;
+    if (maximumLag >= hardTetherMeters) return blockedRouteCrawlScale;
+    const progress =
+      (maximumLag - softTetherMeters)
+      / (hardTetherMeters - softTetherMeters);
+    return 1 - progress * (1 - blockedRouteCrawlScale);
   }
 
   update(delta, terrain, context = {}) {
@@ -707,6 +773,7 @@ export class SoldierAI {
       if (!mesh) return;
       scratchPosition.fromArray(soldier.worldPosition).sub(this.unit.position).applyAxisAngle(UP, -this.unit.rotation);
       mesh.position.copy(scratchPosition);
+      mesh.userData.poseBaseY = scratchPosition.y;
       mesh.rotation.order = 'YXZ';
       mesh.rotation.y = soldier.facing - this.unit.rotation;
       this.applyPose(mesh, soldier);
@@ -761,7 +828,8 @@ export class SoldierAI {
     mesh.visible = true;
     mesh.rotation.x = 0;
     mesh.rotation.z = 0;
-    mesh.position.y = 0;
+    const poseBaseY = mesh.userData.poseBaseY ?? 0;
+    mesh.position.y = poseBaseY;
 
     parts.leftLeg.rotation.set(0, 0, 0);
     parts.rightLeg.rotation.set(0, 0, 0);
@@ -898,7 +966,7 @@ export class SoldierAI {
     if (soldier.status === 'KIA') {
       mesh.rotation.x = Math.PI / 2;
       mesh.rotation.z = (hash01(`${this.unit.id}:${soldier.id}:casualty`) - 0.5) * 0.85;
-      mesh.position.y = 0.08;
+      mesh.position.y = poseBaseY + 0.08;
       parts.leftArm.rotation.set(0.2, 0, 0.4);
       parts.rightArm.rotation.set(0.3, 0, -0.5);
       parts.weapon.position.set(0.35, 0.08, 0.2);

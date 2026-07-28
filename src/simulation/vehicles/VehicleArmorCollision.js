@@ -373,6 +373,104 @@ export function intersectVehicleArmor(start, end, unit) {
   return closest;
 }
 
+function volumeAimBounds(volume) {
+  if (volume.halfExtents) {
+    return {
+      center: [0, 0, 0],
+      minimumY: -finite(volume.halfExtents[1]),
+      maximumY: finite(volume.halfExtents[1]),
+      measure:
+        finite(volume.halfExtents[0])
+        * finite(volume.halfExtents[1])
+        * finite(volume.halfExtents[2])
+        * 8
+    };
+  }
+  const vertices = volume.vertices ?? [];
+  if (vertices.length === 0) {
+    return {
+      center: [0, 0, 0],
+      minimumY: 0,
+      maximumY: 0,
+      measure: 0
+    };
+  }
+  const minimum = [Infinity, Infinity, Infinity];
+  const maximum = [-Infinity, -Infinity, -Infinity];
+  for (const vertex of vertices) {
+    for (let axis = 0; axis < 3; axis++) {
+      const value = finite(vertex[axis]);
+      minimum[axis] = Math.min(minimum[axis], value);
+      maximum[axis] = Math.max(maximum[axis], value);
+    }
+  }
+  return {
+    center: minimum.map((value, axis) => (value + maximum[axis]) * 0.5),
+    minimumY: minimum[1],
+    maximumY: maximum[1],
+    measure:
+      (maximum[0] - minimum[0])
+      * (maximum[1] - minimum[1])
+      * (maximum[2] - minimum[2])
+  };
+}
+
+/**
+ * Returns a stable renderer-neutral center-mass point. Its horizontal datum
+ * comes from the largest authored hull volume and its height from the complete
+ * non-track armor envelope, so fire control aims through the same geometry that
+ * projectile collision will query instead of guessing from rendered height.
+ */
+export function getVehicleArmorAimPoint(unit) {
+  const volumes = unit?.vehicleSpec?.armorCollision?.volumes ?? [];
+  const hullVolumes = volumes.filter(volume => volume.part === 'hull');
+  const candidates = (hullVolumes.length > 0 ? hullVolumes : volumes)
+    .map(volume => ({ volume, bounds: volumeAimBounds(volume) }))
+    .sort((left, right) =>
+      right.bounds.measure - left.bounds.measure
+      || String(left.volume.id).localeCompare(String(right.volume.id)));
+  const selected = candidates[0];
+  if (!selected) return null;
+  const transform = worldTransform(unit, selected.volume);
+  const verticalVolumes = volumes
+    .filter(volume => volume.part !== 'track')
+    .map(volume => {
+      const bounds = volumeAimBounds(volume);
+      const volumeTransform = worldTransform(unit, volume);
+      return {
+        minimumY: volumeTransform.centerY + bounds.minimumY,
+        maximumY: volumeTransform.centerY + bounds.maximumY
+      };
+    });
+  const minimumY = Math.min(
+    ...verticalVolumes.map(bounds => bounds.minimumY)
+  );
+  const maximumY = Math.max(
+    ...verticalVolumes.map(bounds => bounds.maximumY)
+  );
+  const localCenter = selected.bounds.center;
+  const horizontal = rotateLocalXZ(
+    localCenter[0],
+    localCenter[2],
+    transform.rotation
+  );
+  return {
+    point: [
+      transform.centerX + horizontal.x,
+      Number.isFinite(minimumY) && Number.isFinite(maximumY)
+        ? (minimumY + maximumY) * 0.5
+        : transform.centerY + localCenter[1],
+      transform.centerZ + horizontal.z
+    ],
+    armorVolumeId: selected.volume.id,
+    modelVersion: 'authored-armor-center-mass-v1',
+    dataQuality:
+      selected.volume.geometryQuality
+      ?? unit.vehicleSpec.armorCollision.quality
+      ?? 'unspecified'
+  };
+}
+
 /**
  * Finds the outward plate reached after a projectile has entered one named
  * armor volume. Unlike the ordinary segment query, an OBB start-inside result

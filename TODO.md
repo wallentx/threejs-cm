@@ -61,6 +61,7 @@ Status:
   - [x] First deterministic slice: replace vehicle spheres with swept, model-local named hull/turret/cab/cargo volumes; rotate turret plates with turret yaw; expose stable plate/volume IDs, exact impact normals, local impact points, top/bottom zones, and explicit thickness fallbacks across all 15 vehicles.
   - [x] SOMUA vertical slice: share renderer/collision hull and turret station contours; resolve swept triangle plates with exact slopes; add mantlet, cupola, and left/right track zones; route track penetrations to the track component; label each thickness source and approximation.
   - [ ] Replace approximate OBB faces for the remaining 13 vehicles with vehicle-specific sloped convex plates derived from their authored hull/turret station tables; add missing wheel, deck, roof, belly, and internal zones with historical thickness provenance.
+- [x] Replace stance-blind infantry torso spheres with named stance- and facing-aware compound swept hit volumes; aim at the same torso authority and expose resolved hit-volume telemetry.
 - [ ] Add a shot-inspection debug view: trajectory, impact angle, velocity, armor thickness, penetration, and damage result.
   - [x] Rough pass: detailed inspectable impact telemetry fields (shooter, target, range, speed, angle, armor, penetration, crew result) and data-ballistics-stats DOM dataset.
   - [x] Add stable armor plate/volume identity, model-local impact position, world impact normal, and the exact armor-thickness source zone to impact telemetry.
@@ -92,6 +93,7 @@ Status:
 - [ ] Add weapon sighting, target acquisition, aim time, range estimation, and fire-control delays.
   - [x] Deterministic first slice: give every infantryman, vehicle main gun, and auxiliary mount persistent target, phase, aim-progress, required-time, estimated-range, and range-error state; derive aim work from weapon/platform, range, experience, stance, suppression, wounds, target motion, optics, traverse, crew availability, and measured shooter motion; reset on target change; retain tracking through automatic bursts and feeds; apply the estimate to physical holdover and dispersion; expose read-only HUD/telemetry state; and preserve deep WEGO capture/restore with frame-partition, target-switch, cadence, and rollback tests.
   - [x] Add a renderer-neutral individual marksmanship/optic foundation with stable soldier profiles, injected optic capabilities, neutral defaults, independent observation, aim-work, range-error, dispersion, concealment-signature, and shot-retention factors, explicit approximation labels, and order-independent resolution. France 1940 optic records, formation allocation, and live spotting/fire-control wiring remain.
+  - [x] Aim direct vehicle fire at authored armor center mass or a stable living target soldier; add explicit AUTO, AP, HE, and MG target modes while preserving the already-loaded main-gun round and deterministically selecting the next reload type.
   - [ ] Add historical sight, reticle, optic, and rangefinder records; angular target tracking and lead; explicit stabilization behavior; crew target handoff and command delay; and vehicle-specific ranging methods.
 - [ ] Add per-soldier spotting, last-known contacts, and command-and-control relay.
   - [x] Renderer-neutral first slice: living-observer acquisition with stance, motion, concealment, and range factors; explicit binocular equipment; frozen/decaying contacts; deterministic same-unit, voice, and operational same-net radio relay; vehicle radio damage; projection and deep capture/restore APIs.
@@ -116,6 +118,7 @@ Status:
 - [ ] Add coaxial and hull machine guns with their real crew dependencies and ammunition stores.
   - [x] First functional pass across all 15 vehicles: cataloged mount identity, crew dependency, feed/reserve state, reload and cyclic cadence, exact rendered muzzle ownership, independent projectiles, component failure, telemetry, and WEGO capture/restore.
   - [x] Correct verified right-side coax placement on H39, Panzer III/IV, Panzer 35(t)/38(t), and Sd.Kfz. 231; place the Char B1 hull MG right of its 75 mm gun; align visible barrels with muzzle markers; explicitly mark unresolved mount sides provisional.
+  - [x] Add explicit MG-only targeting and an automatic weapon policy that withholds vehicle MGs from armored and area targets while retaining them against infantry.
   - [ ] Replace explicitly labeled mount-ammunition and reload approximations with vehicle-specific archival values; add mount traverse/elevation limits, aim delay, and target-sharing rules.
 - [ ] Replace provisional new-vehicle ammunition splits, penetration values, and movement rates with cited archival firing tables and vehicle manuals.
 - [ ] Improve infantry tactical AI: cover selection, bounds, spacing, danger areas, fire-and-movement, withdrawal, and casualty response.
@@ -127,6 +130,7 @@ Status:
   - [x] Add explicit SNEAK, CRAWL, and ASSAULT orders with individual stance, speed, fire, formation, interruption, realtime/WEGO, and rollback behavior.
     - [x] First-order SNEAK slice: add an infantry-only command and mobile-visible control; deterministic slow crouched individual movement in a staggered file; no fire until physical deceleration completes; threat, morale, casualty, unavailable-member, buddy-bound, and building precedence; obstacle/building-order preservation; pose projection; and existing-state rollback coverage.
     - [x] Add distinct CRAWL and ASSAULT slices: CRAWL keeps individual soldiers prone in a slower narrow formation with moving fire prohibited, while ASSAULT advances through stable-ID six-metre buddy bounds with crouched movers, kneeling stationary coverers, real covering fire, final reform, and target-independent continuation. Preserve obstacle/building routes, mobile-visible controls, fixed-step WEGO/realtime equivalence, generalized buddy-bound state migration, and deep rollback.
+  - [x] Pace ordinary squad anchors to living individual movement speed and apply bounded cohesion slowdown when the formation trails, while preserving explicit movement profiles, buddy bounds, and building-owned routes.
   - [x] Add a bounded renderer-neutral infantry danger-map foundation with stable observed-threat, incoming-impact, and casualty evidence; canonical integer-tick decay; deterministic capacity retention; factorized point queries; bounded ordered route-segment scoring; and deep atomic capture/restore. Event feeds, AI ownership, concealment/LOS weighting, and live route choice remain.
   - [ ] Add terrain danger maps, concealment/LOS-aware movement, broader fire-team bounds and fire-and-movement beyond direct-target QUICK pairs, withdrawal, surrender, and persistent memory of observed threats.
 - [ ] Improve vehicle AI: hull-down positioning, turret-first observation, threat facing, reverse movement, and damaged-vehicle behavior.
@@ -137,7 +141,8 @@ Status:
   - [x] Ordinary-infantry command slice: expand post-setup move orders through the injected deterministic bridge/static-obstacle graph from the live position or pending queue tail; preserve order types, formation-safe early-acceptance clearance, exact destination height, append behavior, and existing waypoint rollback ownership.
   - [x] Route the full living infantry formation envelope around passages too narrow for its current slots while retaining the 0.8 m waypoint-arrival tolerance.
   - [x] Add deterministic stable-ID personal-space resolution for living individual infantry, projected through static-world collision with bounded passes and rollback-owned positions.
-  - [ ] Generalize obstacle-graph routing beyond building-entry orders, add reverse-aware vehicle maneuvers, and add deterministic wreck settling.
+  - [x] Route ordinary vehicle move orders around intervening static blockers with footprint and turn clearance, including appended routes from the pending queue tail.
+  - [ ] Add reverse-aware vehicle maneuvers and deterministic wreck settling.
 - [ ] Add enterable multi-floor buildings.
   - [x] Add a renderer-neutral two-floor French house descriptor with a door, stair route, four individual slots per floor, window firing ports, deterministic slot reservations, timed transit, casualty release, and deep capture/restore.
   - [x] Replace the solid house box with a terrain-grounded, segmented door/window/floor/stair/roof model and high/medium/core/proxy LOD tiers; separate projectile/LOS apertures from a movement shell that blocks windows and reserves doors for authorized transit.
@@ -149,6 +154,7 @@ Status:
   - [x] Add a second frozen compact one-floor farmhouse descriptor with three real individual slots, generic building/visual-system reuse, rotation-aware terrain grounding, and one explicit non-overlapping Stonne placement.
   - [x] Deterministically select the shortest valid exterior-door route and persist that stable portal through entry, stairs, exit, ejection, capture, restore, and replay.
   - [x] Add paired rear-facade firing windows to both floors of the large house; bind them to the existing rear individual slots, preserve projectile/LOS apertures and movement blockers, and render their openings across every LOD.
+  - [x] Preserve authoritative per-soldier stair-transit and occupied-floor height through pose resets so movement upstairs remains visibly continuous.
   - [ ] Generalize the authored-house slice into reusable building/map records with more floor plans, entrances, interior routes, firing positions, capacity rules, and AI-selected occupation.
 - [ ] Add destructible buildings with persistent tactical consequences.
   - [x] Add section health/resistance, projectile breaches, aperture state, support-loss collapse, rubble colliders, deterministic occupant damage/ejection, collision deltas, and rollback-safe events.

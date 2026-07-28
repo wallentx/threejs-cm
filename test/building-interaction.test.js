@@ -513,12 +513,29 @@ test('live Unit movement completes door and stair transit to upper-floor slots',
     unit.addWaypoint(new THREE.Vector3().fromArray(waypoint), 'QUICK');
   }
 
+  let sawVisibleStairClimb = false;
   for (let step = 0; step < 900; step++) {
     unit.update(1 / 30, terrain);
     interactions.advance(1 / 30);
+    const climbing = unit.soldierAI.getLivingAgents().find(agent =>
+      agent.buildingLocation?.routeStage === 'stairs'
+      && agent.buildingLocation?.phase === 'transit'
+      && agent.position.y > 0.25
+      && agent.position.y < 3.4);
+    if (climbing) {
+      unit.soldierAI.syncMeshes();
+      const mesh = unit.mesh.userData.soldiers[climbing.index];
+      assert.ok(
+        Math.abs(
+          mesh.position.y - (climbing.position.y - unit.position.y)
+        ) < 1e-9
+      );
+      sawVisibleStairClimb = true;
+    }
   }
 
   const assigned = unit.soldierAI.getLivingAgents().slice(0, 4);
+  assert.equal(sawVisibleStairClimb, true);
   assert.deepEqual(
     assigned.map(agent => agent.buildingLocation?.phase),
     ['occupied', 'occupied', 'occupied', 'occupied'],
@@ -538,6 +555,9 @@ test('live Unit movement completes door and stair transit to upper-floor slots',
     ]
   );
   assert.ok(assigned.every(agent => agent.position.y > 3));
+  unit.soldierAI.syncMeshes();
+  assert.ok(assigned.every(agent =>
+    unit.mesh.userData.soldiers[agent.index].position.y > 2.5));
 });
 
 test('rear entry route deterministically clears footprint and reaches upper-floor slots', () => {

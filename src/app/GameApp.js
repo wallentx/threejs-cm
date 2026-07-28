@@ -6,7 +6,10 @@ import { TerrainBuilder } from '../world/TerrainBuilder.js';
 import { VehicleDamageEffects } from '../world/VehicleDamageEffects.js';
 import { ShotTrajectoryOverlay } from '../world/debug/ShotTrajectoryOverlay.js';
 import { Unit } from '../game/Unit.js';
-import { CommandSystem } from '../game/CommandSystem.js';
+import {
+  CommandSystem,
+  isTargetCommandMode
+} from '../game/CommandSystem.js';
 import { BuildingInteractionSystem } from '../game/BuildingInteractionSystem.js';
 import { SpottingSystem } from '../game/SpottingSystem.js';
 import { CombatSystem } from '../game/CombatSystem.js';
@@ -776,7 +779,7 @@ export class GameApp {
             this.selectUnit(clickedUnit);
             this.sound.playUIClick();
             return;
-          } else if (this.commands.activeMode === 'TARGET' || this.commands.activeMode === 'TARGET_LIGHT') {
+          } else if (isTargetCommandMode(this.commands.activeMode)) {
             this.commands.handleMapClick(clickedUnit.position, clickedUnit);
             this.ui.renderCommandGrid();
             this.sound.playUIClick();

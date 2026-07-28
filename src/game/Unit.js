@@ -45,6 +45,9 @@ import {
   getInfantryMovementOrderProfile
 } from '../simulation/infantry/InfantryMovementOrders.js';
 import {
+  selectVehicleTargetWeapons
+} from '../simulation/combat/VehicleWeaponSelection.js';
+import {
   advanceMortarTeamState,
   canFireMortar,
   captureMortarTeamState,
@@ -80,6 +83,20 @@ const UNAVAILABLE_INFANTRY_STATUSES = new Set([
   'INCAPACITATED',
   'DEAD'
 ]);
+
+function compareStableIds(left, right) {
+  const leftType = typeof left;
+  const rightType = typeof right;
+  if (leftType !== rightType) return leftType.localeCompare(rightType);
+  if (left === right) return 0;
+  return left < right ? -1 : 1;
+}
+
+function selectStableVehicleTargetSoldier(target) {
+  if (target?.type !== 'infantry_squad') return null;
+  return [...(target.soldierAI?.getLivingAgents?.() ?? [])]
+    .sort((left, right) => compareStableIds(left.id, right.id))[0] ?? null;
+}
 
 function cloneRoster(roster) {
   return roster.map(soldier => ({
@@ -1234,7 +1251,8 @@ export class Unit {
   ) {
     if (!this.vehicleSpec || !this.isCombatEffective()) return false;
     const target = context.target;
-    const targetPosition = target?.position ?? this.targetPos;
+    const targetSoldier = selectStableVehicleTargetSoldier(target);
+    const targetPosition = targetSoldier?.position ?? target?.position ?? this.targetPos;
     if (!targetPosition) {
       if (this.vehicleWeapon) {
         this.vehicleWeapon.targetUnitId = null;
@@ -1250,6 +1268,11 @@ export class Unit {
       }
       return false;
     }
+    const weaponSelection = selectVehicleTargetWeapons({
+      mode: this.targetMode,
+      target,
+      vehicleSpec: this.vehicleSpec
+    });
 
     const desiredWorldYaw = Math.atan2(
       targetPosition.x - this.position.x,
@@ -1282,6 +1305,7 @@ export class Unit {
     );
     const targetKey = createFireControlTargetKey({
       targetUnitId: target?.id ?? null,
+      targetSoldierId: targetSoldier?.id ?? null,
       targetPosition
     });
     const trueRangeMeters = this.position.distanceTo(targetPosition);
@@ -1289,14 +1313,16 @@ export class Unit {
     const shooterMoving = Boolean(context.shooterMoving);
 
     let firedMain = false;
-    if (includeMain && this.vehicleSpec.mainGun && this.vehicleWeapon) {
+    if (
+      includeMain
+      && weaponSelection.fireMainGun
+      && this.vehicleSpec.mainGun
+      && this.vehicleWeapon
+    ) {
       this.vehicleWeapon.targetUnitId = target?.id ?? null;
       this.vehicleWeapon.targetPos = targetPosition.toArray();
       this.vehicleWeapon.targetMode = this.targetMode;
-      const preferredAmmoType = target?.vehicleSpec ? 'ap' : 'he';
-      const desiredAmmoType = this.vehicleSpec.mainGun[preferredAmmoType]
-        ? preferredAmmoType
-        : (this.vehicleSpec.mainGun.ap ? 'ap' : 'he');
+      const desiredAmmoType = weaponSelection.mainAmmoType;
       const aimWeapon = this.weaponLookup(
         this.vehicleSpec.mainGun[this.vehicleWeapon.loadedType ?? desiredAmmoType]
       );
@@ -1342,6 +1368,7 @@ export class Unit {
         firedMain = context.combat.fireWeapon(this, target, targetPosition, {
           weapon,
           mountId: 'main',
+          targetSoldier,
           muzzlePosition: this.getVehicleMountMuzzleWorldPosition('main'),
           dispersionScale: (experienceDispersion[this.experience] ?? 1.15)
             * opticsFactor
@@ -1375,11 +1402,18 @@ export class Unit {
           }
         }
       }
+    } else if (includeMain && this.vehicleWeapon) {
+      this.vehicleWeapon.targetUnitId = target?.id ?? null;
+      this.vehicleWeapon.targetPos = targetPosition.toArray();
+      this.vehicleWeapon.targetMode = this.targetMode;
+      this.vehicleWeapon.fireState = 'HOLD_FIRE';
+      resetFireControlState(this.vehicleWeapon.fireControl, 'HOLD_FIRE');
     }
 
-    const firedMachineGun = includeMounts
+    const firedMachineGun = includeMounts && weaponSelection.fireMachineGuns
       ? this.updateVehicleMachineGunCombat(context, {
           target,
+          targetSoldier,
           targetPosition,
           desiredWorldYaw,
           turretYawError: remainingTurretYawError,
@@ -1391,11 +1425,21 @@ export class Unit {
           occupiedCrewRoles: firedMain ? this.vehicleSpec.gunnerRoles : []
         })
       : false;
+    if (includeMounts && !weaponSelection.fireMachineGuns) {
+      for (const mount of this.vehicleSpec.weaponMounts ?? []) {
+        const state = this.vehicleMounts[mount.id];
+        if (!state) continue;
+        state.targetUnitId = target?.id ?? null;
+        state.targetPos = targetPosition.toArray();
+        state.targetMode = this.targetMode;
+        state.fireState = 'HOLD_FIRE';
+        resetFireControlState(state.fireControl, 'HOLD_FIRE');
+      }
+    }
     return firedMain || firedMachineGun;
   }
 
   updateVehicleMachineGunCombat(context, aiming) {
-    if (aiming.target?.vehicleSpec) return false;
     let firedAny = false;
     for (const mount of this.vehicleSpec.weaponMounts ?? []) {
       const state = this.vehicleMounts[mount.id];
@@ -1463,6 +1507,7 @@ export class Unit {
         const fired = context.combat.fireWeapon(this, aiming.target, aiming.targetPosition, {
           weapon,
           mountId: mount.id,
+          targetSoldier: aiming.targetSoldier,
           muzzlePosition,
           dispersionScale: opticsFactor * mountDamageFactor * mountAim.dispersionScale,
           estimatedRangeMeters: state.fireControl.estimatedRangeMeters,
@@ -1932,6 +1977,19 @@ export class Unit {
         }
 
         speed *= movementFactor;
+        if (this.soldierAI) {
+          speed = Math.min(
+            speed,
+            this.soldierAI.getAnchorSpeedLimit(
+              activeOrderType,
+              { hasDirectPrecisionObservation }
+            )
+          );
+          speed *= this.soldierAI.getAnchorCohesionScale(
+            activeOrderType,
+            { hasDirectPrecisionObservation }
+          );
+        }
         const routeTarget = this.collisionWorld?.getNavigationTarget(
           this.position,
           targetWp.position,

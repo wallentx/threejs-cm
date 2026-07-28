@@ -241,6 +241,79 @@ test('a live six-man formation deterministically detours around a two-metre wall
   assert.equal(first.areLivingInfantryAtFormation('QUICK'), true);
 });
 
+test('the squad anchor cannot outrun its individual soldiers by more than the cohesion tether', () => {
+  const terrain = {
+    getHeightAt: () => 0,
+    getMovementHeightAt: () => 0
+  };
+  const unit = new TestUnit({
+    id: 'cohesion-tether-squad',
+    position: new THREE.Vector3(),
+    squadSize: 6
+  });
+  unit.addWaypoint(new THREE.Vector3(0, 0, 100), 'QUICK');
+  let maximumLag = 0;
+  for (let step = 0; step < 600; step++) {
+    unit.update(1 / 30, terrain);
+    const cosine = Math.cos(unit.rotation);
+    const sine = Math.sin(unit.rotation);
+    for (const agent of unit.soldierAI.getLivingAgents()) {
+      const offset = unit.soldierAI.getFormationOffset(agent.index, 'QUICK');
+      const goalX = unit.position.x + cosine * offset.x + sine * offset.z;
+      const goalZ = unit.position.z - sine * offset.x + cosine * offset.z;
+      maximumLag = Math.max(
+        maximumLag,
+        Math.hypot(agent.position.x - goalX, agent.position.z - goalZ)
+      );
+    }
+  }
+  assert.ok(maximumLag <= 4.05, `maximum formation lag was ${maximumLag}`);
+  assert.ok(unit.position.z > 35, 'the tether must pace movement, not freeze it');
+});
+
+test('vehicle move orders route around static blockers instead of silently stalling', () => {
+  const wall = {
+    id: 'wall:vehicle-route',
+    type: 'stonewall',
+    centerX: 0,
+    centerZ: 0,
+    halfX: 6,
+    halfZ: 0.35,
+    blocks: ['vehicle']
+  };
+  const collisionWorld = new StaticCollisionWorld([wall]);
+  const terrain = {
+    collisionWorld,
+    getHeightAt: () => 0,
+    getMovementHeightAt: () => 0
+  };
+  const vehicle = new TestUnit({
+    id: 'routed-panzer',
+    faction: 'german',
+    type: 'vehicle',
+    vehicleId: 'PANZER_III_D',
+    position: new THREE.Vector3(0, 0, -12)
+  });
+  vehicle.bindCollisionWorld(collisionWorld);
+  const commands = new CommandSystem(new THREE.Scene(), {
+    terrain,
+    isSetupPhase: () => false
+  });
+  issueMove(commands, vehicle, new THREE.Vector3(0, 0, 12), 'MOVE_FAST');
+
+  assert.ok(vehicle.waypoints.length >= 3);
+  assert.ok(vehicle.waypoints.slice(0, -1).some(waypoint =>
+    Math.abs(waypoint.position.x) > wall.halfX));
+
+  for (let step = 0;
+    step < 1800 && vehicle.currentWaypointIndex < vehicle.waypoints.length;
+    step++) {
+    vehicle.update(1 / 30, terrain);
+  }
+  assert.equal(vehicle.currentWaypointIndex, vehicle.waypoints.length);
+  assert.ok(vehicle.position.z > 11);
+});
+
 test('appended routes start at the pending tail and retain existing waypoints', () => {
   const calls = [];
   const unit = createUnit({
@@ -345,6 +418,23 @@ test('target-order integration may accept or reject a handled command without mu
     ]
   );
   assert.equal(calls[0].unit, unit);
+});
+
+test('AP, HE, and MG target tools persist their explicit mode on the order', () => {
+  const commands = new CommandSystem(new THREE.Scene());
+  const target = { id: 'target' };
+  for (const mode of ['TARGET_AP', 'TARGET_HE', 'TARGET_MG']) {
+    const unit = createUnit();
+    commands.setActiveUnit(unit);
+    commands.setCommandMode(mode);
+    assert.equal(
+      commands.handleMapClick(new THREE.Vector3(4, 0, 6), target),
+      true
+    );
+    assert.equal(unit.targetMode, mode);
+    assert.equal(unit.targetUnit, target);
+    assert.deepEqual(unit.targetPos.toArray(), [4, 0, 6]);
+  }
 });
 
 test('completed queues start from the live position and unsupported movers retain direct waypoints', () => {

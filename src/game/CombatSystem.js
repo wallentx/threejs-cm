@@ -11,6 +11,12 @@ import {
 import {
   createWeaponReportEvent
 } from '../simulation/observation/SoundContacts.js';
+import {
+  getInfantryAimPoint
+} from '../simulation/infantry/InfantryHitVolumes.js';
+import {
+  getVehicleArmorAimPoint
+} from '../simulation/vehicles/VehicleArmorCollision.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const scratchAim = new THREE.Vector3();
@@ -369,24 +375,31 @@ export class CombatSystem {
         : null)
       ?? attacker.getMuzzleWorldPosition?.()
       ?? attacker.position.clone().add(new THREE.Vector3(0, 1.4, 0));
-    const targetSoldierPosition = options.targetSoldier?.position
-      ?? (options.targetSoldier?.worldPosition
-        ? new THREE.Vector3().fromArray(options.targetSoldier.worldPosition)
-        : null);
     const explicitAimPoint = options.aimPoint?.isVector3
       ? options.aimPoint
       : (Array.isArray(options.aimPoint)
           ? new THREE.Vector3().fromArray(options.aimPoint)
           : null);
-    const toPos = scratchAim.copy(
-      explicitAimPoint
-        ?? targetSoldierPosition
-        ?? (targetUnit ? targetUnit.position : targetPos)
-    ).clone();
-    if (!explicitAimPoint) {
-      toPos.y += options.targetSoldier
-        ? 0.92
-        : (targetUnit?.vehicleSpec ? 1.15 + this.random() * 1.25 : 1.1);
+    const infantryAim = !explicitAimPoint && options.targetSoldier
+      ? getInfantryAimPoint({
+          position: options.targetSoldier.position
+            ?? options.targetSoldier.worldPosition,
+          stance: options.targetSoldier.stance,
+          facing: options.targetSoldier.facing
+        })
+      : null;
+    const vehicleAim = !explicitAimPoint && !infantryAim && targetUnit?.vehicleSpec
+      ? getVehicleArmorAimPoint(targetUnit)
+      : null;
+    const authoritativeAimPoint = infantryAim?.point ?? vehicleAim?.point ?? null;
+    const toPos = authoritativeAimPoint
+      ? new THREE.Vector3().fromArray(authoritativeAimPoint)
+      : scratchAim.copy(
+          explicitAimPoint
+            ?? (targetUnit ? targetUnit.position : targetPos)
+        ).clone();
+    if (!explicitAimPoint && !authoritativeAimPoint) {
+      toPos.y += 1.1;
     }
 
     const range = fromPos.distanceTo(toPos);
@@ -684,6 +697,9 @@ export class CombatSystem {
       clearanceMeters: result?.clearanceMeters ?? null,
       trajectoryPoints: projectile.trajectoryPoints.map(point => [...point]),
       kind: impact.kind,
+      hitVolumeId: impact.hitVolumeId ?? null,
+      hitVolumeModelVersion: impact.hitVolumeModelVersion ?? null,
+      hitVolumeDataQuality: impact.hitVolumeDataQuality ?? null,
       zone: result?.zone ?? null,
       thicknessZone: result?.thicknessZone ?? null,
       plateId: result?.plateId ?? impact.plateId ?? null,

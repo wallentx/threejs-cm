@@ -9,6 +9,9 @@ import {
   traceVehicleArmorExit
 } from '../simulation/vehicles/VehicleArmorCollision.js';
 import {
+  intersectInfantryHitVolumes
+} from '../simulation/infantry/InfantryHitVolumes.js';
+import {
   queryVehicleInternalBlastCandidates,
   traceVehicleInternalPath
 } from '../simulation/vehicles/VehicleInternalCollision.js';
@@ -251,20 +254,26 @@ export class BallisticsSystem {
 
       if (unit.type === 'infantry_squad') {
         for (const agent of unit.soldierAI?.getLivingAgents() ?? []) {
-          const center = scratchPoint.copy(agent.position).add(new THREE.Vector3(0, 0.92, 0));
-          const point = segmentSphereIntersection(
+          const hit = intersectInfantryHitVolumes(
             projectile.previousPosition,
             projectile.position,
-            center,
-            0.34
+            {
+              position: agent.position,
+              stance: agent.stance,
+              facing: agent.facing
+            }
           );
-          if (!point) continue;
+          if (!hit) continue;
+          const point = new THREE.Vector3(...hit.point);
           consider({
             kind: 'infantry',
             unit,
             agent,
             distance: point.distanceTo(projectile.previousPosition),
-            point
+            point,
+            hitVolumeId: hit.hitVolumeId,
+            hitVolumeModelVersion: hit.modelVersion,
+            hitVolumeDataQuality: hit.dataQuality
           });
         }
         continue;

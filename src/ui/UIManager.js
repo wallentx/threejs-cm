@@ -163,6 +163,8 @@ export class UIManager {
       if (e.code === 'KeyL') this.triggerCommand('CRAWL');
       if (e.code === 'KeyU') this.triggerCommand('ASSAULT');
       if (e.code === 'KeyT') this.triggerCommand('TARGET');
+      if (e.code === 'KeyA') this.triggerCommand('TARGET_AP');
+      if (e.code === 'KeyG') this.triggerCommand('TARGET_MG');
       if (e.code === 'KeyO') this.triggerCommand('FACE');
       if (e.code === 'KeyH') this.handleDirectAction('HIDE');
       if (
@@ -174,6 +176,11 @@ export class UIManager {
       }
       if (e.code === 'KeyE') {
         const selectedUnit = this.runtime.selectedUnit;
+        if (selectedUnit?.vehicleSpec?.mainGun?.he) {
+          e.preventDefault();
+          this.triggerCommand('TARGET_HE');
+          return;
+        }
         const eligible = selectedUnit?.type === 'infantry_squad'
           && selectedUnit.soldierAI?.agents?.some(
             agent => Boolean(agent.buildingLocation)
@@ -213,6 +220,23 @@ export class UIManager {
     document.body?.classList.toggle('no-unit-selected', !hasSelection);
     if (!hasSelection) return;
 
+    const selectedVehicle = this.runtime.selectedUnit?.vehicleSpec ?? null;
+    const vehicleTargetCommands = selectedVehicle
+      ? [
+          ...(selectedVehicle.mainGun || selectedVehicle.weaponMounts?.length
+            ? [{ label: 'TARGET AUTO', mode: 'TARGET', key: 'T' }]
+            : []),
+          ...(selectedVehicle.mainGun?.ap
+            ? [{ label: 'TARGET AP', mode: 'TARGET_AP', key: 'A' }]
+            : []),
+          ...(selectedVehicle.mainGun?.he
+            ? [{ label: 'TARGET HE', mode: 'TARGET_HE', key: 'E' }]
+            : []),
+          ...(selectedVehicle.weaponMounts?.length
+            ? [{ label: 'TARGET MG', mode: 'TARGET_MG', key: 'G' }]
+            : [])
+        ]
+      : null;
     const tabButtons = {
       move: [
         { label: 'FAST', mode: 'MOVE_FAST', key: 'F' },
@@ -230,8 +254,10 @@ export class UIManager {
         { label: 'CLEAR', action: 'CLEAR_PATHS', key: 'C' }
       ],
       combat: [
-        { label: 'TARGET', mode: 'TARGET', key: 'T' },
-        { label: 'TARGET LIGHT', mode: 'TARGET_LIGHT', key: 'I' },
+        ...(vehicleTargetCommands ?? [
+          { label: 'TARGET', mode: 'TARGET', key: 'T' },
+          { label: 'TARGET LIGHT', mode: 'TARGET_LIGHT', key: 'I' }
+        ]),
         { label: 'CLEAR TARGET', action: 'CLEAR_TARGET', key: 'C' },
         { label: 'FACE', mode: 'FACE', key: 'O' }
       ],
@@ -373,6 +399,24 @@ export class UIManager {
     if (commandName === 'CRAWL') this.runtime.setCommandMode('MOVE_CRAWL');
     if (commandName === 'ASSAULT') this.runtime.setCommandMode('MOVE_ASSAULT');
     if (commandName === 'TARGET') this.runtime.setCommandMode('TARGET');
+    if (
+      commandName === 'TARGET_AP'
+      && this.runtime.selectedUnit?.vehicleSpec?.mainGun?.ap
+    ) {
+      this.runtime.setCommandMode('TARGET_AP');
+    }
+    if (
+      commandName === 'TARGET_HE'
+      && this.runtime.selectedUnit?.vehicleSpec?.mainGun?.he
+    ) {
+      this.runtime.setCommandMode('TARGET_HE');
+    }
+    if (
+      commandName === 'TARGET_MG'
+      && this.runtime.selectedUnit?.vehicleSpec?.weaponMounts?.length
+    ) {
+      this.runtime.setCommandMode('TARGET_MG');
+    }
     if (commandName === 'FACE') this.runtime.setCommandMode('FACE');
     this.renderCommandGrid();
   }

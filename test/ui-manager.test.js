@@ -728,6 +728,135 @@ test('SNEAK, CRAWL, and ASSAULT are visible and hotkey-accessible only for infan
   }
 });
 
+test('armed vehicles expose automatic, AP, HE, and MG target controls', () => {
+  const previousDocument = globalThis.document;
+  const commandGrid = {
+    children: [],
+    set innerHTML(value) {
+      if (value === '') this.children = [];
+    },
+    appendChild(child) {
+      this.children.push(child);
+    }
+  };
+  const panels = {
+    'command-grid': commandGrid,
+    'panel-commands': createPanelHarness(),
+    'panel-team-roster': createPanelHarness()
+  };
+  globalThis.document = {
+    getElementById: id => panels[id] ?? null,
+    createElement: () => ({
+      className: '',
+      innerHTML: '',
+      classList: { add() {} },
+      addEventListener(_type, listener) {
+        this.click = listener;
+      }
+    }),
+    body: { classList: { toggle() {} } }
+  };
+
+  try {
+    const modes = [];
+    const ui = Object.create(UIManager.prototype);
+    ui.activeTab = 'combat';
+    ui.showToast = () => {};
+    ui.runtime = {
+      selectedUnit: {
+        id: 'armed-vehicle',
+        type: 'vehicle',
+        vehicleSpec: {
+          mainGun: { ap: 'AP', he: 'HE' },
+          weaponMounts: [{ id: 'coax' }]
+        }
+      },
+      commandMode: null,
+      canIssueOrders: () => true,
+      setCommandMode(mode) {
+        modes.push(mode);
+        return mode;
+      }
+    };
+
+    ui.renderCommandGrid();
+    const labels = commandGrid.children
+      .map(child => child.innerHTML)
+      .join(' ');
+    assert.match(labels, /TARGET AUTO/);
+    assert.match(labels, /TARGET AP/);
+    assert.match(labels, /TARGET HE/);
+    assert.match(labels, /TARGET MG/);
+    assert.doesNotMatch(labels, /TARGET LIGHT/);
+    commandGrid.children[1].click();
+    assert.deepEqual(modes, ['TARGET_AP']);
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  }
+});
+
+test('A, E, and G activate supported vehicle target modes without stealing infantry exit', () => {
+  const previousWindow = globalThis.window;
+  let keydown = null;
+  globalThis.window = {
+    addEventListener(type, listener) {
+      if (type === 'keydown') keydown = listener;
+    }
+  };
+
+  try {
+    const modes = [];
+    const actions = [];
+    let selectedUnit = {
+      type: 'vehicle',
+      vehicleSpec: {
+        mainGun: { ap: 'AP', he: 'HE' },
+        weaponMounts: [{ id: 'coax' }]
+      }
+    };
+    const ui = Object.create(UIManager.prototype);
+    ui.runtime = {
+      get selectedUnit() { return selectedUnit; },
+      canIssueOrders: () => true,
+      setCommandMode(mode) {
+        modes.push(mode);
+        return mode;
+      }
+    };
+    ui.renderCommandGrid = () => {};
+    ui.handleDirectAction = action => actions.push(action);
+    ui.initHotkeys();
+
+    for (const code of ['KeyA', 'KeyE', 'KeyG']) {
+      keydown({
+        code,
+        target: { tagName: 'DIV', isContentEditable: false },
+        preventDefault() {}
+      });
+    }
+    assert.deepEqual(modes, ['TARGET_AP', 'TARGET_HE', 'TARGET_MG']);
+    assert.deepEqual(actions, []);
+
+    selectedUnit = {
+      type: 'infantry_squad',
+      soldierAI: {
+        agents: [{ buildingLocation: { buildingId: 'house' } }]
+      }
+    };
+    keydown({
+      code: 'KeyE',
+      target: { tagName: 'DIV', isContentEditable: false },
+      preventDefault() {}
+    });
+    assert.deepEqual(modes, ['TARGET_AP', 'TARGET_HE', 'TARGET_MG']);
+    assert.deepEqual(actions, ['EXIT_BUILDING']);
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
+});
+
 test('building floor choices come from the target descriptor and never invent an upper floor', () => {
   const previousDocument = globalThis.document;
   let modal = null;
