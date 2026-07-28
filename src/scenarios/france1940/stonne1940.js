@@ -74,6 +74,15 @@ export const STONNE_1940_SCENARIO = Object.freeze({
       soldierEquipment: { 'squad-leader': ['BINOCULARS'] }
     }),
     freezeUnit({
+      id: 'fr_mortar_1',
+      name: 'Brandt Mle 1935 60 mm Mortar Team',
+      faction: 'french',
+      type: 'infantry_squad',
+      formationId: 'FRENCH_BRANDT_MLE1935_60MM_TEAM',
+      position: [-66, 0, 72],
+      rotation: Math.PI
+    }),
+    freezeUnit({
       id: 'fr_tank',
       name: 'SOMUA S35 (47mm)',
       faction: 'french',

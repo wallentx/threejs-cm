@@ -13,13 +13,26 @@ function freezeSupportAmmunitionTransfers(transfers = []) {
   );
 }
 
+function freezeCrewServedWeapon(crewServedWeapon = null) {
+  if (!crewServedWeapon) return null;
+  return Object.freeze({
+    ...crewServedWeapon,
+    ammunitionBySoldierId: Object.freeze({
+      ...crewServedWeapon.ammunitionBySoldierId
+    })
+  });
+}
+
 function freezeFormation({
   id,
   factionId,
   name,
   namePrefix,
   members,
-  supportAmmunitionTransfers
+  supportAmmunitionTransfers,
+  crewServedWeapon,
+  provenance = PROVENANCE,
+  dataQuality = provenance.dataQuality
 }) {
   return Object.freeze({
     id,
@@ -29,13 +42,22 @@ function freezeFormation({
     members: freezeMembers(members),
     supportAmmunitionTransfers:
       freezeSupportAmmunitionTransfers(supportAmmunitionTransfers),
-    provenance: PROVENANCE,
-    dataQuality: PROVENANCE.dataQuality
+    crewServedWeapon: freezeCrewServedWeapon(crewServedWeapon),
+    provenance,
+    dataQuality
   });
 }
 
 const SUPPORT_AMMUNITION_DATA_QUALITY =
   'gameplay approximation for same-squad feed allocation, range, and handoff time';
+const BRANDT_MLE1935_MANUAL_REFERENCE =
+  'https://bibliotheques-numeriques.defense.gouv.fr/mediatheque-en/docu'
+  + 'ment/f917220f-7588-4e68-ab19-491e4dd36839?cote=Doc.+Regl.+342&portal=365729';
+const FRENCH_60MM_MORTAR_PROVENANCE = Object.freeze({
+  source: BRANDT_MLE1935_MANUAL_REFERENCE,
+  dataQuality:
+    'historical weapon identity; provisional four-person battle roster, carbine distribution, ammunition allocation, setup, pack, cadence, range, charge envelope, and fixed elevation are gameplay approximations pending formation-specific primary TO&E evidence'
+});
 
 export const FRANCE_1940_FORMATIONS = Object.freeze({
   FRENCH_CHASSEURS_PORTES_SQUAD: freezeFormation({
@@ -64,6 +86,66 @@ export const FRANCE_1940_FORMATIONS = Object.freeze({
         dataQuality: SUPPORT_AMMUNITION_DATA_QUALITY
       }
     ]
+  }),
+  FRENCH_BRANDT_MLE1935_60MM_TEAM: freezeFormation({
+    id: 'FRENCH_BRANDT_MLE1935_60MM_TEAM',
+    factionId: 'french',
+    name: 'Brandt Mle 1935 60 mm Mortar Team',
+    namePrefix: 'Mortarman',
+    members: [
+      {
+        id: 'mortar-gunner',
+        name: 'Mortar Gunner',
+        role: 'Mortar Gunner',
+        weaponId: 'BERTHIER_M1892_M16',
+        crewServedRole: 'gunner'
+      },
+      {
+        id: 'mortar-assistant',
+        name: 'Mortar Assistant',
+        role: 'Mortar Assistant',
+        weaponId: 'BERTHIER_M1892_M16',
+        crewServedRole: 'assistant'
+      },
+      {
+        id: 'ammunition-bearer-1',
+        name: 'Ammunition Bearer 1',
+        role: 'Ammunition Bearer',
+        weaponId: 'BERTHIER_M1892_M16',
+        crewServedRole: 'ammunition_bearer'
+      },
+      {
+        id: 'ammunition-bearer-2',
+        name: 'Ammunition Bearer 2',
+        role: 'Ammunition Bearer',
+        weaponId: 'BERTHIER_M1892_M16',
+        crewServedRole: 'ammunition_bearer'
+      }
+    ],
+    crewServedWeapon: {
+      type: 'mortar',
+      id: 'brandtmle1935-60mm-team',
+      weaponId: 'BRANDT_MLE1935_60MM_HE',
+      gunnerSoldierId: 'mortar-gunner',
+      assistantSoldierId: 'mortar-assistant',
+      ammunitionBySoldierId: {
+        'mortar-gunner': 6,
+        'mortar-assistant': 6,
+        'ammunition-bearer-1': 6,
+        'ammunition-bearer-2': 6
+      },
+      setupSeconds: 5,
+      packSeconds: 3,
+      reloadSeconds: 4.5,
+      minimumRangeMeters: 25,
+      maximumRangeMeters: 600,
+      elevationDegrees: 65,
+      minimumMuzzleVelocity: 15,
+      maximumMuzzleVelocity: 90,
+      dataQuality: FRENCH_60MM_MORTAR_PROVENANCE.dataQuality,
+      referenceUrl: BRANDT_MLE1935_MANUAL_REFERENCE
+    },
+    provenance: FRENCH_60MM_MORTAR_PROVENANCE
   }),
   GERMAN_GRENADIER_SQUAD_1940: freezeFormation({
     id: 'GERMAN_GRENADIER_SQUAD_1940',

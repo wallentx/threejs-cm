@@ -1,6 +1,9 @@
 // Renderer-neutral game-family records. This module owns validation only;
 // callers inject content catalogs and decide where registrations live.
 import { validateAssetManifest } from '../assets/AssetManifest.js';
+import {
+  validateMortarTeamConfig
+} from '../simulation/indirect/MortarTeam.js';
 
 function assertRecordMap(label, records) {
   if (!records || typeof records !== 'object' || Array.isArray(records)) {
@@ -202,6 +205,57 @@ function validateFormationSupportAmmunition(
   }
 }
 
+function validateFormationCrewServedWeapon(
+  formationId,
+  formation,
+  weapons
+) {
+  const crewServedWeapon = formation.crewServedWeapon;
+  if (crewServedWeapon == null) return;
+  const context = `formation ${formationId} crew-served weapon`;
+  if (
+    typeof crewServedWeapon !== 'object'
+    || Array.isArray(crewServedWeapon)
+  ) {
+    throw new TypeError(`${context} must be a record`);
+  }
+  if (crewServedWeapon.type !== 'mortar') {
+    throw new Error(`${context} has unsupported type ${crewServedWeapon.type}`);
+  }
+  validateMortarTeamConfig(crewServedWeapon);
+  assertWeaponReference(weapons, crewServedWeapon.weaponId, context);
+  const membersById = new Map(
+    formation.members.map(member => [member.id, member])
+  );
+  for (const soldierId of [
+    crewServedWeapon.gunnerSoldierId,
+    crewServedWeapon.assistantSoldierId,
+    ...Object.keys(crewServedWeapon.ammunitionBySoldierId)
+  ]) {
+    if (!membersById.has(soldierId)) {
+      throw new Error(`${context} references unknown member ${soldierId}`);
+    }
+  }
+  if (
+    membersById.get(crewServedWeapon.gunnerSoldierId)?.crewServedRole
+      !== 'gunner'
+  ) {
+    throw new Error(`${context} gunner must own crewServedRole gunner`);
+  }
+  if (
+    membersById.get(crewServedWeapon.assistantSoldierId)?.crewServedRole
+      !== 'assistant'
+  ) {
+    throw new Error(`${context} assistant must own crewServedRole assistant`);
+  }
+  if (
+    typeof crewServedWeapon.dataQuality !== 'string'
+    || !/approximation/i.test(crewServedWeapon.dataQuality)
+  ) {
+    throw new Error(`${context} requires an explicit approximation label`);
+  }
+}
+
 /**
  * Validate a plain, injected game-family definition without changing it.
  *
@@ -273,6 +327,7 @@ export function validateFamilyDefinition(family) {
       assertWeaponReference(weapons, member?.weaponId, `formation ${formationId} member ${index}`);
     });
     validateFormationSupportAmmunition(formationId, formation, weapons);
+    validateFormationCrewServedWeapon(formationId, formation, weapons);
   }
 
   validateVehicleWeapons(vehicles, weapons);

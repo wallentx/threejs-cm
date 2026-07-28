@@ -15,7 +15,10 @@ import { VEHICLES } from '../src/game/VehicleCatalog.js';
 import { createFrance1940Family } from '../src/content/france1940/index.js';
 
 const CANONICAL_IDS = Object.freeze([
-  'MAS36', 'FM2429', 'MAS38', 'KAR98K', 'MG34',
+  'MAS36', 'LEBEL_M1886_M93', 'BERTHIER_M1907_15_M16',
+  'BERTHIER_M1892_M16', 'LEBEL_M1886_M93_APX1916',
+  'BRANDT_MLE1935_60MM_HE',
+  'FM2429', 'MAS38', 'KAR98K', 'MG34',
   'MAC31_VEHICLE', 'MG34_VEHICLE', 'MG37T_VEHICLE', 'MP40',
   'SA35_AP', 'SA35_HE', 'KWK36_AP', 'KWK36_HE', 'SA18_AP', 'SA18_HE',
   'SA38_AP', 'SA38_HE', 'SA35_25_AP', 'KWK30_AP', 'KWK30_HE',
@@ -40,6 +43,12 @@ test('France 1940 owns the complete frozen canonical weapon catalog', () => {
   assert.match(FRANCE_1940_WEAPONS.SA18_AP.dataQuality, /gameplay approximations/);
   assert.equal(FRANCE_1940_WEAPONS.MAS36.cyclicRPM, 15, 'default cyclic cadence must remain derived');
   assert.equal(FRANCE_1940_WEAPONS.SA35_HE.explosiveRadius, 5.5);
+  const mortar = FRANCE_1940_WEAPONS.BRANDT_MLE1935_60MM_HE;
+  assert.equal(mortar.kind, 'mortar_he');
+  assert.equal(mortar.carriedAmmo, 24);
+  assert.match(mortar.referenceUrl, /defense\.gouv\.fr\/mediatheque-en\/document\//);
+  assert.match(mortar.ballisticsDataQuality, /gameplay approximations/);
+  assert.match(mortar.ammunitionDataQuality, /gameplay approximations/);
 });
 
 test('legacy WeaponCatalog is a strict identity-preserving compatibility re-export', () => {
@@ -58,6 +67,7 @@ test('legacy aliases and unknown lookup behavior remain unchanged', () => {
     ['MAS-38 SMG', 'MAS38'],
     ['Kar98k', 'KAR98K'],
     ['MG34 LMG', 'MG34'],
+    ['Brandt Mle 1935 60 mm mortar HE', 'BRANDT_MLE1935_60MM_HE'],
     ['MP40', 'MP40']
   ];
   for (const [name, id] of aliases) {

@@ -382,6 +382,66 @@ export function validateMapDescriptor(map) {
     });
   });
 
+  const structureIds = new Set(map.structures.map(structure => structure.id));
+  const wallEnclosures = map.wallEnclosures ?? [];
+  if (!Array.isArray(wallEnclosures)) {
+    throw new Error('map.wallEnclosures must be an array');
+  }
+  const enclosureIds = new Set();
+  const gateIdsByEnclosure = new Map();
+  wallEnclosures.forEach((enclosure, enclosureIndex) => {
+    const path = `map.wallEnclosures[${enclosureIndex}]`;
+    requireRecord(enclosure, path);
+    registerFeatureId(ids, enclosure, path);
+    enclosureIds.add(enclosure.id);
+    requireId(enclosure.structureId, `${path}.structureId`);
+    if (!structureIds.has(enclosure.structureId)) {
+      throw new Error(`${path}.structureId references unknown structure ${enclosure.structureId}`);
+    }
+    requireId(enclosure.kind, `${path}.kind`);
+    if (
+      typeof enclosure.dataQuality !== 'string'
+      || enclosure.dataQuality.trim().length === 0
+    ) {
+      throw new Error(`${path}.dataQuality requires a non-empty label`);
+    }
+    if (!Array.isArray(enclosure.gateOpenings) || enclosure.gateOpenings.length === 0) {
+      throw new Error(`${path}.gateOpenings must be a non-empty array`);
+    }
+    const gateIds = new Set();
+    enclosure.gateOpenings.forEach((gate, gateIndex) => {
+      const gatePath = `${path}.gateOpenings[${gateIndex}]`;
+      requireRecord(gate, gatePath);
+      registerFeatureId(ids, gate, gatePath);
+      gateIds.add(gate.id);
+      const start = requireTuple(gate.start, 2, `${gatePath}.start`);
+      const end = requireTuple(gate.end, 2, `${gatePath}.end`);
+      requireInsideMap(start, dimensions, `${gatePath}.start`);
+      requireInsideMap(end, dimensions, `${gatePath}.end`);
+      if (start[0] === end[0] && start[1] === end[1]) {
+        throw new Error(`${gatePath} requires distinct endpoints`);
+      }
+    });
+    gateIdsByEnclosure.set(enclosure.id, gateIds);
+  });
+  map.wallRuns.forEach((wall, wallIndex) => {
+    const path = `map.wallRuns[${wallIndex}]`;
+    if (wallEnclosures.length === 0) return;
+    requireId(wall.enclosureId, `${path}.enclosureId`);
+    if (!enclosureIds.has(wall.enclosureId)) {
+      throw new Error(`${path}.enclosureId references unknown enclosure ${wall.enclosureId}`);
+    }
+    requireId(wall.boundarySide, `${path}.boundarySide`);
+    if (wall.adjacentGateId != null) {
+      requireId(wall.adjacentGateId, `${path}.adjacentGateId`);
+      if (!gateIdsByEnclosure.get(wall.enclosureId)?.has(wall.adjacentGateId)) {
+        throw new Error(
+          `${path}.adjacentGateId references a gate outside enclosure ${wall.enclosureId}`
+        );
+      }
+    }
+  });
+
   if (!Array.isArray(map.foliage)) throw new Error('map.foliage must be an array');
   map.foliage.forEach((entry, index) => {
     requireRecord(entry, `map.foliage[${index}]`);

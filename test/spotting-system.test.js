@@ -22,6 +22,8 @@ import {
   progressIdentification
 } from '../src/simulation/observation/IdentificationQuality.js';
 
+const VISIBILITY_GRACE_NANOSECONDS = 150_000_000;
+
 function makeUnit({
   id,
   faction,
@@ -185,6 +187,306 @@ test('occlusion prevents acquisition even inside nominal spotting range', () => 
   assert.equal(spotting.canPrecisionTarget(observer, target), false);
 });
 
+test('direct render visibility grace survives one LOS miss without precision leakage and expires', () => {
+  const terrain = makeTerrain();
+  const observer = makeUnit({
+    id: 'grace-observer',
+    faction: 'blue',
+    x: 0,
+    z: 0
+  });
+  const target = makeUnit({
+    id: 'grace-target',
+    faction: 'red',
+    x: 0,
+    z: 40
+  });
+  const units = [observer, target];
+  const spotting = makeSpotting(terrain);
+  acquire(spotting, units);
+
+  const acquired = spotting.getObservation(observer.id, 0, target.id);
+  assert.equal(acquired.visibleNow, true);
+  assert.equal(
+    acquired.visibilityGraceRemainingNanoseconds,
+    VISIBILITY_GRACE_NANOSECONDS
+  );
+  const occludingWall = {
+    minX: -2,
+    maxX: 2,
+    minZ: 10,
+    maxZ: 12,
+    height: 4,
+    type: 'wall'
+  };
+  terrain.bocageObstacles.push(occludingWall);
+
+  spotting.advance(units, 1 / 60);
+
+  const missed = spotting.getObservation(observer.id, 0, target.id);
+  assert.equal(missed.visibleNow, false);
+  assert.equal(missed.directEpisodeActive, false);
+  assert.equal(spotting.hasDirectObservation(observer, target), false);
+  assert.equal(spotting.canPrecisionTarget(observer, target), false);
+  assert.ok(missed.identificationProgress < acquired.identificationProgress);
+  assert.equal(
+    missed.visibilityGraceRemainingNanoseconds,
+    133_333_333
+  );
+  assert.equal(
+    spotting.captureState().directObservationEpisodes.find(
+      episode => episode.senderUnitId === observer.id
+        && episode.targetUnitId === target.id
+    ).active,
+    false
+  );
+  assert.ok(
+    spotting
+      .getVisibilityProjection(observer.faction, units)
+      .visibleUnitIds
+      .includes(target.id)
+  );
+
+  terrain.bocageObstacles.pop();
+  spotting.advance(units, 1 / 60);
+  const reacquired = spotting.getObservation(observer.id, 0, target.id);
+  assert.equal(reacquired.visibleNow, true);
+  assert.equal(
+    reacquired.visibilityGraceRemainingNanoseconds,
+    VISIBILITY_GRACE_NANOSECONDS
+  );
+
+  terrain.bocageObstacles.push(occludingWall);
+  spotting.advance(units, 0.2);
+
+  assert.equal(
+    spotting.getObservation(observer.id, 0, target.id)
+      .visibilityGraceRemainingNanoseconds,
+    0
+  );
+  assert.equal(spotting.hasContact(observer, target), true);
+  assert.equal(
+    spotting
+      .getVisibilityProjection(observer.faction, units)
+      .visibleUnitIds
+      .includes(target.id),
+    false,
+    'the independent 60-second contact memory must not keep a mesh visible'
+  );
+});
+
+test('visibility grace advances safely when an acquired target is not updated', () => {
+  const terrain = makeTerrain();
+  const observer = makeUnit({
+    id: 'not-updated-observer',
+    faction: 'blue',
+    x: 0,
+    z: 0
+  });
+  const target = makeUnit({
+    id: 'not-updated-target',
+    faction: 'red',
+    x: 0,
+    z: 40
+  });
+  const units = [observer, target];
+  const spotting = makeSpotting(terrain);
+  acquire(spotting, units);
+
+  target.roster[0].health = 0;
+  target.roster[0].status = 'KIA';
+  spotting.advance(units, 0.05);
+
+  const duringGrace = spotting.getObservation(observer.id, 0, target.id);
+  assert.equal(duringGrace.visibleNow, false);
+  assert.equal(duringGrace.directEpisodeActive, false);
+  assert.equal(
+    duringGrace.visibilityGraceRemainingNanoseconds,
+    100_000_000
+  );
+  assert.ok(
+    spotting
+      .getVisibilityProjection(observer.faction, units)
+      .visibleUnitIds
+      .includes(target.id)
+  );
+
+  spotting.advance(units, 0.1);
+  assert.equal(
+    spotting.getObservation(observer.id, 0, target.id)
+      .visibilityGraceRemainingNanoseconds,
+    0
+  );
+  assert.equal(
+    spotting
+      .getVisibilityProjection(observer.faction, units)
+      .visibleUnitIds
+      .includes(target.id),
+    false
+  );
+});
+
+test('relayed and stale contacts remain hidden after direct render grace expires', () => {
+  const terrain = makeTerrain([blockingWall]);
+  const sender = makeUnit({
+    id: 'grace-sender',
+    faction: 'blue',
+    x: 0,
+    z: 0
+  });
+  const receiver = makeUnit({
+    id: 'grace-receiver',
+    faction: 'blue',
+    x: 12,
+    z: 0
+  });
+  const target = makeUnit({
+    id: 'grace-relay-target',
+    faction: 'red',
+    x: 0,
+    z: 40
+  });
+  const units = [sender, receiver, target];
+  const spotting = makeSpotting(terrain);
+  acquire(spotting, units);
+  assert.equal(
+    spotting.getContactForUnit(receiver, target).channel,
+    CONTACT_CHANNEL.VOICE
+  );
+
+  terrain.bocageObstacles.push({
+    minX: -2,
+    maxX: 2,
+    minZ: 10,
+    maxZ: 12,
+    height: 4,
+    type: 'wall'
+  });
+  spotting.advance(units, 0.151);
+
+  const projection = spotting.getVisibilityProjection('blue', units);
+  assert.equal(spotting.hasContact(sender, target), true);
+  assert.equal(spotting.hasContact(receiver, target), true);
+  assert.ok(
+    projection.contacts.some(contact => contact.targetUnitId === target.id)
+  );
+  assert.equal(projection.visibleUnitIds.includes(target.id), false);
+});
+
+test('visibility grace is byte-identical across 30 Hz and 60 Hz partitions', () => {
+  function fixture() {
+    const terrain = makeTerrain();
+    const observer = makeUnit({
+      id: 'partition-observer',
+      faction: 'blue',
+      x: 0,
+      z: 0
+    });
+    const target = makeUnit({
+      id: 'partition-target',
+      faction: 'red',
+      x: 0,
+      z: 40
+    });
+    const units = [observer, target];
+    const spotting = makeSpotting(terrain);
+    acquire(spotting, units);
+    terrain.bocageObstacles.push({
+      minX: -2,
+      maxX: 2,
+      minZ: 10,
+      maxZ: 12,
+      height: 4,
+      type: 'wall'
+    });
+    return { observer, target, units, spotting };
+  }
+
+  const hz30 = fixture();
+  const hz60 = fixture();
+  advancePartitioned(hz30.spotting, hz30.units, 0.1, 30);
+  advancePartitioned(hz60.spotting, hz60.units, 0.1, 60);
+
+  assert.deepEqual(hz30.spotting.captureState(), hz60.spotting.captureState());
+  assert.equal(
+    hz30.spotting.getObservation(
+      hz30.observer.id,
+      0,
+      hz30.target.id
+    ).visibilityGraceRemainingNanoseconds,
+    50_000_000
+  );
+  assert.deepEqual(
+    hz30.spotting.getVisibilityProjection('blue', hz30.units),
+    hz60.spotting.getVisibilityProjection('blue', hz60.units)
+  );
+});
+
+test('capture and restore preserve deep state during visibility grace', () => {
+  const terrain = makeTerrain();
+  const observer = makeUnit({
+    id: 'grace-rollback-observer',
+    faction: 'blue',
+    x: 0,
+    z: 0
+  });
+  const target = makeUnit({
+    id: 'grace-rollback-target',
+    faction: 'red',
+    x: 0,
+    z: 40
+  });
+  const units = [observer, target];
+  const original = makeSpotting(terrain);
+  acquire(original, units);
+  terrain.bocageObstacles.push({
+    minX: -2,
+    maxX: 2,
+    minZ: 10,
+    maxZ: 12,
+    height: 4,
+    type: 'wall'
+  });
+  original.advance(units, 0.05);
+
+  const snapshot = original.captureState();
+  const expected = structuredClone(snapshot);
+  const restored = makeSpotting(terrain);
+  restored.restoreState(snapshot);
+  assert.deepEqual(restored.captureState(), expected);
+  const savedObservation = snapshot.observations.find(
+    observation => observation.observerUnitId === observer.id
+      && observation.targetUnitId === target.id
+  );
+  assert.equal(
+    savedObservation.visibilityGraceRemainingNanoseconds,
+    100_000_000
+  );
+  savedObservation.visibilityGraceRemainingNanoseconds = 0;
+  savedObservation.lastSeenPosition[0] = 999;
+  const restoredObservation = restored.getObservation(
+    observer.id,
+    0,
+    target.id
+  );
+  assert.equal(
+    restoredObservation.visibilityGraceRemainingNanoseconds,
+    100_000_000
+  );
+  assert.notEqual(restoredObservation.lastSeenPosition[0], 999);
+
+  original.advance(units, 0.1);
+  restored.advance([...units].reverse(), 0.1);
+  assert.deepEqual(restored.captureState(), original.captureState());
+  assert.equal(
+    restored
+      .getVisibilityProjection(observer.faction, units)
+      .visibleUnitIds
+      .includes(target.id),
+    false
+  );
+});
+
 test('binoculars shorten acquisition without creating an observation by themselves', () => {
   const plain = makeUnit({ id: 'plain', faction: 'blue', x: -2, z: 0 });
   const binocular = makeUnit({ id: 'binocular', faction: 'blue', x: 2, z: 0 });
@@ -336,7 +638,7 @@ test('first report waits from exact acquisition time and prefers voice over radi
   assert.equal(spotting.canPrecisionTarget(receiver, target), false);
 
   let state = spotting.captureState();
-  assert.equal(state.version, 4);
+  assert.equal(state.version, 5);
   assert.deepEqual(state.relayPolicy, {
     approximationLabel: COMMUNICATION_RELAY_DELAY_APPROXIMATION,
     voiceDelaySeconds,
@@ -453,7 +755,7 @@ test('direct identification credits only post-acquisition time and relays the fr
   );
 
   let captured = spotting.captureState();
-  assert.equal(captured.version, 4);
+  assert.equal(captured.version, 5);
   assert.equal(captured.relayQueue.version, 2);
   assert.equal(captured.relayQueue.pendingReports.length, 1);
   assert.equal(
@@ -1181,6 +1483,7 @@ test('mid-delay rollback replays exactly and legacy spotting states restore safe
           directEpisodeActive: _active,
           directEpisodeAcquiredAt: _acquiredAt,
           directEpisodeSnapshot: _snapshot,
+          visibilityGraceRemainingNanoseconds: _visibilityGrace,
           ...oldObservation
         } = saved;
         return oldObservation;
@@ -1193,12 +1496,18 @@ test('mid-delay rollback replays exactly and legacy spotting states restore safe
     });
     compatible.restoreState(legacy);
     const compatibleState = compatible.captureState();
-    assert.equal(compatibleState.version, 4);
+    assert.equal(compatibleState.version, 5);
     assert.ok(
       compatibleState.observations.every(
         observation => observation.identificationProgress === 0
           && observation.identificationTier
             === IDENTIFICATION_TIER.UNIDENTIFIED
+          && observation.visibilityGraceRemainingNanoseconds
+            === (
+              observation.visibleNow
+                ? VISIBILITY_GRACE_NANOSECONDS
+                : 0
+            )
       )
     );
     assert.ok(
@@ -1223,7 +1532,7 @@ test('mid-delay rollback replays exactly and legacy spotting states restore safe
     assert.deepEqual(
       compatibleRoundTrip.captureState(),
       compatibleState,
-      `version ${version} migration must emit a strict-restorable v4 snapshot`
+      `version ${version} migration must emit a strict-restorable v5 snapshot`
     );
     compatible.advance(units, 10);
     assert.equal(compatible.getContactForUnit(receiver, target), null);
@@ -1232,6 +1541,7 @@ test('mid-delay rollback replays exactly and legacy spotting states restore safe
   const legacyThree = structuredClone(restoredCopy);
   legacyThree.version = 3;
   for (const observation of legacyThree.observations) {
+    delete observation.visibilityGraceRemainingNanoseconds;
     delete observation.identificationProgress;
     delete observation.identificationTier;
     delete observation.identificationApproximationLabel;
@@ -1256,7 +1566,7 @@ test('mid-delay rollback replays exactly and legacy spotting states restore safe
   const compatibleThree = makeSpotting(terrain);
   compatibleThree.restoreState(legacyThree);
   const migratedThree = compatibleThree.captureState();
-  assert.equal(migratedThree.version, 4);
+  assert.equal(migratedThree.version, 5);
   assert.ok(
     migratedThree.observations.every(
       observation => observation.identificationProgress === 0
@@ -1282,7 +1592,34 @@ test('mid-delay rollback replays exactly and legacy spotting states restore safe
   assert.deepEqual(
     compatibleThreeRoundTrip.captureState(),
     migratedThree,
-    'version 3 migration must emit a strict-restorable v4 snapshot'
+    'version 3 migration must emit a strict-restorable v5 snapshot'
+  );
+
+  const legacyFour = structuredClone(restoredCopy);
+  legacyFour.version = 4;
+  for (const observation of legacyFour.observations) {
+    delete observation.visibilityGraceRemainingNanoseconds;
+  }
+  const compatibleFour = makeSpotting(terrain);
+  compatibleFour.restoreState(legacyFour);
+  const migratedFour = compatibleFour.captureState();
+  assert.equal(migratedFour.version, 5);
+  assert.ok(
+    migratedFour.observations.every(
+      observation => observation.visibilityGraceRemainingNanoseconds
+        === (
+          observation.visibleNow
+            ? VISIBILITY_GRACE_NANOSECONDS
+            : 0
+        )
+    )
+  );
+  const compatibleFourRoundTrip = makeSpotting(terrain);
+  compatibleFourRoundTrip.restoreState(migratedFour);
+  assert.deepEqual(
+    compatibleFourRoundTrip.captureState(),
+    migratedFour,
+    'version 4 migration must emit a strict-restorable v5 snapshot'
   );
 
   const oldToleranceVisible = structuredClone(legacyThree);
@@ -1294,8 +1631,8 @@ test('mid-delay rollback replays exactly and legacy spotting states restore safe
   oldVisibleObservation.acquisition = 0.999999999999;
   const migratedOldVisible = makeSpotting(terrain);
   migratedOldVisible.restoreState(oldToleranceVisible);
-  const visibleV4 = migratedOldVisible.captureState();
-  const visibleV4Observation = visibleV4.observations.find(
+  const visibleV5 = migratedOldVisible.captureState();
+  const visibleV5Observation = visibleV5.observations.find(
     observation =>
       observation.observerUnitId
         === oldVisibleObservation.observerUnitId
@@ -1304,14 +1641,18 @@ test('mid-delay rollback replays exactly and legacy spotting states restore safe
       && observation.targetUnitId
         === oldVisibleObservation.targetUnitId
   );
-  assert.equal(visibleV4Observation.acquisitionWorkTicks, 1000000000000);
-  assert.equal(visibleV4Observation.acquisition, 1);
-  assert.equal(visibleV4Observation.visibleNow, true);
-  assert.equal(visibleV4Observation.directEpisodeActive, true);
-  assert.equal(visibleV4Observation.identificationProgress, 0);
-  const visibleV4RoundTrip = makeSpotting(terrain);
-  visibleV4RoundTrip.restoreState(visibleV4);
-  assert.deepEqual(visibleV4RoundTrip.captureState(), visibleV4);
+  assert.equal(visibleV5Observation.acquisitionWorkTicks, 1000000000000);
+  assert.equal(visibleV5Observation.acquisition, 1);
+  assert.equal(visibleV5Observation.visibleNow, true);
+  assert.equal(visibleV5Observation.directEpisodeActive, true);
+  assert.equal(visibleV5Observation.identificationProgress, 0);
+  assert.equal(
+    visibleV5Observation.visibilityGraceRemainingNanoseconds,
+    VISIBILITY_GRACE_NANOSECONDS
+  );
+  const visibleV5RoundTrip = makeSpotting(terrain);
+  visibleV5RoundTrip.restoreState(visibleV5);
+  assert.deepEqual(visibleV5RoundTrip.captureState(), visibleV5);
 
   const oldToleranceHidden = structuredClone(oldToleranceVisible);
   const oldHiddenObservation = oldToleranceHidden.observations.find(
@@ -1335,8 +1676,8 @@ test('mid-delay rollback replays exactly and legacy spotting states restore safe
   hiddenPairEpisode.active = false;
   const migratedOldHidden = makeSpotting(terrain);
   migratedOldHidden.restoreState(oldToleranceHidden);
-  const hiddenV4 = migratedOldHidden.captureState();
-  const hiddenV4Observation = hiddenV4.observations.find(
+  const hiddenV5 = migratedOldHidden.captureState();
+  const hiddenV5Observation = hiddenV5.observations.find(
     observation =>
       observation.observerUnitId
         === oldHiddenObservation.observerUnitId
@@ -1345,22 +1686,23 @@ test('mid-delay rollback replays exactly and legacy spotting states restore safe
       && observation.targetUnitId
         === oldHiddenObservation.targetUnitId
   );
-  assert.equal(hiddenV4Observation.acquisitionWorkTicks, 999999999999);
-  assert.equal(hiddenV4Observation.acquisition, 0.999999999999);
-  assert.equal(hiddenV4Observation.visibleNow, false);
-  assert.equal(hiddenV4Observation.directEpisodeActive, false);
-  assert.equal(hiddenV4Observation.identificationProgress, 0);
-  const hiddenV4RoundTrip = makeSpotting(terrain);
-  hiddenV4RoundTrip.restoreState(hiddenV4);
-  assert.deepEqual(hiddenV4RoundTrip.captureState(), hiddenV4);
+  assert.equal(hiddenV5Observation.acquisitionWorkTicks, 999999999999);
+  assert.equal(hiddenV5Observation.acquisition, 0.999999999999);
+  assert.equal(hiddenV5Observation.visibleNow, false);
+  assert.equal(hiddenV5Observation.directEpisodeActive, false);
+  assert.equal(hiddenV5Observation.identificationProgress, 0);
+  assert.equal(hiddenV5Observation.visibilityGraceRemainingNanoseconds, 0);
+  const hiddenV5RoundTrip = makeSpotting(terrain);
+  hiddenV5RoundTrip.restoreState(hiddenV5);
+  assert.deepEqual(hiddenV5RoundTrip.captureState(), hiddenV5);
 
   assert.throws(
-    () => makeSpotting().restoreState({ version: 5 }),
-    /unsupported spotting state version 5/
+    () => makeSpotting().restoreState({ version: 6 }),
+    /unsupported spotting state version 6/
   );
 });
 
-test('spotting v4 rejects malformed identification state and returns mutation-safe projections', () => {
+test('spotting v5 rejects malformed persistent state and returns mutation-safe projections', () => {
   const terrain = makeTerrain([blockingWall]);
   const sender = makeUnit({
     id: 'sender',
@@ -1446,7 +1788,7 @@ test('spotting v4 rejects malformed identification state and returns mutation-sa
     state => {
       state.time = Number.NaN;
     },
-    /version 4 time/
+    /version 5 time/
   );
   rejected(
     state => {
@@ -1465,6 +1807,42 @@ test('spotting v4 rejects malformed identification state and returns mutation-sa
       delete state.timeNanoseconds;
     },
     /canonical clock/
+  );
+  rejected(
+    state => {
+      delete state.observations[0].visibilityGraceRemainingNanoseconds;
+    },
+    /visibility grace/
+  );
+  rejected(
+    state => {
+      state.observations[0].visibilityGraceRemainingNanoseconds =
+        VISIBILITY_GRACE_NANOSECONDS + 1;
+    },
+    /visibility grace/
+  );
+  rejected(
+    state => {
+      state.observations[0].visibilityGraceRemainingNanoseconds = -0;
+    },
+    /visibility grace/
+  );
+  rejected(
+    state => {
+      const observation = state.observations.find(saved => saved.visibleNow);
+      observation.visibilityGraceRemainingNanoseconds =
+        VISIBILITY_GRACE_NANOSECONDS - 1;
+    },
+    /full visibility grace/
+  );
+  rejected(
+    state => {
+      const observation = state.observations.find(
+        saved => !saved.visibleNow && saved.directEpisodeSnapshot === null
+      );
+      observation.visibilityGraceRemainingNanoseconds = 1;
+    },
+    /requires a prior direct observation/
   );
   rejected(
     state => {

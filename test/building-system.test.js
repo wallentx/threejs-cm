@@ -35,8 +35,22 @@ test('French house descriptor validates its topology and authored tactical featu
   assert.equal(FR_HOUSE_12X9_2F.portals.filter(portal => portal.kind === 'stair').length, 1);
   assert.deepEqual(
     FR_HOUSE_12X9_2F.firePorts.map(port => port.roomId),
-    ['ground-room', 'ground-room', 'upper-room', 'upper-room']
+    [
+      'ground-room', 'ground-room', 'ground-room', 'ground-room',
+      'upper-room', 'upper-room', 'upper-room', 'upper-room'
+    ]
   );
+  for (const floor of ['ground', 'upper']) {
+    for (const side of ['left', 'right']) {
+      const rear = FR_HOUSE_12X9_2F.firePorts.find(
+        port => port.id === `${floor}-rear-window-${side}`
+      );
+      assert.ok(rear, `${floor} rear ${side} window is authored`);
+      assert.deepEqual(rear.localNormal, [0, 0, -1]);
+      assert.equal(rear.approachSlotId, `${floor}-rear-${side}`);
+      assert.equal(rear.aperture.center[2], -4.5);
+    }
+  }
   assert.ok(FR_HOUSE_12X9_2F.sections.every(section => section.colliderParts.length > 0));
 
   const invalid = structuredClone(FR_HOUSE_12X9_2F);
@@ -66,12 +80,18 @@ test('movement shell blocks doors and windows while ballistic shell preserves ap
 
   assert.ok(!ballistic.some(record => record.partId === 'ground-door'));
   assert.ok(!ballistic.some(record => record.partId === 'ground-left-window'));
+  assert.ok(!ballistic.some(record => record.partId === 'ground-rear-left-window'));
   const door = movement.find(record => record.partId === 'ground-door');
   const window = movement.find(record => record.partId === 'ground-left-window');
+  const rearWindow = movement.find(
+    record => record.partId === 'ground-rear-left-window'
+  );
   assert.deepEqual(door.blocks, ['infantry', 'vehicle']);
   assert.equal(door.movementPolicy, 'portal_transit_required');
   assert.deepEqual(window.blocks, ['infantry', 'vehicle']);
   assert.equal(window.movementPolicy, 'fire_port_blocks_movement');
+  assert.deepEqual(rearWindow.blocks, ['infantry', 'vehicle']);
+  assert.equal(rearWindow.movementPolicy, 'fire_port_blocks_movement');
 });
 
 test('reservation conflicts resolve by sequence, unit, and soldier independent of request order', () => {

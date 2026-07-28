@@ -17,7 +17,13 @@ function runtimeHarness() {
     targetPos: { x: 1, z: 2 },
     addPause: seconds => calls.push(['pause', seconds]),
     clearWaypoints: () => calls.push(['clear-paths']),
-    updateStanceVisuals: () => calls.push(['stance'])
+    updateStanceVisuals: () => calls.push(['stance']),
+    toggleCrewServedDeployment() {
+      this.isDeployed = true;
+      this.stance = 'KNEELING';
+      calls.push(['mortar-deployment', 'SETTING_UP']);
+      return 'SETTING_UP';
+    }
   };
   let selectedUnit = unit;
   const buildingFloorIds = ['ground-floor', 'upper-floor'];
@@ -150,12 +156,25 @@ test('UI runtime port owns direct selected-unit mutations and building event bin
   port.clearPaths();
   port.clearTarget();
   assert.equal(port.toggleHiding(), true);
-  assert.equal(port.toggleDeployment(), true);
+  assert.equal(port.toggleDeployment(), 'SETTING_UP');
   port.splitSelectedUnit();
   port.exitSelectedBuilding();
-  assert.deepEqual(port.issueBuildingOrder(unit, 'ENTER_UPPER', { x: 2 }, 'house-1'), {
+  assert.deepEqual(port.issueBuildingOrder(
+    unit,
+    'ENTER_UPPER',
+    { x: 2 },
+    'house-1',
+    'SNEAK'
+  ), {
     accepted: true
   });
+  assert.ok(calls.some(call =>
+    call[0] === 'building-order'
+      && call[1] === unit
+      && call[2] === 'ENTER_UPPER'
+      && call[4] === 'house-1'
+      && call[5] === 'SNEAK'
+  ));
 
   assert.equal(unit.targetUnit, null);
   assert.equal(unit.targetPos, null);

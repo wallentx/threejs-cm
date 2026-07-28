@@ -103,6 +103,9 @@ function resolveInfantryRoster(definition, family) {
       role: member.role,
       weaponId: member.weaponId,
       weapon: weapon.name,
+      ...(member.crewServedRole
+        ? { crewServedRole: member.crewServedRole }
+        : {}),
       status: 'OK',
       health: 100
     };
@@ -134,6 +137,42 @@ function resolveInfantryRoster(definition, family) {
   return roster;
 }
 
+function resolveCrewServedWeapon(definition, family, roster) {
+  const formation = requireCatalogRecord(
+    family.formations,
+    definition.formationId,
+    'formation',
+    definition.id
+  );
+  const crewServedWeapon = formation.crewServedWeapon;
+  if (!crewServedWeapon) return null;
+  requireCatalogRecord(
+    family.catalogs?.weapons,
+    crewServedWeapon.weaponId,
+    'crew-served weapon',
+    definition.id
+  );
+  const rosterIds = new Set(roster.map(member => String(member.id)));
+  for (const soldierId of [
+    crewServedWeapon.gunnerSoldierId,
+    crewServedWeapon.assistantSoldierId,
+    ...Object.keys(crewServedWeapon.ammunitionBySoldierId ?? {})
+  ]) {
+    if (!rosterIds.has(String(soldierId))) {
+      throw new Error(
+        `Scenario formation ${definition.formationId} crew-served weapon `
+        + `references unknown soldier ${soldierId}`
+      );
+    }
+  }
+  return {
+    ...crewServedWeapon,
+    ammunitionBySoldierId: {
+      ...crewServedWeapon.ammunitionBySoldierId
+    }
+  };
+}
+
 function resolveFamilyUnitDefinition(definition, family) {
   const faction = requireCatalogRecord(
     family.factions,
@@ -160,6 +199,11 @@ function resolveFamilyUnitDefinition(definition, family) {
 
   if (definition.type === 'infantry_squad') {
     resolved.roster = resolveInfantryRoster(definition, family);
+    resolved.crewServedWeapon = resolveCrewServedWeapon(
+      definition,
+      family,
+      resolved.roster
+    );
     assertSoldierReferences(
       definition,
       resolved.roster,

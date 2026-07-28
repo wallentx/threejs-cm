@@ -689,6 +689,9 @@ export class TerrainBuilder {
         wall.receiveShadow = true;
         wall.userData.terrainFeature = 'stonewall';
         wall.userData.runId = runId;
+        wall.userData.enclosureId = run.enclosureId ?? null;
+        wall.userData.boundarySide = run.boundarySide ?? null;
+        wall.userData.adjacentGateId = run.adjacentGateId ?? null;
         wall.userData.segmentIndex = index;
         wall.userData.start = [start.x, this.getHeightAt(start.x, start.z), start.z];
         wall.userData.end = [end.x, this.getHeightAt(end.x, end.z), end.z];
@@ -710,12 +713,16 @@ export class TerrainBuilder {
           minZ: box.min.z,
           maxZ: box.max.z,
           height: dimensions.height,
-          type: 'stonewall'
+          type: 'stonewall',
+          enclosureId: run.enclosureId ?? null,
+          adjacentGateId: run.adjacentGateId ?? null
         });
         this.addColliderRecord({
           id: `wall:${runId}:${index}`,
           type: 'stonewall',
           mapFeatureId: runId,
+          enclosureId: run.enclosureId ?? null,
+          adjacentGateId: run.adjacentGateId ?? null,
           centerX: (start.x + end.x) * 0.5,
           centerZ: (start.z + end.z) * 0.5,
           halfX: dimensions.thickness * 0.5,

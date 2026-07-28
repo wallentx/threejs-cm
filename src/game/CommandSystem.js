@@ -1,6 +1,12 @@
 import * as THREE from 'three';
 import { isPositionInsideDeploymentZone } from '../scenario/DeploymentRules.js';
 
+const INFANTRY_ONLY_MOVE_ORDERS = new Set([
+  'SNEAK',
+  'CRAWL',
+  'ASSAULT'
+]);
+
 export class CommandSystem {
   constructor(scene, {
     deploymentZones = {},
@@ -8,7 +14,8 @@ export class CommandSystem {
     buildingInteraction = null,
     isSetupPhase = () => false,
     onInvalidDeployment = null,
-    onBuildingOrder = null
+    onBuildingOrder = null,
+    onTargetOrder = null
   } = {}) {
     this.scene = scene;
     this.deploymentZones = deploymentZones;
@@ -17,6 +24,7 @@ export class CommandSystem {
     this.isSetupPhase = isSetupPhase;
     this.onInvalidDeployment = onInvalidDeployment;
     this.onBuildingOrder = onBuildingOrder;
+    this.onTargetOrder = onTargetOrder;
     this.activeUnit = null;
     this.activeMode = null;
 
@@ -33,6 +41,9 @@ export class CommandSystem {
       QUICK: 0x38b000,    // Green
       HUNT: 0xff9f1c,     // Orange
       MOVE: 0x3a86ff,     // Blue
+      SNEAK: 0x8ac926,    // Yellow-green
+      CRAWL: 0x6a994e,    // Dark green
+      ASSAULT: 0xf94144,  // Assault red
       REVERSE: 0xd90429,  // Red
       PAUSE: 0xffffff,    // White
       TARGET: 0xd90429,   // Red
@@ -82,6 +93,10 @@ export class CommandSystem {
       return false;
     } else if (this.activeMode && this.activeMode.startsWith('MOVE_')) {
       const orderType = this.activeMode.replace('MOVE_', '');
+      if (INFANTRY_ONLY_MOVE_ORDERS.has(orderType)
+          && this.activeUnit.type !== 'infantry_squad') {
+        return false;
+      }
       const buildingId = context.buildingId ?? this.buildingInteraction?.findBuildingAt?.(pointVec3) ?? null;
       if (!this.isSetupPhase() && this.activeUnit.type === 'infantry_squad') {
         if (buildingId && this.onBuildingMoveClick) {
@@ -173,11 +188,25 @@ export class CommandSystem {
       this.renderOverlays();
       return true;
     } else if (this.activeMode === 'TARGET' || this.activeMode === 'TARGET_LIGHT') {
+      const result = this.onTargetOrder?.(
+        this.activeUnit,
+        pointVec3,
+        targetUnit,
+        this.activeMode
+      );
+      if (result?.handled) {
+        if (result.accepted) {
+          this.activeMode = null;
+          this.renderOverlays();
+        }
+        return result.accepted;
+      }
       this.activeUnit.targetUnit = targetUnit;
       this.activeUnit.targetPos = pointVec3.clone();
       this.activeUnit.targetMode = this.activeMode;
       this.activeMode = null;
       this.renderOverlays();
+      return true;
     } else if (this.activeMode === 'FACE') {
       const dir = new THREE.Vector3().subVectors(pointVec3, this.activeUnit.position);
       this.activeUnit.rotation = Math.atan2(dir.x, dir.z);

@@ -21,7 +21,17 @@ function aperture(id, center, size, initiallyOpen = true) {
   return { id, center, size, initiallyOpen };
 }
 
-function frontWallParts(prefix, y, halfH, doorOpeningId = null) {
+function facadeWallParts(
+  prefix,
+  y,
+  halfH,
+  z,
+  {
+    doorOpeningId = null,
+    centerPartId = `${prefix}-center`,
+    includeInnerPiers = true
+  } = {}
+) {
   const wallBottom = y - halfH;
   const wallTop = y + halfH;
   const lintelHeight = wallTop - (wallBottom + 2.2);
@@ -34,22 +44,26 @@ function frontWallParts(prefix, y, halfH, doorOpeningId = null) {
 
   const result = [
     // End pieces extend to X = ±6.18 to seal wall corners with side walls
-    part(`${prefix}-left-end`, [-5.19, y, 4.5], [0.99, halfH, HALF_WALL]),
-    part(`${prefix}-left-inner`, [-1.45, y, 4.5], [0.75, halfH, HALF_WALL]),
-    part(`${prefix}-right-inner`, [1.45, y, 4.5], [0.75, halfH, HALF_WALL]),
-    part(`${prefix}-right-end`, [5.19, y, 4.5], [0.99, halfH, HALF_WALL]),
+    part(`${prefix}-left-end`, [-5.19, y, z], [0.99, halfH, HALF_WALL]),
+    ...(includeInnerPiers
+      ? [
+          part(`${prefix}-left-inner`, [-1.45, y, z], [0.75, halfH, HALF_WALL]),
+          part(`${prefix}-right-inner`, [1.45, y, z], [0.75, halfH, HALF_WALL])
+        ]
+      : []),
+    part(`${prefix}-right-end`, [5.19, y, z], [0.99, halfH, HALF_WALL]),
 
     // Left Window: Wall apron below (0.7m), wall lintel above to storey top, window opening in middle (1.5m)
-    part(`${prefix}-left-window-apron`, [-3.2, wallBottom + 0.35, 4.5], [1, 0.35, HALF_WALL]),
-    part(`${prefix}-left-window-lintel`, [-3.2, lintelCenterY, 4.5], [1, lintelHalfH, HALF_WALL]),
-    part(`${prefix}-left-window`, [-3.2, wallBottom + 1.45, 4.5], [1, 0.75, HALF_WALL], {
+    part(`${prefix}-left-window-apron`, [-3.2, wallBottom + 0.35, z], [1, 0.35, HALF_WALL]),
+    part(`${prefix}-left-window-lintel`, [-3.2, lintelCenterY, z], [1, lintelHalfH, HALF_WALL]),
+    part(`${prefix}-left-window`, [-3.2, wallBottom + 1.45, z], [1, 0.75, HALF_WALL], {
       openingId: `${prefix}-window-left-aperture`
     }),
 
     // Right Window: Wall apron below (0.7m), wall lintel above to storey top, window opening in middle (1.5m)
-    part(`${prefix}-right-window-apron`, [3.2, wallBottom + 0.35, 4.5], [1, 0.35, HALF_WALL]),
-    part(`${prefix}-right-window-lintel`, [3.2, lintelCenterY, 4.5], [1, lintelHalfH, HALF_WALL]),
-    part(`${prefix}-right-window`, [3.2, wallBottom + 1.45, 4.5], [1, 0.75, HALF_WALL], {
+    part(`${prefix}-right-window-apron`, [3.2, wallBottom + 0.35, z], [1, 0.35, HALF_WALL]),
+    part(`${prefix}-right-window-lintel`, [3.2, lintelCenterY, z], [1, lintelHalfH, HALF_WALL]),
+    part(`${prefix}-right-window`, [3.2, wallBottom + 1.45, z], [1, 0.75, HALF_WALL], {
       openingId: `${prefix}-window-right-aperture`
     })
   ];
@@ -57,19 +71,22 @@ function frontWallParts(prefix, y, halfH, doorOpeningId = null) {
   if (doorOpeningId) {
     // Door: Wall lintel above door to storey top, door opening below (2.1m)
     result.push(
-      part(`${prefix}-door-lintel`, [0, doorLintelCenterY, 4.5], [0.7, doorLintelHalfH, HALF_WALL]),
-      part(`${prefix}-door`, [0, wallBottom + 1.05, 4.5], [0.7, 1.05, HALF_WALL], { openingId: doorOpeningId })
+      part(`${prefix}-door-lintel`, [0, doorLintelCenterY, z], [0.7, doorLintelHalfH, HALF_WALL]),
+      part(`${prefix}-door`, [0, wallBottom + 1.05, z], [0.7, 1.05, HALF_WALL], { openingId: doorOpeningId })
     );
   } else {
-    result.push(part(`${prefix}-center`, [0, y, 4.5], [2.2, halfH, HALF_WALL]));
+    result.push(part(centerPartId, [0, y, z], [2.2, halfH, HALF_WALL]));
   }
   return result;
 }
 
 function shellParts(prefix, y, halfH, doorOpeningId = null, blocks = null) {
   const parts = [
-    ...frontWallParts(prefix, y, halfH, doorOpeningId),
-    part(`${prefix}-back`, [0, y, -4.5], [6.18, halfH, HALF_WALL]),
+    ...facadeWallParts(prefix, y, halfH, 4.5, { doorOpeningId }),
+    ...facadeWallParts(`${prefix}-rear`, y, halfH, -4.5, {
+      centerPartId: `${prefix}-back`,
+      includeInnerPiers: false
+    }),
     part(`${prefix}-left`, [-6, y, 0], [4.68, halfH, HALF_WALL], { rotationY: Math.PI / 2 }),
     part(`${prefix}-right`, [6, y, 0], [4.68, halfH, HALF_WALL], { rotationY: Math.PI / 2 })
   ];
@@ -161,6 +178,40 @@ export const FR_HOUSE_12X9_2F = {
       cover: 0.68
     },
     {
+      id: 'ground-rear-window-left',
+      roomId: 'ground-room',
+      approachSlotId: 'ground-rear-left',
+      sectionId: 'ground-shell',
+      aperture: aperture(
+        'ground-rear-window-left-aperture',
+        [-3.2, 1.45, -4.5],
+        [2, 1.5],
+        true
+      ),
+      localNormal: [0, 0, -1],
+      horizontalArcDeg: 72,
+      elevationDeg: 0,
+      capacity: 1,
+      cover: 0.68
+    },
+    {
+      id: 'ground-rear-window-right',
+      roomId: 'ground-room',
+      approachSlotId: 'ground-rear-right',
+      sectionId: 'ground-shell',
+      aperture: aperture(
+        'ground-rear-window-right-aperture',
+        [3.2, 1.45, -4.5],
+        [2, 1.5],
+        true
+      ),
+      localNormal: [0, 0, -1],
+      horizontalArcDeg: 72,
+      elevationDeg: 0,
+      capacity: 1,
+      cover: 0.68
+    },
+    {
       id: 'upper-window-left',
       roomId: 'upper-room',
       approachSlotId: 'upper-front-left',
@@ -179,6 +230,40 @@ export const FR_HOUSE_12X9_2F = {
       sectionId: 'upper-shell',
       aperture: aperture('upper-window-right-aperture', [3.2, 4.55, 4.5], [2, 1.5], true),
       localNormal: [0, 0, 1],
+      horizontalArcDeg: 76,
+      elevationDeg: -4,
+      capacity: 1,
+      cover: 0.74
+    },
+    {
+      id: 'upper-rear-window-left',
+      roomId: 'upper-room',
+      approachSlotId: 'upper-rear-left',
+      sectionId: 'upper-shell',
+      aperture: aperture(
+        'upper-rear-window-left-aperture',
+        [-3.2, 4.55, -4.5],
+        [2, 1.5],
+        true
+      ),
+      localNormal: [0, 0, -1],
+      horizontalArcDeg: 76,
+      elevationDeg: -4,
+      capacity: 1,
+      cover: 0.74
+    },
+    {
+      id: 'upper-rear-window-right',
+      roomId: 'upper-room',
+      approachSlotId: 'upper-rear-right',
+      sectionId: 'upper-shell',
+      aperture: aperture(
+        'upper-rear-window-right-aperture',
+        [3.2, 4.55, -4.5],
+        [2, 1.5],
+        true
+      ),
+      localNormal: [0, 0, -1],
       horizontalArcDeg: 76,
       elevationDeg: -4,
       capacity: 1,

@@ -268,7 +268,42 @@ test('Stonne map owns immutable terrain, surface, feature, structure, and deploy
   });
   assert.deepEqual(
     STONNE_1940_MAP.wallRuns.map(run => run.id),
-    ['north_west', 'north_east', 'south_west', 'south_east']
+    [
+      'village_house_rear',
+      'village_house_west',
+      'village_house_east',
+      'village_house_front_west',
+      'village_house_front_east',
+      'farmhouse_south',
+      'farmhouse_north',
+      'farmhouse_west',
+      'farmhouse_east_south',
+      'farmhouse_east_north'
+    ]
+  );
+  assert.deepEqual(
+    STONNE_1940_MAP.wallEnclosures.map(enclosure => ({
+      id: enclosure.id,
+      structureId: enclosure.structureId,
+      gateIds: enclosure.gateOpenings.map(gate => gate.id)
+    })),
+    [
+      {
+        id: 'village-house-lot',
+        structureId: 'french_village_house',
+        gateIds: ['village-house-front-gate']
+      },
+      {
+        id: 'farmhouse-lot',
+        structureId: 'french_farmhouse_outbuilding',
+        gateIds: ['farmhouse-east-gate']
+      }
+    ]
+  );
+  assert.ok(
+    STONNE_1940_MAP.wallEnclosures.every(
+      enclosure => enclosure.dataQuality.includes('not a surveyed historical Stonne boundary')
+    )
   );
   assert.equal(STONNE_1940_MAP.structures.length, 2);
   assert.deepEqual(STONNE_1940_MAP.structures[0].position, [45, 60]);
@@ -552,9 +587,11 @@ test('map definition clones plain input before deep freezing it', () => {
   source.id = 'cloned-map';
   const defined = defineMapDescriptor(source);
   source.wallRuns[0].start[0] = -1;
+  source.wallEnclosures[0].gateOpenings[0].start[0] = -1;
   source.deploymentZones.french.minX = -1;
 
-  assert.equal(defined.wallRuns[0].start[0], -75);
+  assert.equal(defined.wallRuns[0].start[0], 32);
+  assert.equal(defined.wallEnclosures[0].gateOpenings[0].start[0], 42);
   assert.equal(defined.deploymentZones.french.minX, -80);
   assertDeepFrozen(defined);
 });
@@ -577,6 +614,18 @@ test('map validation rejects malformed extents, duplicate IDs, bad features, and
     [map => { map.bridge.span = map.river.cutWidth; }, /span must exceed/],
     [map => { map.wallRuns[0].end = [...map.wallRuns[0].start]; }, /distinct endpoints/],
     [map => { map.structures[0].descriptorId = ''; }, /descriptorId requires/],
+    [map => { map.wallEnclosures = {}; }, /wallEnclosures must be an array/],
+    [map => { map.wallEnclosures[0].structureId = 'missing'; }, /unknown structure/],
+    [map => { map.wallEnclosures[0].dataQuality = ''; }, /dataQuality requires/],
+    [map => { map.wallEnclosures[0].gateOpenings = []; }, /gateOpenings must be a non-empty array/],
+    [map => {
+      map.wallEnclosures[0].gateOpenings[0].end =
+        [...map.wallEnclosures[0].gateOpenings[0].start];
+    }, /gateOpenings\[0\] requires distinct endpoints/],
+    [map => { map.wallRuns[0].enclosureId = 'missing'; }, /unknown enclosure/],
+    [map => {
+      map.wallRuns[0].adjacentGateId = 'farmhouse-east-gate';
+    }, /gate outside enclosure/],
     [map => { map.foliage[0].visualOnly = false; }, /explicitly declare visualOnly/],
     [map => { map.deploymentZones.french.maxZ = 200; }, /outside map bounds/]
   ];

@@ -57,6 +57,8 @@ test('French house renderer exposes semantic shell sections, openings, stairs, a
   assert.ok(house.getObjectByName('HouseStairs').children.length >= 7);
   assert.ok(house.getObjectByName('HouseOpening:front-door-aperture'));
   assert.ok(house.getObjectByName('HouseFrame:upper-window-left-aperture'));
+  assert.ok(house.getObjectByName('HouseFrame:ground-rear-window-left-aperture'));
+  assert.ok(house.getObjectByName('HouseFrame:upper-rear-window-right-aperture'));
   for (const section of FR_HOUSE_12X9_2F.sections) {
     const group = house.getObjectByName(`BuildingSection:${section.id}`);
     assert.ok(group, `missing semantic visual group for ${section.id}`);
@@ -79,14 +81,18 @@ test('French house renderer exposes semantic shell sections, openings, stairs, a
     );
   }
   for (const tier of house.userData.lodTiers) {
-    const partName = tier.lod === 'high'
-      ? 'SectionPart:ground-shell:ground-left-window'
-      : `SectionPart:${tier.lod}:ground-shell:ground-left-window`;
-    const leftWindow = tier.group.getObjectByName(
-      partName
-    );
-    assert.ok(leftWindow, `${tier.lod} retains the ground window opening segment`);
-    assert.equal(leftWindow.visible, false, `${tier.lod} does not replace openings with a solid proxy box`);
+    for (const partId of ['ground-left-window', 'ground-rear-left-window']) {
+      const partName = tier.lod === 'high'
+        ? `SectionPart:ground-shell:${partId}`
+        : `SectionPart:${tier.lod}:ground-shell:${partId}`;
+      const window = tier.group.getObjectByName(partName);
+      assert.ok(window, `${tier.lod} retains ${partId} opening segment`);
+      assert.equal(
+        window.visible,
+        false,
+        `${tier.lod} does not replace ${partId} with a solid proxy box`
+      );
+    }
   }
   disposeFrenchHouseVisual(house);
 });

@@ -1,4 +1,7 @@
-const STATE_VERSION = 1;
+const STATE_VERSION = 2;
+const LEGACY_STATE_VERSION = 1;
+const LEGACY_APPROXIMATION_LABEL =
+  'first-order gameplay approximation for known-target QUICK buddy bounds';
 const MODE_INACTIVE = 'inactive';
 const MODE_BOUNDING = 'bounding';
 const MODE_REFORM = 'reform';
@@ -17,7 +20,7 @@ export const INFANTRY_BUDDY_BOUND_MODEL = Object.freeze({
   boundDistanceMeters: 6,
   goalToleranceMeters: GOAL_TOLERANCE_METERS,
   approximationLabel:
-    'first-order gameplay approximation for known-target QUICK buddy bounds'
+    'first-order gameplay approximation for paired infantry buddy bounds'
 });
 
 function stableIdKey(value, label = 'soldier ID') {
@@ -114,12 +117,16 @@ function validateState(savedState) {
   if (!savedState || typeof savedState !== 'object') {
     throw new TypeError('buddy-bound restore requires a state object');
   }
-  if (savedState.version !== STATE_VERSION) {
+  if (![LEGACY_STATE_VERSION, STATE_VERSION].includes(savedState.version)) {
     throw new TypeError(`unsupported buddy-bound version ${savedState.version}`);
   }
+  const expectedApproximationLabel =
+    savedState.version === LEGACY_STATE_VERSION
+      ? LEGACY_APPROXIMATION_LABEL
+      : INFANTRY_BUDDY_BOUND_MODEL.approximationLabel;
   if (
     savedState.approximationLabel
-    !== INFANTRY_BUDDY_BOUND_MODEL.approximationLabel
+    !== expectedApproximationLabel
   ) {
     throw new TypeError('buddy-bound state must retain its approximation label');
   }

@@ -164,7 +164,7 @@ test('Stonne scenario owns roster, startup selection, camera target, and map ref
   assert.equal(STONNE_1940_SCENARIO.gameFamilyId, 'france-1940');
   assert.equal(STONNE_1940_SCENARIO.mapId, STONNE_1940_MAP.id);
   assert.equal(Object.hasOwn(STONNE_1940_SCENARIO, 'deploymentZones'), false);
-  assert.equal(STONNE_1940_SCENARIO.units.length, 19);
+  assert.equal(STONNE_1940_SCENARIO.units.length, 20);
   assert.equal(
     new Set(STONNE_1940_SCENARIO.units.map(unit => unit.id)).size,
     STONNE_1940_SCENARIO.units.length
@@ -267,6 +267,51 @@ test('production resolver conserves and isolates assistant-gunner support feeds'
     donor.supportAmmunitionTransfer.elapsedSeconds = 2;
     assert.equal(secondDonor.supportAmmunitionTransfer.elapsedSeconds, 0);
   }
+});
+
+test('production resolver binds the provisional 60 mm mortar to stable crew and ammunition owners', () => {
+  const first = resolveScenarioUnitDefinitions(
+    STONNE_1940_SCENARIO,
+    PRODUCTION_FAMILY_REGISTRY
+  ).find(unit => unit.id === 'fr_mortar_1');
+  const second = resolveScenarioUnitDefinitions(
+    STONNE_1940_SCENARIO,
+    PRODUCTION_FAMILY_REGISTRY
+  ).find(unit => unit.id === 'fr_mortar_1');
+  const weapon = PRODUCTION_FAMILY_REGISTRY
+    .require('france-1940')
+    .catalogs.weapons.BRANDT_MLE1935_60MM_HE;
+
+  assert.equal(first.formationId, 'FRENCH_BRANDT_MLE1935_60MM_TEAM');
+  assert.deepEqual(
+    first.roster.map(member => [
+      member.id,
+      member.crewServedRole,
+      member.weaponId
+    ]),
+    [
+      ['mortar-gunner', 'gunner', 'BERTHIER_M1892_M16'],
+      ['mortar-assistant', 'assistant', 'BERTHIER_M1892_M16'],
+      ['ammunition-bearer-1', 'ammunition_bearer', 'BERTHIER_M1892_M16'],
+      ['ammunition-bearer-2', 'ammunition_bearer', 'BERTHIER_M1892_M16']
+    ]
+  );
+  assert.equal(first.crewServedWeapon.weaponId, weapon.id);
+  assert.equal(
+    Object.values(first.crewServedWeapon.ammunitionBySoldierId)
+      .reduce((sum, rounds) => sum + rounds, 0),
+    weapon.carriedAmmo
+  );
+  assert.notEqual(first.crewServedWeapon, second.crewServedWeapon);
+  assert.notEqual(
+    first.crewServedWeapon.ammunitionBySoldierId,
+    second.crewServedWeapon.ammunitionBySoldierId
+  );
+  first.crewServedWeapon.ammunitionBySoldierId['mortar-gunner'] = 0;
+  assert.equal(
+    second.crewServedWeapon.ammunitionBySoldierId['mortar-gunner'],
+    6
+  );
 });
 
 test('formation reordering preserves stable soldier identity and equipment ownership', () => {
@@ -772,7 +817,7 @@ test('Stonne descriptor instantiates every production Unit model', () => {
       visualFactories: FRANCE_1940_VISUAL_FACTORIES
     }
   );
-  assert.equal(units.length, 19);
+  assert.equal(units.length, 20);
   const frenchTank = units.find(unit => unit.id === 'fr_tank');
   const germanTank = units.find(unit => unit.id === 'ger_panzer4');
   const frenchInfantry = units.find(unit => unit.id === 'fr_hq');

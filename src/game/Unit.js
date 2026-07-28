@@ -41,6 +41,31 @@ import {
 import {
   InfantryBuddyBounds
 } from '../simulation/infantry/InfantryBuddyBounds.js';
+import {
+  getInfantryMovementOrderProfile
+} from '../simulation/infantry/InfantryMovementOrders.js';
+import {
+  advanceMortarTeamState,
+  canFireMortar,
+  captureMortarTeamState,
+  consumeMortarRound,
+  createMortarTeamState,
+  requestMortarDeployment,
+  restoreMortarTeamState,
+  solveHighAngleTrajectory
+} from '../simulation/indirect/MortarTeam.js';
+import {
+  advanceMortarFireMission as advanceMortarFireMissionState,
+  cancelMortarFireMission as cancelMortarFireMissionState,
+  captureMortarFireMissionState,
+  createMortarFireMissionState,
+  DEFAULT_MORTAR_FIRE_MISSION_CONFIG,
+  getPendingMortarFireMissionShot,
+  recordMortarFireMissionShot,
+  recordMortarObservedImpact,
+  requestMortarFireMission as requestMortarFireMissionState,
+  restoreMortarFireMissionState
+} from '../simulation/indirect/MortarFireMission.js';
 
 function wrapAngle(angle) {
   return Math.atan2(Math.sin(angle), Math.cos(angle));
@@ -50,6 +75,11 @@ const MAX_VEHICLE_MOUNT_ROUNDS_PER_STEP = 64;
 const VEHICLE_MOUNT_CADENCE_EPSILON = 1e-9;
 const VEHICLE_MAIN_GUN_CATCHUP_HZ = 60;
 const MAX_VEHICLE_MAIN_GUN_CATCHUP_STEPS = 4096;
+const UNAVAILABLE_INFANTRY_STATUSES = new Set([
+  'KIA',
+  'INCAPACITATED',
+  'DEAD'
+]);
 
 function cloneRoster(roster) {
   return roster.map(soldier => ({
@@ -166,6 +196,46 @@ export class Unit {
       ?? this.vehicleSpec?.crew.length
       ?? 0;
     this.roster = resolvedRoster ?? this.initRoster();
+    this.mortarTeamConfig = config.crewServedWeapon?.type === 'mortar'
+      ? {
+          ...config.crewServedWeapon,
+          ammunitionBySoldierId: {
+            ...config.crewServedWeapon.ammunitionBySoldierId
+          }
+        }
+      : null;
+    if (config.crewServedWeapon && !this.mortarTeamConfig) {
+      throw new Error(
+        `Unit ${this.id} references unsupported crew-served weapon `
+        + `${config.crewServedWeapon.type ?? 'missing'}`
+      );
+    }
+    if (
+      this.mortarTeamConfig
+      && !this.weaponLookup(this.mortarTeamConfig.weaponId)
+    ) {
+      throw new Error(
+        `Unit ${this.id} references unknown mortar weapon `
+        + this.mortarTeamConfig.weaponId
+      );
+    }
+    this.mortarTeamState = this.mortarTeamConfig
+      ? createMortarTeamState(this.mortarTeamConfig)
+      : null;
+    this.mortarFireMissionConfig = this.mortarTeamConfig
+      ? DEFAULT_MORTAR_FIRE_MISSION_CONFIG
+      : null;
+    this.mortarFireMissionState = this.mortarTeamConfig
+      ? createMortarFireMissionState(this.mortarFireMissionConfig)
+      : null;
+    this.mortarOperatorIds = new Set(
+      this.mortarTeamConfig
+        ? [
+            String(this.mortarTeamConfig.gunnerSoldierId),
+            String(this.mortarTeamConfig.assistantSoldierId)
+          ]
+        : []
+    );
     this.vehicleCrewTasks = createVehicleCrewTaskState(
       this.vehicleSpec?.crewTaskPolicy,
       config.vehicleCrewTasks
@@ -218,6 +288,7 @@ export class Unit {
       : null;
     this.soldierAI = this.type === 'infantry_squad' ? new SoldierAI(this) : null;
     this.refreshAmmoSummary();
+    this.syncMortarVisuals();
   }
 
   initRoster() {
@@ -413,8 +484,263 @@ export class Unit {
   }
 
   updateIndividualCombat(delta, context) {
-    this.soldierAI?.updateCombat(delta, context);
+    this.soldierAI?.updateCombat(delta, {
+      ...context,
+      holdFireSoldierIds:
+        this.mortarTeamState?.deploymentState !== 'PACKED'
+          ? this.mortarOperatorIds
+          : null
+    });
     this.refreshAmmoSummary();
+  }
+
+  hasDeployableCrewServedWeapon() {
+    return Boolean(this.mortarTeamConfig && this.mortarTeamState);
+  }
+
+  requestMortarFireMission(request, operationalContext) {
+    if (!this.mortarFireMissionState) {
+      return {
+        accepted: false,
+        reason: 'NO_MORTAR',
+        missionId: request?.missionId ?? null
+      };
+    }
+    return requestMortarFireMissionState(
+      this.mortarFireMissionState,
+      this.mortarFireMissionConfig,
+      request,
+      operationalContext
+    );
+  }
+
+  advanceMortarFireMission(deltaSeconds, operationalContext) {
+    if (!this.mortarFireMissionState) return null;
+    return advanceMortarFireMissionState(
+      this.mortarFireMissionState,
+      this.mortarFireMissionConfig,
+      deltaSeconds,
+      operationalContext
+    );
+  }
+
+  getPendingMortarFireMissionShot() {
+    return getPendingMortarFireMissionShot(
+      this.mortarFireMissionState
+    );
+  }
+
+  recordMortarObservedImpact(report, operationalContext) {
+    if (!this.mortarFireMissionState) {
+      return { accepted: false, reason: 'NO_MORTAR' };
+    }
+    return recordMortarObservedImpact(
+      this.mortarFireMissionState,
+      this.mortarFireMissionConfig,
+      report,
+      operationalContext
+    );
+  }
+
+  cancelMortarFireMission(reason = 'USER_CANCELLED') {
+    if (!this.mortarFireMissionState) {
+      return {
+        cancelled: false,
+        reason: 'NO_MORTAR',
+        phase: 'IDLE'
+      };
+    }
+    return cancelMortarFireMissionState(
+      this.mortarFireMissionState,
+      this.mortarFireMissionConfig,
+      reason
+    );
+  }
+
+  toggleCrewServedDeployment() {
+    if (!this.hasDeployableCrewServedWeapon()) return null;
+    const deploymentState = requestMortarDeployment(
+      this.mortarTeamState,
+      this.mortarTeamConfig
+    );
+    this.syncMortarDeploymentCompatibility();
+    this.syncMortarVisuals();
+    this.updateStanceVisuals();
+    return deploymentState;
+  }
+
+  syncMortarDeploymentCompatibility() {
+    if (!this.mortarTeamState) return;
+    const movementLocked =
+      this.mortarTeamState.deploymentState !== 'PACKED';
+    this.isDeployed = movementLocked;
+    if (
+      !this.isHiding
+      && !['Pinned', 'Broken'].includes(this.morale)
+    ) {
+      this.stance = movementLocked ? 'KNEELING' : 'STANDING';
+    }
+  }
+
+  syncMortarVisuals() {
+    if (!this.mortarTeamState || !this.mesh) return;
+    const equipment = this.mesh.userData.mortarEquipment;
+    if (!equipment) return;
+    const { deploymentState, transitionRemainingSeconds } =
+      this.mortarTeamState;
+    let deployedProgress = deploymentState === 'READY' ? 1 : 0;
+    if (deploymentState === 'SETTING_UP') {
+      deployedProgress = 1 - transitionRemainingSeconds
+        / this.mortarTeamConfig.setupSeconds;
+    } else if (deploymentState === 'PACKING') {
+      deployedProgress = transitionRemainingSeconds
+        / this.mortarTeamConfig.packSeconds;
+    }
+    const packedTubeAngle = Math.PI / 2;
+    const deployedTubeAngle = 25 * Math.PI / 180;
+    equipment.userData.tubePivot.rotation.x =
+      packedTubeAngle
+      + (deployedTubeAngle - packedTubeAngle)
+        * THREE.MathUtils.clamp(deployedProgress, 0, 1);
+    equipment.userData.bipod.visible = deployedProgress > 0.05;
+    equipment.userData.deploymentState = deploymentState;
+
+    const operating = deploymentState !== 'PACKED';
+    for (const soldierMesh of this.mesh.userData.soldiers ?? []) {
+      if (!this.mortarOperatorIds.has(String(soldierMesh.userData.soldierId))) {
+        continue;
+      }
+      const weaponRig = soldierMesh.userData.parts?.weaponRig;
+      if (weaponRig) weaponRig.visible = !operating;
+    }
+  }
+
+  getMortarMuzzleWorldPosition() {
+    const muzzle = this.mesh?.userData.mortarMuzzle;
+    if (!muzzle?.getWorldPosition) return null;
+    this.mesh.updateWorldMatrix(true, true);
+    return muzzle.getWorldPosition(new THREE.Vector3());
+  }
+
+  updateMortarCombat(context = {}) {
+    const pendingMissionShot = this.getPendingMortarFireMissionShot();
+    const hasMission = Boolean(this.mortarFireMissionState?.mission);
+    const targetSource = pendingMissionShot
+      ? new THREE.Vector3().fromArray(pendingMissionShot.aimPoint)
+      : (hasMission ? null : this.targetPos);
+    if (!this.mortarTeamState || !this.mortarTeamConfig || !targetSource) {
+      return false;
+    }
+    if (
+      ['Pinned', 'Broken'].includes(this.morale)
+      || this.suppression >= 58
+    ) {
+      return false;
+    }
+    const target = targetSource.clone();
+    target.y = context.terrain?.getHeightAt?.(target.x, target.z)
+      ?? target.y;
+    const horizontalRangeMeters = Math.hypot(
+      target.x - this.position.x,
+      target.z - this.position.z
+    );
+    const readiness = canFireMortar(
+      this.mortarTeamState,
+      this.mortarTeamConfig,
+      this.roster,
+      horizontalRangeMeters
+    );
+    if (!readiness.ready) return false;
+
+    const random = context.random;
+    if (typeof random !== 'function') {
+      throw new TypeError('Mortar combat requires injected deterministic random');
+    }
+    const weapon = this.weaponLookup(this.mortarTeamConfig.weaponId);
+    if (!weapon) return false;
+    const dispersionRadians =
+      weapon.dispersionMOA * Math.PI / (180 * 60);
+    const dispersionRadius =
+      Math.tan(dispersionRadians) * horizontalRangeMeters;
+    const dispersionAngle = random() * Math.PI * 2;
+    const dispersionDistance = Math.sqrt(random()) * dispersionRadius;
+    target.x += Math.cos(dispersionAngle) * dispersionDistance;
+    target.z += Math.sin(dispersionAngle) * dispersionDistance;
+    target.y = context.terrain?.getHeightAt?.(target.x, target.z)
+      ?? target.y;
+
+    const equipment = this.mesh?.userData.mortarEquipment;
+    if (equipment) {
+      const worldYaw = Math.atan2(
+        target.x - this.position.x,
+        target.z - this.position.z
+      );
+      equipment.rotation.y = wrapAngle(worldYaw - this.rotation);
+    }
+    const muzzlePosition = this.getMortarMuzzleWorldPosition();
+    if (!muzzlePosition) return false;
+    const solution = solveHighAngleTrajectory({
+      origin: muzzlePosition,
+      target,
+      elevationDegrees: this.mortarTeamConfig.elevationDegrees,
+      minimumMuzzleVelocity:
+        this.mortarTeamConfig.minimumMuzzleVelocity,
+      maximumMuzzleVelocity:
+        this.mortarTeamConfig.maximumMuzzleVelocity
+    });
+    if (!solution) return false;
+
+    const gunner = this.soldierAI?.agents.find(
+      agent => String(agent.id)
+        === String(this.mortarTeamConfig.gunnerSoldierId)
+    ) ?? { id: this.mortarTeamConfig.gunnerSoldierId };
+    const fired = context.combat?.fireWeapon?.(
+      this,
+      null,
+      target,
+      {
+        shooter: gunner,
+        weapon,
+        mountId: this.mortarTeamConfig.id,
+        ammoId: weapon.id,
+        muzzlePosition,
+        aimPoint: target,
+        initialVelocity: new THREE.Vector3().fromArray(solution.velocity),
+        maxFlightTimeSeconds: solution.flightTimeSeconds + 2,
+        fireControlModelVersion: solution.modelVersion,
+        estimatedRangeMeters: horizontalRangeMeters,
+        indirectMissionId: pendingMissionShot?.missionId ?? null,
+        indirectMissionShotId: pendingMissionShot?.shotId ?? null,
+        indirectMissionShotKind: pendingMissionShot?.kind ?? null
+      }
+    ) ?? false;
+    if (!fired) return false;
+    const consumed = consumeMortarRound(
+      this.mortarTeamState,
+      this.mortarTeamConfig,
+      this.roster
+    );
+    if (!consumed.accepted) {
+      throw new Error(
+        `Mortar ${this.id} fired without consumable ammunition: `
+        + consumed.reason
+      );
+    }
+    if (pendingMissionShot) {
+      const acknowledgement = recordMortarFireMissionShot(
+        this.mortarFireMissionState,
+        this.mortarFireMissionConfig,
+        pendingMissionShot.shotId,
+        context.mortarMissionContext
+      );
+      if (!acknowledgement.accepted) {
+        throw new Error(
+          `Mortar ${this.id} fired mission shot ${pendingMissionShot.shotId} `
+          + `without a valid mission acknowledgement: ${acknowledgement.reason}`
+        );
+      }
+    }
+    return true;
   }
 
   refreshAmmoSummary() {
@@ -1379,6 +1705,10 @@ export class Unit {
           : (distance < thresholds.core ? 'core' : 'low'));
     if (level === this.currentLOD) return level;
     this.currentLOD = level;
+    if (typeof this.mesh.userData.updateLOD === 'function') {
+      this.mesh.userData.updateLOD(cameraPosition, level);
+      return level;
+    }
     this.mesh.traverse(object => {
       if (!object.isMesh) return;
       const band = object.userData.lodBand;
@@ -1407,6 +1737,10 @@ export class Unit {
       stance: this.stance,
       isHiding: this.isHiding,
       isDeployed: this.isDeployed,
+      mortarTeam: captureMortarTeamState(this.mortarTeamState),
+      mortarFireMission: captureMortarFireMissionState(
+        this.mortarFireMissionState
+      ),
       currentWaypointIndex: this.currentWaypointIndex,
       waypoints: this.waypoints.map(waypoint => ({
         position: waypoint.position.toArray(),
@@ -1466,6 +1800,18 @@ export class Unit {
     this.stance = state.stance;
     this.isHiding = state.isHiding;
     this.isDeployed = state.isDeployed;
+    if (this.mortarTeamConfig) {
+      this.mortarTeamState = state.mortarTeam
+        ? restoreMortarTeamState(this.mortarTeamConfig, state.mortarTeam)
+        : createMortarTeamState(this.mortarTeamConfig);
+      this.mortarFireMissionState = state.mortarFireMission
+        ? restoreMortarFireMissionState(
+            this.mortarFireMissionConfig,
+            state.mortarFireMission
+          )
+        : createMortarFireMissionState(this.mortarFireMissionConfig);
+      this.syncMortarDeploymentCompatibility();
+    }
     this.currentWaypointIndex = state.currentWaypointIndex;
     this.waypoints = state.waypoints.map(waypoint => ({
       ...waypoint,
@@ -1503,6 +1849,7 @@ export class Unit {
     this.syncStructureVisuals();
     this.syncStructureCollision();
     this.refreshAmmoSummary();
+    this.syncMortarVisuals();
   }
 
   updateStanceVisuals() {
@@ -1510,7 +1857,11 @@ export class Unit {
   }
 
   reconcileBuddyBoundObservation(hasDirectPrecisionObservation) {
-    if (hasDirectPrecisionObservation || !this.infantryBuddyBounds) {
+    const activeOrderType =
+      this.waypoints[this.currentWaypointIndex]?.orderType ?? null;
+    if (hasDirectPrecisionObservation
+        || activeOrderType === 'ASSAULT'
+        || !this.infantryBuddyBounds) {
       return false;
     }
     this.infantryBuddyBounds.reset();
@@ -1524,6 +1875,7 @@ export class Unit {
     const sine = Math.sin(this.rotation);
     const toleranceSquared = tolerance * tolerance;
     for (const agent of this.soldierAI.getLivingAgents()) {
+      if (UNAVAILABLE_INFANTRY_STATUSES.has(agent.status)) continue;
       if (agent.buildingLocation
           && !['outside', 'approaching'].includes(agent.buildingLocation.phase)) continue;
       const offset = this.soldierAI.getFormationOffset(agent.index, orderType);
@@ -1541,6 +1893,11 @@ export class Unit {
       haltMovement = false,
       hasDirectPrecisionObservation = false
     } = options;
+    if (this.mortarTeamState) {
+      advanceMortarTeamState(this.mortarTeamState, Math.max(0, delta));
+      this.syncMortarDeploymentCompatibility();
+      this.syncMortarVisuals();
+    }
     if (this.suppression > 0) {
       this.suppression = Math.max(0, this.suppression - delta * 4.0);
       if (this.suppression < 15 && this.morale === 'Pinned') {
@@ -1564,7 +1921,12 @@ export class Unit {
         const vehicleSpeeds = this.vehicleSpec?.movementMps;
         let speed = vehicleSpeeds?.[targetWp.orderType] ?? 3.5;
         if (!vehicleSpeeds) {
-          if (targetWp.orderType === 'FAST') speed = 5.5;
+          const infantryMovementProfile = getInfantryMovementOrderProfile(
+            targetWp.orderType
+          );
+          if (infantryMovementProfile) {
+            speed = infantryMovementProfile.anchorSpeedMetersPerSecond;
+          } else if (targetWp.orderType === 'FAST') speed = 5.5;
           else if (targetWp.orderType === 'HUNT') speed = 2.2;
           else if (targetWp.orderType === 'MOVE') speed = 2.5;
         }

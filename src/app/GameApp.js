@@ -247,8 +247,8 @@ export class GameApp {
           'Entire unit footprint must stay inside its setup area',
           'warn'
         ),
-        onBuildingOrder: (unit, action, point, buildingId) =>
-          this.issueBuildingOrder(unit, action, point, buildingId)
+        onBuildingOrder: (unit, action, point, buildingId, orderType) =>
+          this.issueBuildingOrder(unit, action, point, buildingId, orderType)
       });
       this.spotting = new SpottingSystem(this.scene, this.terrain, {
         unitProfiles: this.scenario.units,
@@ -384,7 +384,13 @@ export class GameApp {
     document.body.dataset.deploymentStatus = 'closed';
   }
 
-  issueBuildingOrder(unit, action, point, explicitBuildingId = null) {
+  issueBuildingOrder(
+    unit,
+    action,
+    point,
+    explicitBuildingId = null,
+    orderType = 'QUICK'
+  ) {
     if (!this.matchStarted) {
       this.ui?.showToast('Building orders unlock when the battle starts', 'warn');
       return { accepted: false, reason: 'match_not_started' };
@@ -405,7 +411,7 @@ export class GameApp {
     const formationClearance = Math.max(
       0,
       ...(unit.soldierAI?.getLivingAgents().map(agent =>
-        unit.soldierAI.getFormationOffset(agent.index, 'QUICK').length()
+        unit.soldierAI.getFormationOffset(agent.index, orderType).length()
       ) ?? [])
     );
     const targetBuildingColliderIds = unit.collisionWorld?.getRecords()
@@ -426,7 +432,7 @@ export class GameApp {
       for (const plannedPoint of plannedRoute) {
         unit.addWaypoint(
           new THREE.Vector3(plannedPoint.x, routePoint[1], plannedPoint.z),
-          'QUICK'
+          orderType
         );
       }
       routeStart = { x: routePoint[0], z: routePoint[2] };
@@ -486,6 +492,10 @@ export class GameApp {
   }
 
   splitUnit(unit) {
+    if (unit.hasDeployableCrewServedWeapon?.()) {
+      this.ui.showToast('Crew-served weapon teams cannot split yet', 'warn');
+      return;
+    }
     if (unit.type !== 'infantry_squad' || unit.roster.length < 4) {
       this.ui.showToast('Only full infantry squads can split', 'warn');
       return;
@@ -659,6 +669,11 @@ export class GameApp {
       if (!attacker.isCombatEffective()) return;
 
       if (attacker.type === 'infantry_squad') {
+        attacker.updateMortarCombat?.({
+          terrain: this.terrain,
+          combat: this.combat,
+          random: () => this.random()
+        });
         attacker.updateIndividualCombat(delta, {
           opposingUnits,
           spotting: this.spotting,

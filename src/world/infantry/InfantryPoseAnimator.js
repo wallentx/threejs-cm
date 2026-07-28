@@ -30,6 +30,17 @@ function applyFirstOrderWoundedMovePose(parts, stridePhase) {
   parts.torso.rotation.z = stride * 0.028;
 }
 
+function applyFirstOrderSneakPose(mesh, parts, stridePhase) {
+  // First-order presentation approximation. Authoritative movement state,
+  // stance, and distance phase come from the individual soldier simulation.
+  const stride = Math.sin(stridePhase ?? 0);
+  mesh.position.y -= 0.08;
+  parts.leftLeg.rotation.x = -0.34 + stride * 0.18;
+  parts.rightLeg.rotation.x = -0.34 - stride * 0.18;
+  parts.torso.rotation.x = -0.08;
+  parts.torso.rotation.z = stride * 0.02;
+}
+
 function resetArmRigFromGripIk(arm) {
   const rig = arm?.userData.armRig;
   if (!rig) return;
@@ -394,7 +405,13 @@ export function applyInfantrySecondaryPose(mesh, soldier) {
     || soldier.status === 'DEAD';
   const alive = !unavailable && (soldier.health ?? 100) > 0;
   const idle = alive && speed < IDLE_SPEED_THRESHOLD
-    && !['RELOADING', 'CASUALTY', 'MOVING', 'ADVANCING'].includes(soldier.state);
+    && ![
+      'RELOADING',
+      'CASUALTY',
+      'MOVING',
+      'SNEAKING',
+      'ADVANCING'
+    ].includes(soldier.state);
   const time = soldier.poseTime ?? 0;
   const phase = (soldier.idlePhase ?? 0) + time;
 
@@ -427,7 +444,15 @@ export function applyInfantrySecondaryPose(mesh, soldier) {
     && (soldier.stance === 'STANDING'
       || soldier.stance === 'KNEELING'
       || soldier.stance === 'CROUCHED');
+  const sneaking = alive
+    && soldier.state === 'SNEAKING'
+    && soldier.stance === 'CROUCHED'
+    && speed >= IDLE_SPEED_THRESHOLD
+    && !actionPose;
   if (crawling) applyFirstOrderProneCrawlPose(parts, soldier.stridePhase);
+  if (sneaking) {
+    applyFirstOrderSneakPose(mesh, parts, soldier.stridePhase);
+  }
   if (woundedMoving) applyFirstOrderWoundedMovePose(parts, soldier.stridePhase);
   if (soldier.status === 'KIA') applyFirstOrderKiaFallPose(mesh, parts, soldier);
 
@@ -440,7 +465,13 @@ export function applyInfantrySecondaryPose(mesh, soldier) {
           : ['AIMING', 'OBSERVING'].includes(soldier.state)
               ? 'aim'
               : speed >= IDLE_SPEED_THRESHOLD
-                  ? crawling ? 'crawl' : woundedMoving ? 'wounded-move' : 'move'
+                  ? crawling
+                    ? 'crawl'
+                    : sneaking
+                      ? 'sneak'
+                      : woundedMoving
+                        ? 'wounded-move'
+                        : 'move'
                   : 'idle';
 
   parts.weaponRig.userData.activePose = pose;

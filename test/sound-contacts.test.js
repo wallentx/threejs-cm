@@ -130,7 +130,7 @@ test('weapon report creates a displaced SOUND contact without direct observation
   );
 
   const captured = spotting.captureState();
-  assert.equal(captured.version, 4);
+  assert.equal(captured.version, 5);
   assert.equal(Object.hasOwn(captured.contacts[0].contact, 'origin'), false);
   assert.equal(captured.contacts[0].contact.targetSoldierId, null);
   assert.equal(Object.isFrozen(event), true);
@@ -338,7 +338,7 @@ test('SOUND decay, expiry, capture, and replay are deterministic', () => {
   versionOne.version = 1;
   const compatible = makeSpotting();
   assert.doesNotThrow(() => compatible.restoreState(versionOne));
-  assert.equal(compatible.captureState().version, 4);
+  assert.equal(compatible.captureState().version, 5);
   assert.equal(
     compatible.getContactForUnit('listener', 'shooter').sourceEventId,
     event.id

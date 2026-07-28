@@ -119,6 +119,13 @@ function cylinderPart(group, material, name, radius, startZ, endZ, x = 0, y = 0,
   return meshPart(group, geometry, material, name, [x, y, (startZ + endZ) * 0.5]);
 }
 
+function firingHandHeight(parts) {
+  if (parts.pistolGrip) return parts.pistolGrip.position.y;
+  const triggerGuard = parts.triggerGuard;
+  triggerGuard.geometry.computeBoundingBox();
+  return triggerGuard.position.y + triggerGuard.geometry.boundingBox.min.y;
+}
+
 function addBipod(model, spec, metalMaterial) {
   const geometry = new THREE.CylinderGeometry(0.008, 0.009, 0.34, 5);
   for (const side of [-1, 1]) {
@@ -751,7 +758,7 @@ export function createFrance1940InfantryWeaponRig(weaponName, materials) {
   triggerGrip.name = 'TriggerHandGrip';
   triggerGrip.position.set(
     lateralX('right', 0.045),
-    hasPistolGrip ? -0.08 : -0.035,
+    firingHandHeight(weapon.userData.parts),
     hasPistolGrip ? spec.stockEnd + 0.02 : Math.max(0.16, spec.stockEnd - 0.025)
   );
   rig.add(triggerGrip);

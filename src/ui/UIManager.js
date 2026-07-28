@@ -4,6 +4,11 @@ import { buildVehicleStatusView } from './VehicleStatusPresenter.js';
 
 const scratchPos = new THREE.Vector3();
 const iconOffset = new THREE.Vector3(0, 3.5, 0);
+const INFANTRY_ONLY_MOVE_COMMANDS = new Set([
+  'SNEAK',
+  'CRAWL',
+  'ASSAULT'
+]);
 
 export class UIManager {
   constructor(runtimePort) {
@@ -22,6 +27,7 @@ export class UIManager {
     this.showHUD = true;
     this.lastHudUpdate = 0;
     this.lastImpactKey = null;
+    this.lastCrewServedCommandKey = null;
     this.iconPool = new Map();
 
     this.initDOM();
@@ -153,9 +159,19 @@ export class UIManager {
       if (e.code === 'KeyF') this.triggerCommand('FAST');
       if (e.code === 'KeyN') this.triggerCommand('QUICK');
       if (e.code === 'KeyJ') this.triggerCommand('HUNT');
+      if (e.code === 'KeyK') this.triggerCommand('SNEAK');
+      if (e.code === 'KeyL') this.triggerCommand('CRAWL');
+      if (e.code === 'KeyU') this.triggerCommand('ASSAULT');
       if (e.code === 'KeyT') this.triggerCommand('TARGET');
       if (e.code === 'KeyO') this.triggerCommand('FACE');
       if (e.code === 'KeyH') this.handleDirectAction('HIDE');
+      if (
+        e.code === 'KeyD'
+        && this.runtime.selectedUnit?.hasDeployableCrewServedWeapon?.()
+      ) {
+        e.preventDefault();
+        this.handleDirectAction('DEPLOY');
+      }
       if (e.code === 'KeyE') {
         const selectedUnit = this.runtime.selectedUnit;
         const eligible = selectedUnit?.type === 'infantry_squad'
@@ -203,6 +219,13 @@ export class UIManager {
         { label: 'QUICK', mode: 'MOVE_QUICK', key: 'N' },
         { label: 'MOVE', mode: 'MOVE_MOVE', key: 'O' },
         { label: 'HUNT', mode: 'MOVE_HUNT', key: 'J' },
+        ...(this.runtime.selectedUnit?.type === 'infantry_squad'
+          ? [
+              { label: 'SNEAK', mode: 'MOVE_SNEAK', key: 'K' },
+              { label: 'CRAWL', mode: 'MOVE_CRAWL', key: 'L' },
+              { label: 'ASSAULT', mode: 'MOVE_ASSAULT', key: 'U' }
+            ]
+          : []),
         { label: 'PAUSE', action: 'PAUSE', key: 'P' },
         { label: 'CLEAR', action: 'CLEAR_PATHS', key: 'C' }
       ],
@@ -214,15 +237,26 @@ export class UIManager {
       ],
       special: [
         { label: 'HIDE', action: 'HIDE', key: 'H' },
+        ...(this.runtime.selectedUnit?.hasDeployableCrewServedWeapon?.()
+          ? [{
+              label: ['READY', 'SETTING_UP'].includes(
+                this.runtime.selectedUnit.mortarTeamState?.deploymentState
+              )
+                ? 'PACK MORTAR'
+                : 'DEPLOY MORTAR',
+              action: 'DEPLOY',
+              key: 'D'
+            }]
+          : []),
         ...(this.runtime.selectedUnit?.soldierAI?.agents.some(
           agent => Boolean(agent.buildingLocation)
         )
           ? [{ label: 'DISMOUNT / EXIT', action: 'EXIT_BUILDING', key: 'E' }]
           : [])
       ],
-      admin: [
-        { label: 'SPLIT SQUAD', action: 'SPLIT', key: 'S' }
-      ]
+      admin: this.runtime.selectedUnit?.hasDeployableCrewServedWeapon?.()
+        ? []
+        : [{ label: 'SPLIT SQUAD', action: 'SPLIT', key: 'S' }]
     };
 
     const currentBtns = tabButtons[this.activeTab] || [];
@@ -292,8 +326,21 @@ export class UIManager {
         break;
       }
       case 'DEPLOY': {
-        const deployed = this.runtime.toggleDeployment();
-        this.showToast(`Weapon Team ${deployed ? 'Deployed' : 'Packed Up'}`, 'info');
+        const deploymentState = this.runtime.toggleDeployment();
+        const deploymentMessages = {
+          SETTING_UP: 'Mortar setup started',
+          READY: 'Mortar ready',
+          PACKING: 'Mortar pack-up started',
+          PACKED: 'Mortar packed'
+        };
+        if (deploymentState) {
+          this.showToast(
+            deploymentMessages[deploymentState]
+              ?? `Mortar: ${deploymentState}`,
+            'info'
+          );
+          this.renderCommandGrid();
+        }
         break;
       }
       case 'SPLIT':
@@ -317,9 +364,14 @@ export class UIManager {
 
   triggerCommand(commandName) {
     if (!this.canIssueOrders()) return;
+    if (INFANTRY_ONLY_MOVE_COMMANDS.has(commandName)
+        && this.runtime.selectedUnit?.type !== 'infantry_squad') return;
     if (commandName === 'FAST') this.runtime.setCommandMode('MOVE_FAST');
     if (commandName === 'QUICK') this.runtime.setCommandMode('MOVE_QUICK');
     if (commandName === 'HUNT') this.runtime.setCommandMode('MOVE_HUNT');
+    if (commandName === 'SNEAK') this.runtime.setCommandMode('MOVE_SNEAK');
+    if (commandName === 'CRAWL') this.runtime.setCommandMode('MOVE_CRAWL');
+    if (commandName === 'ASSAULT') this.runtime.setCommandMode('MOVE_ASSAULT');
     if (commandName === 'TARGET') this.runtime.setCommandMode('TARGET');
     if (commandName === 'FACE') this.runtime.setCommandMode('FACE');
     this.renderCommandGrid();
@@ -400,7 +452,24 @@ export class UIManager {
 
     const rifleEl = document.getElementById('ammo-rifle');
     const barEl = document.getElementById('ammo-bar');
-    if (unit.vehicleWeapon) {
+    if (unit.mortarTeamState) {
+      const mortarRounds = Object.values(
+        unit.mortarTeamState.roundsBySoldierId
+      ).reduce((sum, rounds) => sum + rounds, 0);
+      if (rifleEl) {
+        rifleEl.innerText =
+          `MORTAR: ${unit.mortarTeamState.deploymentState.replaceAll('_', ' ')}`;
+      }
+      if (barEl) {
+        barEl.innerText =
+          `60MM HE: ${mortarRounds}`
+          + (
+            unit.mortarTeamState.reloadRemainingSeconds > 0
+              ? ` · LOAD ${unit.mortarTeamState.reloadRemainingSeconds.toFixed(1)}s`
+              : ''
+          );
+      }
+    } else if (unit.vehicleWeapon) {
       const loaded = unit.vehicleWeapon.loadedType?.toUpperCase() ?? 'EMPTY';
       const feed = unit.vehicleWeapon.feedAmmo ?? (unit.vehicleWeapon.loadedType ? 1 : 0);
       if (rifleEl) rifleEl.innerText = `MAIN GUN: ${loaded} · FEED ${feed}`;
@@ -877,7 +946,7 @@ export class UIManager {
       modal.querySelector(`#${choice.buttonId}`)?.addEventListener('click', () => {
         close();
         const result = this.runtime.issueBuildingOrder(
-          unit, choice.action, pointVec3, buildingId
+          unit, choice.action, pointVec3, buildingId, orderType
         );
         if (result?.accepted) {
           this.runtime.cancelCommandMode();
@@ -898,6 +967,15 @@ export class UIManager {
       this.minimap.render(units, cameraManager);
     }
     this.updateShotInspector(this.runtime.getImpacts());
+    const crewServedCommandKey = this.runtime.selectedUnit?.mortarTeamState
+      ? `${this.runtime.selectedUnit.id}:${
+          this.runtime.selectedUnit.mortarTeamState.deploymentState
+        }`
+      : null;
+    if (crewServedCommandKey !== this.lastCrewServedCommandKey) {
+      this.lastCrewServedCommandKey = crewServedCommandKey;
+      this.renderCommandGrid();
+    }
     const now = performance.now();
     if (this.runtime.selectedUnit && now - this.lastHudUpdate >= 100) {
       this.updateUnitHUD(this.runtime.selectedUnit);

@@ -267,6 +267,86 @@ test('appended routes start at the pending tail and retain existing waypoints', 
   assert.deepEqual(unit.waypoints.slice(1).map(waypoint => waypoint.orderType), ['HUNT', 'HUNT']);
 });
 
+test('infantry-only movement orders survive route planning and are rejected for vehicles', () => {
+  for (const orderType of ['SNEAK', 'CRAWL', 'ASSAULT']) {
+    const unit = createUnit({
+      collisionWorld: {
+        getNavigationPath(start, goal) {
+          return [start, { x: 3, z: 1 }, goal];
+        }
+      }
+    });
+    const commands = new CommandSystem(new THREE.Scene(), {
+      terrain: { getMovementHeightAt: () => 0 },
+      isSetupPhase: () => false
+    });
+
+    issueMove(
+      commands,
+      unit,
+      new THREE.Vector3(6, 0, 4),
+      `MOVE_${orderType}`
+    );
+    assert.deepEqual(
+      unit.waypoints.map(waypoint => waypoint.orderType),
+      [orderType, orderType]
+    );
+
+    const vehicle = createUnit({ type: 'tank' });
+    commands.setActiveUnit(vehicle);
+    commands.setCommandMode(`MOVE_${orderType}`);
+    assert.equal(
+      commands.handleMapClick(new THREE.Vector3(4, 0, 4)),
+      false
+    );
+    assert.deepEqual(vehicle.waypoints, []);
+  }
+});
+
+test('target-order integration may accept or reject a handled command without mutating fallback target state', () => {
+  const calls = [];
+  let accepted = false;
+  const commands = new CommandSystem(new THREE.Scene(), {
+    onTargetOrder(unit, point, targetUnit, mode) {
+      calls.push({
+        unit,
+        point: point.toArray(),
+        targetUnit,
+        mode
+      });
+      return { handled: true, accepted };
+    }
+  });
+  const unit = createUnit();
+  const target = { id: 'target-unit' };
+  const point = new THREE.Vector3(6, 0, 4);
+  commands.setActiveUnit(unit);
+  commands.setCommandMode('TARGET');
+
+  assert.equal(commands.handleMapClick(point, target), false);
+  assert.equal(commands.activeMode, 'TARGET');
+  assert.equal(unit.targetPos, undefined);
+  assert.equal(unit.targetUnit, undefined);
+
+  accepted = true;
+  assert.equal(commands.handleMapClick(point, target), true);
+  assert.equal(commands.activeMode, null);
+  assert.equal(unit.targetPos, undefined);
+  assert.equal(unit.targetUnit, undefined);
+  assert.deepEqual(
+    calls.map(call => ({
+      point: call.point,
+      targetUnit: call.targetUnit,
+      mode: call.mode
+    })),
+    [
+      { point: [6, 0, 4], targetUnit: target, mode: 'TARGET' },
+      { point: [6, 0, 4], targetUnit: target, mode: 'TARGET' }
+    ]
+  );
+  assert.equal(calls[0].unit, unit);
+});
+
 test('completed queues start from the live position and unsupported movers retain direct waypoints', () => {
   const calls = [];
   const completed = createUnit({

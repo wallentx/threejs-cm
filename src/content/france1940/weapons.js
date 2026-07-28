@@ -11,6 +11,30 @@ const freezeWeapon = (weapon) => Object.freeze({
   ...weapon
 });
 
+const FRENCH_8MM_RIFLE_GAMEPLAY_APPROXIMATION = Object.freeze({
+  muzzleVelocity: 823,
+  projectileMassKg: 0.009,
+  practicalRPM: 15,
+  reloadSeconds: 3.8,
+  dispersionMOA: 2.8,
+  maxRange: 500,
+  woundDamage: 112
+});
+
+const FRENCH_8MM_RIFLE_BALLISTICS_QUALITY =
+  'gameplay approximation reusing the current MAS-36 family ballistic and cadence baseline; not historical 8 mm firing data';
+const LEBEL_MUSEUM_REFERENCE =
+  'https://www.musee-armee.fr/fileadmin/user_upload/Documents/Support-Visite-Fiches-Objets/Fiches-1914-1918/MA_fiche-objet-Lebel.pdf';
+const BERTHIER_MUSEUM_REFERENCE =
+  'https://www.musee-armee.fr/magazine/systeme-berthier-armes-iconiques-de-larmee-francaise-1.html';
+const BERTHIER_1940_MUSEUM_REFERENCE =
+  'https://www.musee-armee.fr/fileadmin/user_upload/Documents/Rapports-Activites/MA_Rapport-Activite-2010.pdf#page=49';
+const APX_1916_MUSEUM_REFERENCE =
+  'https://collections.musee-armee.fr/harceler-lennemi-pendant-la-premiere-guerre-mondiale/';
+const BRANDT_MLE1935_MANUAL_REFERENCE =
+  'https://bibliotheques-numeriques.defense.gouv.fr/mediatheque-en/docu'
+  + 'ment/f917220f-7588-4e68-ab19-491e4dd36839?cote=Doc.+Regl.+342&portal=365729';
+
 export const FRANCE_1940_WEAPONS = Object.freeze({
   MAS36: freezeWeapon({
     id: 'MAS36',
@@ -27,6 +51,127 @@ export const FRANCE_1940_WEAPONS = Object.freeze({
     dispersionMOA: 2.8,
     maxRange: 500,
     woundDamage: 112
+  }),
+  LEBEL_M1886_M93: freezeWeapon({
+    id: 'LEBEL_M1886_M93',
+    name: 'Lebel Mle 1886/93',
+    kind: 'rifle',
+    cartridge: '8 mm French service cartridge',
+    caliberMm: 8,
+    ...FRENCH_8MM_RIFLE_GAMEPLAY_APPROXIMATION,
+    magazineSize: 8,
+    carriedAmmo: 120,
+    lengthMeters: 1.3,
+    feedType: 'tubular_magazine',
+    feedDataQuality: 'historical eight-round tubular magazine',
+    issueDataQuality:
+      'historical First World War infantry issue; not evidence of a universal 1940 allocation',
+    ballisticsDataQuality: FRENCH_8MM_RIFLE_BALLISTICS_QUALITY,
+    reloadDataQuality:
+      '3.8-second reload is a gameplay approximation reusing the current MAS-36 family baseline',
+    dataQuality:
+      'historical weapon identity, length, feed, and First World War issue; runtime ballistics, cadence, and the 3.8-second reload are gameplay approximations',
+    referenceUrl: LEBEL_MUSEUM_REFERENCE
+  }),
+  BERTHIER_M1907_15_M16: freezeWeapon({
+    id: 'BERTHIER_M1907_15_M16',
+    name: 'Berthier Mle 1907/15 M16',
+    kind: 'rifle',
+    cartridge: '8 mm French service cartridge',
+    caliberMm: 8,
+    ...FRENCH_8MM_RIFLE_GAMEPLAY_APPROXIMATION,
+    magazineSize: 5,
+    carriedAmmo: 60,
+    feedDataQuality:
+      'five-round M16 capacity is an inferred gameplay value pending a primary technical source',
+    issueDataQuality:
+      '60-round carried load is a gameplay approximation; formation-dependent 1940 allocation remains unresolved',
+    serviceDataQuality:
+      'museum collection documents this model in the theoretical metropolitan-infantry equipment issue of 3 September 1939',
+    compatibleOpticIds: Object.freeze(['APX_1916']),
+    opticDataQuality:
+      'historical First World War APX 1916 compatibility with the Berthier 07/15; not evidence of a 1940 allocation',
+    ballisticsDataQuality: FRENCH_8MM_RIFLE_BALLISTICS_QUALITY,
+    dataQuality:
+      'historical weapon identity and documented theoretical 3 September 1939 equipment context; feed capacity is inferred and runtime ballistics, cadence, reload, and carried load are gameplay approximations',
+    referenceUrl: BERTHIER_1940_MUSEUM_REFERENCE,
+    opticReferenceUrl: APX_1916_MUSEUM_REFERENCE
+  }),
+  BERTHIER_M1892_M16: freezeWeapon({
+    id: 'BERTHIER_M1892_M16',
+    name: 'Berthier Mousqueton Mle 1892 M16',
+    kind: 'rifle',
+    cartridge: '8 mm French service cartridge',
+    caliberMm: 8,
+    ...FRENCH_8MM_RIFLE_GAMEPLAY_APPROXIMATION,
+    magazineSize: 5,
+    carriedAmmo: 60,
+    feedDataQuality:
+      'five-round M16 capacity is an inferred gameplay value pending a primary technical source',
+    issueDataQuality:
+      '60-round carried load is a gameplay approximation; role-specific 1940 distribution remains unresolved',
+    identityDataQuality:
+      'the exact Mle 1892 M16 designation remains pending a direct official or archival reference; the cited museum source supports only the broader Berthier mounted-troop origin and system service context',
+    serviceDataQuality:
+      'historical mounted-troop design context and Berthier-system service into the Second World War',
+    ballisticsDataQuality: FRENCH_8MM_RIFLE_BALLISTICS_QUALITY,
+    dataQuality:
+      'provisional exact weapon identity pending direct official or archival provenance; broader service context is historical, feed capacity is inferred, and runtime ballistics, cadence, reload, and carried load are gameplay approximations',
+    referenceUrl: BERTHIER_MUSEUM_REFERENCE
+  }),
+  LEBEL_M1886_M93_APX1916: freezeWeapon({
+    id: 'LEBEL_M1886_M93_APX1916',
+    name: 'Lebel Mle 1886/93 with APX 1916',
+    kind: 'rifle',
+    cartridge: '8 mm French service cartridge',
+    caliberMm: 8,
+    ...FRENCH_8MM_RIFLE_GAMEPLAY_APPROXIMATION,
+    magazineSize: 8,
+    carriedAmmo: 60,
+    lengthMeters: 1.3,
+    feedType: 'tubular_magazine',
+    feedDataQuality: 'historical eight-round tubular magazine',
+    issueDataQuality:
+      '60-round carried load is a gameplay approximation; scoped-rifle allocation in 1940 remains unresolved',
+    opticId: 'APX_1916',
+    opticDataQuality:
+      'historical First World War Lebel optic configuration; not evidence of a 1940 allocation',
+    ballisticsDataQuality: FRENCH_8MM_RIFLE_BALLISTICS_QUALITY,
+    dataQuality:
+      'historical weapon and optic identity; runtime ballistics, cadence, reload, and carried load are gameplay approximations',
+    referenceUrl: APX_1916_MUSEUM_REFERENCE,
+    weaponReferenceUrl: LEBEL_MUSEUM_REFERENCE
+  }),
+  BRANDT_MLE1935_60MM_HE: freezeWeapon({
+    id: 'BRANDT_MLE1935_60MM_HE',
+    name: 'Brandt Mle 1935 60 mm mortar HE',
+    kind: 'mortar_he',
+    cartridge: '60 mm fin-stabilized mortar bomb',
+    caliberMm: 60,
+    muzzleVelocity: 90,
+    minimumMuzzleVelocity: 15,
+    mortarElevationDegrees: 65,
+    projectileMassKg: 1.3,
+    dragPerSecond: 0,
+    practicalRPM: 13.333333333333334,
+    magazineSize: 1,
+    reloadSeconds: 4.5,
+    carriedAmmo: 24,
+    dispersionMOA: 35,
+    minimumRangeMeters: 25,
+    maxRange: 600,
+    tracerEvery: 0,
+    explosiveRadius: 5.2,
+    woundDamage: 190,
+    identityDataQuality:
+      'historical weapon identity and February 1936 French Ministry of War provisional instruction, amended through February 1940',
+    ballisticsDataQuality:
+      'velocity envelope, fixed 65-degree solver elevation, drag, dispersion, minimum and maximum runtime ranges are gameplay approximations',
+    ammunitionDataQuality:
+      'projectile mass, explosive radius, wound effect, cadence, reload time, and 24-round team allocation are gameplay approximations',
+    dataQuality:
+      'historical weapon identity; all current runtime ballistics, effects, cadence, and ammunition quantities are explicit gameplay approximations',
+    referenceUrl: BRANDT_MLE1935_MANUAL_REFERENCE
   }),
   FM2429: freezeWeapon({
     id: 'FM2429',
@@ -521,6 +666,11 @@ export const FRANCE_1940_WEAPONS = Object.freeze({
 
 const NAME_TO_ID = Object.freeze({
   'MAS-36 Rifle': 'MAS36',
+  'Lebel Mle 1886/93': 'LEBEL_M1886_M93',
+  'Berthier Mle 1907/15 M16': 'BERTHIER_M1907_15_M16',
+  'Berthier Mousqueton Mle 1892 M16': 'BERTHIER_M1892_M16',
+  'Lebel Mle 1886/93 with APX 1916': 'LEBEL_M1886_M93_APX1916',
+  'Brandt Mle 1935 60 mm mortar HE': 'BRANDT_MLE1935_60MM_HE',
   'FM 24/29 LMG': 'FM2429',
   'MAS-38 SMG': 'MAS38',
   Kar98k: 'KAR98K',
@@ -535,4 +685,3 @@ export function weaponIdFromName(name) {
 export function getWeapon(idOrName) {
   return FRANCE_1940_WEAPONS[weaponIdFromName(idOrName)] ?? null;
 }
-

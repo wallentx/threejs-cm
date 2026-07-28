@@ -66,6 +66,9 @@ const PROGRESS_PRECISION = 1e12;
 const CLOCK_HALF_NANOSECOND_SECONDS = 0.5 / TIME_PRECISION;
 const CLOCK_SUB_NANOSECOND_DRIFT_SECONDS = 1e-15;
 const ACQUISITION_PROGRESS_TICKS = BigInt(PROGRESS_PRECISION);
+// First-order presentation smoothing only. Direct observation, direct-contact
+// generation, identification, relay, and precision targeting use visibleNow.
+const DIRECT_RENDER_VISIBILITY_GRACE_NANOSECONDS = 150_000_000;
 
 function finite(value, fallback = 0) {
   return Number.isFinite(value) ? value : fallback;
@@ -221,7 +224,7 @@ function validateCapturedClock(state) {
           <= CLOCK_SUB_NANOSECOND_DRIFT_SECONDS
       )) {
     throw new TypeError(
-      'spotting version 4 canonical clock components are invalid'
+      'spotting canonical clock components are invalid'
     );
   }
   const clock = {
@@ -237,7 +240,7 @@ function validateCapturedClock(state) {
   if (state.time !== clockTime(clock)
       || state.timeAccumulator !== clockAccumulator(clock)) {
     throw new TypeError(
-      'spotting version 4 time projections must match canonical clock components'
+      'spotting time projections must match canonical clock components'
     );
   }
   return clock;
@@ -336,32 +339,32 @@ function validateObservationEpisodeCapture(
   if (typeof saved?.visibleNow !== 'boolean'
       || typeof saved?.directEpisodeActive !== 'boolean') {
     throw new TypeError(
-      'spotting version 4 observation visibility and direct episode flags must be boolean'
+      'spotting observation visibility and direct episode flags must be boolean'
     );
   }
   const acquired =
     acquisitionState.acquisitionWorkTicks === PROGRESS_PRECISION;
   if (saved.visibleNow !== acquired) {
     throw new TypeError(
-      'spotting version 4 observation visibility must match canonical acquisition work'
+      'spotting observation visibility must match canonical acquisition work'
     );
   }
   if (saved.directEpisodeActive !== saved.visibleNow) {
     throw new TypeError(
-      'spotting version 4 observation direct episode activity must match visibility'
+      'spotting observation direct episode activity must match visibility'
     );
   }
   if (!Number.isSafeInteger(saved.directEpisodeSequence)
       || saved.directEpisodeSequence < 0) {
     throw new TypeError(
-      'spotting version 4 observation directEpisodeSequence must be a non-negative safe integer'
+      'spotting observation directEpisodeSequence must be a non-negative safe integer'
     );
   }
   const hasAcquiredAt = saved.directEpisodeAcquiredAt !== null;
   const hasSnapshot = saved.directEpisodeSnapshot !== null;
   if (hasAcquiredAt !== hasSnapshot) {
     throw new TypeError(
-      'spotting version 4 observation direct episode boundary and snapshot must be present together'
+      'spotting observation direct episode boundary and snapshot must be present together'
     );
   }
   if (hasAcquiredAt
@@ -372,14 +375,46 @@ function validateObservationEpisodeCapture(
         || !finiteCapturePosition(saved.directEpisodeSnapshot?.position)
       )) {
     throw new TypeError(
-      'spotting version 4 observation direct episode snapshot is invalid'
+      'spotting observation direct episode snapshot is invalid'
     );
   }
   if (saved.directEpisodeActive && !hasAcquiredAt) {
     throw new TypeError(
-      'spotting version 4 active observation requires a direct episode snapshot'
+      'spotting active observation requires a direct episode snapshot'
     );
   }
+}
+
+function validateVisibilityGraceCapture(saved, maximumTime) {
+  const remaining = saved?.visibilityGraceRemainingNanoseconds;
+  if (!Number.isSafeInteger(remaining)
+      || Object.is(remaining, -0)
+      || remaining < 0
+      || remaining > DIRECT_RENDER_VISIBILITY_GRACE_NANOSECONDS) {
+    throw new TypeError(
+      'spotting visibility grace must be bounded integer nanoseconds'
+    );
+  }
+  if (saved.visibleNow
+      && remaining !== DIRECT_RENDER_VISIBILITY_GRACE_NANOSECONDS) {
+    throw new TypeError(
+      'spotting visible observation must carry the full visibility grace'
+    );
+  }
+  if (remaining > 0
+      && (
+        !Number.isFinite(saved.lastSeenAt)
+        || saved.lastSeenAt < 0
+        || saved.lastSeenAt > maximumTime
+        || !finiteCapturePosition(saved.lastSeenPosition)
+        || saved.directEpisodeAcquiredAt === null
+        || saved.directEpisodeSnapshot === null
+      )) {
+    throw new TypeError(
+      'spotting visibility grace requires a prior direct observation'
+    );
+  }
+  return remaining;
 }
 
 function validateDirectObservationEpisodeCapture(saved, maximumTime) {
@@ -391,7 +426,7 @@ function validateDirectObservationEpisodeCapture(saved, maximumTime) {
       || saved.acquiredAt > maximumTime
       || !finiteCapturePosition(saved?.position)) {
     throw new TypeError(
-      'spotting version 4 direct observation episode is invalid'
+      'spotting direct observation episode is invalid'
     );
   }
 }
@@ -410,14 +445,14 @@ function validateDirectEpisodeCoherence(observations, episodes) {
   for (const key of visiblePairs) {
     if (episodes.get(key)?.active !== true) {
       throw new TypeError(
-        'spotting version 4 visible observation requires an active direct observation episode'
+        'spotting visible observation requires an active direct observation episode'
       );
     }
   }
   for (const [key, episode] of episodes) {
     if (episode.active !== visiblePairs.has(key)) {
       throw new TypeError(
-        'spotting version 4 direct observation episode activity must match visible observations'
+        'spotting direct observation episode activity must match visible observations'
       );
     }
   }
@@ -547,6 +582,33 @@ function decayAcquisitionWork(
     observation.acquisitionRequiredNanoseconds = null;
   }
   observation.acquisition = acquisitionProjection(observation);
+}
+
+function updateVisibilityGrace(observation, deltaNanoseconds) {
+  if (typeof deltaNanoseconds !== 'bigint' || deltaNanoseconds < 0n) {
+    throw new TypeError('spotting visibility grace delta must be non-negative');
+  }
+  if (observation.visibleNow) {
+    observation.visibilityGraceRemainingNanoseconds =
+      DIRECT_RENDER_VISIBILITY_GRACE_NANOSECONDS;
+    return;
+  }
+  const remaining = Number.isSafeInteger(
+    observation.visibilityGraceRemainingNanoseconds
+  )
+    ? Math.max(
+        0,
+        Math.min(
+          DIRECT_RENDER_VISIBILITY_GRACE_NANOSECONDS,
+          observation.visibilityGraceRemainingNanoseconds
+        )
+      )
+    : 0;
+  const remainingBigInt = BigInt(remaining);
+  observation.visibilityGraceRemainingNanoseconds =
+    remainingBigInt > deltaNanoseconds
+      ? Number(remainingBigInt - deltaNanoseconds)
+      : 0;
 }
 
 function positionObject(position) {
@@ -1020,6 +1082,7 @@ export class SpottingSystem {
       acquisitionWorkRemainder: 0,
       acquisitionRequiredNanoseconds: null,
       visibleNow: false,
+      visibilityGraceRemainingNanoseconds: 0,
       lastSeenPosition: null,
       lastSeenTargetSoldierId: null,
       lastSeenAt: null,
@@ -1138,6 +1201,7 @@ export class SpottingSystem {
       existing.directEpisodeActive = false;
     }
 
+    updateVisibilityGrace(existing, deltaNanoseconds);
     if (!existing.visibleNow && existing.lastSeenAt !== null) {
       const age = Math.max(0, this.time - existing.lastSeenAt);
       existing.confidence = Math.max(0, 1 - age / this.settings.observationMemorySeconds);
@@ -1444,6 +1508,7 @@ export class SpottingSystem {
             observation.identificationProgress ?? 0,
             deltaNanoseconds
           );
+          updateVisibilityGrace(observation, deltaNanoseconds);
         }
         if (!observation.visibleNow) observation.directEpisodeActive = false;
       }
@@ -1589,7 +1654,10 @@ export class SpottingSystem {
       if (targetUnit.faction === viewerFaction) continue;
       for (const targetMap of this.observations.values()) {
         const observation = targetMap.get(targetUnit.id);
-        if (!observation?.visibleNow) continue;
+        if (!observation?.visibleNow
+            && (observation?.visibilityGraceRemainingNanoseconds ?? 0) <= 0) {
+          continue;
+        }
         const observerUnit = (allUnits ?? []).find(unit => unit.id === observation.observerUnitId);
         if (observerUnit?.faction === viewerFaction) {
           visibleUnitIds.add(targetUnit.id);
@@ -1641,7 +1709,7 @@ export class SpottingSystem {
         projectIdentification: true
       }));
     return {
-      version: 4,
+      version: 5,
       time: this.time,
       timeAccumulator: this.timeAccumulator,
       timeWholeSeconds: this.timeWholeSeconds,
@@ -1661,17 +1729,21 @@ export class SpottingSystem {
 
   restoreState(state) {
     const version = state?.version ?? 1;
-    if (version !== 1 && version !== 2 && version !== 3 && version !== 4) {
+    if (version !== 1
+        && version !== 2
+        && version !== 3
+        && version !== 4
+        && version !== 5) {
       throw new TypeError(`unsupported spotting state version ${version}`);
     }
     let restoredClock;
-    if (version === 4) {
+    if (version >= 4) {
       if (!Number.isFinite(state?.time)
           || state.time < 0
           || !Number.isFinite(state?.timeAccumulator)
           || state.timeAccumulator < 0) {
         throw new TypeError(
-          'spotting version 4 time and timeAccumulator must be finite and non-negative'
+          `spotting version ${version} time and timeAccumulator must be finite and non-negative`
         );
       }
       try {
@@ -1679,7 +1751,7 @@ export class SpottingSystem {
       } catch (error) {
         if (error instanceof TypeError) throw error;
         throw new TypeError(
-          'spotting version 4 canonical clock components are invalid'
+          `spotting version ${version} canonical clock components are invalid`
         );
       }
     } else {
@@ -1740,36 +1812,46 @@ export class SpottingSystem {
     }
     this.observations = new Map();
     for (const saved of state?.observations ?? []) {
-      const legacyAcquired = version === 4
+      const legacyAcquired = version >= 4
         ? null
         : legacyObservationIsAcquired(saved, version);
-      const identificationProgress = version === 4
+      const identificationProgress = version >= 4
         ? validateIdentificationProjection(
             saved,
             'spotting observation identification'
           )
         : 0;
-      const acquisitionState = version === 4
+      const acquisitionState = version >= 4
         ? validateAcquisitionCapture(saved)
         : migrateAcquisitionState(saved, legacyAcquired);
-      if (version === 4) {
+      if (version >= 4) {
         validateObservationEpisodeCapture(
           saved,
           acquisitionState,
           this.time
         );
       }
+      const visibilityGraceRemainingNanoseconds = version === 5
+        ? validateVisibilityGraceCapture(saved, this.time)
+        : (
+          version >= 4
+            ? saved.visibleNow === true
+            : legacyAcquired
+        )
+          ? DIRECT_RENDER_VISIBILITY_GRACE_NANOSECONDS
+          : 0;
       const authoritativeSaved = withoutIdentificationProjection(saved);
       const key = observerKey(saved.observerUnitId, saved.observerSoldierId);
       if (!this.observations.has(key)) this.observations.set(key, new Map());
       const observation = cloneObservation({
         ...authoritativeSaved,
         ...acquisitionState,
-        visibleNow: version === 4
+        visibleNow: version >= 4
           ? authoritativeSaved.visibleNow
           : legacyAcquired,
+        visibilityGraceRemainingNanoseconds,
         identificationProgress,
-        directEpisodeSequence: version === 4
+        directEpisodeSequence: version >= 4
           ? authoritativeSaved.directEpisodeSequence
           : Number.isSafeInteger(
               authoritativeSaved.directEpisodeSequence
@@ -1777,7 +1859,7 @@ export class SpottingSystem {
           && authoritativeSaved.directEpisodeSequence >= 0
             ? authoritativeSaved.directEpisodeSequence
             : 0,
-        directEpisodeActive: version === 4
+        directEpisodeActive: version >= 4
           ? authoritativeSaved.directEpisodeActive
           : legacyAcquired,
         directEpisodeAcquiredAt: version >= 3
@@ -1800,13 +1882,13 @@ export class SpottingSystem {
     this.directObservationEpisodes = new Map();
     if (version >= 3) {
       for (const saved of state?.directObservationEpisodes ?? []) {
-        const identificationProgress = version === 4
+        const identificationProgress = version >= 4
           ? validateIdentificationProjection(
               saved,
               'direct observation episode identification'
           )
           : 0;
-        if (version === 4) {
+        if (version >= 4) {
           validateDirectObservationEpisodeCapture(saved, this.time);
         }
         const episode = cloneDirectObservationEpisode({
@@ -1818,7 +1900,7 @@ export class SpottingSystem {
           episode
         );
       }
-      if (version === 4) {
+      if (version >= 4) {
         validateDirectEpisodeCoherence(
           this.observations,
           this.directObservationEpisodes
@@ -1856,16 +1938,16 @@ export class SpottingSystem {
     }
     this.relayQueue = new CommunicationRelayQueue();
     if (version >= 3) {
-      if (version === 4 && state?.relayQueue?.version !== 2) {
+      if (version >= 4 && state?.relayQueue?.version !== 2) {
         throw new TypeError(
-          'spotting version 4 requires communication relay queue version 2'
+          `spotting version ${version} requires communication relay queue version 2`
         );
       }
       this.relayQueue.restoreState(state?.relayQueue);
     }
     this.unitContacts = new Map();
     for (const saved of state?.contacts ?? []) {
-      const identificationProgress = version === 4
+      const identificationProgress = version >= 4
         ? validateContactIdentificationCapture(
             saved.contact,
             'spotting contact identification',
@@ -1881,7 +1963,7 @@ export class SpottingSystem {
         cloneContact({
           ...authoritativeContact,
           identificationProgress,
-          identificationEvaluatedAt: version === 4
+          identificationEvaluatedAt: version >= 4
             ? authoritativeContact.identificationEvaluatedAt
             : this.time
         })

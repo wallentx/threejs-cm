@@ -612,7 +612,7 @@ test('final reform completes the waypoint without retaining bound authority', ()
   assert.equal(squad.currentWaypointIndex, 1);
   updateSquad(squad, STEP_SECONDS, terrain);
   assert.deepEqual(squad.infantryBuddyBounds.captureState(), {
-    version: 1,
+    version: INFANTRY_BUDDY_BOUND_MODEL.version,
     approximationLabel:
       INFANTRY_BUDDY_BOUND_MODEL.approximationLabel,
     activeWaypointKey: null,
@@ -883,7 +883,8 @@ test('mid-bound capture restores deeply and replays byte-identically', () => {
   assert.deepEqual(squad.captureState(), beforeRejectedRestore);
 
   const invalid = structuredClone(snapshot);
-  invalid.infantryBuddyBounds.version = 2;
+  invalid.infantryBuddyBounds.version =
+    INFANTRY_BUDDY_BOUND_MODEL.version + 1;
   assert.throws(
     () => squad.restoreState(invalid, new Map([
       [squad.id, squad],

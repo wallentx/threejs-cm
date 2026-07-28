@@ -211,28 +211,118 @@ export const STONNE_1940_MAP = defineMapDescriptor({
   },
   wallRuns: [
     {
-      id: 'north_west',
+      id: 'village_house_rear',
       profileId: 'stone-wall',
-      start: [-75, 50],
-      end: [-5, 50]
+      enclosureId: 'village-house-lot',
+      boundarySide: 'rear',
+      start: [32, 48],
+      end: [58, 48]
     },
     {
-      id: 'north_east',
+      id: 'village_house_west',
       profileId: 'stone-wall',
-      start: [5, 50],
-      end: [75, 50]
+      enclosureId: 'village-house-lot',
+      boundarySide: 'west',
+      start: [32, 48],
+      end: [32, 72]
     },
     {
-      id: 'south_west',
+      id: 'village_house_east',
       profileId: 'stone-wall',
-      start: [-75, -40],
-      end: [-5, -40]
+      enclosureId: 'village-house-lot',
+      boundarySide: 'east',
+      start: [58, 48],
+      end: [58, 72]
     },
     {
-      id: 'south_east',
+      id: 'village_house_front_west',
       profileId: 'stone-wall',
-      start: [5, -40],
-      end: [75, -40]
+      enclosureId: 'village-house-lot',
+      boundarySide: 'front',
+      adjacentGateId: 'village-house-front-gate',
+      start: [32, 72],
+      end: [42, 72]
+    },
+    {
+      id: 'village_house_front_east',
+      profileId: 'stone-wall',
+      enclosureId: 'village-house-lot',
+      boundarySide: 'front',
+      adjacentGateId: 'village-house-front-gate',
+      start: [48, 72],
+      end: [58, 72]
+    },
+    {
+      id: 'farmhouse_south',
+      profileId: 'stone-wall',
+      enclosureId: 'farmhouse-lot',
+      boundarySide: 'south',
+      start: [-58, 22],
+      end: [-32, 22]
+    },
+    {
+      id: 'farmhouse_north',
+      profileId: 'stone-wall',
+      enclosureId: 'farmhouse-lot',
+      boundarySide: 'north',
+      start: [-58, 46],
+      end: [-32, 46]
+    },
+    {
+      id: 'farmhouse_west',
+      profileId: 'stone-wall',
+      enclosureId: 'farmhouse-lot',
+      boundarySide: 'west',
+      start: [-58, 22],
+      end: [-58, 46]
+    },
+    {
+      id: 'farmhouse_east_south',
+      profileId: 'stone-wall',
+      enclosureId: 'farmhouse-lot',
+      boundarySide: 'east',
+      adjacentGateId: 'farmhouse-east-gate',
+      start: [-32, 22],
+      end: [-32, 31]
+    },
+    {
+      id: 'farmhouse_east_north',
+      profileId: 'stone-wall',
+      enclosureId: 'farmhouse-lot',
+      boundarySide: 'east',
+      adjacentGateId: 'farmhouse-east-gate',
+      start: [-32, 37],
+      end: [-32, 46]
+    }
+  ],
+  wallEnclosures: [
+    {
+      id: 'village-house-lot',
+      structureId: 'french_village_house',
+      kind: 'domestic-lot',
+      dataQuality:
+        'scenario-authored gameplay approximation; not a surveyed historical Stonne boundary',
+      gateOpenings: [
+        {
+          id: 'village-house-front-gate',
+          start: [42, 72],
+          end: [48, 72]
+        }
+      ]
+    },
+    {
+      id: 'farmhouse-lot',
+      structureId: 'french_farmhouse_outbuilding',
+      kind: 'farmstead-yard',
+      dataQuality:
+        'scenario-authored gameplay approximation; not a surveyed historical Stonne boundary',
+      gateOpenings: [
+        {
+          id: 'farmhouse-east-gate',
+          start: [-32, 31],
+          end: [-32, 37]
+        }
+      ]
     }
   ],
   structures: [
@@ -264,7 +354,7 @@ export const STONNE_1940_MAP = defineMapDescriptor({
     {
       id: 'tree-northwest',
       profileId: 'mature-tree',
-      position: [-60, 40],
+      position: [-52, 40],
       visualOnly: true
     },
     {

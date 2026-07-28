@@ -148,7 +148,7 @@ test('static navigation deterministically routes around a long wall', () => {
   }
 });
 
-test('authored wall-end route lets a live squad occupy the upper floor', () => {
+test('authored house-lot gate lets a live squad occupy the upper floor', () => {
   const buildings = new BuildingSystem();
   const terrain = createTerrain(buildings);
   terrain.buildRiverAndBridge();
@@ -158,7 +158,7 @@ test('authored wall-end route lets a live squad occupy the upper floor', () => {
     id: 'authored_wall_route_squad',
     faction: 'french',
     type: 'infantry_squad',
-    position: new THREE.Vector3(45, 0, 48)
+    position: new THREE.Vector3(45, 0, 78)
   });
   unit.position.y = terrain.getMovementHeightAt(unit.position.x, unit.position.z);
   unit.mesh.position.copy(unit.position);
@@ -197,9 +197,34 @@ test('authored wall-end route lets a live squad occupy the upper floor', () => {
     path.push(...segment);
     routeStart = { x: routePoint[0], z: routePoint[2] };
   }
+  const gate = STONNE_1940_MAP.wallEnclosures
+    .find(enclosure => enclosure.id === 'village-house-lot')
+    .gateOpenings[0];
+  const routePoints = [
+    { x: unit.position.x, z: unit.position.z },
+    ...path
+  ];
+  const crossing = routePoints.slice(1).map((point, index) => {
+    const previous = routePoints[index];
+    if (
+      (previous.z - gate.start[1]) * (point.z - gate.start[1]) > 0
+      || previous.z === point.z
+    ) {
+      return null;
+    }
+    const t = (gate.start[1] - previous.z) / (point.z - previous.z);
+    return previous.x + (point.x - previous.x) * t;
+  }).find(value => value != null);
+  assert.ok(crossing != null, 'the building route must cross the front boundary');
+  const requiredClearance = unit.collisionRadius + 0.8 + formationClearance;
   assert.ok(
-    path.some(point => point.x > 77),
-    'route corner must clear the wall end for early waypoint completion and formation width'
+    crossing > gate.start[0] + requiredClearance
+      && crossing < gate.end[0] - requiredClearance,
+    'the route must cross through the authored gate with formation-safe clearance'
+  );
+  assert.ok(
+    path.every(point => point.x > 32 && point.x < 58),
+    'the squad should use the gate instead of detouring around the lot'
   );
   for (const point of path) {
     unit.addWaypoint(new THREE.Vector3(

@@ -17,10 +17,15 @@ import {
 import {
   INFANTRY_COLLISION_RADIUS
 } from '../simulation/infantry/InfantrySeparationSystem.js';
+import {
+  getInfantryMovementOrderProfile,
+  isInfantryOrderMovingFireProhibited
+} from '../simulation/infantry/InfantryMovementOrders.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const MAX_INFANTRY_ROUNDS_PER_STEP = 64;
 const INFANTRY_CADENCE_EPSILON = 1e-9;
+const INFANTRY_STATIONARY_SPEED_METERS_PER_SECOND = 0.12;
 
 function hash01(value) {
   let hash = 2166136261;
@@ -224,6 +229,8 @@ export class SoldierAgent {
   updateMovement(delta, terrain, context = {}) {
     const elapsed = Math.max(delta, 0);
     const dt = Math.min(elapsed, 0.1);
+    const movementProfile =
+      getInfantryMovementOrderProfile(context.orderType);
 
     this.recoilTime = Math.max(0, this.recoilTime - elapsed);
     if (this.reloadTimer > 0) {
@@ -231,7 +238,7 @@ export class SoldierAgent {
       this.state = 'RELOADING';
       if (this.reloadTimer === 0) this.completeReload();
     }
-    if (!this.isAlive) {
+    if (!this.isAlive || ['INCAPACITATED', 'DEAD'].includes(this.status)) {
       this.state = 'CASUALTY';
       this.stance = 'PRONE';
       this.moraleTier = 'CASUALTY';
@@ -321,11 +328,12 @@ export class SoldierAgent {
       }
     } else if (context.coveringHold) {
       this.state = 'COVERING';
-      this.stance = moraleTier === 'DUCKING'
-        ? 'PRONE'
-        : moraleTier === 'CAUTIOUS'
-          ? 'KNEELING'
-          : this.unit.stance;
+      this.stance = context.coveringStance
+        ?? (moraleTier === 'DUCKING'
+          ? 'PRONE'
+          : moraleTier === 'CAUTIOUS'
+            ? 'KNEELING'
+            : this.unit.stance);
       this.velocity.set(0, 0, 0);
     } else if (moraleTier === 'DUCKING') {
       this.state = context.anchorMoving ? 'MOVING' : 'DUCKING';
@@ -355,7 +363,8 @@ export class SoldierAgent {
         if (this.reactionDelay > 0) {
           this.reactionDelay = Math.max(0, this.reactionDelay - dt);
           this.state = 'REACTING';
-          this.stance = context.orderType === 'HUNT' ? 'KNEELING' : 'STANDING';
+          this.stance = movementProfile?.individual.stance
+            ?? (context.orderType === 'HUNT' ? 'KNEELING' : 'STANDING');
           this.velocity.multiplyScalar(Math.exp(-8 * dt));
         } else {
           const separation = new THREE.Vector3();
@@ -369,9 +378,16 @@ export class SoldierAgent {
             }
           }
 
-          this.state = context.orderType === 'HUNT' ? 'ADVANCING' : 'MOVING';
-          this.stance = context.orderType === 'HUNT' ? 'KNEELING' : 'STANDING';
-          const baseSpeed = context.orderType === 'FAST' ? 5.1 : context.orderType === 'HUNT' ? 1.75 : 2.75;
+          this.state = movementProfile?.individual.state
+            ?? (context.orderType === 'HUNT' ? 'ADVANCING' : 'MOVING');
+          this.stance = movementProfile?.individual.stance
+            ?? (context.orderType === 'HUNT' ? 'KNEELING' : 'STANDING');
+          const baseSpeed = movementProfile?.individual.speedMetersPerSecond
+            ?? (context.orderType === 'FAST'
+              ? 5.1
+              : context.orderType === 'HUNT'
+                ? 1.75
+                : 2.75);
           direction.normalize().addScaledVector(separation, 0.72).normalize();
           const desiredSpeed = Math.min(
             baseSpeed * this.pace * (this.isWounded ? 0.55 : 1),
@@ -385,8 +401,15 @@ export class SoldierAgent {
         this.velocity.multiplyScalar(Math.exp(-8 * dt));
       } else {
         this.velocity.multiplyScalar(Math.exp(-7 * dt));
-        this.state = this.targetUnitId ? 'AIMING' : 'OBSERVING';
-        this.stance = this.unit.stance;
+        this.stance = movementProfile?.individual.stance ?? this.unit.stance;
+        const stillCompletingProfiledMovement = Boolean(
+          movementProfile
+          && this.velocity.lengthSq()
+            >= INFANTRY_STATIONARY_SPEED_METERS_PER_SECOND ** 2
+        );
+        this.state = stillCompletingProfiledMovement
+          ? movementProfile.individual.state
+          : (this.targetUnitId ? 'AIMING' : 'OBSERVING');
       }
     }
 
@@ -459,13 +482,23 @@ export class SoldierAgent {
   updateCombat(delta, context) {
     const elapsed = Math.max(delta, 0);
     const weapon = this.weaponLookup(this.weaponId);
-    if (!weapon || !this.isAlive) {
+    if (!weapon || !this.isAlive
+        || ['INCAPACITATED', 'DEAD'].includes(this.status)) {
       resetFireControlState(this.fireControl);
       return false;
     }
 
     this.fireCooldown = Math.max(-elapsed, this.fireCooldown - elapsed);
-    if (this.state === 'MOVING' || this.state === 'REACTING' || this.state === 'ADVANCING'
+    if (context.holdFireSoldierIds?.has(String(this.id))) {
+      resetFireControlState(this.fireControl, 'CREW_SERVED_WEAPON');
+      this.targetUnitId = null;
+      this.targetSoldierId = null;
+      this.syncRecord();
+      return false;
+    }
+    if (this.state === 'MOVING'
+        || isInfantryOrderMovingFireProhibited(this.state)
+        || this.state === 'REACTING' || this.state === 'ADVANCING'
         || this.state === 'BOUNDING'
         || this.state === 'TAKING_COVER' || this.state === 'FLEEING') {
       resetFireControlState(this.fireControl, 'MOVING');

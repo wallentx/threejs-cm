@@ -25,6 +25,14 @@ export default defineConfig({
           includeDependenciesRecursively: false,
           groups: [
             {
+              // Renderer-neutral simulation is a stable dependency layer used
+              // by the game composition root. Keep it out of the growing
+              // browser/application chunk while retaining eager startup.
+              name: 'simulation',
+              test: /src[\\/]simulation[\\/]/,
+              priority: 60
+            },
+            {
               name: 'three-webgpu-renderer',
               test: /node_modules[\\/]three[\\/]src[\\/](?:renderers[\\/]webgpu|lights[\\/]webgpu)[\\/]/,
               priority: 50

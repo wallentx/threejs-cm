@@ -134,10 +134,14 @@ test('stone wall runs use contiguous grounded segments and matching collisions',
   const terrain = createTerrain(scene);
   terrain.buildStoneWalls();
 
-  const expectedSegmentsPerRun = Math.ceil(
-    70 / TERRAIN_SCALE.stoneWall.maximumSegmentLength
+  const expectedSegmentCount = STONNE_1940_MAP.wallRuns.reduce(
+    (sum, run) => sum + Math.ceil(
+      Math.hypot(run.end[0] - run.start[0], run.end[1] - run.start[1])
+        / TERRAIN_SCALE.stoneWall.maximumSegmentLength
+    ),
+    0
   );
-  assert.equal(terrain.stoneWallSegments.length, expectedSegmentsPerRun * 4);
+  assert.equal(terrain.stoneWallSegments.length, expectedSegmentCount);
 
   const wallObstacles = terrain.bocageObstacles.filter(
     obstacle => obstacle.type === 'stonewall'
@@ -149,6 +153,13 @@ test('stone wall runs use contiguous grounded segments and matching collisions',
     const run = runs.get(wall.userData.runId) ?? [];
     run.push(wall);
     runs.set(wall.userData.runId, run);
+
+    const sourceRun = STONNE_1940_MAP.wallRuns.find(
+      candidate => candidate.id === wall.userData.runId
+    );
+    assert.equal(wall.userData.enclosureId, sourceRun.enclosureId);
+    assert.equal(wall.userData.boundarySide, sourceRun.boundarySide);
+    assert.equal(wall.userData.adjacentGateId, sourceRun.adjacentGateId ?? null);
 
     const dimensions = wall.userData.dimensionsMeters;
     assert.ok(dimensions.length <= TERRAIN_SCALE.stoneWall.maximumSegmentLength);
@@ -164,6 +175,8 @@ test('stone wall runs use contiguous grounded segments and matching collisions',
         === `${wall.userData.runId}_${wall.userData.segmentIndex}`
     );
     assert.ok(obstacle, 'wall segment must own a collision record');
+    assert.equal(obstacle.enclosureId, sourceRun.enclosureId);
+    assert.equal(obstacle.adjacentGateId, sourceRun.adjacentGateId ?? null);
     assertNear(obstacle.minX, wall.geometry.boundingBox.min.x, 'collision minX');
     assertNear(obstacle.maxX, wall.geometry.boundingBox.max.x, 'collision maxX');
     assertNear(obstacle.minY, wall.geometry.boundingBox.min.y, 'collision minY');
@@ -172,8 +185,17 @@ test('stone wall runs use contiguous grounded segments and matching collisions',
     assertNear(obstacle.maxZ, wall.geometry.boundingBox.max.z, 'collision maxZ');
   }
 
-  assert.equal(runs.size, 4);
-  for (const segments of runs.values()) {
+  assert.equal(runs.size, STONNE_1940_MAP.wallRuns.length);
+  for (const sourceRun of STONNE_1940_MAP.wallRuns) {
+    const segments = runs.get(sourceRun.id);
+    const runLength = Math.hypot(
+      sourceRun.end[0] - sourceRun.start[0],
+      sourceRun.end[1] - sourceRun.start[1]
+    );
+    assert.equal(
+      segments.length,
+      Math.ceil(runLength / TERRAIN_SCALE.stoneWall.maximumSegmentLength)
+    );
     segments.sort((a, b) => a.userData.segmentIndex - b.userData.segmentIndex);
     for (let index = 1; index < segments.length; index++) {
       const previousEnd = new THREE.Vector3().fromArray(
@@ -188,6 +210,117 @@ test('stone wall runs use contiguous grounded segments and matching collisions',
       );
     }
   }
+});
+
+test('stone walls form gated lots around authored buildings instead of map-spanning barriers', () => {
+  const descriptors = new Map([
+    [FR_HOUSE_12X9_2F.id, FR_HOUSE_12X9_2F],
+    [FR_FARMHOUSE_8X6_1F.id, FR_FARMHOUSE_8X6_1F]
+  ]);
+  const structures = new Map(
+    STONNE_1940_MAP.structures.map(structure => [structure.id, structure])
+  );
+  const distance = (start, end) => Math.hypot(
+    end[0] - start[0],
+    end[1] - start[1]
+  );
+  const samePoint = (left, right) => (
+    Math.abs(left[0] - right[0]) <= EPSILON
+    && Math.abs(left[1] - right[1]) <= EPSILON
+  );
+
+  assert.ok(
+    STONNE_1940_MAP.wallRuns.every(run => distance(run.start, run.end) <= 26),
+    'no authored wall run may cross the battlefield as a giant barrier'
+  );
+
+  for (const enclosure of STONNE_1940_MAP.wallEnclosures) {
+    const runs = STONNE_1940_MAP.wallRuns.filter(
+      run => run.enclosureId === enclosure.id
+    );
+    assert.ok(runs.length >= 4, `${enclosure.id} needs a real perimeter`);
+    assert.ok(
+      runs.every(run => typeof run.boundarySide === 'string'),
+      `${enclosure.id} wall sides stay inspectable`
+    );
+
+    const boundaryPoints = runs.flatMap(run => [run.start, run.end]);
+    const minX = Math.min(...boundaryPoints.map(point => point[0]));
+    const maxX = Math.max(...boundaryPoints.map(point => point[0]));
+    const minZ = Math.min(...boundaryPoints.map(point => point[1]));
+    const maxZ = Math.max(...boundaryPoints.map(point => point[1]));
+    assert.ok(maxX - minX <= 30 && maxZ - minZ <= 30);
+
+    const structure = structures.get(enclosure.structureId);
+    const descriptor = descriptors.get(structure.descriptorId);
+    assert.ok(structure && descriptor);
+    const rotation = structure.rotationY ?? 0;
+    const cos = Math.cos(rotation);
+    const sin = Math.sin(rotation);
+    const localCorners = [
+      [descriptor.bounds.min[0], descriptor.bounds.min[2]],
+      [descriptor.bounds.min[0], descriptor.bounds.max[2]],
+      [descriptor.bounds.max[0], descriptor.bounds.min[2]],
+      [descriptor.bounds.max[0], descriptor.bounds.max[2]]
+    ];
+    for (const [localX, localZ] of localCorners) {
+      const worldX = structure.position[0] + localX * cos + localZ * sin;
+      const worldZ = structure.position[1] - localX * sin + localZ * cos;
+      assert.ok(
+        worldX > minX + TERRAIN_SCALE.stoneWall.thickness
+          && worldX < maxX - TERRAIN_SCALE.stoneWall.thickness
+          && worldZ > minZ + TERRAIN_SCALE.stoneWall.thickness
+          && worldZ < maxZ - TERRAIN_SCALE.stoneWall.thickness,
+        `${structure.id} footprint must sit inside, not on, its wall boundary`
+      );
+    }
+
+    for (const gate of enclosure.gateOpenings) {
+      assert.equal(distance(gate.start, gate.end), 6);
+      const adjacentRuns = runs.filter(run => run.adjacentGateId === gate.id);
+      assert.equal(adjacentRuns.length, 2, `${gate.id} must split one boundary side`);
+      const endpoints = adjacentRuns.flatMap(run => [run.start, run.end]);
+      assert.ok(endpoints.some(point => samePoint(point, gate.start)));
+      assert.ok(endpoints.some(point => samePoint(point, gate.end)));
+      assert.ok(
+        adjacentRuns.every(run => (
+          run.start[0] === run.end[0]
+            ? gate.start[0] === gate.end[0] && gate.start[0] === run.start[0]
+            : gate.start[1] === gate.end[1] && gate.start[1] === run.start[1]
+        )),
+        `${gate.id} must be collinear with its boundary`
+      );
+    }
+  }
+
+  const villageLot = STONNE_1940_MAP.wallRuns
+    .filter(run => run.enclosureId === 'village-house-lot')
+    .flatMap(run => [run.start, run.end]);
+  const farmhouseLot = STONNE_1940_MAP.wallRuns
+    .filter(run => run.enclosureId === 'farmhouse-lot')
+    .flatMap(run => [run.start, run.end]);
+  const insideBounds = (position, points) => (
+    position[0] > Math.min(...points.map(point => point[0]))
+    && position[0] < Math.max(...points.map(point => point[0]))
+    && position[1] > Math.min(...points.map(point => point[1]))
+    && position[1] < Math.max(...points.map(point => point[1]))
+  );
+  assert.equal(
+    insideBounds(
+      STONNE_1940_MAP.foliage.find(tree => tree.id === 'tree-northeast').position,
+      villageLot
+    ),
+    true,
+    'the village-house wall contains its yard tree'
+  );
+  assert.equal(
+    insideBounds(
+      STONNE_1940_MAP.foliage.find(tree => tree.id === 'tree-northwest').position,
+      farmhouseLot
+    ),
+    true,
+    'the farmhouse wall contains its yard tree'
+  );
 });
 
 test('river bed remains below visible water and bridge reaches connected banks', () => {

@@ -349,6 +349,18 @@ export class CombatSystem {
       ?? weaponLookup?.(options.weaponId)
       ?? weaponLookup?.(options.shooter?.weaponId ?? options.shooter?.weapon);
     if (!attacker || !weapon || (!targetUnit && !targetPos)) return false;
+    for (const field of [
+      'indirectMissionId',
+      'indirectMissionShotId',
+      'indirectMissionShotKind'
+    ]) {
+      if (
+        options[field] != null
+        && (typeof options[field] !== 'string' || options[field].length === 0)
+      ) {
+        return false;
+      }
+    }
 
     const fromPos = options.muzzlePosition?.clone()
       ?? options.shooter?.getMuzzleWorldPosition?.()
@@ -361,32 +373,59 @@ export class CombatSystem {
       ?? (options.targetSoldier?.worldPosition
         ? new THREE.Vector3().fromArray(options.targetSoldier.worldPosition)
         : null);
+    const explicitAimPoint = options.aimPoint?.isVector3
+      ? options.aimPoint
+      : (Array.isArray(options.aimPoint)
+          ? new THREE.Vector3().fromArray(options.aimPoint)
+          : null);
     const toPos = scratchAim.copy(
-      targetSoldierPosition
+      explicitAimPoint
+        ?? targetSoldierPosition
         ?? (targetUnit ? targetUnit.position : targetPos)
     ).clone();
-    toPos.y += options.targetSoldier
-      ? 0.92
-      : (targetUnit?.vehicleSpec ? 1.15 + this.random() * 1.25 : 1.1);
+    if (!explicitAimPoint) {
+      toPos.y += options.targetSoldier
+        ? 0.92
+        : (targetUnit?.vehicleSpec ? 1.15 + this.random() * 1.25 : 1.1);
+    }
 
     const range = fromPos.distanceTo(toPos);
     const estimatedRangeMeters = Number.isFinite(options.estimatedRangeMeters)
       ? Math.max(0, options.estimatedRangeMeters)
       : range;
-    const estimatedFlightTime = estimatedRangeMeters / Math.max(1, weapon.muzzleVelocity);
-    toPos.y += 0.5 * 9.81 * estimatedFlightTime * estimatedFlightTime;
+    let velocity;
+    if (options.initialVelocity) {
+      const initialVelocity = options.initialVelocity?.isVector3
+        ? options.initialVelocity
+        : (Array.isArray(options.initialVelocity)
+            ? new THREE.Vector3().fromArray(options.initialVelocity)
+            : null);
+      if (
+        !initialVelocity
+        || ![initialVelocity.x, initialVelocity.y, initialVelocity.z]
+          .every(Number.isFinite)
+        || initialVelocity.lengthSq() <= 1e-9
+      ) {
+        return false;
+      }
+      velocity = initialVelocity.clone();
+    } else {
+      const estimatedFlightTime =
+        estimatedRangeMeters / Math.max(1, weapon.muzzleVelocity);
+      toPos.y += 0.5 * 9.81 * estimatedFlightTime * estimatedFlightTime;
 
-    const dispersionRadians = weapon.dispersionMOA * Math.PI / (180 * 60);
-    const dispersionRadius = Math.tan(dispersionRadians)
-      * range
-      * (options.dispersionScale ?? 1);
-    const dispersionAngle = this.random() * Math.PI * 2;
-    const dispersionDistance = Math.sqrt(this.random()) * dispersionRadius;
-    toPos.x += Math.cos(dispersionAngle) * dispersionDistance;
-    toPos.y += Math.sin(dispersionAngle) * dispersionDistance;
+      const dispersionRadians = weapon.dispersionMOA * Math.PI / (180 * 60);
+      const dispersionRadius = Math.tan(dispersionRadians)
+        * range
+        * (options.dispersionScale ?? 1);
+      const dispersionAngle = this.random() * Math.PI * 2;
+      const dispersionDistance = Math.sqrt(this.random()) * dispersionRadius;
+      toPos.x += Math.cos(dispersionAngle) * dispersionDistance;
+      toPos.y += Math.sin(dispersionAngle) * dispersionDistance;
 
-    scratchDirection.subVectors(toPos, fromPos).normalize();
-    const velocity = scratchDirection.clone().multiplyScalar(weapon.muzzleVelocity);
+      scratchDirection.subVectors(toPos, fromPos).normalize();
+      velocity = scratchDirection.clone().multiplyScalar(weapon.muzzleVelocity);
+    }
     const mesh = this.vfxResources.createProjectileMesh(weapon);
     mesh.position.copy(fromPos);
     mesh.lookAt(toPos);
@@ -400,6 +439,9 @@ export class CombatSystem {
       mountId: options.mountId ?? (options.shooter ? 'individual' : null),
       targetUnit,
       targetSoldierId: options.targetSoldier?.id ?? null,
+      indirectMissionId: options.indirectMissionId ?? null,
+      indirectMissionShotId: options.indirectMissionShotId ?? null,
+      indirectMissionShotKind: options.indirectMissionShotKind ?? null,
       weapon,
       ammoId: options.ammoId ?? weapon.ammunitionId ?? weapon.id,
       targetRangeMeters: range,
@@ -417,7 +459,10 @@ export class CombatSystem {
       velocity,
       distanceTravelled: 0,
       lifetime: 0,
-      maxLifetime: weapon.maxRange / Math.max(1, weapon.muzzleVelocity) + 1,
+      maxLifetime: Number.isFinite(options.maxFlightTimeSeconds)
+        && options.maxFlightTimeSeconds > 0
+        ? options.maxFlightTimeSeconds
+        : weapon.maxRange / Math.max(1, weapon.muzzleVelocity) + 1,
       ricochetCount: 0,
       penetrationCount: 0,
       continuationDelaySeconds: 0,
@@ -457,6 +502,9 @@ export class CombatSystem {
         mountId: projectile.mountId,
         targetUnitId: projectile.targetUnit?.id ?? null,
         targetSoldierId: projectile.targetSoldierId,
+        indirectMissionId: projectile.indirectMissionId,
+        indirectMissionShotId: projectile.indirectMissionShotId,
+        indirectMissionShotKind: projectile.indirectMissionShotKind,
         weaponId: projectile.weapon.id,
         ammoId: projectile.ammoId,
         targetRangeMeters: projectile.targetRangeMeters,
@@ -515,6 +563,9 @@ export class CombatSystem {
         mountId: saved.mountId ?? null,
         targetUnit: unitMap.get(saved.targetUnitId) ?? null,
         targetSoldierId: saved.targetSoldierId ?? null,
+        indirectMissionId: saved.indirectMissionId ?? null,
+        indirectMissionShotId: saved.indirectMissionShotId ?? null,
+        indirectMissionShotKind: saved.indirectMissionShotKind ?? null,
         weapon,
         ammoId: saved.ammoId ?? weapon.ammunitionId ?? weapon.id,
         targetRangeMeters: saved.targetRangeMeters ?? null,
@@ -567,6 +618,9 @@ export class CombatSystem {
       mountId: projectile.mountId,
       targetId: impact.unit?.id ?? impact.buildingId ?? null,
       targetSoldierId: impact.agent?.id ?? projectile.targetSoldierId ?? null,
+      indirectMissionId: projectile.indirectMissionId ?? null,
+      indirectMissionShotId: projectile.indirectMissionShotId ?? null,
+      indirectMissionShotKind: projectile.indirectMissionShotKind ?? null,
       weaponId: projectile.weapon.id,
       ammoId: projectile.ammoId,
       targetRangeMeters: projectile.targetRangeMeters ?? null,

@@ -4,6 +4,12 @@ import { normalizeInfantryStandingHeight } from '../../../world/WorldScale.js';
 import {
   createFrance1940InfantryWeaponRig
 } from './France1940InfantryWeaponFactory.js';
+import {
+  createFrance1940InfantryLodGeometry,
+  createInfantryLodMesh
+} from './France1940InfantryLodGeometry.js';
+
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
 function createSculptedTorsoGeometry() {
   // Anatomical human torso loft: Lined up with arm attachment points (shoulder width ~ 0.56m, oval chest/back depth ~ 0.28m)
@@ -119,12 +125,13 @@ function createSculptedLimbGeometry(radiusTop, radiusMiddle, radiusBottom, lengt
   return geo;
 }
 
-function createCuppedHandGeometry() {
+function createCuppedHandGeometry(handedness) {
   // Single organic cupped character hand (curved palm, thumb ridge, and gentle cupped fingers curvature)
   const geo = new THREE.SphereGeometry(0.068, 12, 10);
   geo.scale(0.85, 1.25, 0.65);
   geo.translate(0, -0.04, 0.01);
   const pos = geo.attributes.position;
+  const thumbSide = handedness === 'left' ? 1 : -1;
 
   for (let i = 0; i < pos.count; i++) {
     let x = pos.getX(i);
@@ -138,9 +145,10 @@ function createCuppedHandGeometry() {
       z += Math.sin((0.6 - normY) / 0.6 * Math.PI) * 0.022;
     }
 
-    // Opposable thumb ridge on inner side
-    if (x < 0 && normY > 0.35 && normY < 0.75) {
-      x -= 0.014;
+    // Author the thumb ridge on its anatomical side. Keeping separate
+    // left/right geometry avoids a negative-scale runtime mirror.
+    if (x * thumbSide > 0 && normY > 0.35 && normY < 0.75) {
+      x += thumbSide * 0.014;
       z += 0.010;
     }
 
@@ -148,6 +156,7 @@ function createCuppedHandGeometry() {
   }
 
   geo.computeVertexNormals();
+  geo.name = `${handedness === 'left' ? 'Left' : 'Right'}CuppedHand`;
   return geo;
 }
 
@@ -308,6 +317,142 @@ function createCharacterHeadGeometry() {
   return geo;
 }
 
+function cylinderBetween(start, end, radius, material, name, lodBand = 'core') {
+  const from = new THREE.Vector3(...start);
+  const to = new THREE.Vector3(...end);
+  const direction = to.clone().sub(from);
+  const mesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(radius, radius, direction.length(), 8),
+    material
+  );
+  mesh.name = name;
+  mesh.position.copy(from).add(to).multiplyScalar(0.5);
+  mesh.quaternion.setFromUnitVectors(Y_AXIS, direction.normalize());
+  mesh.castShadow = true;
+  mesh.userData.lodBand = lodBand;
+  return mesh;
+}
+
+function createBrandtMle1935MortarEquipment(metalMaterial, webbingMaterial) {
+  const equipment = new THREE.Group();
+  equipment.name = 'BrandtMle1935_60mm_Equipment';
+  equipment.position.set(0, 0.03, 0.18);
+
+  const baseplate = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.28, 0.32, 0.045, 12),
+    metalMaterial
+  );
+  baseplate.name = 'MortarBaseplate';
+  baseplate.position.y = 0.0225;
+  baseplate.scale.z = 0.78;
+  baseplate.castShadow = true;
+  baseplate.userData.lodBand = 'core';
+  equipment.add(baseplate);
+
+  const bipod = new THREE.Group();
+  bipod.name = 'MortarBipod';
+  bipod.add(
+    cylinderBetween(
+      [0, 0.4, 0.08],
+      [-0.31, 0.03, 0.36],
+      0.018,
+      metalMaterial,
+      'MortarBipodLeft'
+    ),
+    cylinderBetween(
+      [0, 0.4, 0.08],
+      [0.31, 0.03, 0.36],
+      0.018,
+      metalMaterial,
+      'MortarBipodRight'
+    ),
+    cylinderBetween(
+      [-0.31, 0.03, 0.36],
+      [0.31, 0.03, 0.36],
+      0.014,
+      metalMaterial,
+      'MortarBipodBrace',
+      'high'
+    )
+  );
+  equipment.add(bipod);
+
+  const tubePivot = new THREE.Group();
+  tubePivot.name = 'MortarTubePivot';
+  tubePivot.position.set(0, 0.07, 0);
+  const tube = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.036, 0.043, 0.82, 12),
+    metalMaterial
+  );
+  tube.name = 'MortarTube';
+  tube.position.y = 0.41;
+  tube.castShadow = true;
+  tube.userData.lodBand = 'core';
+  tubePivot.add(tube);
+
+  const muzzleRing = new THREE.Mesh(
+    new THREE.TorusGeometry(0.041, 0.008, 6, 12),
+    metalMaterial
+  );
+  muzzleRing.name = 'MortarMuzzleRing';
+  muzzleRing.position.y = 0.82;
+  muzzleRing.rotation.x = Math.PI / 2;
+  muzzleRing.castShadow = true;
+  muzzleRing.userData.lodBand = 'high';
+  tubePivot.add(muzzleRing);
+
+  const sight = new THREE.Mesh(
+    new THREE.BoxGeometry(0.045, 0.075, 0.035),
+    webbingMaterial
+  );
+  sight.name = 'MortarSight';
+  sight.position.set(-0.065, 0.5, 0);
+  sight.userData.lodBand = 'high';
+  tubePivot.add(sight);
+
+  const proxyTube = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.05, 0.055, 0.82, 5),
+    metalMaterial
+  );
+  proxyTube.name = 'MortarTubeProxy';
+  proxyTube.position.y = 0.41;
+  proxyTube.visible = false;
+  proxyTube.userData.lodBand = 'proxy';
+  tubePivot.add(proxyTube);
+
+  const muzzle = new THREE.Object3D();
+  muzzle.name = 'BrandtMle1935_60mm_Muzzle';
+  muzzle.position.y = 0.84;
+  tubePivot.add(muzzle);
+  equipment.add(tubePivot);
+
+  const proxyBase = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.31, 0.31, 0.05, 6),
+    metalMaterial
+  );
+  proxyBase.name = 'MortarBaseplateProxy';
+  proxyBase.position.y = 0.025;
+  proxyBase.scale.z = 0.78;
+  proxyBase.visible = false;
+  proxyBase.userData.lodBand = 'proxy';
+  equipment.add(proxyBase);
+
+  equipment.userData = {
+    tubePivot,
+    bipod,
+    baseplate,
+    muzzle,
+    coreSilhouette: [baseplate, tube],
+    proxySilhouette: [proxyBase, proxyTube],
+    visualContract: {
+      units: 'metres',
+      identity: 'Brandt Mle 1935 60 mm mortar',
+      dataQuality: 'renderer approximation; not blueprint calibrated'
+    }
+  };
+  return equipment;
+}
+
 export class France1940UnitMeshFactory {
   static createInfantrySquadMesh(
     faction = 'french',
@@ -421,16 +566,19 @@ export class France1940UnitMeshFactory {
       armLower: createSculptedLimbGeometry(0.076, 0.084, 0.062, 0.62),
       gaiter: createSculptedLimbGeometry(0.095, 0.108, 0.078, 0.32),
       boot: createSculptedBootGeometry(),
-      cuppedHand: createCuppedHandGeometry(),
+      leftCuppedHand: createCuppedHandGeometry('left'),
+      rightCuppedHand: createCuppedHandGeometry('right'),
       pouch: new THREE.BoxGeometry(0.17, 0.18, 0.11),
       germanPouch: new THREE.BoxGeometry(0.24, 0.18, 0.10),
       pack: new THREE.BoxGeometry(0.44, 0.44, 0.18),
-      belt: new THREE.BoxGeometry(0.56, 0.1, 0.34)
+      belt: new THREE.BoxGeometry(0.56, 0.1, 0.34),
+      lod: createFrance1940InfantryLodGeometry(isFrench)
     };
 
     const createPivotedLimb = (material, length, radiusScale = 1) => {
       const pivot = new THREE.Group();
       const limb = new THREE.Mesh(geometry.limb, material);
+      limb.name = 'LegHighDetail';
       limb.scale.set(radiusScale, length / 0.62, radiusScale);
       limb.position.y = -length * 0.5;
       limb.castShadow = true;
@@ -442,10 +590,39 @@ export class France1940UnitMeshFactory {
       kneeJoint.position.set(0, -length * 0.5, 0);
       kneeJoint.castShadow = true;
       pivot.add(kneeJoint);
+
+      for (const band of ['medium', 'core']) {
+        const tier = geometry.lod[band];
+        const tierLimb = createInfantryLodMesh(
+          tier.leg,
+          material,
+          band,
+          'upper-leg',
+          `${band === 'medium' ? 'Medium' : 'Core'}LegSilhouette`
+        );
+        tierLimb.scale.set(radiusScale, length / 0.62, radiusScale);
+        tierLimb.position.y = -length * 0.5;
+        pivot.add(tierLimb);
+
+        const tierJoint = createInfantryLodMesh(
+          tier.joint,
+          material,
+          band,
+          'knee',
+          `${band === 'medium' ? 'Medium' : 'Core'}KneeSilhouette`
+        );
+        tierJoint.scale.setScalar(radiusScale);
+        tierJoint.position.set(0, -length * 0.5, 0);
+        pivot.add(tierJoint);
+      }
       return pivot;
     };
 
-    const createTwoBoneArm = (material, skinMaterial) => {
+    const createTwoBoneArm = (
+      material,
+      skinMaterial,
+      { handedness }
+    ) => {
       const upperLength = 0.42;
       const lowerLength = 0.42;
       const shoulder = new THREE.Group();
@@ -459,12 +636,16 @@ export class France1940UnitMeshFactory {
       shoulderCap.castShadow = true;
       shoulder.add(shoulderCap);
 
-      const upperArm = new THREE.Mesh(geometry.armUpper, material);
+      const upperArm = new THREE.Group();
       upperArm.name = 'UpperArm';
       upperArm.scale.set(1, upperLength / 0.62, 1);
       upperArm.position.y = -upperLength * 0.5;
-      upperArm.castShadow = true;
       shoulder.add(upperArm);
+
+      const upperArmHigh = new THREE.Mesh(geometry.armUpper, material);
+      upperArmHigh.name = 'UpperArmHighDetail';
+      upperArmHigh.castShadow = true;
+      upperArm.add(upperArmHigh);
 
       const elbow = new THREE.Group();
       elbow.name = 'Elbow';
@@ -478,12 +659,59 @@ export class France1940UnitMeshFactory {
       elbowJoint.castShadow = true;
       elbow.add(elbowJoint);
 
-      const forearm = new THREE.Mesh(geometry.armLower, material);
+      const forearm = new THREE.Group();
       forearm.name = 'Forearm';
       forearm.scale.set(0.86, lowerLength / 0.62, 0.86);
       forearm.position.y = -lowerLength * 0.5;
-      forearm.castShadow = true;
       elbow.add(forearm);
+
+      const forearmHigh = new THREE.Mesh(geometry.armLower, material);
+      forearmHigh.name = 'ForearmHighDetail';
+      forearmHigh.castShadow = true;
+      forearm.add(forearmHigh);
+
+      for (const band of ['medium', 'core']) {
+        const tier = geometry.lod[band];
+        const title = band === 'medium' ? 'Medium' : 'Core';
+        const shoulderSilhouette = createInfantryLodMesh(
+          tier.joint,
+          material,
+          band,
+          'shoulder',
+          `${title}ShoulderSilhouette`
+        );
+        shoulderSilhouette.scale.setScalar(band === 'medium' ? 0.94 : 0.82);
+        shoulderSilhouette.position.set(0, -0.02, 0);
+        shoulder.add(shoulderSilhouette);
+
+        const upperSilhouette = createInfantryLodMesh(
+          tier.upperArm,
+          material,
+          band,
+          'upper-arm',
+          `${title}UpperArmSilhouette`
+        );
+        upperArm.add(upperSilhouette);
+
+        const elbowSilhouette = createInfantryLodMesh(
+          tier.joint,
+          material,
+          band,
+          'elbow',
+          `${title}ElbowSilhouette`
+        );
+        elbowSilhouette.scale.setScalar(band === 'medium' ? 0.88 : 0.78);
+        elbow.add(elbowSilhouette);
+
+        const forearmSilhouette = createInfantryLodMesh(
+          tier.forearm,
+          material,
+          band,
+          'forearm',
+          `${title}ForearmSilhouette`
+        );
+        forearm.add(forearmSilhouette);
+      }
 
       // Sleeve Cuff
       const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.082, 0.088, 0.08, 8), material);
@@ -491,10 +719,14 @@ export class France1940UnitMeshFactory {
       elbow.add(cuff);
 
       // Single Organic Cupped Character Hand
-      const hand = new THREE.Mesh(geometry.cuppedHand, skinMaterial);
+      const handGeometry = handedness === 'left'
+        ? geometry.leftCuppedHand
+        : geometry.rightCuppedHand;
+      const hand = new THREE.Mesh(handGeometry, skinMaterial);
       hand.name = 'Hand';
       hand.position.set(0, -lowerLength, 0);
       hand.castShadow = true;
+      hand.userData.lodBand = 'core';
       elbow.add(hand);
 
       shoulder.userData.armRig = {
@@ -506,6 +738,37 @@ export class France1940UnitMeshFactory {
         lowerLength
       };
       return shoulder;
+    };
+
+    const addLodLowerLeg = (
+      hip,
+      lowerLegMaterial,
+      bootMaterial,
+      side
+    ) => {
+      for (const band of ['medium', 'core']) {
+        const tier = geometry.lod[band];
+        const title = band === 'medium' ? 'Medium' : 'Core';
+        const lowerLeg = createInfantryLodMesh(
+          tier.lowerLeg,
+          lowerLegMaterial,
+          band,
+          'lower-leg',
+          `${title}${side}LowerLegSilhouette`
+        );
+        lowerLeg.position.set(0, band === 'medium' ? -0.42 : -0.43, 0);
+        hip.add(lowerLeg);
+
+        const boot = createInfantryLodMesh(
+          tier.boot,
+          bootMaterial,
+          band,
+          'boot',
+          `${title}${side}BootSilhouette`
+        );
+        boot.position.set(0, -0.73, 0.06);
+        hip.add(boot);
+      }
     };
 
     const formationOffset = (index) => {
@@ -527,10 +790,36 @@ export class France1940UnitMeshFactory {
       pelvis.castShadow = true;
       soldierGroup.add(pelvis);
 
-      const torso = new THREE.Mesh(geometry.torso, uniformMat);
-      torso.name = 'Torso';
+      for (const band of ['medium', 'core']) {
+        const title = band === 'medium' ? 'Medium' : 'Core';
+        const pelvisSilhouette = createInfantryLodMesh(
+          geometry.lod[band].pelvis,
+          uniformMat,
+          band,
+          'pelvis',
+          `${title}PelvisSilhouette`
+        );
+        pelvisSilhouette.position.y = 0.89;
+        soldierGroup.add(pelvisSilhouette);
+      }
+
+      const torso = new THREE.Group();
+      torso.name = 'TorsoPosePivot';
       torso.position.y = 1.29;
-      torso.castShadow = true;
+      const torsoHigh = new THREE.Mesh(geometry.torso, uniformMat);
+      torsoHigh.name = 'Torso';
+      torsoHigh.castShadow = true;
+      torso.add(torsoHigh);
+      for (const band of ['medium', 'core']) {
+        const title = band === 'medium' ? 'Medium' : 'Core';
+        torso.add(createInfantryLodMesh(
+          geometry.lod[band].torso,
+          uniformMat,
+          band,
+          'torso',
+          `${title}TorsoSilhouette`
+        ));
+      }
       soldierGroup.add(torso);
 
       const belt = new THREE.Mesh(geometry.belt, isFrench ? leatherMat : blackLeatherMat);
@@ -548,6 +837,16 @@ export class France1940UnitMeshFactory {
       headMesh.name = 'HeadMesh';
       headMesh.castShadow = true;
       headGroup.add(headMesh);
+      for (const band of ['medium', 'core']) {
+        const title = band === 'medium' ? 'Medium' : 'Core';
+        headGroup.add(createInfantryLodMesh(
+          geometry.lod[band].head,
+          skinMat,
+          band,
+          'head',
+          `${title}HeadSilhouette`
+        ));
+      }
 
       // Hair Cap under Helmet
       const hairGeo = new THREE.CylinderGeometry(0.162, 0.165, 0.10, 10);
@@ -830,6 +1129,12 @@ export class France1940UnitMeshFactory {
         leftBoot.position.set(0, -0.73, 0.06);
         leftHip.add(leftBoot);
       }
+      addLodLowerLeg(
+        leftHip,
+        isFrench ? putteeMat : blackLeatherMat,
+        isFrench ? leatherMat : blackLeatherMat,
+        'Left'
+      );
 
       const rightHip = createPivotedLimb(trouserMat, 0.68, 1.08);
       rightHip.name = 'RightLeg';
@@ -853,8 +1158,16 @@ export class France1940UnitMeshFactory {
         rightBoot.position.set(0, -0.73, 0.06);
         rightHip.add(rightBoot);
       }
+      addLodLowerLeg(
+        rightHip,
+        isFrench ? putteeMat : blackLeatherMat,
+        isFrench ? leatherMat : blackLeatherMat,
+        'Right'
+      );
 
-      const leftArm = createTwoBoneArm(uniformMat, skinMat);
+      const leftArm = createTwoBoneArm(uniformMat, skinMat, {
+        handedness: 'left'
+      });
       leftArm.name = 'LeftArm';
       leftArm.position.set(lateralX('left', 0.28), 1.52, 0);
       leftArm.userData.anatomicalSide = 'left';
@@ -862,7 +1175,9 @@ export class France1940UnitMeshFactory {
       leftArm.rotation.z = 0.18;
       soldierGroup.add(leftArm);
 
-      const rightArm = createTwoBoneArm(uniformMat, skinMat);
+      const rightArm = createTwoBoneArm(uniformMat, skinMat, {
+        handedness: 'right'
+      });
       rightArm.name = 'RightArm';
       rightArm.position.set(lateralX('right', 0.28), 1.52, 0);
       rightArm.userData.anatomicalSide = 'right';
@@ -872,10 +1187,8 @@ export class France1940UnitMeshFactory {
 
       const leftHand = leftArm.userData.armRig.hand;
       leftHand.name = 'LeftHand';
-      // Mirror the hand and rotate it 180 degrees so the palm cups upward (facing +Y in world space)
-      // and the thumb is on the correct side for the left hand.
-      leftHand.scale.x = -1;
-      leftHand.rotation.y = Math.PI;
+      // Cup the support palm up and inward around the underside of the fore-end.
+      leftHand.rotation.y = Math.PI / 2;
 
       const rightHand = rightArm.userData.armRig.hand;
       rightHand.name = 'RightHand';
@@ -888,6 +1201,57 @@ export class France1940UnitMeshFactory {
       pack.position.set(0, 1.28, -0.222);
       pack.castShadow = true;
       soldierGroup.add(pack);
+      for (const band of ['medium', 'core']) {
+        const title = band === 'medium' ? 'Medium' : 'Core';
+        const packSilhouette = createInfantryLodMesh(
+          geometry.lod[band].pack,
+          webbingMat,
+          band,
+          'pack',
+          `${title}PackSilhouette`
+        );
+        packSilhouette.position.set(0, 1.28, -0.215);
+        soldierGroup.add(packSilhouette);
+      }
+
+      if (isFrench) {
+        for (const [side, x, rotationZ] of [
+          ['Left', -0.22, -0.14],
+          ['Right', 0.22, 0.14]
+        ]) {
+          const coatTail = createInfantryLodMesh(
+            geometry.lod.medium.coatTail,
+            uniformMat,
+            'medium',
+            'coat-tail',
+            `MediumFrench${side}CoatTailSilhouette`
+          );
+          coatTail.position.set(x, 0.85, 0.02);
+          coatTail.rotation.z = rotationZ;
+          soldierGroup.add(coatTail);
+        }
+        const gasBag = createInfantryLodMesh(
+          geometry.lod.medium.fieldEquipment,
+          webbingMat,
+          'medium',
+          'field-equipment',
+          'MediumFrenchANP31Silhouette'
+        );
+        gasBag.position.set(0.23, 0.96, 0.055);
+        gasBag.rotation.z = -0.15;
+        soldierGroup.add(gasBag);
+      } else {
+        const gasCanister = createInfantryLodMesh(
+          geometry.lod.medium.fieldEquipment,
+          metalGearMat,
+          'medium',
+          'field-equipment',
+          'MediumGermanGasMaskCanisterSilhouette'
+        );
+        gasCanister.position.set(-0.18, 1.08, -0.215);
+        gasCanister.rotation.set(0.3, 0, -0.45);
+        soldierGroup.add(gasCanister);
+      }
 
       let leftPouch;
       let rightPouch;
@@ -982,6 +1346,27 @@ export class France1940UnitMeshFactory {
           }
         }
       });
+      soldierGroup.userData.lodRepresentations = {
+        medium: [],
+        core: []
+      };
+      soldierGroup.traverse(object => {
+        const tier = object.userData.infantryLodTier;
+        if (object.isMesh && soldierGroup.userData.lodRepresentations[tier]) {
+          soldierGroup.userData.lodRepresentations[tier].push(object);
+        }
+      });
+      soldierGroup.userData.lodModelContract = Object.freeze({
+        tiers: Object.freeze(['high', 'medium', 'core', 'proxy']),
+        high: 'authored France 1940 soldier',
+        medium: 'derived articulated eight-sided silhouette',
+        core: 'derived articulated six-sided silhouette',
+        sharedPoseCriticalGeometry: Object.freeze([
+          'helmet',
+          'weapon-core-silhouette',
+          'hands-and-grip-markers'
+        ])
+      });
 
       soldierGroup.position.copy(formationOffset(i));
       soldierGroup.userData.slotOffset = formationOffset(i).toArray();
@@ -1023,19 +1408,43 @@ export class France1940UnitMeshFactory {
       squadGroup.add(soldierGroup);
     }
 
+    if (
+      roster.some(member =>
+        ['gunner', 'assistant'].includes(member.crewServedRole)
+      )
+    ) {
+      const mortarEquipment = createBrandtMle1935MortarEquipment(
+        metalGearMat,
+        webbingMat
+      );
+      squadGroup.add(mortarEquipment);
+      squadGroup.userData.mortarEquipment = mortarEquipment;
+      squadGroup.userData.mortarMuzzle =
+        mortarEquipment.userData.muzzle;
+    }
+
     squadGroup.userData.soldiers = squadGroup.children.filter(c => c.name.startsWith('Soldier_'));
 
-    squadGroup.userData.updateLOD = (cameraPosition, targetLOD) => {
-      const band = targetLOD;
+    squadGroup.userData.updateLOD = (_cameraPosition, targetLOD = 'high') => {
+      const band = targetLOD === 'low' ? 'proxy' : targetLOD;
       squadGroup.traverse(object => {
         if (!object.isMesh || !object.userData.lodBand) return;
         const role = object.userData.lodBand;
-        if (band === 'proxy' || band === 'low') {
+        if (role === 'ui') return;
+        const replacementTier = object.userData.infantryLodTier;
+        if (replacementTier) {
+          object.visible = replacementTier === band;
+        } else if (band === 'proxy') {
           object.visible = role === 'proxy';
+        } else if (band === 'core') {
+          object.visible = role === 'core';
+        } else if (band === 'medium') {
+          object.visible = role !== 'high' && role !== 'proxy';
         } else {
           object.visible = role !== 'proxy';
         }
       });
+      return band;
     };
 
     return squadGroup;

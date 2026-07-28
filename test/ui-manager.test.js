@@ -17,6 +17,19 @@ function createHarness() {
     isHiding: false,
     isDeployed: false,
     stance: 'STANDING',
+    mortarTeamState: {
+      deploymentState: 'PACKED',
+      roundsBySoldierId: { gunner: 2 },
+      reloadRemainingSeconds: 0
+    },
+    hasDeployableCrewServedWeapon() { return true; },
+    toggleCrewServedDeployment() {
+      this.isDeployed = true;
+      this.stance = 'KNEELING';
+      this.mortarTeamState.deploymentState = 'SETTING_UP';
+      calls.stance++;
+      return this.mortarTeamState.deploymentState;
+    },
     addPause() { calls.pause++; },
     clearWaypoints() {},
     updateStanceVisuals() { calls.stance++; },
@@ -554,6 +567,167 @@ test('selection-dependent HUD restores content and interactivity after reselecti
   }
 });
 
+test('DEPLOY appears only for a real crew-served weapon and reflects mortar state', () => {
+  const previousDocument = globalThis.document;
+  const commandGrid = {
+    children: [],
+    set innerHTML(value) {
+      if (value === '') this.children = [];
+    },
+    appendChild(child) {
+      this.children.push(child);
+    }
+  };
+  const panels = {
+    'command-grid': commandGrid,
+    'panel-commands': createPanelHarness(),
+    'panel-team-roster': createPanelHarness()
+  };
+  globalThis.document = {
+    getElementById: id => panels[id] ?? null,
+    createElement: () => ({
+      className: '',
+      innerHTML: '',
+      classList: { add() {} },
+      addEventListener() {}
+    }),
+    body: { classList: { toggle() {} } }
+  };
+
+  try {
+    const mortar = {
+      type: 'infantry_squad',
+      mortarTeamState: { deploymentState: 'PACKED' },
+      soldierAI: { agents: [] },
+      hasDeployableCrewServedWeapon() { return true; }
+    };
+    const ui = Object.create(UIManager.prototype);
+    ui.activeTab = 'special';
+    ui.runtime = {
+      selectedUnit: mortar,
+      commandMode: null
+    };
+
+    ui.renderCommandGrid();
+    let labels = commandGrid.children.map(child => child.innerHTML).join(' ');
+    assert.match(labels, /DEPLOY MORTAR/);
+    assert.doesNotMatch(labels, /CANCEL TOOL|DESELECT/);
+
+    mortar.mortarTeamState.deploymentState = 'READY';
+    ui.renderCommandGrid();
+    labels = commandGrid.children.map(child => child.innerHTML).join(' ');
+    assert.match(labels, /PACK MORTAR/);
+
+    ui.activeTab = 'admin';
+    ui.renderCommandGrid();
+    assert.equal(commandGrid.children.length, 0);
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  }
+});
+
+test('SNEAK, CRAWL, and ASSAULT are visible and hotkey-accessible only for infantry', () => {
+  const previousDocument = globalThis.document;
+  const previousWindow = globalThis.window;
+  const commandGrid = {
+    children: [],
+    set innerHTML(value) {
+      if (value === '') this.children = [];
+    },
+    appendChild(child) {
+      this.children.push(child);
+    }
+  };
+  const panels = {
+    'command-grid': commandGrid,
+    'panel-commands': createPanelHarness(),
+    'panel-team-roster': createPanelHarness()
+  };
+  let keydown = null;
+  globalThis.document = {
+    getElementById: id => panels[id] ?? null,
+    createElement: () => ({
+      className: '',
+      innerHTML: '',
+      classList: { add() {} },
+      addEventListener() {}
+    }),
+    body: { classList: { toggle() {} } }
+  };
+  globalThis.window = {
+    addEventListener(type, listener) {
+      if (type === 'keydown') keydown = listener;
+    }
+  };
+
+  try {
+    const modes = [];
+    const infantry = { id: 'infantry', type: 'infantry_squad' };
+    const vehicle = { id: 'vehicle', type: 'tank' };
+    let selectedUnit = infantry;
+    const ui = Object.create(UIManager.prototype);
+    ui.activeTab = 'move';
+    ui.runtime = {
+      get selectedUnit() { return selectedUnit; },
+      commandMode: null,
+      canIssueOrders: () => true,
+      setCommandMode: mode => {
+        modes.push(mode);
+        return mode;
+      }
+    };
+
+    ui.renderCommandGrid();
+    assert.equal(commandGrid.children.length, 9);
+    const infantryCommands =
+      commandGrid.children.map(child => child.innerHTML).join(' ');
+    assert.match(infantryCommands, /SNEAK/);
+    assert.match(infantryCommands, /CRAWL/);
+    assert.match(infantryCommands, /ASSAULT/);
+
+    ui.initHotkeys();
+    for (const code of ['KeyK', 'KeyL', 'KeyU']) {
+      keydown({
+        code,
+        target: { tagName: 'DIV', isContentEditable: false },
+        preventDefault() {}
+      });
+    }
+    assert.deepEqual(modes, [
+      'MOVE_SNEAK',
+      'MOVE_CRAWL',
+      'MOVE_ASSAULT'
+    ]);
+
+    selectedUnit = vehicle;
+    ui.renderCommandGrid();
+    assert.equal(commandGrid.children.length, 6);
+    const vehicleCommands =
+      commandGrid.children.map(child => child.innerHTML).join(' ');
+    assert.doesNotMatch(vehicleCommands, /SNEAK/);
+    assert.doesNotMatch(vehicleCommands, /CRAWL/);
+    assert.doesNotMatch(vehicleCommands, /ASSAULT/);
+    for (const code of ['KeyK', 'KeyL', 'KeyU']) {
+      keydown({
+        code,
+        target: { tagName: 'DIV', isContentEditable: false },
+        preventDefault() {}
+      });
+    }
+    assert.deepEqual(modes, [
+      'MOVE_SNEAK',
+      'MOVE_CRAWL',
+      'MOVE_ASSAULT'
+    ]);
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
+});
+
 test('building floor choices come from the target descriptor and never invent an upper floor', () => {
   const previousDocument = globalThis.document;
   let modal = null;
@@ -620,7 +794,8 @@ test('building floor choices come from the target descriptor and never invent an
       unit,
       'ENTER_GROUND',
       point,
-      'farmhouse'
+      'farmhouse',
+      'QUICK'
     ]);
 
     assert.equal(
@@ -634,7 +809,8 @@ test('building floor choices come from the target descriptor and never invent an
       unit,
       'ENTER_UPPER',
       point,
-      'big-house'
+      'big-house',
+      'QUICK'
     ]);
 
     assert.equal(

@@ -79,7 +79,7 @@ function createProjectile({
     weapon,
     ammoId: weapon.id,
     muzzlePosition: new THREE.Vector3(x, y, startZ),
-    velocity: new THREE.Vector3(0, 0, -speed),
+    velocity: new THREE.Vector3(0, 0, Math.sign(endZ - startZ) * speed),
     previousPosition: new THREE.Vector3(x, y, startZ),
     position: new THREE.Vector3(x, y, endZ),
     lifetime: 0.02,
@@ -153,6 +153,52 @@ test('wall is the earliest hit before an occupant and a breach permits the later
   }));
   assert.equal(laterHit.kind, 'infantry');
   assert.equal(laterHit.agent, agent);
+});
+
+test('penetrative rear-center breach does not reveal a coincident second wall collider', () => {
+  const buildingSystem = createBuildingSystem();
+  const ballistics = new BallisticsSystem({
+    buildingSystem,
+    getUnits: () => [],
+    random: () => 0.5
+  });
+  const breachingWeapon = {
+    ...getWeapon('SA35_AP'),
+    id: 'TEST_REAR_BREACH_AP',
+    muzzleVelocity: 1000,
+    penetrationMmAt100m: 1000
+  };
+  const rearProjectile = () => createProjectile({
+    weapon: breachingWeapon,
+    x: -1.45,
+    startZ: -10,
+    endZ: -2,
+    speed: 1000
+  });
+  const initialPartIds = new Set(
+    buildingSystem.getCollisionSnapshot('house-1').records
+      .map(record => record.partId)
+  );
+  for (const partId of ['upper-left-inner', 'upper-right-inner', 'upper-back']) {
+    assert.ok(initialPartIds.has(partId), `the stable ${partId} collider ID remains available`);
+  }
+
+  const firstProjectile = rearProjectile();
+  const firstHit = ballistics.detectImpact(firstProjectile);
+  assert.equal(firstHit.kind, 'building');
+  assert.equal(firstHit.buildingId, 'house-1');
+  assert.equal(firstHit.sectionId, 'ground-shell');
+  assert.equal(firstHit.colliderPartId, 'ground-back');
+
+  const result = ballistics.resolveBuildingImpact(firstProjectile, firstHit);
+  assert.equal(result.penetrated, true);
+  assert.equal(result.buildingResult.result.breached, true);
+
+  assert.equal(
+    ballistics.detectImpact(rearProjectile()),
+    null,
+    'breaching the rear center must not expose a coincident wall at the same position'
+  );
 });
 
 test('HE blast damages sections, cascades support collapse, and applies exact occupant consequence', () => {

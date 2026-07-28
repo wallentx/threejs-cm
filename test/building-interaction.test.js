@@ -126,6 +126,22 @@ function createCapacityHarness(unitIds = ['unit-a', 'unit-b']) {
   const upperRoom = descriptor.rooms.find(room => room.id === 'upper-room');
   upperRoom.slots = upperRoom.slots.filter(slot =>
     slot.id === 'upper-front-left' || slot.id === 'upper-front-right');
+  const retainedSlots = new Set(upperRoom.slots.map(slot => slot.id));
+  const removedApertures = new Set(
+    descriptor.firePorts
+      .filter(port => port.roomId === upperRoom.id && !retainedSlots.has(port.approachSlotId))
+      .map(port => port.aperture.id)
+  );
+  descriptor.firePorts = descriptor.firePorts.filter(
+    port => port.roomId !== upperRoom.id || retainedSlots.has(port.approachSlotId)
+  );
+  for (const section of descriptor.sections) {
+    for (const colliderPart of section.colliderParts) {
+      if (removedApertures.has(colliderPart.openingId)) {
+        delete colliderPart.openingId;
+      }
+    }
+  }
 
   const buildings = new BuildingSystem();
   buildings.registerDescriptor(descriptor);
@@ -220,10 +236,15 @@ test('four individual soldiers enter upper floor, use window arcs, and exit', ()
     ]
   );
 
-  const windowSoldier = occupied.find(agent => agent.buildingLocation.firePortId);
-  const rearSoldier = occupied.find(agent => !agent.buildingLocation.firePortId);
-  assert.equal(interactions.canFireAt(windowSoldier, [10, 4, 60]), true);
-  assert.equal(interactions.canFireAt(windowSoldier, [10, 4, -20]), false);
+  const frontSoldier = occupied.find(
+    agent => agent.buildingLocation.firePortId === 'upper-window-left'
+  );
+  const rearSoldier = occupied.find(
+    agent => agent.buildingLocation.firePortId === 'upper-rear-window-left'
+  );
+  assert.equal(interactions.canFireAt(frontSoldier, [10, 4, 60]), true);
+  assert.equal(interactions.canFireAt(frontSoldier, [10, 4, -20]), false);
+  assert.equal(interactions.canFireAt(rearSoldier, [10, 4, -20]), true);
   assert.equal(interactions.canFireAt(rearSoldier, [10, 4, 60]), false);
 
   assert.equal(interactions.issueExit(unit).accepted, true);

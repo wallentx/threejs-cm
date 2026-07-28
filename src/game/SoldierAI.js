@@ -12,6 +12,10 @@ import {
 import {
   cloneThreatMemoryState
 } from '../simulation/infantry/ThreatMemory.js';
+import {
+  getInfantryMovementFormationOffset,
+  isInfantryOrderMovingFireProhibited
+} from '../simulation/infantry/InfantryMovementOrders.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const scratchGoal = new THREE.Vector3();
@@ -319,6 +323,15 @@ export class SoldierAI {
   }
 
   getFormationOffset(index, orderType = 'QUICK') {
+    const profiledOffset =
+      getInfantryMovementFormationOffset(orderType, index);
+    if (profiledOffset) {
+      return new THREE.Vector3(
+        profiledOffset.x,
+        profiledOffset.y,
+        profiledOffset.z
+      );
+    }
     if (orderType === 'FAST') {
       return new THREE.Vector3(index % 2 === 0 ? -0.48 : 0.48, 0, -Math.floor(index / 2) * 1.2);
     }
@@ -378,12 +391,20 @@ export class SoldierAI {
         activeWaypoint.position.z - this.unit.position.z
       ) < 0.8
     );
-    const coordinatorActive = Boolean(
+    const explicitAssault = Boolean(
+      activeWaypoint
+      && activeWaypoint.orderType === 'ASSAULT'
+      && orderType === 'ASSAULT'
+    );
+    const knownTargetQuick = Boolean(
       activeWaypoint
       && activeWaypoint.orderType === 'QUICK'
       && orderType === 'QUICK'
       && hasValidRetainedDirectTarget(this.unit)
       && context.hasDirectPrecisionObservation === true
+    );
+    const coordinatorActive = Boolean(
+      (explicitAssault || knownTargetQuick)
       && !isBuildingTransitActive(this.agents)
     );
     const waypointKey = activeWaypoint
@@ -577,6 +598,7 @@ export class SoldierAI {
         isShielded: cover?.shielded ?? false,
         hasLeaderNearby,
         coveringHold: boundDirective?.holdMovement ?? false,
+        coveringStance: explicitAssault ? 'KNEELING' : null,
         buddyBoundMover: boundDirective?.blockFire ?? false
       });
       soldier.lastSuppression = agent.suppression;
@@ -917,9 +939,11 @@ export class SoldierAI {
 
   getReadyShooters() {
     return this.getLivingAgents().filter(agent =>
-      agent.fireCooldown <= 0
+      !['INCAPACITATED', 'DEAD'].includes(agent.status)
+      && agent.fireCooldown <= 0
       && agent.suppression < 58
       && agent.state !== 'MOVING'
+      && !isInfantryOrderMovingFireProhibited(agent.state)
       && agent.state !== 'REACTING'
       && agent.state !== 'BOUNDING'
     );

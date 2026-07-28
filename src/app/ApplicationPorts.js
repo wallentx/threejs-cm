@@ -196,12 +196,10 @@ export function createUIRuntimePort({
       });
     },
     toggleDeployment() {
-      return selectedAction(getSelectedUnit, unit => {
-        unit.isDeployed = !unit.isDeployed;
-        unit.stance = unit.isDeployed ? 'KNEELING' : 'STANDING';
-        unit.updateStanceVisuals();
-        return unit.isDeployed;
-      });
+      return selectedAction(
+        getSelectedUnit,
+        unit => unit.toggleCrewServedDeployment?.() ?? null
+      );
     },
     splitSelectedUnit() {
       return selectedAction(getSelectedUnit, splitUnit);
@@ -209,8 +207,14 @@ export function createUIRuntimePort({
     exitSelectedBuilding() {
       return selectedAction(getSelectedUnit, issueBuildingExit);
     },
-    issueBuildingOrder(unit, action, point, buildingId) {
-      return commands.onBuildingOrder?.(unit, action, point, buildingId) ?? null;
+    issueBuildingOrder(unit, action, point, buildingId, orderType) {
+      return commands.onBuildingOrder?.(
+        unit,
+        action,
+        point,
+        buildingId,
+        orderType
+      ) ?? null;
     }
   });
 }
