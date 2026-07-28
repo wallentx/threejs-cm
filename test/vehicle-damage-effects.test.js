@@ -5,6 +5,9 @@ import {
   VehicleDamageEffects,
   getVehicleVisualDamage
 } from '../src/world/VehicleDamageEffects.js';
+import {
+  createVehiclePhysicsState
+} from '../src/simulation/vehicles/VehiclePhysics.js';
 import { TEST_VFX_PROVIDER } from './helpers/TestVfxProvider.js';
 
 function createVehicle() {
@@ -139,6 +142,47 @@ test('restore baselines persistent damage without replaying an old destruction b
   assert.equal(record.blast.visible, false);
   assert.ok(record.smoke.count > 0, 'persistent restored damage should still rebuild smoke');
   assert.ok(record.flames.count > 0, 'persistent restored fire should still rebuild flames');
+
+  effects.dispose();
+});
+
+test('vehicle damage presentation follows authoritative detached-turret physics', () => {
+  const unit = createVehicle();
+  const turret = new THREE.Group();
+  turret.position.set(0.15, 1.45, -0.2);
+  unit.mesh.add(turret);
+  unit.mesh.userData.turret = turret;
+  unit.vehicleWeapon = { turretYaw: 0.25 };
+  unit.vehiclePhysics = createVehiclePhysicsState({
+    turret: {
+      status: 'AIRBORNE',
+      offset: [0.8, 1.2, 0.5],
+      velocity: [1, 2, 0.5],
+      rotation: [0.2, 0.3, -0.4],
+      angularVelocity: [1, 1, 1],
+      baseYaw: 0.15,
+      ageSeconds: 0.5,
+      bounceCount: 0,
+      separationEventVersion: 4
+    }
+  });
+  const restPosition = turret.position.clone();
+  const restQuaternion = turret.quaternion.clone();
+  const effects = new VehicleDamageEffects({ vfxProvider: TEST_VFX_PROVIDER });
+
+  effects.update(1 / 30, [unit], []);
+  assert.equal(getVehicleVisualDamage(unit).turretSeparated, true);
+  assert.deepEqual(turret.position.toArray(), [
+    restPosition.x + 0.8,
+    restPosition.y + 1.2,
+    restPosition.z + 0.5
+  ]);
+  assert.notDeepEqual(turret.quaternion.toArray(), restQuaternion.toArray());
+
+  unit.vehiclePhysics.turret.status = 'ATTACHED';
+  effects.update(1 / 30, [unit], []);
+  assert.deepEqual(turret.position.toArray(), restPosition.toArray());
+  assert.ok(Math.abs(turret.rotation.y - unit.vehicleWeapon.turretYaw) < 1e-12);
 
   effects.dispose();
 });

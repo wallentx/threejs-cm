@@ -13,6 +13,10 @@ const IDENTITY_QUATERNION = new THREE.Quaternion();
 const scratchMatrix = new THREE.Matrix4();
 const scratchPosition = new THREE.Vector3();
 const scratchScale = new THREE.Vector3();
+const scratchTurretYaw = new THREE.Quaternion();
+const scratchTurretRotation = new THREE.Quaternion();
+const scratchTurretEuler = new THREE.Euler();
+const UP = new THREE.Vector3(0, 1, 0);
 
 function normalizeState(value) {
   if (typeof value === 'string') return value.toUpperCase();
@@ -110,6 +114,8 @@ export function getVehicleVisualDamage(unit) {
     destroyed,
     damaged,
     secondaryExplosion: unit.vehicleDamageState?.secondaryExplosion === true,
+    turretSeparated: unit.vehiclePhysics?.turret?.status != null
+      && unit.vehiclePhysics.turret.status !== 'ATTACHED',
     eventVersion: unit.vehicleDamageState?.eventVersion ?? 0
   };
 }
@@ -133,6 +139,35 @@ function effectAnchor(dimensions) {
     Math.max(0.75, dimensions.height * 0.56),
     -dimensions.length * 0.31
   );
+}
+
+function isDescendantOf(object, ancestor) {
+  for (let current = object?.parent; current; current = current.parent) {
+    if (current === ancestor) return true;
+  }
+  return false;
+}
+
+function applyObjectLodVisibility(root, level) {
+  if (!root) return;
+  let hasProxy = false;
+  root.traverse(object => {
+    if (object.isMesh && object.userData.lodBand === 'proxy') hasProxy = true;
+  });
+  root.traverse(object => {
+    if (!object.isMesh) return;
+    const band = object.userData.lodBand;
+    if (!band || band === 'ui') return;
+    if (band === 'proxy') object.visible = level === 'low';
+    else if (level === 'low') {
+      // A few authored vehicles keep their far turret beside the detailed
+      // turret instead of below it. Preserve a cheap core silhouette for the
+      // detached body rather than making the popped turret disappear.
+      object.visible = !hasProxy && band === 'core';
+    } else if (level === 'core') object.visible = band === 'core';
+    else if (level === 'medium') object.visible = band !== 'high';
+    else object.visible = true;
+  });
 }
 
 export class VehicleDamageEffects {
@@ -231,8 +266,25 @@ export class VehicleDamageEffects {
       lastBurning: false,
       lastDestroyed: false,
       lastSecondaryExplosion: false,
-      barrelRestRotationX: unit.mesh.userData.barrel?.rotation.x ?? 0
+      barrelRestRotationX: unit.mesh.userData.barrel?.rotation.x ?? 0,
+      turret: unit.mesh.userData.turret ?? null,
+      turretRestPosition: unit.mesh.userData.turret?.position.clone() ?? null,
+      turretRestQuaternion: unit.mesh.userData.turret?.quaternion.clone() ?? null,
+      externalProxyTurretParts: [],
+      turretWasSeparated: false
     };
+    if (record.turret) {
+      unit.mesh.traverse(object => {
+        if (
+          object !== record.turret
+          && object.userData?.lodBand === 'proxy'
+          && /turret|cupola|roofboss/i.test(object.name)
+          && !isDescendantOf(object, record.turret)
+        ) {
+          record.externalProxyTurretParts.push(object);
+        }
+      });
+    }
     this.records.set(unit.id, record);
     return record;
   }
@@ -355,6 +407,52 @@ export class VehicleDamageEffects {
     }
   }
 
+  syncTurretPhysics(record) {
+    if (!record.turret || !record.turretRestPosition || !record.turretRestQuaternion) {
+      return;
+    }
+    const state = record.unit.vehiclePhysics?.turret;
+    const separated = state?.status != null && state.status !== 'ATTACHED';
+    if (!separated) {
+      if (!record.turretWasSeparated) return;
+      record.turret.position.copy(record.turretRestPosition);
+      scratchTurretYaw.setFromAxisAngle(
+        UP,
+        record.unit.vehicleWeapon?.turretYaw ?? 0
+      );
+      record.turret.quaternion
+        .copy(record.turretRestQuaternion)
+        .multiply(scratchTurretYaw);
+      applyObjectLodVisibility(record.turret, record.unit.currentLOD ?? 'high');
+      for (const object of record.externalProxyTurretParts) {
+        object.visible = record.unit.currentLOD === 'low';
+      }
+      record.turretWasSeparated = false;
+      return;
+    }
+
+    record.turret.position.set(
+      record.turretRestPosition.x + state.offset[0],
+      record.turretRestPosition.y + state.offset[1],
+      record.turretRestPosition.z + state.offset[2]
+    );
+    scratchTurretYaw.setFromAxisAngle(UP, state.baseYaw);
+    scratchTurretEuler.set(
+      state.rotation[0],
+      state.rotation[1],
+      state.rotation[2],
+      'XYZ'
+    );
+    scratchTurretRotation.setFromEuler(scratchTurretEuler);
+    record.turret.quaternion
+      .copy(record.turretRestQuaternion)
+      .multiply(scratchTurretYaw)
+      .multiply(scratchTurretRotation);
+    applyObjectLodVisibility(record.turret, record.unit.currentLOD ?? 'high');
+    for (const object of record.externalProxyTurretParts) object.visible = false;
+    record.turretWasSeparated = true;
+  }
+
   updateBurst(record, delta) {
     record.impactTimer = Math.max(0, record.impactTimer - delta);
     record.explosionTimer = Math.max(0, record.explosionTimer - delta);
@@ -409,6 +507,7 @@ export class VehicleDamageEffects {
     for (const record of this.records.values()) {
       const damage = getVehicleVisualDamage(record.unit);
       this.updatePersistentEffects(record, damage, boundedDelta);
+      this.syncTurretPhysics(record);
       this.updateBurst(record, boundedDelta);
       record.root.visible = damage.damaged
         || damage.burning
@@ -437,6 +536,7 @@ export class VehicleDamageEffects {
       record.lastBurning = damage.burning;
       record.lastDestroyed = damage.destroyed;
       record.lastSecondaryExplosion = damage.secondaryExplosion;
+      this.syncTurretPhysics(record);
     }
   }
 

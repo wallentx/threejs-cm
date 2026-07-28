@@ -315,6 +315,16 @@ test('vehicle orders deterministically route through the bridge opening', () => 
   });
   terrain.registerUnitColliders([unit]);
   unit.addWaypoint(new THREE.Vector3(18, 0, 40), 'FAST');
+  const halfSupportLength =
+    unit.vehicleSpec.dimensionsMeters.length * 0.72 * 0.5;
+  const fullDeckMinimumZ =
+    terrain.bridgeSurface.centerZ
+    - terrain.bridgeSurface.halfSpan
+    + halfSupportLength;
+  const fullDeckMaximumZ =
+    terrain.bridgeSurface.centerZ
+    + terrain.bridgeSurface.halfSpan
+    - halfSupportLength;
 
   for (let step = 0; step < 600 && unit.currentWaypointIndex === 0; step++) {
     unit.update(0.05, terrain);
@@ -323,7 +333,17 @@ test('vehicle orders deterministically route through the bridge opening', () => 
         Math.abs(unit.position.x) < terrain.bridgeSurface.halfRoadwayWidth,
         'vehicle must remain inside bridge roadway while crossing'
       );
-      assert.equal(unit.position.y, terrain.bridgeSurface.deckTop);
+      assert.ok(Number.isFinite(unit.position.y));
+      if (
+        unit.position.z >= fullDeckMinimumZ
+        && unit.position.z <= fullDeckMaximumZ
+      ) {
+        assert.equal(
+          unit.vehiclePhysics.hull.targetRideHeight,
+          terrain.bridgeSurface.deckTop,
+          'all four supports must target the flat bridge deck once fully aboard'
+        );
+      }
     }
   }
 

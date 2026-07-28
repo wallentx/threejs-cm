@@ -335,6 +335,19 @@ export function validateMapDescriptor(map) {
   requireFinite(bridge.centerX, 'map.bridge.centerX');
   requireFinite(bridge.centerZ, 'map.bridge.centerZ');
   requireFinite(bridge.span, 'map.bridge.span', { positive: true });
+  requireFinite(
+    bridge.approachLength,
+    'map.bridge.approachLength',
+    { positive: true }
+  );
+  if (
+    typeof bridge.approachDataQuality !== 'string'
+    || bridge.approachDataQuality.trim().length === 0
+  ) {
+    throw new Error(
+      'map.bridge.approachDataQuality requires a non-empty label'
+    );
+  }
   requireId(bridge.profileId, 'map.bridge.profileId');
   requireInsideMap([bridge.centerX, bridge.centerZ], dimensions, 'map.bridge');
   if (bridge.centerZ !== river.centerZ) {
@@ -343,8 +356,13 @@ export function validateMapDescriptor(map) {
   if (bridge.span <= river.cutWidth) {
     throw new Error('map.bridge.span must exceed the river cut width');
   }
-  if (Math.abs(bridge.centerZ) + bridge.span * 0.5 > dimensions.depth * 0.5) {
-    throw new Error('map.bridge span lies outside map bounds');
+  if (
+    Math.abs(bridge.centerZ)
+      + bridge.span * 0.5
+      + bridge.approachLength
+      > dimensions.depth * 0.5
+  ) {
+    throw new Error('map.bridge span and approaches lie outside map bounds');
   }
 
   if (!Array.isArray(map.wallRuns)) throw new Error('map.wallRuns must be an array');

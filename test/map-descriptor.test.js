@@ -259,6 +259,11 @@ test('Stonne map owns immutable terrain, surface, feature, structure, and deploy
   assert.equal(STONNE_1940_MAP.river.waterWidth, 12);
   assert.equal(STONNE_1940_MAP.river.cutWidth, 24);
   assert.equal(STONNE_1940_MAP.bridge.span, 28);
+  assert.equal(STONNE_1940_MAP.bridge.approachLength, 4);
+  assert.match(
+    STONNE_1940_MAP.bridge.approachDataQuality,
+    /approximation/
+  );
   assert.deepEqual(STONNE_1940_MAP.surfaces.riverBankMaterial, {
     color: 0x716b42,
     roughness: 0.98,
@@ -612,6 +617,8 @@ test('map validation rejects malformed extents, duplicate IDs, bad features, and
     [map => { map.bridge.id = map.river.id; }, /duplicate feature id/],
     [map => { map.bridge.centerZ += 1; }, /must align/],
     [map => { map.bridge.span = map.river.cutWidth; }, /span must exceed/],
+    [map => { map.bridge.approachLength = 0; }, /approachLength/],
+    [map => { map.bridge.approachDataQuality = ''; }, /approachDataQuality/],
     [map => { map.wallRuns[0].end = [...map.wallRuns[0].start]; }, /distinct endpoints/],
     [map => { map.structures[0].descriptorId = ''; }, /descriptorId requires/],
     [map => { map.wallEnclosures = {}; }, /wallEnclosures must be an array/],

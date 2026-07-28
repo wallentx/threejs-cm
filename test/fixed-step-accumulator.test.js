@@ -39,6 +39,7 @@ function runFrameStream(frameBudgets) {
     ticks,
     position: unit.position.toArray(),
     rotation: unit.rotation,
+    vehiclePhysics: unit.captureState().vehiclePhysics,
     waypointIndex: unit.currentWaypointIndex,
     remainder: stepper.remainderSeconds
   };

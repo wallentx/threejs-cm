@@ -73,6 +73,50 @@ test('every catalog vehicle owns immutable named model-local armor collision vol
   }
 });
 
+test('armor sweeps follow authoritative hull pitch and remove a separated turret volume', () => {
+  const spec = {
+    id: 'PHYSICS_COLLIDER',
+    armorCollision: {
+      quality: 'test',
+      volumes: [{
+        id: 'tilting-turret',
+        part: 'turret',
+        followsTurret: true,
+        center: [0, 1, 0],
+        offset: [0, 0, 0],
+        halfExtents: [1, 1, 2],
+        faceZones: {
+          positiveX: 'turret_side',
+          negativeX: 'turret_side',
+          positiveY: 'turret_roof',
+          negativeY: 'turret_bottom',
+          positiveZ: 'turret_front',
+          negativeZ: 'turret_rear'
+        },
+        fallbackZones: {},
+        geometryQuality: 'test'
+      }]
+    }
+  };
+  const unit = vehicleUnit(spec);
+  unit.vehiclePhysics = {
+    hull: {
+      initialized: true,
+      pitch: -Math.PI / 6,
+      roll: 0
+    },
+    turret: { status: 'ATTACHED' }
+  };
+
+  const hit = segment([0, 5, -1], [0, -2, -1], unit);
+  assert.equal(hit.zone, 'turret_roof');
+  assert.ok(hit.normal[1] > 0.8);
+  assert.ok(hit.normal[2] < -0.45, 'roof normal must pitch with the rendered hull');
+
+  unit.vehiclePhysics.turret.status = 'AIRBORNE';
+  assert.equal(segment([0, 5, -1], [0, -2, -1], unit), null);
+});
+
 test('SOMUA uses shared sloped station plates plus mantlet, cupola, and track zones', () => {
   const unit = vehicleUnit(VEHICLES.SOMUA_S35);
   assert.equal(unit.vehicleSpec.armorCollision.version, 'named-triangle-plates-v2');

@@ -437,6 +437,70 @@ test('AP, HE, and MG target tools persist their explicit mode on the order', () 
   }
 });
 
+test('multi-selection preserves move formation offsets and shares target orders', () => {
+  const first = createUnit({
+    position: new THREE.Vector3(0, 0, 0)
+  });
+  const second = createUnit({
+    position: new THREE.Vector3(4, 0, -2)
+  });
+  const commands = new CommandSystem(new THREE.Scene(), {
+    terrain: {
+      getMovementHeightAt: () => 3
+    },
+    isSetupPhase: () => false
+  });
+  commands.setActiveUnits([first, second], first);
+  commands.setCommandMode('MOVE_QUICK');
+
+  assert.equal(
+    commands.handleMapClick(new THREE.Vector3(10, 1, 12)),
+    true
+  );
+  assert.deepEqual(first.waypoints[0].position.toArray(), [10, 3, 12]);
+  assert.deepEqual(second.waypoints[0].position.toArray(), [14, 3, 10]);
+  assert.equal(commands.activeUnit, first);
+  assert.deepEqual(commands.activeUnits, [first, second]);
+  assert.equal(commands.activeMode, 'MOVE_QUICK');
+
+  const target = { id: 'enemy' };
+  commands.setCommandMode('TARGET');
+  assert.equal(
+    commands.handleMapClick(new THREE.Vector3(20, 2, 25), target),
+    true
+  );
+  for (const selected of [first, second]) {
+    assert.equal(selected.targetUnit, target);
+    assert.equal(selected.targetMode, 'TARGET');
+    assert.deepEqual(selected.targetPos.toArray(), [20, 2, 25]);
+  }
+  assert.equal(commands.activeMode, null);
+  assert.equal(commands.activeUnit, first);
+});
+
+test('multi-selection applies face orders to every unit and closes the tool', () => {
+  const first = createUnit({ position: new THREE.Vector3(0, 0, 0) });
+  const second = createUnit({ position: new THREE.Vector3(4, 0, -2) });
+  for (const unit of [first, second]) {
+    unit.rotation = 0;
+    unit.mesh = { rotation: { y: 0 } };
+  }
+  const commands = new CommandSystem(new THREE.Scene());
+  commands.setActiveUnits([first, second], first);
+  commands.setCommandMode('FACE');
+
+  assert.equal(
+    commands.handleMapClick(new THREE.Vector3(10, 0, 12)),
+    true
+  );
+  assert.equal(first.rotation, Math.atan2(10, 12));
+  assert.equal(second.rotation, Math.atan2(6, 14));
+  assert.equal(first.mesh.rotation.y, first.rotation);
+  assert.equal(second.mesh.rotation.y, second.rotation);
+  assert.equal(commands.activeMode, null);
+  assert.equal(commands.activeUnit, first);
+});
+
 test('completed queues start from the live position and unsupported movers retain direct waypoints', () => {
   const calls = [];
   const completed = createUnit({

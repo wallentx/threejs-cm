@@ -302,6 +302,12 @@ canvas {
   color: var(--accent-gold);
 }
 
+.btn-top.active {
+  border-color: var(--accent-gold);
+  background: var(--accent-olive);
+  color: #fff;
+}
+
 .btn-top.danger {
   border-color: var(--accent-red);
 }
@@ -327,23 +333,31 @@ canvas {
   display: flex;
   flex-direction: column;
   align-items: center;
-  cursor: pointer;
-  pointer-events: auto;
-  touch-action: manipulation;
+  pointer-events: none;
 }
 
 .icon-badge {
   width: 34px;
   height: 34px;
+  padding: 0;
   border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
+  appearance: none;
+  font-family: inherit;
   font-weight: 800;
   font-size: 15px;
   color: #fff;
   box-shadow: 0 3px 8px rgba(0,0,0,0.8);
   border: 2px solid #ffffff88;
+  pointer-events: none;
+}
+
+.icon-badge.friendly {
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
 }
 
 .icon-badge.faction {
@@ -354,6 +368,11 @@ canvas {
 .icon-badge.selected {
   border-color: var(--accent-gold);
   box-shadow: 0 0 12px var(--accent-gold);
+}
+
+.icon-badge.friendly:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
 }
 
 .icon-label {
@@ -692,7 +711,7 @@ body[data-play-mode="realtime"] #btn-go {
 /* Squad Roster */
 .roster-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
   gap: 2px;
   max-height: 80px;
   overflow-y: auto;
@@ -702,9 +721,10 @@ body[data-play-mode="realtime"] #btn-go {
   background: rgba(30, 41, 59, 0.6);
   padding: 2px 4px;
   border-radius: 3px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 1px;
   font-size: 8px;
 }
 
@@ -723,10 +743,19 @@ body[data-play-mode="realtime"] #btn-go {
   white-space: nowrap;
 }
 
-.soldier-slot strong {
-  margin-left: 4px;
-  max-width: 48%;
+.soldier-slot b {
   overflow: hidden;
+  font-size: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.soldier-slot strong {
+  margin-left: 0;
+  max-width: 100%;
+  overflow: hidden;
+  color: #dbeafe;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -845,36 +874,19 @@ body[data-play-mode="realtime"] #btn-go {
   color: #fca5a5;
 }
 
-.vehicle-floating-health {
-  position: relative;
-  width: 116px;
-  height: 10px;
+.vehicle-floating-condition {
   margin: 2px auto 0;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.62);
+  padding: 1px 4px;
   border-radius: 2px;
-  background: rgba(15, 23, 42, 0.92);
-}
-
-.vehicle-floating-health > span {
-  position: absolute;
-  inset: 0 auto 0 0;
-  background: linear-gradient(90deg, #dc2626, #f59e0b 48%, #22c55e);
-}
-
-.vehicle-floating-health > strong {
-  position: absolute;
-  inset: 0;
   color: #fff;
+  background: rgba(127, 29, 29, 0.92);
   font-family: var(--font-mono);
   font-size: 7px;
-  line-height: 9px;
-  text-align: center;
-  text-shadow: 0 1px 2px #000;
+  font-weight: 800;
 }
 
-.vehicle-floating-health.burning {
-  border-color: #ff6b1a;
+.vehicle-floating-condition.burning {
+  background: rgba(154, 52, 18, 0.94);
   box-shadow: 0 0 7px rgba(255, 86, 20, 0.75);
 }
 
@@ -971,12 +983,85 @@ body[data-play-mode="realtime"] #btn-go {
   flex-direction: column;
 }
 
+body.tactical-map-hidden #panel-minimap {
+  display: none !important;
+}
+
 #minimap-canvas {
   background: #0b0d10;
   border: 1px solid #334155;
   border-radius: 4px;
   width: 100%;
   height: 80px;
+}
+
+@media (min-width: 1024px) {
+  #hud-panel {
+    grid-template-columns:
+      minmax(190px, 0.78fr)
+      minmax(360px, 1.75fr)
+      minmax(250px, 1.12fr)
+      minmax(160px, 0.72fr);
+  }
+
+  body.tactical-map-hidden #hud-panel {
+    grid-template-columns:
+      minmax(210px, 0.72fr)
+      minmax(520px, 2fr)
+      minmax(320px, 1.05fr);
+  }
+
+  .box-header {
+    font-size: 11px;
+  }
+
+  .unit-title {
+    font-size: 14px;
+  }
+
+  .unit-subtitle,
+  .status-item {
+    font-size: 11px;
+  }
+
+  .roster-grid {
+    grid-template-columns: repeat(auto-fill, minmax(126px, 148px));
+    max-height: 112px;
+  }
+
+  .soldier-slot {
+    padding: 4px 6px;
+    font-size: 11px;
+  }
+
+  .soldier-slot em,
+  .soldier-slot strong {
+    font-size: 10px;
+  }
+
+  .vehicle-system-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 3px;
+  }
+
+  .vehicle-system {
+    padding: 4px 5px 5px;
+    font-size: 11px;
+  }
+
+  .vehicle-system span {
+    font-size: 10px;
+  }
+
+  .vehicle-mount,
+  .ammo-inventory,
+  .cmd-tab {
+    font-size: 10px;
+  }
+
+  .btn-cmd {
+    font-size: 11px;
+  }
 }
 
 /* MOBILE SPECIFIC RULES (< 640px) */
@@ -1023,7 +1108,7 @@ body[data-play-mode="realtime"] #btn-go {
   .top-controls {
     grid-area: controls;
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 3px;
     width: 100%;
     min-width: 0;

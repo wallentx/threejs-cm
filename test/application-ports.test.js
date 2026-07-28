@@ -26,6 +26,7 @@ function runtimeHarness() {
     }
   };
   let selectedUnit = unit;
+  let selectedUnits = [unit];
   const buildingFloorIds = ['ground-floor', 'upper-floor'];
   const wego = {
     playMode: 'wego',
@@ -82,13 +83,22 @@ function runtimeHarness() {
     },
     playerFactionId: 'blue',
     getSelectedUnit: () => selectedUnit,
+    getSelectedUnits: () => selectedUnits,
     getVisibilityProjection: () => ({ visibleUnitIds: ['blue-1'], contacts: [] }),
     getBocageObstacles: () => [{ id: 'hedge-1' }],
     getImpacts: () => [{ id: 9 }],
     getBuildingFloorIds: buildingId =>
       buildingId === 'house-1' ? buildingFloorIds : [],
-    selectUnit: next => { selectedUnit = next; },
-    deselectUnit: () => { selectedUnit = null; },
+    selectUnit: (next, { additive = false } = {}) => {
+      selectedUnits = additive
+        ? [...selectedUnits, next]
+        : [next];
+      selectedUnit = next;
+    },
+    deselectUnit: () => {
+      selectedUnit = null;
+      selectedUnits = [];
+    },
     splitUnit: selected => calls.push(['split', selected.id]),
     issueBuildingExit: selected => calls.push(['exit', selected.id])
   });
@@ -99,6 +109,7 @@ test('UI runtime port exposes explicit queries and delegates named commands', ()
   const { port, unit, wego, commands, sound, calls, getSelected } = runtimeHarness();
 
   assert.equal(port.selectedUnit, unit);
+  assert.deepEqual(port.selectedUnits, [unit]);
   assert.equal(port.playerFactionId, 'blue');
   assert.equal(port.isPlayerFaction('blue'), true);
   assert.equal(port.getFactionPresentation('red').flagGlyph, 'R');

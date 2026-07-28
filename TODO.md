@@ -179,11 +179,13 @@ Status:
 - [ ] Improve suspension, track movement, terrain grounding, and wreck physics; evaluate deterministic Rapier specifically for bounded dynamic rigid-body needs.
   - [x] Replace opaque rectangular track slabs on all ten tracked vehicles with shared instanced closed-belt links, cleats, named wheels/sprockets/idlers, and open far-LOD belt-and-wheel silhouettes.
   - [x] Keep authoritative static movement collision game-side and deterministic; reserve a direct Rapier evaluation for dynamic wrecks, suspension, and ragdolls instead of replacing ballistics, building topology, or rollback state.
+  - [x] First terrain-dynamics slice: derive deterministic four-point support pitch, roll, and ride height from each vehicle envelope; critically damp the authoritative hull pose; apply it to rendered hulls, muzzle markers, armor, and internal volumes; and preserve deep fixed-step capture/restore. Per-wheel suspension travel and vehicle-specific support datums remain.
   - [ ] Animate link travel and wheel rotation from actual distance, conform suspension to terrain, shed damaged tracks, and add deterministic wreck settling.
 - [ ] Expand visible vehicle damage into component-local damage variants, persistent wrecks, and layered audio.
-  - [x] First presentation pass: resolved impact sparks/scorch, engine smoke, persistent fire, destruction/secondary-explosion bursts, disabled-gun droop, selected-vehicle health, component status, mount state, and ammunition HUD.
+  - [x] First presentation pass: resolved impact sparks/scorch, engine smoke, persistent fire, destruction/secondary-explosion bursts, disabled-gun droop, component status, mount state, and ammunition HUD.
   - [x] Bound combat presentation churn: cached WebAudio noise buffers, capped/released audio voices, shared projectile resources, and capped reusable impact/explosion visuals.
-  - [ ] Add authoritative progressive fuel fires and ammunition cookoff, catastrophic turret separation, broken/shed tracks, dent/hole decals aligned to armor normals, damaged wheels, deformed engine/gun/turret variants, leaking fuel, crew bailout visuals, persistent wreck smoke lifecycle, and component-specific sounds.
+  - [x] Catastrophic-damage physics slice: make an authoritative ammunition secondary explosion launch a turret with dimension-derived impulse, gravity, bounded substeps, bounce, friction, settlement, event provenance, deep rollback state, LOD-aware presentation, and removal of the former attached turret armor/internal volumes.
+  - [ ] Add authoritative progressive fuel fires and staged ammunition cookoff, broken/shed tracks, dent/hole decals aligned to armor normals, damaged wheels, deformed engine/gun/turret variants, leaking fuel, crew bailout visuals, persistent wreck smoke lifecycle, and component-specific sounds.
 - [ ] Continue battlefield scale and environmental-fidelity pass.
   - [x] Define one metre-scale contract and normalize authored infantry to a 1.75 m standing reference.
   - [x] Replace oversized wall slabs with 72 closed, terrain-conforming masonry segments and matching collision bounds.
@@ -281,8 +283,12 @@ Status:
 - [x] Preserve in-flight projectiles, shot sequence, impact telemetry, and rollback-safe vehicle damage marks across WEGO seek and replay.
 - [x] Add visible realtime/WEGO controls on mobile.
 - [x] Add CANCEL TOOL, DESELECT, Escape, right-click, and empty-ground deselection.
+- [x] Make friendly floating badges the sole unit-selection surface, keep friendly models out of target raycasts, and stop selection from moving or following the camera.
+- [x] Add Shift/Ctrl/Command badge multi-selection with shared formation-preserving move, target, and face orders plus per-unit path and target overlays.
 - [x] Hide command actions and squad roster/weapons content when no unit is selected while preserving the HUD footprint.
 - [x] Keep the tactical map visible in portrait mobile layout.
+- [x] Add a top tactical-map toggle and reflow the hidden-map desktop HUD with a wider crew/system panel, a rightmost command panel, narrower role-first roster cards, and more readable desktop text.
+- [x] Remove the non-authoritative aggregate vehicle health percentage from floating badges and the crew/system header while preserving exact component health and meaningful fire/knockout conditions.
 - [x] Keep portrait HUD space stable as a two-by-two grid with internally scrollable command content.
 - [x] Enforce complete friendly and enemy unit footprints inside their command-phase deployment boxes.
 - [x] Make initial setup-area overlays terrain-conforming, raycast-inert, and removable at match start; relocate valid full unit footprints immediately during the opening command phase.

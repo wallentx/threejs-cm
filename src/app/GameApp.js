@@ -233,6 +233,7 @@ export class GameApp {
       this.units = [];
       this.movedUnitIds = new Set();
       this.selectedUnit = null;
+      this.selectedUnits = [];
       this.matchStarted = false;
       this.infantrySeparation = new InfantrySeparationSystem();
       this.buildingInteraction = new BuildingInteractionSystem({
@@ -290,6 +291,7 @@ export class GameApp {
         factionPresentation: this.factionPresentation,
         playerFactionId: this.playerFactionId,
         getSelectedUnit: () => this.selectedUnit,
+        getSelectedUnits: () => [...this.selectedUnits],
         getVisibilityProjection: units => this.visibilityProjection
           ?? this.spotting.getVisibilityProjection(this.playerFactionId, units),
         getBocageObstacles: () => this.terrain.bocageObstacles,
@@ -304,7 +306,7 @@ export class GameApp {
             return [];
           }
         },
-        selectUnit: unit => this.selectUnit(unit),
+        selectUnit: (unit, options) => this.selectUnit(unit, options),
         deselectUnit: () => this.deselectUnit(),
         splitUnit: unit => this.splitUnit(unit),
         issueBuildingExit: unit => this.issueBuildingExit(unit)
@@ -469,29 +471,56 @@ export class GameApp {
     }
   }
 
-  selectUnit(unit) {
+  selectUnits(units, primaryUnit = null) {
+    const uniqueUnits = [...new Set((units ?? []).filter(unit =>
+      unit
+      && unit.faction === this.playerFactionId
+      && this.units.includes(unit)
+    ))];
+    const selectedSet = new Set(uniqueUnits);
     for (const candidate of this.units) {
       const disc = candidate.mesh?.userData.selectionDisc;
-      if (disc) disc.visible = candidate === unit;
+      if (disc) disc.visible = selectedSet.has(candidate);
     }
-    this.selectedUnit = unit;
-    document.body.dataset.selectedUnit = unit.id;
-    this.commands.setActiveUnit(unit);
-    this.ui.updateUnitHUD(unit);
+    this.selectedUnits = uniqueUnits;
+    this.selectedUnit = selectedSet.has(primaryUnit)
+      ? primaryUnit
+      : (uniqueUnits.at(-1) ?? null);
+    if (globalThis.document?.body) {
+      document.body.dataset.selectedUnit = this.selectedUnit?.id ?? 'none';
+      document.body.dataset.selectedUnits = uniqueUnits
+        .map(unit => unit.id)
+        .join(',');
+    }
+    this.commands.setActiveUnits(uniqueUnits, this.selectedUnit);
+    this.cameraManager.followUnit = null;
+    if (this.selectedUnit) this.ui.updateUnitHUD(this.selectedUnit);
+    else this.ui.clearUnitHUD();
     this.ui.renderCommandGrid();
-    this.cameraManager.followUnit = unit;
+    return this.selectedUnit;
+  }
+
+  selectUnit(unit, { additive = false } = {}) {
+    if (
+      !unit
+      || unit.faction !== this.playerFactionId
+      || !this.units.includes(unit)
+    ) {
+      return false;
+    }
+    if (!additive) {
+      this.selectUnits([unit], unit);
+      return true;
+    }
+    const selected = this.selectedUnits.includes(unit)
+      ? this.selectedUnits.filter(candidate => candidate !== unit)
+      : [...this.selectedUnits, unit];
+    this.selectUnits(selected, selected.includes(unit) ? unit : selected.at(-1));
+    return true;
   }
 
   deselectUnit() {
-    if (this.selectedUnit?.mesh?.userData.selectionDisc) {
-      this.selectedUnit.mesh.userData.selectionDisc.visible = false;
-    }
-    this.selectedUnit = null;
-    document.body.dataset.selectedUnit = 'none';
-    this.commands.clearActiveUnit();
-    this.cameraManager.followUnit = null;
-    this.ui.clearUnitHUD();
-    this.ui.renderCommandGrid();
+    this.selectUnits([]);
   }
 
   splitUnit(unit) {
@@ -562,6 +591,7 @@ export class GameApp {
       combat: this.combat.captureState(),
       supportMissions: this.support.captureState(),
       selectedUnitId: this.selectedUnit?.id ?? null,
+      selectedUnitIds: this.selectedUnits.map(unit => unit.id),
       matchStarted: this.matchStarted
     };
   }
@@ -586,8 +616,13 @@ export class GameApp {
     this.shotTrajectoryOverlay.clear();
     this.support.restoreState(state.supportMissions, unitMap);
     if (state.matchStarted) this.beginMatch();
+    const selectedUnits = (state.selectedUnitIds ?? [])
+      .map(id => unitMap.get(id))
+      .filter(Boolean);
     const selected = state.selectedUnitId ? unitMap.get(state.selectedUnitId) : null;
-    if (selected) this.selectUnit(selected);
+    if (selectedUnits.length > 0) this.selectUnits(selectedUnits, selected);
+    else if (selected) this.selectUnit(selected);
+    else this.deselectUnit();
     this.commands.renderOverlays();
   }
 
@@ -762,11 +797,24 @@ export class GameApp {
 
       this.raycaster.setFromCamera(this.mouse, this.camera);
 
-      const unitMeshes = this.units.filter(u => u.mesh && u.mesh.visible).map(u => u.mesh);
-      const unitIntersects = this.raycaster.intersectObjects(unitMeshes, true);
+      // Friendly selection belongs exclusively to the floating badge overlay.
+      // During a target command, raycast only visible opposing models so
+      // friendly bodies cannot steal a terrain or enemy target click.
+      const targetMeshes = isTargetCommandMode(this.commands.activeMode)
+        ? this.units
+            .filter(unit =>
+              unit.faction !== this.playerFactionId
+              && unit.mesh
+              && unit.mesh.visible)
+            .map(unit => unit.mesh)
+        : [];
+      const targetIntersects = this.raycaster.intersectObjects(
+        targetMeshes,
+        true
+      );
 
-      if (unitIntersects.length > 0) {
-        let hitObj = unitIntersects[0].object;
+      if (targetIntersects.length > 0) {
+        let hitObj = targetIntersects[0].object;
         while (hitObj.parent && hitObj.userData?.unitRoot !== true) {
           hitObj = hitObj.parent;
         }
@@ -774,17 +822,11 @@ export class GameApp {
         const clickedUnit = hitObj.userData?.unitRoot === true
           ? this.units.find(unit => unit.id === hitObj.userData.unitId)
           : null;
-        if (clickedUnit) {
-          if (clickedUnit.faction === this.playerFactionId) {
-            this.selectUnit(clickedUnit);
-            this.sound.playUIClick();
-            return;
-          } else if (isTargetCommandMode(this.commands.activeMode)) {
-            this.commands.handleMapClick(clickedUnit.position, clickedUnit);
-            this.ui.renderCommandGrid();
-            this.sound.playUIClick();
-            return;
-          }
+        if (clickedUnit && isTargetCommandMode(this.commands.activeMode)) {
+          this.commands.handleMapClick(clickedUnit.position, clickedUnit);
+          this.ui.renderCommandGrid();
+          this.sound.playUIClick();
+          return;
         }
       }
 

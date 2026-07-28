@@ -48,6 +48,13 @@ import {
   selectVehicleTargetWeapons
 } from '../simulation/combat/VehicleWeaponSelection.js';
 import {
+  advanceVehiclePhysicsState,
+  captureVehiclePhysicsState,
+  createVehiclePhysicsState,
+  VEHICLE_PHYSICS_DATA_QUALITY,
+  VEHICLE_PHYSICS_MODEL
+} from '../simulation/vehicles/VehiclePhysics.js';
+import {
   advanceMortarTeamState,
   canFireMortar,
   captureMortarTeamState,
@@ -286,6 +293,9 @@ export class Unit {
     };
     this.vehicleComponents = createVehicleComponents(this.vehicleSpec, config.vehicleComponents);
     this.vehicleDamageState = createVehicleDamageState(config.vehicleDamageState);
+    this.vehiclePhysics = this.vehicleSpec
+      ? createVehiclePhysicsState(config.vehiclePhysics)
+      : null;
     if (!config.vehicleComponents && config.vehicleDamage) {
       this.applyLegacyVehicleDamage(config.vehicleDamage);
     }
@@ -391,10 +401,54 @@ export class Unit {
       );
     }
 
-    this.mesh.position.copy(this.position);
-    this.mesh.rotation.y = this.rotation;
+    this.syncTransformPresentation();
     this.mesh.userData.unitId = this.id;
     this.mesh.userData.unitRoot = true;
+  }
+
+  syncTransformPresentation() {
+    if (!this.mesh) return;
+    this.mesh.position.copy(this.position);
+    if (this.vehiclePhysics) {
+      this.mesh.rotation.order = 'YXZ';
+      this.mesh.rotation.set(
+        this.vehiclePhysics.hull.pitch,
+        this.rotation,
+        this.vehiclePhysics.hull.roll
+      );
+      return;
+    }
+    this.mesh.rotation.set(0, this.rotation, 0);
+  }
+
+  updateVehiclePhysics(delta, terrain) {
+    if (!this.vehicleSpec || !this.vehiclePhysics) return null;
+    const result = advanceVehiclePhysicsState({
+      state: this.vehiclePhysics,
+      deltaSeconds: delta,
+      position: this.position,
+      yaw: this.rotation,
+      dimensions: this.vehicleSpec.dimensionsMeters,
+      terrain,
+      damageState: this.vehicleDamageState,
+      hasDetachableTurret: Boolean(
+        this.vehicleSpec.mainGun
+        && this.vehicleSpec.turretTraverseRadPerSecond > 0
+      ),
+      turretYaw: this.vehicleWeapon?.turretYaw ?? 0
+    });
+    if (this.vehiclePhysics.hull.initialized) {
+      this.position.y = this.vehiclePhysics.hull.rideHeight;
+    }
+    if (result.separatedNow) {
+      recordVehicleEvent(this.vehicleDamageState, 'turret_separated', {
+        cause: 'secondary_explosion',
+        physicsModelVersion: VEHICLE_PHYSICS_MODEL,
+        dataQuality: VEHICLE_PHYSICS_DATA_QUALITY
+      });
+    }
+    this.syncTransformPresentation();
+    return result;
   }
 
   replaceRoster(roster) {
@@ -1803,6 +1857,9 @@ export class Unit {
         Object.entries(this.vehicleComponents).map(([id, component]) => [id, { ...component }])
       ),
       vehicleDamageState: createVehicleDamageState(this.vehicleDamageState),
+      vehiclePhysics: this.vehiclePhysics
+        ? captureVehiclePhysicsState(this.vehiclePhysics)
+        : null,
       vehicleCrewTasks: captureVehicleCrewTaskState(this.vehicleCrewTasks),
       vehicleMainGunnerCombatSeconds: this.vehicleMainGunnerCombatSeconds,
       structureState: this.structureState
@@ -1869,6 +1926,9 @@ export class Unit {
     this.vehicleDamage = { ...this.vehicleDamage, ...state.vehicleDamage };
     this.vehicleComponents = createVehicleComponents(this.vehicleSpec, state.vehicleComponents);
     this.vehicleDamageState = createVehicleDamageState(state.vehicleDamageState);
+    this.vehiclePhysics = this.vehicleSpec
+      ? createVehiclePhysicsState(state.vehiclePhysics)
+      : null;
     this.vehicleCrewTasks = restoreVehicleCrewTaskState(
       this.vehicleSpec?.crewTaskPolicy,
       state.vehicleCrewTasks
@@ -1887,8 +1947,7 @@ export class Unit {
     this.currentLOD = null;
     if (this.soldierAI) this.soldierAI.restoreRoster(state.roster);
     else this.roster = state.roster.map(soldier => ({ ...soldier }));
-    this.mesh.position.copy(this.position);
-    this.mesh.rotation.y = this.rotation;
+    this.syncTransformPresentation();
     this.updateStanceVisuals();
     this.syncLegacyVehicleDamage();
     this.syncStructureVisuals();
@@ -2072,6 +2131,8 @@ export class Unit {
         }
       }
     }
+
+    this.updateVehiclePhysics(delta, terrain);
 
     this.soldierAI?.update(delta, terrain, {
       anchorMoving,

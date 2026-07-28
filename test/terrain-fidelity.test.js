@@ -395,9 +395,16 @@ test('riverbank strips conform to the existing height field without collision or
     assert.equal(mapFeatureId, STONNE_1940_MAP.river.id);
     assert.equal(materialRole, 'riverBank');
     assert.equal(strip.material, terrain.getSurfaceAssets().materials.riverBank);
+    assert.equal(strip.material.polygonOffset, true);
+    assert.ok(strip.material.polygonOffsetFactor < 0);
+    assert.ok(strip.material.polygonOffsetUnits < 0);
     assert.equal(strip.receiveShadow, true);
     assert.equal(strip.castShadow, false);
     assert.match(rendererApproximation.label, /renderer-only/);
+    assert.deepEqual(rendererApproximation.depthBias, {
+      factor: strip.material.polygonOffsetFactor,
+      units: strip.material.polygonOffsetUnits
+    });
     assert.ok(rendererApproximation.xSubdivisions > 1);
     assert.ok(rendererApproximation.crossSlopeSubdivisions > 1);
     assert.ok(rendererApproximation.surfaceOffset > 0);
@@ -449,6 +456,62 @@ test('riverbank strips conform to the existing height field without collision or
   );
 });
 
+test('bridge approaches continuously join deck, movement surface, and land', () => {
+  const scene = new THREE.Scene();
+  const terrain = createTerrain(scene);
+  terrain.buildRiverAndBridge();
+  const bridge = scene.getObjectByName('StoneBridge');
+  const approaches = bridge.children.filter(
+    child => child.name === 'BridgeApproach'
+  );
+
+  assert.equal(approaches.length, 2);
+  assert.deepEqual(
+    approaches.map(approach => approach.userData.side).sort(),
+    ['north', 'south']
+  );
+  for (const direction of [-1, 1]) {
+    const approach = approaches.find(candidate =>
+      candidate.userData.side === (direction < 0 ? 'south' : 'north')
+    );
+    const innerZ = terrain.bridgeSurface.centerZ
+      + direction * terrain.bridgeSurface.halfSpan;
+    const outerZ = innerZ
+      + direction * terrain.bridgeSurface.approachLength;
+    assert.equal(
+      terrain.getMovementHeightAt(0, innerZ),
+      terrain.bridgeSurface.deckTop
+    );
+    assertNear(
+      terrain.getMovementHeightAt(0, outerZ),
+      terrain.getHeightAt(0, outerZ),
+      'approach outer edge must meet land'
+    );
+    const midpointZ = (innerZ + outerZ) * 0.5;
+    const midpointHeight = terrain.getMovementHeightAt(0, midpointZ);
+    assert.ok(midpointHeight < terrain.bridgeSurface.deckTop);
+    assert.ok(midpointHeight > terrain.getHeightAt(0, midpointZ));
+    approach.geometry.computeBoundingBox();
+    assertNear(
+      direction < 0
+        ? approach.geometry.boundingBox.max.z
+        : approach.geometry.boundingBox.min.z,
+      direction * terrain.bridgeSurface.halfSpan,
+      'approach inner edge must meet deck'
+    );
+    assertNear(
+      direction < 0
+        ? approach.geometry.boundingBox.min.z
+        : approach.geometry.boundingBox.max.z,
+      direction * (
+        terrain.bridgeSurface.halfSpan
+          + terrain.bridgeSurface.approachLength
+      ),
+      'approach outer edge must reach land'
+    );
+  }
+});
+
 test('bridge and house meshes expose calibrated metre dimensions', () => {
   const scene = new THREE.Scene();
   const terrain = createTerrain(scene);
@@ -460,6 +523,7 @@ test('bridge and house meshes expose calibrated metre dimensions', () => {
   assert.deepEqual(bridge.userData.dimensionsMeters, {
     width: TERRAIN_SCALE.bridge.roadwayWidth,
     length: STONNE_1940_MAP.bridge.span,
+    approachLength: STONNE_1940_MAP.bridge.approachLength,
     deckTop: bridge.userData.dimensionsMeters.deckTop
   });
   assert.deepEqual(house.userData.dimensionsMeters, {

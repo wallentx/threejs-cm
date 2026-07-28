@@ -1,4 +1,10 @@
 import { intersectSegmentOrientedBox3D } from '../geometry/OrientedBox.js';
+import {
+  inverseTransformDirection,
+  isVehicleTurretSeparated,
+  transformDirection,
+  vehicleVolumeTransform
+} from './VehicleTransforms.js';
 
 const EPSILON = 1e-8;
 
@@ -6,27 +12,13 @@ function finite(value, fallback = 0) {
   return Number.isFinite(Number(value)) ? Number(value) : fallback;
 }
 
-function rotateLocalXZ(x, z, rotation) {
-  const cosine = Math.cos(rotation);
-  const sine = Math.sin(rotation);
-  return {
-    x: cosine * x + sine * z,
-    z: -sine * x + cosine * z
-  };
+function toLocalVector(vector, orientation) {
+  const local = inverseTransformDirection(orientation, vector);
+  return { x: local[0], y: local[1], z: local[2] };
 }
 
-function toLocalVector(vector, rotation) {
-  const cosine = Math.cos(rotation);
-  const sine = Math.sin(rotation);
-  return {
-    x: finite(vector[0] ?? vector.x) * cosine - finite(vector[2] ?? vector.z) * sine,
-    y: finite(vector[1] ?? vector.y),
-    z: finite(vector[0] ?? vector.x) * sine + finite(vector[2] ?? vector.z) * cosine
-  };
-}
-
-function classifyFace(normal, rotation) {
-  const local = toLocalVector(normal, rotation);
+function classifyFace(normal, orientation) {
+  const local = toLocalVector(normal, orientation);
   const axes = [
     { magnitude: Math.abs(local.x), face: local.x >= 0 ? 'positiveX' : 'negativeX' },
     { magnitude: Math.abs(local.y), face: local.y >= 0 ? 'positiveY' : 'negativeY' },
@@ -37,21 +29,7 @@ function classifyFace(normal, rotation) {
 }
 
 function worldTransform(unit, volume) {
-  const hullRotation = finite(unit.rotation);
-  const turretRotation = volume.followsTurret
-    ? finite(unit.vehicleWeapon?.turretYaw)
-    : 0;
-  const rotation = hullRotation + turretRotation + finite(volume.rotation);
-  const center = volume.center ?? [0, 0, 0];
-  const pivotOffset = rotateLocalXZ(finite(center[0]), finite(center[2]), hullRotation);
-  const offset = volume.offset ?? [0, 0, 0];
-  const partOffset = rotateLocalXZ(finite(offset[0]), finite(offset[2]), rotation);
-  return {
-    centerX: finite(unit.position?.x) + pivotOffset.x + partOffset.x,
-    centerY: finite(unit.position?.y) + finite(center[1]) + finite(offset[1]),
-    centerZ: finite(unit.position?.z) + pivotOffset.z + partOffset.z,
-    rotation
-  };
+  return vehicleVolumeTransform(unit, volume);
 }
 
 function worldCollider(unit, volume) {
@@ -100,7 +78,7 @@ function localPoint(point, transform) {
     point[0] - transform.centerX,
     point[1] - transform.centerY,
     point[2] - transform.centerZ
-  ], transform.rotation);
+  ], transform.orientation);
 }
 
 function segmentTriangle(start, end, a, b, c) {
@@ -137,9 +115,8 @@ function orientOutward(normal, a, b, c, interiorPoint) {
     : normal;
 }
 
-function worldNormal(localNormal, rotation) {
-  const horizontal = rotateLocalXZ(localNormal[0], localNormal[2], rotation);
-  return [horizontal.x, localNormal[1], horizontal.z];
+function worldNormal(localNormal, orientation) {
+  return transformDirection(orientation, localNormal);
 }
 
 function exitArmorMetadata(volume, surface) {
@@ -192,7 +169,7 @@ function triangleMeshIntersection(startInput, endInput, unit, volume) {
       const candidate = {
         t: intersection.t,
         point,
-        normal: worldNormal(outward, transform.rotation),
+        normal: worldNormal(outward, transform.orientation),
         zone: plate.zone,
         fallbackZone: plate.fallbackZone ?? plate.zone,
         face: plate.id,
@@ -253,7 +230,7 @@ function triangleMeshExit(startInput, endInput, unit, volume) {
       const candidate = {
         t: intersection.t,
         point,
-        normal: worldNormal(outward, transform.rotation),
+        normal: worldNormal(outward, transform.orientation),
         zone: plate.zone,
         fallbackZone: plate.fallbackZone ?? plate.zone,
         face: plate.id,
@@ -283,7 +260,7 @@ function orientedBoxExit(startInput, endInput, unit, volume) {
   if (!reverse) return null;
   const t = 1 - reverse.t;
   if (t <= EPSILON || t > 1 + EPSILON) return null;
-  const face = classifyFace(reverse.normal, collider.rotation);
+  const face = classifyFace(reverse.normal, collider.orientation);
   const zone = volume.faceZones?.[face] ?? null;
   if (!zone) return null;
   const fallbackZone = volume.fallbackZones?.[face] ?? zone;
@@ -311,7 +288,7 @@ function orientedBoxExit(startInput, endInput, unit, volume) {
       reverse.point[0] - collider.centerX,
       reverse.point[1] - collider.centerY,
       reverse.point[2] - collider.centerZ
-    ], collider.rotation)
+    ], collider.orientation)
   };
 }
 
@@ -321,8 +298,10 @@ function orientedBoxExit(startInput, endInput, unit, volume) {
  */
 export function intersectVehicleArmor(start, end, unit) {
   const volumes = unit?.vehicleSpec?.armorCollision?.volumes ?? [];
+  const turretSeparated = isVehicleTurretSeparated(unit);
   let closest = null;
   for (const volume of volumes) {
+    if (turretSeparated && volume.followsTurret) continue;
     if (volume.shape === 'triangle-mesh') {
       const candidate = triangleMeshIntersection(start, end, unit, volume);
       if (candidate && (!closest
@@ -336,7 +315,7 @@ export function intersectVehicleArmor(start, end, unit) {
     const collider = worldCollider(unit, volume);
     const intersection = intersectSegmentOrientedBox3D(start, end, collider);
     if (!intersection) continue;
-    const face = classifyFace(intersection.normal, collider.rotation);
+    const face = classifyFace(intersection.normal, collider.orientation);
     const zone = volume.faceZones?.[face] ?? null;
     if (!zone) continue;
     const fallbackZone = volume.fallbackZones?.[face] ?? zone;
@@ -361,7 +340,7 @@ export function intersectVehicleArmor(start, end, unit) {
         intersection.point[0] - collider.centerX,
         intersection.point[1] - collider.centerY,
         intersection.point[2] - collider.centerZ
-      ], collider.rotation)
+      ], collider.orientation)
     };
     if (!closest
         || candidate.t < closest.t - EPSILON
@@ -379,6 +358,7 @@ function volumeAimBounds(volume) {
       center: [0, 0, 0],
       minimumY: -finite(volume.halfExtents[1]),
       maximumY: finite(volume.halfExtents[1]),
+      halfExtents: volume.halfExtents.map(value => finite(value)),
       measure:
         finite(volume.halfExtents[0])
         * finite(volume.halfExtents[1])
@@ -392,6 +372,7 @@ function volumeAimBounds(volume) {
       center: [0, 0, 0],
       minimumY: 0,
       maximumY: 0,
+      halfExtents: [0, 0, 0],
       measure: 0
     };
   }
@@ -408,6 +389,7 @@ function volumeAimBounds(volume) {
     center: minimum.map((value, axis) => (value + maximum[axis]) * 0.5),
     minimumY: minimum[1],
     maximumY: maximum[1],
+    halfExtents: minimum.map((value, axis) => (maximum[axis] - value) * 0.5),
     measure:
       (maximum[0] - minimum[0])
       * (maximum[1] - minimum[1])
@@ -423,8 +405,11 @@ function volumeAimBounds(volume) {
  */
 export function getVehicleArmorAimPoint(unit) {
   const volumes = unit?.vehicleSpec?.armorCollision?.volumes ?? [];
-  const hullVolumes = volumes.filter(volume => volume.part === 'hull');
-  const candidates = (hullVolumes.length > 0 ? hullVolumes : volumes)
+  const activeVolumes = isVehicleTurretSeparated(unit)
+    ? volumes.filter(volume => !volume.followsTurret)
+    : volumes;
+  const hullVolumes = activeVolumes.filter(volume => volume.part === 'hull');
+  const candidates = (hullVolumes.length > 0 ? hullVolumes : activeVolumes)
     .map(volume => ({ volume, bounds: volumeAimBounds(volume) }))
     .sort((left, right) =>
       right.bounds.measure - left.bounds.measure
@@ -432,14 +417,24 @@ export function getVehicleArmorAimPoint(unit) {
   const selected = candidates[0];
   if (!selected) return null;
   const transform = worldTransform(unit, selected.volume);
-  const verticalVolumes = volumes
+  const verticalVolumes = activeVolumes
     .filter(volume => volume.part !== 'track')
     .map(volume => {
       const bounds = volumeAimBounds(volume);
       const volumeTransform = worldTransform(unit, volume);
+      const centerOffset = transformDirection(
+        volumeTransform.orientation,
+        bounds.center
+      );
+      const half = bounds.halfExtents;
+      const verticalExtent =
+        Math.abs(volumeTransform.orientation[3]) * half[0]
+        + Math.abs(volumeTransform.orientation[4]) * half[1]
+        + Math.abs(volumeTransform.orientation[5]) * half[2];
+      const centerY = volumeTransform.centerY + centerOffset[1];
       return {
-        minimumY: volumeTransform.centerY + bounds.minimumY,
-        maximumY: volumeTransform.centerY + bounds.maximumY
+        minimumY: centerY - verticalExtent,
+        maximumY: centerY + verticalExtent
       };
     });
   const minimumY = Math.min(
@@ -449,18 +444,17 @@ export function getVehicleArmorAimPoint(unit) {
     ...verticalVolumes.map(bounds => bounds.maximumY)
   );
   const localCenter = selected.bounds.center;
-  const horizontal = rotateLocalXZ(
-    localCenter[0],
-    localCenter[2],
-    transform.rotation
+  const worldCenterOffset = transformDirection(
+    transform.orientation,
+    localCenter
   );
   return {
     point: [
-      transform.centerX + horizontal.x,
+      transform.centerX + worldCenterOffset[0],
       Number.isFinite(minimumY) && Number.isFinite(maximumY)
         ? (minimumY + maximumY) * 0.5
-        : transform.centerY + localCenter[1],
-      transform.centerZ + horizontal.z
+        : transform.centerY + worldCenterOffset[1],
+      transform.centerZ + worldCenterOffset[2]
     ],
     armorVolumeId: selected.volume.id,
     modelVersion: 'authored-armor-center-mass-v1',

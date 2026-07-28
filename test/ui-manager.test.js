@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { UIManager } from '../src/ui/UIManager.js';
+import * as THREE from 'three';
+import {
+  UIManager,
+  buildRosterMemberPresentation
+} from '../src/ui/UIManager.js';
 import { createUIRuntimePort } from '../src/app/ApplicationPorts.js';
 
 function createHarness() {
@@ -79,6 +83,7 @@ function createHarness() {
     },
     playerFactionId: 'blue',
     getSelectedUnit: () => selectedUnit,
+    getSelectedUnits: () => selectedUnit ? [selectedUnit] : [],
     getVisibilityProjection: () => null,
     getBocageObstacles: () => [],
     getImpacts: () => [],
@@ -145,6 +150,7 @@ test('runtime markup exposes restored playback controls and shot inspector', asy
   for (const id of [
     'btn-cancel-cmd',
     'btn-deselect-unit',
+    'btn-map-toggle',
     'vcr-back',
     'vcr-speed',
     'timeline-slider',
@@ -157,8 +163,225 @@ test('runtime markup exposes restored playback controls and shot inspector', asy
     assert.match(markup, new RegExp(`id="${id}"`));
   }
   assert.doesNotMatch(markup, /id="app"[^>]*data-game-status="ready"/);
-  assert.match(css, /grid-template-columns:\s*repeat\(5,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(css, /grid-template-columns:\s*repeat\(6,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(css, /body\.tactical-map-hidden #panel-minimap/);
+  assert.match(css, /@media \(min-width:\s*1024px\)/);
   assert.match(css, /#shot-inspector-list/);
+});
+
+test('vehicle crew cards promote the role and omit the redundant roster name', () => {
+  const soldier = {
+    name: 'Commander / Gunner 1',
+    role: 'COMMANDER_GUNNER',
+    health: 84,
+    status: 'OK'
+  };
+  assert.deepEqual(
+    buildRosterMemberPresentation({ vehicleSpec: {} }, soldier),
+    {
+      primaryLabel: 'COMMANDER GUNNER',
+      detailPrefix: 'HP 84 · OK',
+      roleLabel: 'COMMANDER GUNNER'
+    }
+  );
+  assert.equal(
+    buildRosterMemberPresentation({}, {
+      name: 'Chasseur 1',
+      role: 'RIFLEMAN',
+      health: 100,
+      status: 'OK'
+    }).primaryLabel,
+    'RIFLEMAN'
+  );
+});
+
+test('tactical-map toggle updates layout state and accessibility state', () => {
+  const previousDocument = globalThis.document;
+  const toggles = [];
+  const button = {
+    classes: new Map(),
+    attributes: {},
+    classList: {
+      toggle(name, enabled) {
+        button.classes.set(name, enabled);
+      }
+    },
+    setAttribute(name, value) {
+      this.attributes[name] = value;
+    }
+  };
+  globalThis.document = {
+    body: {
+      classList: {
+        toggle(name, enabled) {
+          toggles.push([name, enabled]);
+        }
+      }
+    },
+    getElementById: () => button
+  };
+
+  try {
+    const ui = Object.create(UIManager.prototype);
+    ui.showMinimap = true;
+    ui.showToast = () => {};
+    assert.equal(ui.toggleMinimap(button), false);
+    assert.deepEqual(toggles, [['tactical-map-hidden', true]]);
+    assert.equal(button.classes.get('active'), false);
+    assert.equal(button.attributes['aria-pressed'], 'false');
+    assert.equal(ui.toggleMinimap(button), true);
+    assert.deepEqual(toggles.at(-1), ['tactical-map-hidden', false]);
+    assert.equal(button.attributes['aria-pressed'], 'true');
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  }
+});
+
+test('only a friendly floating badge invokes selection and forwards additive modifiers', () => {
+  const previousDocument = globalThis.document;
+  const previousWindow = globalThis.window;
+  let clickListener = null;
+  const icon = {
+    dataset: {},
+    style: {},
+    innerHTML: '',
+    addEventListener(type, listener) {
+      if (type === 'click') clickListener = listener;
+    },
+    querySelector() {
+      return { style: { setProperty() {} } };
+    }
+  };
+  globalThis.document = {
+    getElementById: id => id === 'icon-overlay'
+      ? { appendChild() {} }
+      : null,
+    createElement: () => icon
+  };
+  globalThis.window = { innerWidth: 1280, innerHeight: 720 };
+
+  try {
+    const selected = [];
+    const camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.1, 100);
+    camera.position.set(0, 0, 10);
+    camera.lookAt(0, 0, 0);
+    camera.updateMatrixWorld(true);
+    camera.updateProjectionMatrix();
+    const unit = {
+      id: 'friendly-1',
+      name: 'Friendly Unit',
+      faction: 'blue',
+      position: new THREE.Vector3(),
+      mesh: { visible: true },
+      vehicleSpec: { id: 'TEST_VEHICLE' },
+      getVehicleDamageReport() {
+        return {
+          burning: false,
+          destroyed: false,
+          components: {
+            hull: { label: 'Hull', health: 100, status: 'OK' }
+          }
+        };
+      }
+    };
+    const ui = Object.create(UIManager.prototype);
+    ui.showIcons = true;
+    ui.iconPool = new Map();
+    ui.runtime = {
+      selectedUnit: null,
+      selectedUnits: [],
+      isPlayerFaction: faction => faction === 'blue',
+      getFactionPresentation: () => ({ selectionColor: '#3366ff' }),
+      selectUnit: (...args) => selected.push(args)
+    };
+
+    ui.updateFloatingIcons([unit], { camera });
+    let stopped = 0;
+    clickListener({
+      target: { closest: () => null },
+      shiftKey: true,
+      ctrlKey: false,
+      metaKey: false,
+      stopPropagation() { stopped++; }
+    });
+    assert.deepEqual(selected, []);
+    assert.equal(stopped, 0);
+
+    clickListener({
+      target: {
+        closest(selector) {
+          return selector === '.icon-badge.friendly' ? {} : null;
+        }
+      },
+      shiftKey: true,
+      ctrlKey: false,
+      metaKey: false,
+      stopPropagation() { stopped++; }
+    });
+    assert.deepEqual(selected, [[unit, { additive: true }]]);
+    assert.equal(stopped, 1);
+    assert.match(icon.innerHTML, /<button[^>]+icon-badge faction friendly/);
+    assert.doesNotMatch(icon.innerHTML, /vehicle-floating-health/);
+    assert.doesNotMatch(icon.innerHTML, />100%?</);
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
+});
+
+test('vehicle status header reports conditions without aggregate health', () => {
+  const previousDocument = globalThis.document;
+  const elements = new Map([
+    ['vehicle-status', {
+      hidden: true,
+      classList: { toggle() {}, remove() {} }
+    }],
+    ['vehicle-system-grid', {
+      replaceChildren() {},
+      appendChild() {}
+    }],
+    ['vehicle-mount-grid', {
+      replaceChildren() {},
+      appendChild() {}
+    }],
+    ['selection-roster-header', { textContent: '' }]
+  ]);
+  globalThis.document = {
+    getElementById: id => elements.get(id) ?? null,
+    createElement: () => ({
+      className: '',
+      style: { setProperty() {} },
+      title: '',
+      textContent: '',
+      append() {}
+    })
+  };
+
+  try {
+    const ui = Object.create(UIManager.prototype);
+    ui.renderVehicleStatus({
+      vehicleSpec: { id: 'TEST_VEHICLE' },
+      getVehicleDamageReport() {
+        return {
+          burning: true,
+          destroyed: false,
+          components: {
+            hull: { label: 'Hull', health: 61, status: 'DAMAGED' }
+          }
+        };
+      }
+    });
+    assert.equal(
+      elements.get('selection-roster-header').textContent,
+      'CREW, WEAPONS & SYSTEMS · BURNING'
+    );
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  }
 });
 
 test('shot inspector distinguishes ricochet continuation from a stopped projectile', () => {

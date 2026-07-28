@@ -13,9 +13,119 @@ const QUAD_UVS = [
 // collision, and navigation continue to use getHeightAt() independently.
 const RIVER_BANK_X_SUBDIVISIONS = 60;
 const RIVER_BANK_CROSS_SLOPE_SUBDIVISIONS = 6;
-const RIVER_BANK_SURFACE_OFFSET = 0.0125;
+const RIVER_BANK_SURFACE_OFFSET = 0.03;
 const RIVER_BANK_RENDERER_APPROXIMATION =
   'renderer-only bounded terrain samples and surface offset to prevent z-fighting';
+
+function uniqueSortedCoordinates(values) {
+  return [...new Set(values.map(value => Number(value.toFixed(9))))]
+    .sort((left, right) => left - right);
+}
+
+function createRiverBankZCoordinates(river) {
+  const coordinates = [];
+  for (const direction of [-1, 1]) {
+    const innerZ = river.centerZ
+      + direction * river.waterWidth * 0.5;
+    const outerZ = river.centerZ
+      + direction * river.cutWidth * 0.5;
+    for (
+      let row = 0;
+      row <= RIVER_BANK_CROSS_SLOPE_SUBDIVISIONS;
+      row++
+    ) {
+      coordinates.push(THREE.MathUtils.lerp(
+        innerZ,
+        outerZ,
+        row / RIVER_BANK_CROSS_SLOPE_SUBDIVISIONS
+      ));
+    }
+  }
+  return coordinates;
+}
+
+function createTerrainGridCoordinates({
+  width,
+  depth,
+  segments,
+  additionalZCoordinates = []
+}) {
+  const xCoordinates = Array.from(
+    { length: segments + 1 },
+    (_, index) => -width * 0.5 + width * index / segments
+  );
+  const zCoordinates = uniqueSortedCoordinates([
+    ...Array.from(
+      { length: segments + 1 },
+      (_, index) => -depth * 0.5 + depth * index / segments
+    ),
+    ...additionalZCoordinates
+  ]);
+  return { x: xCoordinates, z: zCoordinates };
+}
+
+function createTerrainGridGeometry(options) {
+  const {
+    width,
+    depth
+  } = options;
+  const {
+    x: xCoordinates,
+    z: zCoordinates
+  } = createTerrainGridCoordinates(options);
+  const positions = [];
+  const uvs = [];
+  for (const z of zCoordinates) {
+    for (const x of xCoordinates) {
+      positions.push(x, 0, z);
+      uvs.push((x + width * 0.5) / width, (z + depth * 0.5) / depth);
+    }
+  }
+  const indices = [];
+  const columns = xCoordinates.length;
+  for (let row = 0; row < zCoordinates.length - 1; row++) {
+    for (let column = 0; column < columns - 1; column++) {
+      const southWest = row * columns + column;
+      const southEast = southWest + 1;
+      const northWest = southWest + columns;
+      const northEast = northWest + 1;
+      indices.push(
+        southWest,
+        northWest,
+        southEast,
+        southEast,
+        northWest,
+        northEast
+      );
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute(positions, 3)
+  );
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.userData.gridCoordinates = {
+    x: xCoordinates,
+    z: zCoordinates
+  };
+  return geometry;
+}
+
+function findCoordinateInterval(coordinates, value) {
+  if (value <= coordinates[0]) return 0;
+  const last = coordinates.length - 1;
+  if (value >= coordinates[last]) return last - 1;
+  let low = 0;
+  let high = last;
+  while (low + 1 < high) {
+    const middle = Math.floor((low + high) * 0.5);
+    if (coordinates[middle] <= value) low = middle;
+    else high = middle;
+  }
+  return low;
+}
 
 function addQuad(positions, uvs, a, b, c, d, uScale = 1, vScale = 1) {
   for (const point of [a, b, c, a, c, d]) {
@@ -226,6 +336,121 @@ function createTerrainConformingFoundationGeometry({
   return geometry;
 }
 
+export function createBridgeApproachGeometry({
+  halfWidth,
+  deckEndZ,
+  direction,
+  length,
+  deckTop,
+  getGroundHeightAt,
+  widthSubdivisions = 4,
+  lengthSubdivisions = 4
+}) {
+  if (!(halfWidth > 0) || !(length > 0)) {
+    throw new Error('Bridge approach dimensions must be positive');
+  }
+  if (direction !== -1 && direction !== 1) {
+    throw new Error('Bridge approach direction must be -1 or 1');
+  }
+  if (typeof getGroundHeightAt !== 'function') {
+    throw new TypeError('Bridge approach requires getGroundHeightAt');
+  }
+  const positions = [];
+  const uvs = [];
+  const topPoint = (column, row) => {
+    const x = THREE.MathUtils.lerp(
+      -halfWidth,
+      halfWidth,
+      column / widthSubdivisions
+    );
+    const progress = row / lengthSubdivisions;
+    const z = deckEndZ + direction * length * progress;
+    const groundY = getGroundHeightAt(x, z);
+    return new THREE.Vector3(
+      x,
+      THREE.MathUtils.lerp(
+        deckTop,
+        groundY,
+        smoothstep01(progress)
+      ),
+      z
+    );
+  };
+  const groundPoint = (x, z) =>
+    new THREE.Vector3(x, getGroundHeightAt(x, z), z);
+  const addOrientedQuad = (points, reverse = false, uScale = 1, vScale = 1) => {
+    const ordered = reverse ? [...points].reverse() : points;
+    addQuad(
+      positions,
+      uvs,
+      ordered[0],
+      ordered[1],
+      ordered[2],
+      ordered[3],
+      uScale,
+      vScale
+    );
+  };
+
+  for (let row = 0; row < lengthSubdivisions; row++) {
+    for (let column = 0; column < widthSubdivisions; column++) {
+      const currentLeft = topPoint(column, row);
+      const nextLeft = topPoint(column, row + 1);
+      const nextRight = topPoint(column + 1, row + 1);
+      const currentRight = topPoint(column + 1, row);
+      addOrientedQuad(
+        [currentLeft, nextLeft, nextRight, currentRight],
+        direction < 0,
+        (halfWidth * 2) / TERRAIN_SCALE.bridge.masonryRepeatMeters,
+        length / TERRAIN_SCALE.bridge.masonryRepeatMeters
+      );
+    }
+  }
+
+  for (const side of [-1, 1]) {
+    for (let row = 0; row < lengthSubdivisions; row++) {
+      const x = side * halfWidth;
+      const z0 = deckEndZ + direction * length * (
+        row / lengthSubdivisions
+      );
+      const z1 = deckEndZ + direction * length * (
+        (row + 1) / lengthSubdivisions
+      );
+      const base0 = groundPoint(x, z0);
+      const base1 = groundPoint(x, z1);
+      const top1 = topPoint(side < 0 ? 0 : widthSubdivisions, row + 1);
+      const top0 = topPoint(side < 0 ? 0 : widthSubdivisions, row);
+      const reverse = side < 0 ? direction < 0 : direction > 0;
+      addOrientedQuad(
+        [base0, base1, top1, top0],
+        reverse,
+        length / TERRAIN_SCALE.bridge.masonryRepeatMeters,
+        1
+      );
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute(positions, 3)
+  );
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  geometry.userData.approach = {
+    halfWidth,
+    deckEndZ,
+    direction,
+    length,
+    deckTop,
+    widthSubdivisions,
+    lengthSubdivisions
+  };
+  return geometry;
+}
+
 export class TerrainBuilder {
   constructor(scene, {
     mapDescriptor,
@@ -249,7 +474,15 @@ export class TerrainBuilder {
     this.depth = mapDescriptor.dimensions.depth;
     this.segments = mapDescriptor.dimensions.segments;
     this.terrainMesh = null;
-    this.heightData = new Float32Array((this.segments + 1) * (this.segments + 1));
+    this.heightData = new Float32Array();
+    this.terrainGridCoordinates = createTerrainGridCoordinates({
+      width: this.width,
+      depth: this.depth,
+      segments: this.segments,
+      additionalZCoordinates: createRiverBankZCoordinates(
+        mapDescriptor.river
+      )
+    });
     this.bocageObstacles = [];
     this.buildings = [];
     this.colliderRecords = [];
@@ -265,10 +498,17 @@ export class TerrainBuilder {
 
   buildScenarioMap() {
     // 1. Terrain Geometry
-    const geometry = new THREE.PlaneGeometry(this.width, this.depth, this.segments, this.segments);
-    geometry.rotateX(-Math.PI / 2);
+    const river = this.mapDescriptor.river;
+    const geometry = createTerrainGridGeometry({
+      width: this.width,
+      depth: this.depth,
+      segments: this.segments,
+      additionalZCoordinates: createRiverBankZCoordinates(river)
+    });
+    this.terrainGridCoordinates = geometry.userData.gridCoordinates;
 
     const pos = geometry.attributes.position;
+    this.heightData = new Float32Array(pos.count);
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i);
       const z = pos.getZ(i);
@@ -331,12 +571,80 @@ export class TerrainBuilder {
     );
   }
 
+  getRenderedTerrainHeightAt(x, z) {
+    const xCoordinates = this.terrainGridCoordinates?.x
+      ?? Array.from(
+        { length: this.segments + 1 },
+        (_, index) => -this.width * 0.5
+          + this.width * index / this.segments
+      );
+    const zCoordinates = this.terrainGridCoordinates?.z
+      ?? Array.from(
+        { length: this.segments + 1 },
+        (_, index) => -this.depth * 0.5
+          + this.depth * index / this.segments
+      );
+    const boundedX = THREE.MathUtils.clamp(
+      x,
+      xCoordinates[0],
+      xCoordinates.at(-1)
+    );
+    const boundedZ = THREE.MathUtils.clamp(
+      z,
+      zCoordinates[0],
+      zCoordinates.at(-1)
+    );
+    const column = findCoordinateInterval(xCoordinates, boundedX);
+    const row = findCoordinateInterval(zCoordinates, boundedZ);
+    const x0 = xCoordinates[column];
+    const x1 = xCoordinates[column + 1];
+    const z0 = zCoordinates[row];
+    const z1 = zCoordinates[row + 1];
+    const u = THREE.MathUtils.clamp(
+      (boundedX - x0) / (x1 - x0),
+      0,
+      1
+    );
+    const v = THREE.MathUtils.clamp(
+      (boundedZ - z0) / (z1 - z0),
+      0,
+      1
+    );
+    const southWest = this.getHeightAt(x0, z0);
+    const southEast = this.getHeightAt(x1, z0);
+    const northWest = this.getHeightAt(x0, z1);
+    const northEast = this.getHeightAt(x1, z1);
+    if (u + v <= 1) {
+      return southWest
+        + u * (southEast - southWest)
+        + v * (northWest - southWest);
+    }
+    return northEast
+      + (1 - u) * (northWest - northEast)
+      + (1 - v) * (southEast - northEast);
+  }
+
   getMovementHeightAt(x, z) {
     const bridge = this.bridgeSurface;
-    if (bridge
-        && Math.abs(x - bridge.centerX) <= bridge.halfRoadwayWidth
-        && Math.abs(z - bridge.centerZ) <= bridge.halfSpan) {
-      return bridge.deckTop;
+    if (
+      bridge
+      && Math.abs(x - bridge.centerX) <= bridge.halfRoadwayWidth
+    ) {
+      const distanceFromCenter = Math.abs(z - bridge.centerZ);
+      if (distanceFromCenter <= bridge.halfSpan) return bridge.deckTop;
+      if (
+        distanceFromCenter
+          <= bridge.halfSpan + bridge.approachLength
+      ) {
+        const progress = (
+          distanceFromCenter - bridge.halfSpan
+        ) / bridge.approachLength;
+        return THREE.MathUtils.lerp(
+          bridge.deckTop,
+          this.getHeightAt(x, z),
+          smoothstep01(progress)
+        );
+      }
     }
     return this.getHeightAt(x, z);
   }
@@ -447,8 +755,32 @@ export class TerrainBuilder {
       centerZ: mapBridge.centerZ,
       halfRoadwayWidth: parapetInnerHalfWidth,
       halfSpan,
+      approachLength: mapBridge.approachLength,
       deckTop
     };
+
+    for (const direction of [-1, 1]) {
+      const approach = new THREE.Mesh(
+        createBridgeApproachGeometry({
+          halfWidth: parapetInnerHalfWidth,
+          deckEndZ: direction * halfSpan,
+          direction,
+          length: mapBridge.approachLength,
+          deckTop,
+          getGroundHeightAt: (localX, localZ) => this.getHeightAt(
+            mapBridge.centerX + localX,
+            mapBridge.centerZ + localZ
+          )
+        }),
+        roadMat
+      );
+      approach.name = 'BridgeApproach';
+      approach.receiveShadow = true;
+      approach.userData.mapFeatureId = mapBridge.id;
+      approach.userData.side = direction < 0 ? 'south' : 'north';
+      approach.userData.dataQuality = mapBridge.approachDataQuality;
+      bridgeGroup.add(approach);
+    }
 
     const parapetGeometry = createMeterUvBoxGeometry(
       bridge.parapetThickness,
@@ -533,6 +865,7 @@ export class TerrainBuilder {
     bridgeGroup.userData.dimensionsMeters = {
       width: bridge.roadwayWidth,
       length: mapBridge.span,
+      approachLength: mapBridge.approachLength,
       deckTop
     };
     this.scene.add(bridgeGroup);
@@ -586,6 +919,9 @@ export class TerrainBuilder {
   buildRiverBankStrips() {
     const river = this.mapDescriptor.river;
     const material = this.getSurfaceAssets().materials.riverBank;
+    material.polygonOffset = true;
+    material.polygonOffsetFactor = -2;
+    material.polygonOffsetUnits = -2;
     const halfWaterWidth = river.waterWidth * 0.5;
     const halfCutWidth = river.cutWidth * 0.5;
     const minX = -this.width * 0.5;
@@ -607,7 +943,12 @@ export class TerrainBuilder {
         );
         for (let column = 0; column <= RIVER_BANK_X_SUBDIVISIONS; column++) {
           const x = THREE.MathUtils.lerp(minX, maxX, column / RIVER_BANK_X_SUBDIVISIONS);
-          positions.push(x, this.getHeightAt(x, z) + RIVER_BANK_SURFACE_OFFSET, z);
+          positions.push(
+            x,
+            this.getRenderedTerrainHeightAt(x, z)
+              + RIVER_BANK_SURFACE_OFFSET,
+            z
+          );
           uvs.push(
             column / RIVER_BANK_X_SUBDIVISIONS,
             row / RIVER_BANK_CROSS_SLOPE_SUBDIVISIONS
@@ -642,7 +983,11 @@ export class TerrainBuilder {
         label: RIVER_BANK_RENDERER_APPROXIMATION,
         xSubdivisions: RIVER_BANK_X_SUBDIVISIONS,
         crossSlopeSubdivisions: RIVER_BANK_CROSS_SLOPE_SUBDIVISIONS,
-        surfaceOffset: RIVER_BANK_SURFACE_OFFSET
+        surfaceOffset: RIVER_BANK_SURFACE_OFFSET,
+        depthBias: {
+          factor: material.polygonOffsetFactor,
+          units: material.polygonOffsetUnits
+        }
       };
       this.scene.add(mesh);
       return mesh;
@@ -989,7 +1334,11 @@ export class TerrainBuilder {
         const z = THREE.MathUtils.lerp(bounds.minZ, bounds.maxZ, row / rows);
         for (let column = 0; column <= columns; column++) {
           const x = THREE.MathUtils.lerp(bounds.minX, bounds.maxX, column / columns);
-          positions.push(x, this.getHeightAt(x, z) + surfaceOffset, z);
+          positions.push(
+            x,
+            this.getRenderedTerrainHeightAt(x, z) + surfaceOffset,
+            z
+          );
           uvs.push(column / columns, row / rows);
         }
       }

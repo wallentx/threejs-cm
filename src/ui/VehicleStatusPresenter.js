@@ -194,10 +194,6 @@ export function buildVehicleStatusView(unit) {
     .filter(component => component.installed);
   const mounts = mountEntries(unit, report);
   const hull = components.find(component => component.id === 'hull');
-  const averageHealth = components.length > 0
-    ? components.reduce((sum, component) => sum + component.health, 0) / components.length
-    : 100;
-  const health = Math.round(hull ? (hull.health * 0.55 + averageHealth * 0.45) : averageHealth);
   const burning = report?.burning
     ?? unit.vehicleFire?.active
     ?? components.some(component => component.status === 'BURNING');
@@ -206,7 +202,6 @@ export function buildVehicleStatusView(unit) {
     ?? hull?.status === 'DESTROYED';
 
   return {
-    health,
     burning: Boolean(burning),
     destroyed: Boolean(destroyed),
     components,

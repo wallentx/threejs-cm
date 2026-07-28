@@ -1,8 +1,47 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
+const CAMERA_PAN_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD']);
+const UP = new THREE.Vector3(0, 1, 0);
+
+function isEditableTarget(target) {
+  return target?.tagName === 'INPUT'
+    || target?.tagName === 'SELECT'
+    || target?.tagName === 'TEXTAREA'
+    || target?.isContentEditable;
+}
+
+export function getKeyboardPanOffset({
+  pressedKeys,
+  cameraPosition,
+  target,
+  delta,
+  speed
+}) {
+  const forwardInput = Number(pressedKeys.has('KeyW'))
+    - Number(pressedKeys.has('KeyS'));
+  const rightInput = Number(pressedKeys.has('KeyD'))
+    - Number(pressedKeys.has('KeyA'));
+  if (forwardInput === 0 && rightInput === 0) {
+    return new THREE.Vector3();
+  }
+  const forward = new THREE.Vector3()
+    .subVectors(target, cameraPosition)
+    .setY(0);
+  if (forward.lengthSq() < 1e-8) forward.set(0, 0, -1);
+  else forward.normalize();
+  const right = new THREE.Vector3().crossVectors(forward, UP).normalize();
+  return forward
+    .multiplyScalar(forwardInput)
+    .addScaledVector(right, rightInput)
+    .normalize()
+    .multiplyScalar(Math.max(0, delta) * speed);
+}
+
 export class CameraManager {
-  constructor(camera, domElement) {
+  constructor(camera, domElement, {
+    keyboardTarget = globalThis.window
+  } = {}) {
     this.camera = camera;
     this.domElement = domElement;
 
@@ -21,6 +60,29 @@ export class CameraManager {
     this.controls.update();
 
     this.followUnit = null;
+    this.pressedPanKeys = new Set();
+    this.keyboardTarget = keyboardTarget;
+    this.onKeyDown = event => {
+      if (
+        !CAMERA_PAN_KEYS.has(event.code)
+        || event.ctrlKey
+        || event.metaKey
+        || event.altKey
+        || isEditableTarget(event.target)
+      ) {
+        return;
+      }
+      event.preventDefault();
+      this.pressedPanKeys.add(event.code);
+    };
+    this.onKeyUp = event => {
+      if (!CAMERA_PAN_KEYS.has(event.code)) return;
+      this.pressedPanKeys.delete(event.code);
+    };
+    this.onWindowBlur = () => this.pressedPanKeys.clear();
+    this.keyboardTarget?.addEventListener?.('keydown', this.onKeyDown);
+    this.keyboardTarget?.addEventListener?.('keyup', this.onKeyUp);
+    this.keyboardTarget?.addEventListener?.('blur', this.onWindowBlur);
   }
 
   setFocusTarget(posVec3) {
@@ -54,6 +116,31 @@ export class CameraManager {
     if (this.followUnit && this.followUnit.mesh) {
       this.controls.target.lerp(this.followUnit.mesh.position, 0.08);
     }
+    const panSpeed = THREE.MathUtils.clamp(
+      this.camera.position.distanceTo(this.controls.target) * 0.55,
+      18,
+      90
+    );
+    const keyboardOffset = getKeyboardPanOffset({
+      pressedKeys: this.pressedPanKeys,
+      cameraPosition: this.camera.position,
+      target: this.controls.target,
+      delta,
+      speed: panSpeed
+    });
+    if (keyboardOffset.lengthSq() > 0) {
+      this.followUnit = null;
+      this.camera.position.add(keyboardOffset);
+      this.controls.target.add(keyboardOffset);
+    }
     this.controls.update();
+  }
+
+  dispose() {
+    this.keyboardTarget?.removeEventListener?.('keydown', this.onKeyDown);
+    this.keyboardTarget?.removeEventListener?.('keyup', this.onKeyUp);
+    this.keyboardTarget?.removeEventListener?.('blur', this.onWindowBlur);
+    this.pressedPanKeys.clear();
+    this.controls.dispose();
   }
 }

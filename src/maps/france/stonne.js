@@ -207,7 +207,10 @@ export const STONNE_1940_MAP = defineMapDescriptor({
     profileId: 'stone-masonry-road',
     centerX: 0,
     centerZ: 10,
-    span: 28
+    span: 28,
+    approachLength: 4,
+    approachDataQuality:
+      'scenario-authored renderer and movement approximation; not surveyed bridge approach evidence'
   },
   wallRuns: [
     {

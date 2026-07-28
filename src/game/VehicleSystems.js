@@ -2,6 +2,9 @@ import {
   captureFireControlState,
   createFireControlState
 } from '../simulation/combat/FireControl.js';
+import {
+  captureVehiclePhysicsState
+} from '../simulation/vehicles/VehiclePhysics.js';
 
 const COMPONENT_SPECS = Object.freeze([
   { id: 'hull', label: 'Hull structure' },
@@ -456,6 +459,9 @@ export function vehicleDamageReport(unit) {
     burning: damageState.burning,
     destroyed: damageState.destroyed,
     secondaryExplosion: damageState.secondaryExplosion,
+    physics: unit.vehiclePhysics
+      ? captureVehiclePhysicsState(unit.vehiclePhysics)
+      : null,
     version: damageState.eventVersion,
     eventVersion: damageState.eventVersion,
     events: damageState.events.map(clonePlain)

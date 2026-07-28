@@ -1,4 +1,9 @@
 import { intersectSegmentOrientedBox3D } from '../geometry/OrientedBox.js';
+import {
+  inverseTransformDirection,
+  isVehicleTurretSeparated,
+  vehicleVolumeTransform
+} from './VehicleTransforms.js';
 
 const EPSILON = 1e-8;
 
@@ -14,31 +19,11 @@ function vector(value) {
   ];
 }
 
-function rotateLocalXZ(x, z, rotation) {
-  const cosine = Math.cos(rotation);
-  const sine = Math.sin(rotation);
-  return {
-    x: cosine * x + sine * z,
-    z: -sine * x + cosine * z
-  };
-}
-
 function worldCollider(unit, volume) {
-  const hullRotation = finite(unit?.rotation);
-  const turretRotation = volume.followsTurret
-    ? finite(unit?.vehicleWeapon?.turretYaw)
-    : 0;
-  const rotation = hullRotation + turretRotation + finite(volume.rotation);
-  const center = volume.center ?? [0, 0, 0];
-  const pivotOffset = rotateLocalXZ(finite(center[0]), finite(center[2]), hullRotation);
-  const offset = volume.offset ?? [0, 0, 0];
-  const partOffset = rotateLocalXZ(finite(offset[0]), finite(offset[2]), rotation);
+  const transform = vehicleVolumeTransform(unit, volume);
   const halfExtents = volume.halfExtents ?? [0, 0, 0];
   return {
-    centerX: finite(unit?.position?.x) + pivotOffset.x + partOffset.x,
-    centerY: finite(unit?.position?.y) + finite(center[1]) + finite(offset[1]),
-    centerZ: finite(unit?.position?.z) + pivotOffset.z + partOffset.z,
-    rotation,
+    ...transform,
     halfWidth: finite(halfExtents[0]),
     halfHeight: finite(halfExtents[1]),
     halfDepth: finite(halfExtents[2])
@@ -57,13 +42,13 @@ function distanceToOrientedBox(point, collider) {
   const dx = point[0] - collider.centerX;
   const dy = point[1] - collider.centerY;
   const dz = point[2] - collider.centerZ;
-  const cosine = Math.cos(collider.rotation);
-  const sine = Math.sin(collider.rotation);
-  const localX = dx * cosine - dz * sine;
-  const localZ = dx * sine + dz * cosine;
-  const outsideX = Math.max(0, Math.abs(localX) - collider.halfWidth);
-  const outsideY = Math.max(0, Math.abs(dy) - collider.halfHeight);
-  const outsideZ = Math.max(0, Math.abs(localZ) - collider.halfDepth);
+  const local = inverseTransformDirection(
+    collider.orientation,
+    [dx, dy, dz]
+  );
+  const outsideX = Math.max(0, Math.abs(local[0]) - collider.halfWidth);
+  const outsideY = Math.max(0, Math.abs(local[1]) - collider.halfHeight);
+  const outsideZ = Math.max(0, Math.abs(local[2]) - collider.halfDepth);
   return Math.hypot(outsideX, outsideY, outsideZ);
 }
 
@@ -84,6 +69,7 @@ export function queryVehicleInternalBlastCandidates({
   const point = vector(impactPoint);
   const candidates = [];
   for (const volume of layout.volumes) {
+    if (isVehicleTurretSeparated(unit) && volume.followsTurret) continue;
     const collider = worldCollider(unit, volume);
     const distanceMeters = distanceToOrientedBox(point, collider);
     if (distanceMeters > radius + EPSILON) continue;
@@ -140,6 +126,7 @@ export function traceVehicleInternalPath({
   const hits = [];
 
   for (const volume of layout.volumes) {
+    if (isVehicleTurretSeparated(unit) && volume.followsTurret) continue;
     const collider = worldCollider(unit, volume);
     const entry = intersectSegmentOrientedBox3D(start, end, collider);
     if (!entry) continue;

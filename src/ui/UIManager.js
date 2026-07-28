@@ -10,6 +10,18 @@ const INFANTRY_ONLY_MOVE_COMMANDS = new Set([
   'ASSAULT'
 ]);
 
+export function buildRosterMemberPresentation(unit, soldier) {
+  const roleLabel = String(soldier?.role ?? soldier?.name ?? 'CREW')
+    .replaceAll('_', ' ');
+  const health = Math.round(soldier?.health ?? 0);
+  const state = soldier?.state ?? soldier?.status;
+  return {
+    primaryLabel: roleLabel,
+    detailPrefix: `HP ${health} · ${state}`,
+    roleLabel
+  };
+}
+
 export class UIManager {
   constructor(runtimePort) {
     this.runtime = runtimePort;
@@ -24,6 +36,7 @@ export class UIManager {
 
     this.showIcons = true;
     this.showPaths = true;
+    this.showMinimap = true;
     this.showHUD = true;
     this.lastHudUpdate = 0;
     this.lastImpactKey = null;
@@ -83,6 +96,8 @@ export class UIManager {
       e.target.classList.toggle('active', this.showPaths);
       this.runtime.setPathsVisible(this.showPaths);
     });
+    this.bindClick('btn-map-toggle', (event) =>
+      this.toggleMinimap(event.currentTarget));
 
     this.bindClick('btn-cancel-cmd', () => this.cancelOrDeselect(false));
     this.bindClick('btn-deselect-unit', () => this.runtime.deselectUnit());
@@ -124,6 +139,21 @@ export class UIManager {
     }
 
     this.renderCommandGrid();
+  }
+
+  toggleMinimap(button = document.getElementById('btn-map-toggle')) {
+    this.showMinimap = !this.showMinimap;
+    document.body.classList.toggle(
+      'tactical-map-hidden',
+      !this.showMinimap
+    );
+    button?.classList.toggle('active', this.showMinimap);
+    button?.setAttribute('aria-pressed', String(this.showMinimap));
+    this.showToast(
+      `Tactical Map ${this.showMinimap ? 'Visible' : 'Hidden'}`,
+      'info'
+    );
+    return this.showMinimap;
   }
 
   initHotkeys() {
@@ -432,7 +462,7 @@ export class UIManager {
       const nameEl = document.getElementById('unit-name');
       if (nameEl) nameEl.innerText = 'NO UNIT SELECTED';
       const subEl = document.getElementById('unit-sub');
-      if (subEl) subEl.innerText = 'Tap a friendly unit';
+      if (subEl) subEl.innerText = 'Click a friendly badge';
       const rosterGrid = document.getElementById('roster-grid');
       if (rosterGrid) rosterGrid.innerHTML = '';
       const rifleEl = document.getElementById('ammo-rifle');
@@ -452,7 +482,16 @@ export class UIManager {
     if (nameEl) nameEl.innerText = unit.name;
 
     const subEl = document.getElementById('unit-sub');
-    if (subEl) subEl.innerText = `${unit.type.toUpperCase()} • ${unit.experience} / Leadership +${unit.leadership}`;
+    if (subEl) {
+      const selectionCount = Math.max(
+        1,
+        this.runtime.selectedUnits?.length ?? 1
+      );
+      const selectionPrefix = selectionCount > 1
+        ? `${selectionCount} UNITS SELECTED · PRIMARY · `
+        : '';
+      subEl.innerText = `${selectionPrefix}${unit.type.toUpperCase()} • ${unit.experience} / Leadership +${unit.leadership}`;
+    }
 
     const moraleFill = document.getElementById('meter-morale');
     const txtMorale = document.getElementById('txt-morale');
@@ -484,9 +523,11 @@ export class UIManager {
               Math.min(1, (s.fireControl.aimProgressSeconds ?? 0) / aimRequired) * 100
             )}% @ ${Math.round(s.fireControl.estimatedRangeMeters ?? 0)}m`
           : '';
-        slot.title = `${s.role} | ${s.state ?? s.status}${buildingText}${aimText} | Health ${Math.round(s.health ?? 0)} | Suppression ${Math.round(s.suppression ?? 0)}${ammoText ? ` | Ammo ${ammoText}` : ''}`;
+        const member = buildRosterMemberPresentation(unit, s);
+        const detailLabel = `${member.detailPrefix}${buildingText}${aimText}`;
+        slot.title = `${s.name} | ${member.roleLabel} | ${s.state ?? s.status}${buildingText}${aimText} | Health ${Math.round(s.health ?? 0)} | Suppression ${Math.round(s.suppression ?? 0)}${ammoText ? ` | Ammo ${ammoText}` : ''}`;
         slot.innerHTML = `
-          <span>${s.name}<em>${s.role ?? ''} · HP ${Math.round(s.health ?? 0)} · ${s.state ?? s.status}${buildingText}${aimText}</em></span>
+          <span><b>${member.primaryLabel}</b><em>${detailLabel}</em></span>
           <strong>${s.weapon ?? 'Unarmed'}${ammoText ? ` · ${ammoText}` : ''}</strong>
         `;
         rosterGrid.appendChild(slot);
@@ -568,7 +609,7 @@ export class UIManager {
     }
     if (header) {
       const condition = view.destroyed ? ' · KNOCKED OUT' : (view.burning ? ' · BURNING' : '');
-      header.textContent = `CREW, WEAPONS & SYSTEMS · ${view.health}%${condition}`;
+      header.textContent = `CREW, WEAPONS & SYSTEMS${condition}`;
     }
 
     if (componentGrid) {
@@ -877,8 +918,11 @@ export class UIManager {
         iconDiv = document.createElement('div');
         iconDiv.className = 'unit-floating-icon';
         iconDiv.addEventListener('click', (e) => {
+          if (!e.target.closest('.icon-badge.friendly')) return;
           e.stopPropagation();
-          this.runtime.selectUnit(u);
+          this.runtime.selectUnit(u, {
+            additive: e.shiftKey || e.ctrlKey || e.metaKey
+          });
         });
         this.iconPool.set(u.id, iconDiv);
         overlay.appendChild(iconDiv);
@@ -888,7 +932,11 @@ export class UIManager {
       iconDiv.style.top = `${screenY}px`;
       iconDiv.style.display = 'block';
 
-      const isSelected = this.runtime.selectedUnit?.id === u.id;
+      const selectedUnits = this.runtime.selectedUnits?.length
+        ? this.runtime.selectedUnits
+        : (this.runtime.selectedUnit ? [this.runtime.selectedUnit] : []);
+      const isSelected = selectedUnits
+        .some(unit => unit.id === u.id);
       const isPlayer = this.runtime.isPlayerFaction(u.faction);
       const presentation = this.runtime.getFactionPresentation(u.faction);
       const vehicleStatus = isSelected ? buildVehicleStatusView(u) : null;
@@ -897,19 +945,24 @@ export class UIManager {
         .map(component => `${component.label}:${component.status}`)
         .join(' · ');
 
-      const contentKey = `${u.faction}:${presentation?.selectionColor}:${isPlayer}:${isSelected}:${u.name}:${vehicleStatus ? vehicleStatus.health : 'none'}:${damagedLabels || ''}`;
+      const contentKey = `${u.faction}:${presentation?.selectionColor}:${isPlayer}:${isSelected}:${u.name}:${vehicleStatus?.destroyed ?? false}:${vehicleStatus?.burning ?? false}:${damagedLabels || ''}`;
       if (iconDiv.dataset.contentKey !== contentKey) {
         iconDiv.dataset.contentKey = contentKey;
         iconDiv.innerHTML = `
-          <div class="icon-badge faction ${isPlayer ? 'friendly' : 'hostile'} ${isSelected ? 'selected' : ''}">
-            ${u.vehicleSpec ? '🛡️' : '⚔️'}
-          </div>
+          ${isPlayer
+            ? `<button type="button" class="icon-badge faction friendly ${isSelected ? 'selected' : ''}" title="Select ${u.name}; Shift/Ctrl-click to add or remove">
+                ${u.vehicleSpec ? '🛡️' : '⚔️'}
+              </button>`
+            : `<div class="icon-badge faction hostile" aria-hidden="true">
+                ${u.vehicleSpec ? '🛡️' : '⚔️'}
+              </div>`}
           <div class="icon-label">${u.name}</div>
           ${vehicleStatus ? `
-            <div class="vehicle-floating-health ${vehicleStatus.burning ? 'burning' : ''}">
-              <span style="width:${vehicleStatus.health}%"></span>
-              <strong>${vehicleStatus.destroyed ? 'KNOCKED OUT' : `${vehicleStatus.health}%`}</strong>
-            </div>
+            ${vehicleStatus.destroyed
+              ? '<div class="vehicle-floating-condition destroyed">KNOCKED OUT</div>'
+              : (vehicleStatus.burning
+                  ? '<div class="vehicle-floating-condition burning">BURNING</div>'
+                  : '')}
             ${damagedLabels ? `<div class="vehicle-floating-damage">${damagedLabels}</div>` : ''}
           ` : ''}
         `;
@@ -1007,7 +1060,7 @@ export class UIManager {
 
   render(units, cameraManager) {
     this.updateFloatingIcons(units, cameraManager);
-    if (this.minimap && this.minimap.render) {
+    if (this.showMinimap && this.minimap && this.minimap.render) {
       this.minimap.render(units, cameraManager);
     }
     this.updateShotInspector(this.runtime.getImpacts());

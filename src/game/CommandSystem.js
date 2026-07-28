@@ -18,6 +18,15 @@ export function isTargetCommandMode(mode) {
   return TARGET_COMMAND_MODES.has(mode);
 }
 
+function canUnitUseCommandMode(unit, mode) {
+  if (mode === 'TARGET_AP') return Boolean(unit?.vehicleSpec?.mainGun?.ap);
+  if (mode === 'TARGET_HE') return Boolean(unit?.vehicleSpec?.mainGun?.he);
+  if (mode === 'TARGET_MG') {
+    return (unit?.vehicleSpec?.weaponMounts?.length ?? 0) > 0;
+  }
+  return true;
+}
+
 export class CommandSystem {
   constructor(scene, {
     deploymentZones = {},
@@ -37,6 +46,7 @@ export class CommandSystem {
     this.onBuildingOrder = onBuildingOrder;
     this.onTargetOrder = onTargetOrder;
     this.activeUnit = null;
+    this.activeUnits = [];
     this.activeMode = null;
 
     // Visual overlay objects
@@ -67,7 +77,14 @@ export class CommandSystem {
   }
 
   setActiveUnit(unit) {
-    this.activeUnit = unit;
+    this.setActiveUnits(unit ? [unit] : [], unit);
+  }
+
+  setActiveUnits(units, primaryUnit = null) {
+    this.activeUnits = [...new Set((units ?? []).filter(Boolean))];
+    this.activeUnit = this.activeUnits.includes(primaryUnit)
+      ? primaryUnit
+      : (this.activeUnits.at(-1) ?? null);
     this.activeMode = null;
     this.renderOverlays();
   }
@@ -84,6 +101,7 @@ export class CommandSystem {
   }
 
   clearActiveUnit() {
+    this.activeUnits = [];
     this.activeUnit = null;
     this.activeMode = null;
     this.renderOverlays();
@@ -91,6 +109,70 @@ export class CommandSystem {
 
   handleMapClick(pointVec3, targetUnit = null, context = {}) {
     if (!this.activeUnit) return;
+    const selectedUnits = this.activeUnits.length > 0
+      ? [...this.activeUnits]
+      : [this.activeUnit];
+    if (selectedUnits.length === 1) {
+      return this.handleActiveUnitMapClick(pointVec3, targetUnit, context);
+    }
+
+    const mode = this.activeMode;
+    const primaryUnit = this.activeUnit;
+    const buildingId = context.buildingId
+      ?? (
+        mode?.startsWith('MOVE_')
+          ? this.buildingInteraction?.findBuildingAt?.(pointVec3) ?? null
+          : null
+      );
+    // Floor choice and capacity are individual-building interactions. Keep
+    // that modal owned by the primary infantry unit instead of opening one
+    // competing modal per selected squad.
+    if (
+      buildingId
+      && mode?.startsWith('MOVE_')
+      && primaryUnit.type === 'infantry_squad'
+    ) {
+      return this.handleActiveUnitMapClick(
+        pointVec3,
+        targetUnit,
+        { ...context, buildingId }
+      );
+    }
+
+    const preserveFormation = mode?.startsWith('MOVE_');
+    let acceptedAny = false;
+    for (const unit of selectedUnits) {
+      if (!canUnitUseCommandMode(unit, mode)) continue;
+      this.activeUnit = unit;
+      this.activeMode = mode;
+      const issuePoint = pointVec3.clone();
+      if (preserveFormation) {
+        issuePoint.x += unit.position.x - primaryUnit.position.x;
+        issuePoint.z += unit.position.z - primaryUnit.position.z;
+        issuePoint.y = this.terrain?.getMovementHeightAt?.(
+          issuePoint.x,
+          issuePoint.z
+        ) ?? this.terrain?.getHeightAt?.(
+          issuePoint.x,
+          issuePoint.z
+        ) ?? issuePoint.y;
+      }
+      acceptedAny = Boolean(
+        this.handleActiveUnitMapClick(issuePoint, targetUnit, context)
+      ) || acceptedAny;
+    }
+    this.activeUnit = primaryUnit;
+    const singleUseMode = isTargetCommandMode(mode)
+      || mode === 'FACE'
+      || mode === 'ENTER_GROUND'
+      || mode === 'ENTER_UPPER';
+    this.activeMode = acceptedAny && singleUseMode ? null : mode;
+    this.renderOverlays();
+    return acceptedAny;
+  }
+
+  handleActiveUnitMapClick(pointVec3, targetUnit = null, context = {}) {
+    if (!this.activeUnit) return false;
 
     if (this.activeMode === 'ENTER_GROUND' || this.activeMode === 'ENTER_UPPER') {
       const result = this.onBuildingOrder?.(
@@ -241,7 +323,9 @@ export class CommandSystem {
       this.activeUnit.mesh.rotation.y = this.activeUnit.rotation;
       this.activeMode = null;
       this.renderOverlays();
+      return true;
     }
+    return false;
   }
 
   renderOverlays() {
@@ -258,47 +342,50 @@ export class CommandSystem {
     clearGroup(this.pathLinesGroup);
     clearGroup(this.targetLinesGroup);
 
-    if (!this.activeUnit) return;
+    const units = this.activeUnits.length > 0
+      ? this.activeUnits
+      : (this.activeUnit ? [this.activeUnit] : []);
+    for (const unit of units) {
+      // 1. Render Waypoint Paths
+      if (unit.waypoints.length > 0) {
+        const points = [unit.position.clone()];
+        unit.waypoints.forEach(wp => points.push(wp.position.clone()));
 
-    // 1. Render Waypoint Paths
-    if (this.activeUnit.waypoints.length > 0) {
-      const points = [this.activeUnit.position.clone()];
-      this.activeUnit.waypoints.forEach(wp => points.push(wp.position.clone()));
-
-      const geo = new THREE.BufferGeometry().setFromPoints(points);
-      const mat = new THREE.LineBasicMaterial({
-        color: this.colors[this.activeUnit.waypoints[0].orderType] || 0xffff00,
-        linewidth: 3
-      });
-      const line = new THREE.Line(geo, mat);
-      this.pathLinesGroup.add(line);
-
-      // Render Waypoint Nodes (Spheres)
-      this.activeUnit.waypoints.forEach(wp => {
-        const nodeGeo = new THREE.SphereGeometry(0.5, 8, 8);
-        const nodeMat = new THREE.MeshBasicMaterial({
-          color: this.colors[wp.orderType] || 0xffff00
+        const geo = new THREE.BufferGeometry().setFromPoints(points);
+        const mat = new THREE.LineBasicMaterial({
+          color: this.colors[unit.waypoints[0].orderType] || 0xffff00,
+          linewidth: 3
         });
-        const node = new THREE.Mesh(nodeGeo, nodeMat);
-        node.position.copy(wp.position);
-        node.position.y += 0.5;
-        this.pathLinesGroup.add(node);
-      });
-    }
+        const line = new THREE.Line(geo, mat);
+        this.pathLinesGroup.add(line);
 
-    // 2. Render Target Vector (Red Line)
-    if (this.activeUnit.targetPos) {
-      const points = [
-        this.activeUnit.position.clone().add(new THREE.Vector3(0, 1.5, 0)),
-        this.activeUnit.targetPos.clone().add(new THREE.Vector3(0, 1.0, 0))
-      ];
-      const geo = new THREE.BufferGeometry().setFromPoints(points);
-      const mat = new THREE.LineBasicMaterial({
-        color: this.colors[this.activeUnit.targetMode] || this.colors.TARGET,
-        linewidth: 2
-      });
-      const line = new THREE.Line(geo, mat);
-      this.targetLinesGroup.add(line);
+        // Render Waypoint Nodes (Spheres)
+        unit.waypoints.forEach(wp => {
+          const nodeGeo = new THREE.SphereGeometry(0.5, 8, 8);
+          const nodeMat = new THREE.MeshBasicMaterial({
+            color: this.colors[wp.orderType] || 0xffff00
+          });
+          const node = new THREE.Mesh(nodeGeo, nodeMat);
+          node.position.copy(wp.position);
+          node.position.y += 0.5;
+          this.pathLinesGroup.add(node);
+        });
+      }
+
+      // 2. Render Target Vector
+      if (unit.targetPos) {
+        const points = [
+          unit.position.clone().add(new THREE.Vector3(0, 1.5, 0)),
+          unit.targetPos.clone().add(new THREE.Vector3(0, 1.0, 0))
+        ];
+        const geo = new THREE.BufferGeometry().setFromPoints(points);
+        const mat = new THREE.LineBasicMaterial({
+          color: this.colors[unit.targetMode] || this.colors.TARGET,
+          linewidth: 2
+        });
+        const line = new THREE.Line(geo, mat);
+        this.targetLinesGroup.add(line);
+      }
     }
   }
 }

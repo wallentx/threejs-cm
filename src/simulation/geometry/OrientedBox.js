@@ -12,6 +12,14 @@ function component(point, axis) {
 export function intersectSegmentOrientedBox3D(start, end, collider) {
   const cosine = Math.cos(collider.rotation ?? 0);
   const sine = Math.sin(collider.rotation ?? 0);
+  const orientation = Array.isArray(collider.orientation)
+    && collider.orientation.length === 9
+    ? collider.orientation
+    : [
+        cosine, 0, sine,
+        0, 1, 0,
+        -sine, 0, cosine
+      ];
   const center = [
     Number(collider.centerX) || 0,
     Number(collider.centerY) || 0,
@@ -19,11 +27,12 @@ export function intersectSegmentOrientedBox3D(start, end, collider) {
   ];
   const toLocal = point => {
     const x = component(point, 0) - center[0];
+    const y = component(point, 1) - center[1];
     const z = component(point, 2) - center[2];
     return [
-      x * cosine - z * sine,
-      component(point, 1) - center[1],
-      x * sine + z * cosine
+      orientation[0] * x + orientation[3] * y + orientation[6] * z,
+      orientation[1] * x + orientation[4] * y + orientation[7] * z,
+      orientation[2] * x + orientation[5] * y + orientation[8] * z
     ];
   };
   const localStart = toLocal(start);
@@ -76,12 +85,23 @@ export function intersectSegmentOrientedBox3D(start, end, collider) {
     const length = Math.hypot(dx, dy, dz) || 1;
     normal = [dx / length, dy / length, dz / length];
   } else if (entryAxis === 0) {
-    normal = [entrySign * cosine, 0, -entrySign * sine];
+    normal = [
+      entrySign * orientation[0],
+      entrySign * orientation[3],
+      entrySign * orientation[6]
+    ];
   } else if (entryAxis === 1) {
-    normal = [0, entrySign, 0];
+    normal = [
+      entrySign * orientation[1],
+      entrySign * orientation[4],
+      entrySign * orientation[7]
+    ];
   } else {
-    normal = [entrySign * sine, 0, entrySign * cosine];
+    normal = [
+      entrySign * orientation[2],
+      entrySign * orientation[5],
+      entrySign * orientation[8]
+    ];
   }
   return { t, point, normal };
 }
-

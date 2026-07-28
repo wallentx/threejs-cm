@@ -30,6 +30,7 @@ export function createUIRuntimePort({
   factionPresentation,
   playerFactionId,
   getSelectedUnit,
+  getSelectedUnits,
   getVisibilityProjection,
   getBocageObstacles,
   getImpacts,
@@ -59,6 +60,7 @@ export function createUIRuntimePort({
 
   for (const [label, value] of Object.entries({
     getSelectedUnit,
+    getSelectedUnits,
     getVisibilityProjection,
     getBocageObstacles,
     getImpacts,
@@ -79,6 +81,10 @@ export function createUIRuntimePort({
     playerFactionId,
     get selectedUnit() {
       return getSelectedUnit();
+    },
+    get selectedUnits() {
+      const units = getSelectedUnits();
+      return Array.isArray(units) ? [...units] : [];
     },
     get commandMode() {
       return commands.activeMode;
