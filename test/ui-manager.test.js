@@ -4,7 +4,9 @@ import { readFile } from 'node:fs/promises';
 import * as THREE from 'three';
 import {
   UIManager,
-  buildRosterMemberPresentation
+  UNIT_BADGE_SCREEN_CLEARANCE_PIXELS,
+  buildRosterMemberPresentation,
+  projectUnitBadgeAnchor
 } from '../src/ui/UIManager.js';
 import { createUIRuntimePort } from '../src/app/ApplicationPorts.js';
 
@@ -15,7 +17,8 @@ function createHarness() {
     deselect: 0,
     split: 0,
     stance: 0,
-    cancelled: 0
+    cancelled: 0,
+    commanderPosture: 0
   };
   const unit = {
     isHiding: false,
@@ -34,6 +37,15 @@ function createHarness() {
       calls.stance++;
       return this.mortarTeamState.deploymentState;
     },
+    canUnbuttonCommander() { return true; },
+    toggleVehicleCommanderPosture() {
+      this.vehicleCrewPosture = this.vehicleCrewPosture === 'UNBUTTONED'
+        ? 'BUTTONED'
+        : 'UNBUTTONED';
+      calls.commanderPosture++;
+      return this.vehicleCrewPosture;
+    },
+    vehicleCrewPosture: 'BUTTONED',
     addPause() { calls.pause++; },
     clearWaypoints() {},
     updateStanceVisuals() { calls.stance++; },
@@ -84,11 +96,13 @@ function createHarness() {
     playerFactionId: 'blue',
     getSelectedUnit: () => selectedUnit,
     getSelectedUnits: () => selectedUnit ? [selectedUnit] : [],
+    getDisplayedUnit: () => selectedUnit,
     getVisibilityProjection: () => null,
     getBocageObstacles: () => [],
     getImpacts: () => [],
     getBuildingFloorIds: () => ['ground-floor', 'upper-floor'],
     selectUnit: unitToSelect => { selectedUnit = unitToSelect; },
+    inspectUnit: unitToInspect => { selectedUnit = unitToInspect; },
     deselectUnit: () => {
       calls.deselect++;
       selectedUnit = null;
@@ -112,6 +126,10 @@ test('UI manager preserves command actions and WEGO order locking', () => {
   assert.equal(unit.isDeployed, true);
   assert.equal(unit.stance, 'KNEELING');
   assert.equal(calls.stance, 1);
+
+  ui.handleDirectAction('TOGGLE_COMMANDER_POSTURE');
+  assert.equal(unit.vehicleCrewPosture, 'UNBUTTONED');
+  assert.equal(calls.commanderPosture, 1);
 
   ui.handleDirectAction('SPLIT');
   assert.equal(calls.split, 1);
@@ -167,6 +185,14 @@ test('runtime markup exposes restored playback controls and shot inspector', asy
   assert.match(css, /body\.tactical-map-hidden #panel-minimap/);
   assert.match(css, /@media \(min-width:\s*1024px\)/);
   assert.match(css, /#shot-inspector-list/);
+  assert.match(
+    css,
+    /\.unit-floating-icon\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;[^}]*transform:\s*translate\(-50%,\s*-50%\)/s
+  );
+  assert.match(
+    css,
+    /\.icon-details\s*\{[^}]*position:\s*absolute;[^}]*left:\s*50%;[^}]*transform:\s*translateX\(-50%\)/s
+  );
 });
 
 test('vehicle crew cards promote the role and omit the redundant roster name', () => {
@@ -238,7 +264,7 @@ test('tactical-map toggle updates layout state and accessibility state', () => {
   }
 });
 
-test('only a friendly floating badge invokes selection and forwards additive modifiers', () => {
+test('friendly badges select while hostile badges inspect damage without granting command', () => {
   const previousDocument = globalThis.document;
   const previousWindow = globalThis.window;
   let clickListener = null;
@@ -263,6 +289,7 @@ test('only a friendly floating badge invokes selection and forwards additive mod
 
   try {
     const selected = [];
+    const inspected = [];
     const camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.1, 100);
     camera.position.set(0, 0, 10);
     camera.lookAt(0, 0, 0);
@@ -275,6 +302,7 @@ test('only a friendly floating badge invokes selection and forwards additive mod
       position: new THREE.Vector3(),
       mesh: { visible: true },
       vehicleSpec: { id: 'TEST_VEHICLE' },
+      vehicleCrewPosture: 'UNBUTTONED',
       getVehicleDamageReport() {
         return {
           burning: false,
@@ -293,10 +321,15 @@ test('only a friendly floating badge invokes selection and forwards additive mod
       selectedUnits: [],
       isPlayerFaction: faction => faction === 'blue',
       getFactionPresentation: () => ({ selectionColor: '#3366ff' }),
-      selectUnit: (...args) => selected.push(args)
+      selectUnit: (...args) => selected.push(args),
+      inspectUnit: unitToInspect => inspected.push(unitToInspect)
     };
 
     ui.updateFloatingIcons([unit], { camera });
+    assert.ok(
+      Number.parseFloat(icon.style.top) < 30,
+      'badge anchor remains well above the unit origin'
+    );
     let stopped = 0;
     clickListener({
       target: { closest: () => null },
@@ -324,7 +357,142 @@ test('only a friendly floating badge invokes selection and forwards additive mod
     assert.match(icon.innerHTML, /<button[^>]+icon-badge faction friendly/);
     assert.doesNotMatch(icon.innerHTML, /vehicle-floating-health/);
     assert.doesNotMatch(icon.innerHTML, />100%?</);
+
+    const enemy = {
+      ...unit,
+      id: 'hostile-1',
+      name: 'Hostile Unit',
+      faction: 'red'
+    };
+    ui.updateFloatingIcons([enemy], { camera });
+    clickListener({
+      target: {
+        closest(selector) {
+          return selector === '.icon-badge.hostile' ? {} : null;
+        }
+      },
+      shiftKey: false,
+      ctrlKey: false,
+      metaKey: false,
+      stopPropagation() { stopped++; }
+    });
+    assert.deepEqual(inspected, [enemy]);
+    assert.deepEqual(selected, [[unit, { additive: true }]]);
+    assert.equal(stopped, 2);
+    assert.match(icon.innerHTML, /<button[^>]+icon-badge faction hostile/);
   } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
+});
+
+test('unit badge anchors retain fixed screen clearance at long camera range', () => {
+  const camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.1, 500);
+  camera.position.set(0, 4, 120);
+  camera.lookAt(0, 4, 0);
+  camera.updateMatrixWorld(true);
+  camera.updateProjectionMatrix();
+  const unit = { position: new THREE.Vector3(0, 0, 0) };
+  const priorAnchor = unit.position.clone()
+    .add(new THREE.Vector3(0, 5.5, 0))
+    .project(camera);
+  const projected = new THREE.Vector3();
+  const worldAnchor = new THREE.Vector3();
+
+  projectUnitBadgeAnchor(unit, camera, 720, projected, worldAnchor);
+
+  const clearancePixels =
+    (projected.y - priorAnchor.y) * 0.5 * 720;
+  assert.ok(
+    Math.abs(clearancePixels - UNIT_BADGE_SCREEN_CLEARANCE_PIXELS) < 1e-9
+  );
+  assert.ok(
+    worldAnchor.clone().project(camera).distanceTo(projected) < 1e-9,
+    'occlusion ray must use the same anchor shown on screen'
+  );
+});
+
+test('floating badges are hidden by nearer visible unit model geometry', () => {
+  const previousDocument = globalThis.document;
+  const previousWindow = globalThis.window;
+  const icons = [];
+  globalThis.document = {
+    getElementById: id => id === 'icon-overlay'
+      ? { appendChild() {} }
+      : null,
+    createElement: () => {
+      const icon = {
+        dataset: {},
+        style: {},
+        innerHTML: '',
+        addEventListener() {},
+        querySelector() {
+          return { style: { setProperty() {} } };
+        }
+      };
+      icons.push(icon);
+      return icon;
+    }
+  };
+  globalThis.window = { innerWidth: 1280, innerHeight: 720 };
+
+  const camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.1, 100);
+  camera.position.set(0, 3.5, 10);
+  camera.lookAt(0, 3.5, 0);
+  camera.updateMatrixWorld(true);
+  camera.updateProjectionMatrix();
+
+  const ownerMesh = new THREE.Group();
+  const blockerMesh = new THREE.Group();
+  const blockerGeometry = new THREE.BoxGeometry(2, 8, 2);
+  const blockerMaterial = new THREE.MeshBasicMaterial();
+  blockerMesh.add(new THREE.Mesh(blockerGeometry, blockerMaterial));
+  blockerMesh.children[0].position.y = 4;
+  blockerMesh.position.set(0, 0, 5);
+  blockerMesh.userData.modelMetadata = {
+    dimensionsMeters: { length: 2, width: 2, height: 8 }
+  };
+  ownerMesh.updateMatrixWorld(true);
+  blockerMesh.updateMatrixWorld(true);
+
+  const owner = {
+    id: 'owner',
+    name: 'Owner',
+    faction: 'blue',
+    position: new THREE.Vector3(),
+    mesh: ownerMesh
+  };
+  const blocker = {
+    id: 'blocker',
+    name: 'Blocker',
+    faction: 'blue',
+    position: blockerMesh.position,
+    mesh: blockerMesh
+  };
+  const ui = Object.create(UIManager.prototype);
+  ui.showIcons = true;
+  ui.iconPool = new Map();
+  ui.runtime = {
+    isPlayerFaction: () => true,
+    getFactionPresentation: () => ({ selectionColor: '#3366ff' }),
+    selectUnit() {},
+    inspectUnit() {}
+  };
+
+  try {
+    ui.updateFloatingIcons([owner, blocker], { camera });
+    assert.equal(ui.iconPool.get(owner.id).style.visibility, 'hidden');
+    assert.equal(ui.iconPool.get(blocker.id).style.visibility, 'visible');
+
+    blocker.position.set(8, 0, 5);
+    blockerMesh.updateMatrixWorld(true);
+    ui.updateFloatingIcons([owner, blocker], { camera });
+    assert.equal(ui.iconPool.get(owner.id).style.visibility, 'visible');
+  } finally {
+    blockerGeometry.dispose();
+    blockerMaterial.dispose();
     if (previousDocument === undefined) delete globalThis.document;
     else globalThis.document = previousDocument;
     if (previousWindow === undefined) delete globalThis.window;
@@ -364,6 +532,7 @@ test('vehicle status header reports conditions without aggregate health', () => 
     const ui = Object.create(UIManager.prototype);
     ui.renderVehicleStatus({
       vehicleSpec: { id: 'TEST_VEHICLE' },
+      vehicleCrewPosture: 'UNBUTTONED',
       getVehicleDamageReport() {
         return {
           burning: true,
@@ -376,7 +545,7 @@ test('vehicle status header reports conditions without aggregate health', () => 
     });
     assert.equal(
       elements.get('selection-roster-header').textContent,
-      'CREW, WEAPONS & SYSTEMS · BURNING'
+      'CREW, WEAPONS & SYSTEMS · BURNING · UNBUTTONED'
     );
   } finally {
     if (previousDocument === undefined) delete globalThis.document;
@@ -850,6 +1019,62 @@ test('DEPLOY appears only for a real crew-served weapon and reflects mortar stat
   }
 });
 
+test('vehicle special actions expose buttoned and unbuttoned commander posture', () => {
+  const previousDocument = globalThis.document;
+  const commandGrid = {
+    children: [],
+    set innerHTML(value) {
+      if (value === '') this.children = [];
+    },
+    appendChild(child) {
+      this.children.push(child);
+    }
+  };
+  const panels = {
+    'command-grid': commandGrid,
+    'panel-commands': createPanelHarness(),
+    'panel-team-roster': createPanelHarness()
+  };
+  globalThis.document = {
+    getElementById: id => panels[id] ?? null,
+    createElement: () => ({
+      className: '',
+      innerHTML: '',
+      classList: { add() {} },
+      addEventListener() {}
+    }),
+    body: { classList: { toggle() {} } }
+  };
+
+  try {
+    const tank = {
+      type: 'vehicle',
+      vehicleSpec: { id: 'PANZER_III_D' },
+      vehicleCrewPosture: 'BUTTONED',
+      canUnbuttonCommander() { return true; }
+    };
+    const ui = Object.create(UIManager.prototype);
+    ui.activeTab = 'special';
+    ui.runtime = {
+      selectedUnit: tank,
+      commandMode: null
+    };
+
+    ui.renderCommandGrid();
+    let labels = commandGrid.children.map(child => child.innerHTML).join(' ');
+    assert.match(labels, /UNBUTTON/);
+    assert.doesNotMatch(labels, /BUTTON UP/);
+
+    tank.vehicleCrewPosture = 'UNBUTTONED';
+    ui.renderCommandGrid();
+    labels = commandGrid.children.map(child => child.innerHTML).join(' ');
+    assert.match(labels, /BUTTON UP/);
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  }
+});
+
 test('SNEAK, CRAWL, and ASSAULT are visible and hotkey-accessible only for infantry', () => {
   const previousDocument = globalThis.document;
   const previousWindow = globalThis.window;
@@ -1266,11 +1491,54 @@ test('portrait mobile retains a stable 2 by 2 HUD including the tactical map', a
   assert.match(css, /@media\s*\(orientation:\s*portrait\)/);
   assert.doesNotMatch(css, /@media\s*\(max-width:\s*640px\)\s*and\s*\(orientation:\s*portrait\)/);
   assert.match(css, /#hud-panel\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s);
-  assert.match(css, /#hud-panel\s*\{[^}]*grid-template-rows:\s*repeat\(2,\s*132px\)/s);
-  assert.match(css, /#panel-minimap\s*\{[^}]*display:\s*flex/s);
+  assert.match(css, /#hud-panel\s*\{[^}]*height:\s*270px;[^}]*grid-template-rows:\s*max-content\s+minmax\(0,\s*1fr\)\s+132px/s);
+  assert.match(css, /#panel-unit-info\s*\{[^}]*grid-column:\s*1;[^}]*grid-row:\s*1/s);
+  assert.match(css, /#panel-commands\s*\{[^}]*grid-column:\s*1;[^}]*grid-row:\s*2\s*\/\s*span\s*2/s);
+  assert.match(css, /#panel-team-roster\s*\{[^}]*grid-column:\s*2;[^}]*grid-row:\s*1\s*\/\s*span\s*2/s);
+  assert.match(css, /#panel-minimap\s*\{[^}]*display:\s*flex;[^}]*grid-column:\s*2;[^}]*grid-row:\s*3/s);
   assert.match(css, /#panel-commands\s+\.command-grid\s*\{[^}]*flex:\s*1[^}]*min-height:\s*0[^}]*overflow-y:\s*auto/s);
+  assert.match(css, /#panel-commands\s+\.cmd-tab\s*\{[^}]*min-height:\s*34px;[^}]*padding:\s*6px\s+1px;[^}]*font-size:\s*9px/s);
   assert.match(css, /#panel-team-roster\s+\.vehicle-status\s*\{[^}]*flex:\s*1/s);
+  assert.match(
+    css,
+    /body\.tactical-map-hidden\s+#panel-team-roster\s*\{[^}]*grid-column:\s*2;[^}]*grid-row:\s*1\s*\/\s*span\s*3/s
+  );
+  assert.match(
+    css,
+    /#panel-team-roster\s+\.roster-grid\s*\{[^}]*flex:\s*1;[^}]*min-height:\s*0;[^}]*max-height:\s*none;[^}]*align-content:\s*start;[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);[^}]*grid-auto-rows:\s*max-content/s
+  );
+  assert.match(
+    css,
+    /#panel-team-roster\s+\.ammo-inventory\s*\{[^}]*flex:\s*0\s+0\s+auto;[^}]*margin-top:\s*auto/s
+  );
   assert.match(css, /\.hud-box\.is-selection-empty\s*>\s*\*\s*\{[^}]*visibility:\s*hidden/s);
+});
+
+test('frame rendering bounds icon and minimap DOM work independently', () => {
+  const ui = Object.create(UIManager.prototype);
+  let iconRenders = 0;
+  let minimapRenders = 0;
+  let inspectorRenders = 0;
+  ui.showMinimap = true;
+  ui.lastIconUpdate = Number.NEGATIVE_INFINITY;
+  ui.lastMinimapUpdate = Number.NEGATIVE_INFINITY;
+  ui.lastHudUpdate = 0;
+  ui.lastCrewServedCommandKey = null;
+  ui.updateFloatingIcons = () => { iconRenders++; };
+  ui.minimap = { render: () => { minimapRenders++; } };
+  ui.updateShotInspector = () => { inspectorRenders++; };
+  ui.runtime = {
+    selectedUnit: null,
+    getImpacts: () => []
+  };
+
+  for (const now of [0, 20, 40, 80, 100]) {
+    ui.render([], {}, now);
+  }
+
+  assert.equal(iconRenders, 3, 'floating badges are capped at 30 Hz');
+  assert.equal(minimapRenders, 2, 'tactical map is capped at 10 Hz');
+  assert.equal(inspectorRenders, 5, 'event-keyed inspector remains responsive');
 });
 
 test('realtime mode hides WEGO time sliders, step buttons, and GO execution button', async () => {

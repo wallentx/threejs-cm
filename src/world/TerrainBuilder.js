@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { TERRAIN_SCALE } from './TerrainScale.js';
 import { StaticCollisionWorld } from '../simulation/collision/StaticCollisionWorld.js';
+import {
+  DestructibleLinearObstacleSystem
+} from '../simulation/terrain/DestructibleLinearObstacleSystem.js';
 
 const QUAD_UVS = [
   0, 0,
@@ -23,6 +26,7 @@ function uniqueSortedCoordinates(values) {
 }
 
 function createRiverBankZCoordinates(river) {
+  if (!river) return [];
   const coordinates = [];
   for (const direction of [-1, 1]) {
     const innerZ = river.centerZ
@@ -257,6 +261,145 @@ export function createGroundConformingWallGeometry({
   return geometry;
 }
 
+/**
+ * Builds one indexed vertical ribbon whose lower edge follows the terrain.
+ * Material alpha testing supplies the fence openings; collision remains a
+ * separate profile-driven series of oriented records.
+ */
+export function createGroundConformingFenceCardGeometry({
+  start,
+  end,
+  height,
+  thickness,
+  maximumSegmentLength,
+  textureRepeatMeters,
+  groundOffset = 0,
+  getHeightAt
+}) {
+  const dx = end.x - start.x;
+  const dz = end.z - start.z;
+  const length = Math.hypot(dx, dz);
+  if (!(length > 0)) throw new Error('Fence run length must be positive');
+  if (!(height > 0) || !(thickness > 0)
+      || !(maximumSegmentLength > 0) || !(textureRepeatMeters > 0)) {
+    throw new Error('Fence card dimensions must be positive');
+  }
+  if (typeof getHeightAt !== 'function') {
+    throw new TypeError('Fence card requires getHeightAt');
+  }
+
+  const segmentCount = Math.ceil(length / maximumSegmentLength);
+  const positions = [];
+  const uvs = [];
+  const indices = [];
+  const segmentVertexIndices = Array.from(
+    { length: segmentCount },
+    () => []
+  );
+  const groundSamples = [];
+  const samples = [];
+  const halfThickness = thickness * 0.5;
+  const normalX = -dz / length * halfThickness;
+  const normalZ = dx / length * halfThickness;
+  for (let index = 0; index <= segmentCount; index++) {
+    const progress = index / segmentCount;
+    const x = start.x + dx * progress;
+    const z = start.z + dz * progress;
+    const groundY = getHeightAt(x, z);
+    const bottomY = groundY + groundOffset;
+    const u = length * progress / textureRepeatMeters;
+    samples.push({
+      leftBottom: new THREE.Vector3(x + normalX, bottomY, z + normalZ),
+      rightBottom: new THREE.Vector3(x - normalX, bottomY, z - normalZ),
+      leftTop: new THREE.Vector3(x + normalX, bottomY + height, z + normalZ),
+      rightTop: new THREE.Vector3(x - normalX, bottomY + height, z - normalZ),
+      u
+    });
+    groundSamples.push([x, groundY, z]);
+  }
+  const addIndexedQuad = (points, coordinates, segmentIndex) => {
+    const base = positions.length / 3;
+    for (const point of points) positions.push(point.x, point.y, point.z);
+    for (const [u, v] of coordinates) uvs.push(u, v);
+    indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    segmentVertexIndices[segmentIndex].push(
+      base,
+      base + 1,
+      base + 2,
+      base + 3
+    );
+  };
+  for (let index = 0; index < segmentCount; index++) {
+    const from = samples[index];
+    const to = samples[index + 1];
+    const sideUvs = [
+      [from.u, 0],
+      [to.u, 0],
+      [to.u, 1],
+      [from.u, 1]
+    ];
+    addIndexedQuad(
+      [from.leftBottom, to.leftBottom, to.leftTop, from.leftTop],
+      sideUvs,
+      index
+    );
+    addIndexedQuad(
+      [to.rightBottom, from.rightBottom, from.rightTop, to.rightTop],
+      [
+        [to.u, 0],
+        [from.u, 0],
+        [from.u, 1],
+        [to.u, 1]
+      ],
+      index
+    );
+    // The top samples a picket-only band in the same repeating texture, so
+    // every visible top cap aligns with the upright below it while gaps remain
+    // true alpha-tested holes.
+    addIndexedQuad(
+      [from.leftTop, to.leftTop, to.rightTop, from.rightTop],
+      [
+        [from.u, 0.88],
+        [to.u, 0.88],
+        [to.u, 0.98],
+        [from.u, 0.98]
+      ],
+      index
+    );
+  }
+  const first = samples[0];
+  const last = samples.at(-1);
+  const endCapUvs = [[0, 0], [0.06, 0], [0.06, 1], [0, 1]];
+  addIndexedQuad(
+    [first.rightBottom, first.leftBottom, first.leftTop, first.rightTop],
+    endCapUvs,
+    0
+  );
+  addIndexedQuad(
+    [last.leftBottom, last.rightBottom, last.rightTop, last.leftTop],
+    endCapUvs,
+    segmentCount - 1
+  );
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  geometry.userData.groundSamples = groundSamples;
+  geometry.userData.segmentCount = segmentCount;
+  geometry.userData.lengthMeters = length;
+  geometry.userData.metresPerUvRepeat = textureRepeatMeters;
+  geometry.userData.thicknessMeters = thickness;
+  geometry.userData.faceBands = ['front', 'back', 'top', 'ends'];
+  geometry.userData.presentationKind = 'alpha-tested-card';
+  geometry.userData.segmentVertexIndices = segmentVertexIndices;
+  geometry.userData.originalPositions = Float32Array.from(positions);
+  return geometry;
+}
+
 function createGabledRoofGeometry(width, depth, height, overhang = 0.45) {
   const halfWidth = width * 0.5 + overhang;
   const halfDepth = depth * 0.5 + overhang;
@@ -479,9 +622,7 @@ export class TerrainBuilder {
       width: this.width,
       depth: this.depth,
       segments: this.segments,
-      additionalZCoordinates: createRiverBankZCoordinates(
-        mapDescriptor.river
-      )
+      additionalZCoordinates: createRiverBankZCoordinates(mapDescriptor.river)
     });
     this.bocageObstacles = [];
     this.buildings = [];
@@ -494,6 +635,12 @@ export class TerrainBuilder {
     this.structureAdapters = structureAdapters;
     this.terrainSurfaceProvider = terrainSurfaceProvider;
     this.surfaceAssets = null;
+    this.fenceMeshesByRunId = new Map();
+    this.destructibleLinearObstacles = new DestructibleLinearObstacleSystem({
+      onSegmentChanged: (state, segment) => {
+        this.syncDestructibleFenceSegment(state, segment);
+      }
+    });
   }
 
   buildScenarioMap() {
@@ -555,6 +702,7 @@ export class TerrainBuilder {
   getHeightAt(x, z) {
     const river = this.mapDescriptor.river;
     const openGround = this.getOpenGroundHeightAt(x, z);
+    if (!river) return openGround;
     const distanceFromCenter = Math.abs(z - river.centerZ);
     const waterHalfWidth = river.waterWidth * 0.5;
     const cutHalfWidth = river.cutWidth * 0.5;
@@ -657,6 +805,79 @@ export class TerrainBuilder {
     return normalized;
   }
 
+  removeColliderRecord(id) {
+    const stableId = String(id);
+    this.collisionWorld.removeCollider(stableId);
+    this.colliderRecords = this.colliderRecords
+      .filter(record => record.id !== stableId);
+  }
+
+  syncDestructibleFenceSegment(state, segment) {
+    const mesh = this.fenceMeshesByRunId.get(segment.runId);
+    if (mesh) {
+      const vertexIndices = mesh.geometry.userData
+        .segmentVertexIndices?.[segment.segmentIndex];
+      const original = mesh.geometry.userData.originalPositions;
+      const positions = mesh.geometry.attributes.position;
+      if (vertexIndices && original && positions) {
+        for (const vertexIndex of vertexIndices) {
+          const offset = vertexIndex * 3;
+          if (state.destroyed) {
+            const x = original[offset];
+            const z = original[offset + 2];
+            positions.setXYZ(
+              vertexIndex,
+              x,
+              this.getHeightAt(x, z)
+                + (mesh.userData.groundOffset ?? 0),
+              z
+            );
+          } else {
+            positions.setXYZ(
+              vertexIndex,
+              original[offset],
+              original[offset + 1],
+              original[offset + 2]
+            );
+          }
+        }
+        positions.needsUpdate = true;
+        mesh.geometry.computeVertexNormals();
+        mesh.geometry.computeBoundingBox();
+        mesh.geometry.computeBoundingSphere();
+      }
+    }
+
+    if (state.destroyed) {
+      this.removeColliderRecord(segment.colliderId);
+      this.bocageObstacles = this.bocageObstacles
+        .filter(record => record.id !== segment.obstacleRecord.id);
+    } else {
+      this.addColliderRecord(segment.colliderRecord);
+      if (!this.bocageObstacles.some(
+        record => record.id === segment.obstacleRecord.id
+      )) {
+        this.bocageObstacles.push({ ...segment.obstacleRecord });
+      }
+    }
+  }
+
+  captureDestructibleObstacleState() {
+    return this.destructibleLinearObstacles.captureState();
+  }
+
+  restoreDestructibleObstacleState(state) {
+    return this.destructibleLinearObstacles.restoreState(state);
+  }
+
+  applyVehicleImpactToLinearObstacle(impact) {
+    return this.destructibleLinearObstacles.applyVehicleImpact(impact);
+  }
+
+  applyBlastDamageToLinearObstacles(blast) {
+    return this.destructibleLinearObstacles.applyBlast(blast);
+  }
+
   addNavigationRecord(record) {
     const index = this.navigationRecords.findIndex(candidate => candidate.id === record.id);
     if (index >= 0) this.navigationRecords[index] = { ...record };
@@ -679,6 +900,7 @@ export class TerrainBuilder {
       'water',
       'bridgeRoad',
       'masonry',
+      'fenceCard',
       'foliageTrunk',
       'foliageLeaves',
       'foliageLeavesDark'
@@ -706,6 +928,11 @@ export class TerrainBuilder {
   buildRiverAndBridge() {
     const river = this.mapDescriptor.river;
     const mapBridge = this.mapDescriptor.bridge;
+    if (!river || !mapBridge) {
+      this.bridgeSurface = null;
+      this.riverBankStrips = [];
+      return null;
+    }
     const bridge = TERRAIN_SCALE.bridge;
     const surfaceMaterials = this.getSurfaceAssets().materials;
     const waterGeo = new THREE.PlaneGeometry(this.width, river.waterWidth);
@@ -997,18 +1224,157 @@ export class TerrainBuilder {
   }
 
   buildStoneWalls() {
-    const dimensions = TERRAIN_SCALE.stoneWall;
-    const wallMaterial = this.createMasonryMaterial();
     this.stoneWallSegments = [];
+    this.fenceCardRuns = [];
+    this.boundaryMeshes = [];
+    this.fenceMeshesByRunId.clear();
+    this.destructibleLinearObstacles.clear();
 
     const createWallRun = (run) => {
+      const profile = this.mapDescriptor.wallProfiles[run.profileId];
+      const material = this.getSurfaceAssets().materials[profile.materialRole];
+      if (!material?.isMaterial) {
+        throw new Error(
+          `Wall profile ${profile.id} requires material ${profile.materialRole}`
+        );
+      }
       const [startX, startZ] = run.start;
       const [endX, endZ] = run.end;
       const runId = run.id;
       const dx = endX - startX;
       const dz = endZ - startZ;
       const runLength = Math.hypot(dx, dz);
-      const segmentCount = Math.ceil(runLength / dimensions.maximumSegmentLength);
+      const segmentCount = Math.ceil(runLength / profile.maximumSegmentLength);
+
+      const addBoundaryRecords = ({
+        index,
+        start,
+        end,
+        bounds,
+        length
+      }) => {
+        const obstacleRecord = {
+          id: `${runId}_${index}`,
+          minX: bounds.min.x,
+          maxX: bounds.max.x,
+          minY: bounds.min.y,
+          maxY: bounds.max.y,
+          minZ: bounds.min.z,
+          maxZ: bounds.max.z,
+          height: profile.height,
+          thickness: profile.thickness,
+          type: profile.collisionType,
+          occludesSight: profile.occludesSight,
+          enclosureId: run.enclosureId ?? null,
+          adjacentGateId: run.adjacentGateId ?? null
+        };
+        this.bocageObstacles.push(obstacleRecord);
+        const colliderRecord = this.addColliderRecord({
+          id: `wall:${runId}:${index}`,
+          type: profile.collisionType,
+          mapFeatureId: runId,
+          enclosureId: run.enclosureId ?? null,
+          adjacentGateId: run.adjacentGateId ?? null,
+          centerX: (start.x + end.x) * 0.5,
+          centerZ: (start.z + end.z) * 0.5,
+          halfX: profile.thickness * 0.5,
+          halfZ: length * 0.5,
+          rotation: Math.atan2(end.x - start.x, end.z - start.z),
+          blocks: profile.blocks
+        });
+        return { obstacleRecord, colliderRecord };
+      };
+
+      if (profile.presentationKind === 'alpha-tested-card') {
+        const start = { x: startX, z: startZ };
+        const end = { x: endX, z: endZ };
+        const geometry = createGroundConformingFenceCardGeometry({
+          start,
+          end,
+          height: profile.height,
+          thickness: profile.thickness,
+          maximumSegmentLength: profile.maximumSegmentLength,
+          textureRepeatMeters: profile.textureRepeatMeters,
+          groundOffset: profile.groundOffset,
+          getHeightAt: (x, z) => this.getHeightAt(x, z)
+        });
+        const fence = new THREE.Mesh(geometry, material);
+        fence.name = `FenceCard_${runId}`;
+        fence.castShadow = false;
+        fence.receiveShadow = true;
+        fence.userData.terrainFeature = profile.collisionType;
+        fence.userData.runId = runId;
+        fence.userData.profileId = profile.id;
+        fence.userData.enclosureId = run.enclosureId ?? null;
+        fence.userData.boundarySide = run.boundarySide ?? null;
+        fence.userData.adjacentGateId = run.adjacentGateId ?? null;
+        fence.userData.start = [
+          start.x,
+          this.getHeightAt(start.x, start.z),
+          start.z
+        ];
+        fence.userData.end = [
+          end.x,
+          this.getHeightAt(end.x, end.z),
+          end.z
+        ];
+        fence.userData.dimensionsMeters = {
+          height: profile.height,
+          thickness: profile.thickness,
+          length: runLength
+        };
+        fence.userData.groundOffset = profile.groundOffset;
+        fence.userData.rendererApproximation = {
+          presentationKind: profile.presentationKind,
+          alphaTested: true,
+          blendedTransparency: false,
+          terrainSamples: geometry.userData.groundSamples.length,
+          dataQuality: profile.dataQuality
+        };
+        this.scene.add(fence);
+        this.fenceCardRuns.push(fence);
+        this.boundaryMeshes.push(fence);
+        this.fenceMeshesByRunId.set(runId, fence);
+
+        for (let index = 0; index < segmentCount; index++) {
+          const startT = index / segmentCount;
+          const endT = (index + 1) / segmentCount;
+          const segmentStart = {
+            x: startX + dx * startT,
+            z: startZ + dz * startT
+          };
+          const segmentEnd = {
+            x: startX + dx * endT,
+            z: startZ + dz * endT
+          };
+          const bounds = new THREE.Box3();
+          for (const vertexIndex of geometry.userData.segmentVertexIndices[index]) {
+            bounds.expandByPoint(new THREE.Vector3().fromBufferAttribute(
+              geometry.attributes.position,
+              vertexIndex
+            ));
+          }
+          const records = addBoundaryRecords({
+            index,
+            start: segmentStart,
+            end: segmentEnd,
+            bounds,
+            length: runLength / segmentCount
+          });
+          this.destructibleLinearObstacles.registerSegment({
+            id: `fence:${runId}:${index}`,
+            colliderId: records.colliderRecord.id,
+            runId,
+            segmentIndex: index,
+            start: [segmentStart.x, segmentStart.z],
+            end: [segmentEnd.x, segmentEnd.z],
+            colliderRecord: records.colliderRecord,
+            obstacleRecord: records.obstacleRecord,
+            policy: profile.destruction
+          });
+        }
+        return;
+      }
 
       for (let index = 0; index < segmentCount; index++) {
         const startT = index / segmentCount;
@@ -1024,16 +1390,17 @@ export class TerrainBuilder {
         const geometry = createGroundConformingWallGeometry({
           start,
           end,
-          height: dimensions.height,
-          thickness: dimensions.thickness,
+          height: profile.height,
+          thickness: profile.thickness,
           getHeightAt: (x, z) => this.getHeightAt(x, z)
         });
-        const wall = new THREE.Mesh(geometry, wallMaterial);
+        const wall = new THREE.Mesh(geometry, material);
         wall.name = `StoneWall_${runId}_${index}`;
         wall.castShadow = true;
         wall.receiveShadow = true;
         wall.userData.terrainFeature = 'stonewall';
         wall.userData.runId = runId;
+        wall.userData.profileId = profile.id;
         wall.userData.enclosureId = run.enclosureId ?? null;
         wall.userData.boundarySide = run.boundarySide ?? null;
         wall.userData.adjacentGateId = run.adjacentGateId ?? null;
@@ -1041,39 +1408,20 @@ export class TerrainBuilder {
         wall.userData.start = [start.x, this.getHeightAt(start.x, start.z), start.z];
         wall.userData.end = [end.x, this.getHeightAt(end.x, end.z), end.z];
         wall.userData.dimensionsMeters = {
-          height: dimensions.height,
-          thickness: dimensions.thickness,
+          height: profile.height,
+          thickness: profile.thickness,
           length: runLength / segmentCount
         };
         this.scene.add(wall);
         this.stoneWallSegments.push(wall);
+        this.boundaryMeshes.push(wall);
 
-        const box = geometry.boundingBox;
-        this.bocageObstacles.push({
-          id: `${runId}_${index}`,
-          minX: box.min.x,
-          maxX: box.max.x,
-          minY: box.min.y,
-          maxY: box.max.y,
-          minZ: box.min.z,
-          maxZ: box.max.z,
-          height: dimensions.height,
-          type: 'stonewall',
-          enclosureId: run.enclosureId ?? null,
-          adjacentGateId: run.adjacentGateId ?? null
-        });
-        this.addColliderRecord({
-          id: `wall:${runId}:${index}`,
-          type: 'stonewall',
-          mapFeatureId: runId,
-          enclosureId: run.enclosureId ?? null,
-          adjacentGateId: run.adjacentGateId ?? null,
-          centerX: (start.x + end.x) * 0.5,
-          centerZ: (start.z + end.z) * 0.5,
-          halfX: dimensions.thickness * 0.5,
-          halfZ: (runLength / segmentCount) * 0.5,
-          rotation: Math.atan2(end.x - start.x, end.z - start.z),
-          blocks: ['vehicle', 'infantry']
+        addBoundaryRecords({
+          index,
+          start,
+          end,
+          bounds: geometry.boundingBox,
+          length: runLength / segmentCount
         });
       }
     };
@@ -1276,9 +1624,89 @@ export class TerrainBuilder {
       treeDimensions.trunkRadius * 0.72,
       treeDimensions.trunkRadius,
       treeDimensions.trunkHeight,
-      8
+      6
     );
-    const foliageGeometry = new THREE.IcosahedronGeometry(treeDimensions.canopyRadius, 1);
+    // One shared detail-0 crown has 20 triangles. The previous detail-1 crown
+    // had 80; three authored crown placements now submit 75% fewer canopy
+    // triangles without adding objects or changing tree datums.
+    const foliageGeometry = new THREE.IcosahedronGeometry(
+      treeDimensions.canopyRadius,
+      0
+    );
+    if (this.mapDescriptor.foliageRendering?.mode === 'instanced') {
+      const entries = this.mapDescriptor.foliage;
+      const mapFeatureIds = entries.map(entry => entry.id);
+      const dummy = new THREE.Object3D();
+      const buildInstances = ({
+        name,
+        geometry,
+        material,
+        localPosition,
+        scale = 1
+      }) => {
+        const mesh = new THREE.InstancedMesh(
+          geometry,
+          material,
+          entries.length
+        );
+        mesh.name = name;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+        entries.forEach((entry, index) => {
+          const [x, z] = entry.position;
+          const groundY = this.getHeightAt(x, z);
+          dummy.position.set(
+            x + localPosition[0],
+            groundY + localPosition[1],
+            z + localPosition[2]
+          );
+          dummy.rotation.set(0, 0, 0);
+          dummy.scale.setScalar(scale);
+          dummy.updateMatrix();
+          mesh.setMatrixAt(index, dummy.matrix);
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+        mesh.userData.mapFeatureIds = mapFeatureIds;
+        mesh.userData.profileId = 'mature-tree';
+        mesh.userData.renderMode = 'instanced';
+        mesh.userData.dataQuality =
+          this.mapDescriptor.foliageRendering.dataQuality;
+        this.scene.add(mesh);
+        return mesh;
+      };
+      const crownBase = treeDimensions.totalHeight
+        - treeDimensions.canopyRadius;
+      this.foliageInstances = [
+        buildInstances({
+          name: 'MatureTreeTrunks',
+          geometry: trunkGeometry,
+          material: trunkMat,
+          localPosition: [0, treeDimensions.trunkHeight * 0.5, 0]
+        }),
+        buildInstances({
+          name: 'MatureTreeCrownsPrimary',
+          geometry: foliageGeometry,
+          material: leavesMat,
+          localPosition: [0, crownBase, 0]
+        }),
+        buildInstances({
+          name: 'MatureTreeCrownsWest',
+          geometry: foliageGeometry,
+          material: leavesDarkMat,
+          localPosition: [-1.7, crownBase - 0.7, 0.4],
+          scale: 0.72
+        }),
+        buildInstances({
+          name: 'MatureTreeCrownsEast',
+          geometry: foliageGeometry,
+          material: leavesDarkMat,
+          localPosition: [1.55, crownBase - 0.5, -0.5],
+          scale: 0.76
+        })
+      ];
+      return this.foliageInstances;
+    }
 
     this.mapDescriptor.foliage.forEach((entry) => {
       const [x, z] = entry.position;

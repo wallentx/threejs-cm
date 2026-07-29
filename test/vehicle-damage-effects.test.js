@@ -64,8 +64,14 @@ test('vehicle damage effects translate authoritative component state into persis
 
   assert.ok(record);
   assert.equal(unit.mesh.userData.damageEffects, record.root);
-  assert.equal(record.flames.count, 7);
-  assert.equal(record.smoke.count, 9);
+  assert.equal(record.flames.isSprite, true);
+  assert.equal(record.flames.material.isSpriteNodeMaterial, true);
+  assert.equal(record.flames.userData.layerCount, 7);
+  assert.equal(record.flames.visible, true);
+  assert.equal(record.smoke.isSprite, true);
+  assert.equal(record.smoke.material.isSpriteNodeMaterial, true);
+  assert.equal(record.smoke.userData.layerCount, 9);
+  assert.equal(record.smoke.visible, true);
   assert.ok(record.explosionTimer > 0);
   assert.ok(unit.mesh.userData.barrel.rotation.x > 0);
 
@@ -89,8 +95,10 @@ test('vehicle damage effects retain bounded impact scars and lower far-LOD parti
 
   effects.update(1 / 30, [unit], [impact]);
   const record = effects.records.get(unit.id);
-  assert.equal(record.smoke.count, 4);
-  assert.equal(record.flames.count, 0);
+  assert.equal(record.smoke.userData.layerCount, 4);
+  assert.equal(record.smoke.visible, true);
+  assert.equal(record.flames.userData.layerCount, 0);
+  assert.equal(record.flames.visible, false);
   assert.equal(record.scorch.count, 1);
   assert.ok(record.impactTimer > 0);
 
@@ -140,8 +148,14 @@ test('restore baselines persistent damage without replaying an old destruction b
 
   assert.equal(record.explosionTimer, 0, 'restored destruction must not replay its old blast');
   assert.equal(record.blast.visible, false);
-  assert.ok(record.smoke.count > 0, 'persistent restored damage should still rebuild smoke');
-  assert.ok(record.flames.count > 0, 'persistent restored fire should still rebuild flames');
+  assert.ok(
+    record.smoke.userData.layerCount > 0,
+    'persistent restored damage should still rebuild smoke'
+  );
+  assert.ok(
+    record.flames.userData.layerCount > 0,
+    'persistent restored fire should still rebuild flames'
+  );
 
   effects.dispose();
 });

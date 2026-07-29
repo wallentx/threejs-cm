@@ -3,6 +3,7 @@ import test from 'node:test';
 import * as THREE from 'three';
 import { Unit } from './helpers/France1940TestUnit.js';
 import { GameApp } from '../src/app/GameApp.js';
+import { FixedStepAccumulator } from '../src/simulation/FixedStepAccumulator.js';
 import {
   FRANCE_1940_FORMATIONS
 } from '../src/content/france1940/formations.js';
@@ -295,6 +296,7 @@ test('post-building simulation sequencing samples final handoff positions', () =
     },
     syncBuildingInteriorPresentation() {},
     spotting: { advance() {} },
+    spottingStepper: new FixedStepAccumulator(1 / 30),
     factionOrder: [],
     combat: { update() {} },
     support: { update() {} }

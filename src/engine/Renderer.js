@@ -1,13 +1,69 @@
 import * as THREE from 'three';
 
+const RENDER_PROFILES = Object.freeze({
+  low: Object.freeze({
+    maxPixelRatio: 1,
+    shadowMapSize: 0
+  }),
+  high: Object.freeze({
+    maxPixelRatio: 1.5,
+    shadowMapSize: 1024
+  }),
+  ultra: Object.freeze({
+    maxPixelRatio: 2,
+    shadowMapSize: 2048
+  })
+});
+
+export function normalizeRenderQualityTier(value) {
+  return Object.hasOwn(RENDER_PROFILES, value) ? value : 'high';
+}
+
+export function getRenderProfile(qualityTier = 'high') {
+  return RENDER_PROFILES[normalizeRenderQualityTier(qualityTier)];
+}
+
+function hasBlendedMaterial(object) {
+  const materials = Array.isArray(object.material)
+    ? object.material
+    : [object.material];
+  return materials.some(material =>
+    Number.isFinite(material?.opacity) && material.opacity < 1
+  );
+}
+
+export function resolveMeshShadowPolicy(object, shadowsEnabled = true) {
+  if (!object?.isMesh || !shadowsEnabled) {
+    return { castShadow: false, receiveShadow: false };
+  }
+  const band = object.userData?.lodBand;
+  if (band === 'ui' || hasBlendedMaterial(object)) {
+    return { castShadow: false, receiveShadow: false };
+  }
+  const authored = object.userData.renderShadowPolicy ?? {
+    castShadow: object.castShadow,
+    receiveShadow: object.receiveShadow
+  };
+  if (object.userData.infantryLodTier) return authored;
+  if (band === 'high' || band === 'medium') {
+    return {
+      castShadow: false,
+      receiveShadow: authored.receiveShadow
+    };
+  }
+  return authored;
+}
+
 export class Renderer {
   constructor(container, options = {}) {
     this.container = container;
-    this.qualityTier = options.qualityTier === 'low' ? 'low' : 'high';
+    this.qualityTier = normalizeRenderQualityTier(options.qualityTier);
+    this.renderProfile = getRenderProfile(this.qualityTier);
     this.debugMode = options.debugMode || 'final';
     this.backendName = 'initializing';
     this.deviceLost = false;
     this.onDeviceLost = options.onDeviceLost ?? null;
+    this.shadowStats = { casters: 0, receivers: 0 };
 
     // 1. Scene setup
     this.scene = new THREE.Scene();
@@ -47,12 +103,14 @@ export class Renderer {
       alpha: false
     });
     graphicsRenderer.setSize(window.innerWidth, window.innerHeight);
-    const maxPixelRatio = this.qualityTier === 'low' ? 1.25 : 2;
-    graphicsRenderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPixelRatio));
+    graphicsRenderer.setPixelRatio(Math.min(
+      window.devicePixelRatio,
+      this.renderProfile.maxPixelRatio
+    ));
     graphicsRenderer.outputColorSpace = THREE.SRGBColorSpace;
     graphicsRenderer.toneMapping = THREE.ACESFilmicToneMapping;
     graphicsRenderer.toneMappingExposure = 0.72;
-    graphicsRenderer.shadowMap.enabled = this.qualityTier !== 'low';
+    graphicsRenderer.shadowMap.enabled = this.renderProfile.shadowMapSize > 0;
     graphicsRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
     const reportDeviceLost = graphicsRenderer.onDeviceLost.bind(graphicsRenderer);
     graphicsRenderer.onDeviceLost = info => {
@@ -108,8 +166,8 @@ export class Renderer {
     // One bounded directional shadow covers the 240 m scenario map.
     this.sunLight = new THREE.DirectionalLight('#fff1d6', 2.3);
     this.sunLight.position.set(85, 140, 60);
-    this.sunLight.castShadow = this.qualityTier !== 'low';
-    const shadowSize = this.qualityTier === 'low' ? 1024 : 2048;
+    this.sunLight.castShadow = this.renderProfile.shadowMapSize > 0;
+    const shadowSize = Math.max(1, this.renderProfile.shadowMapSize);
     this.sunLight.shadow.mapSize.set(shadowSize, shadowSize);
     this.sunLight.shadow.camera.left = -145;
     this.sunLight.shadow.camera.right = 145;
@@ -125,11 +183,23 @@ export class Renderer {
 
   configureSceneShadows() {
     const shadowsEnabled = this.graphicsRenderer.shadowMap.enabled && this.debugMode !== 'no-shadows';
+    let casters = 0;
+    let receivers = 0;
     this.scene.traverse((object) => {
       if (!object.isMesh) return;
-      object.castShadow = shadowsEnabled;
-      object.receiveShadow = shadowsEnabled;
+      if (!object.userData.renderShadowPolicy) {
+        object.userData.renderShadowPolicy = {
+          castShadow: object.castShadow,
+          receiveShadow: object.receiveShadow
+        };
+      }
+      const policy = resolveMeshShadowPolicy(object, shadowsEnabled);
+      object.castShadow = policy.castShadow;
+      object.receiveShadow = policy.receiveShadow;
+      if (object.castShadow) casters++;
+      if (object.receiveShadow) receivers++;
     });
+    this.shadowStats = { casters, receivers };
   }
 
   setDebugMode(mode = 'final') {
@@ -140,6 +210,7 @@ export class Renderer {
     this.scene.fog = this.debugMode === 'no-fog'
       ? null
       : new THREE.FogExp2('#9bbbc2', 0.0022);
+    this.configureSceneShadows();
   }
 
   getDiagnostics() {
@@ -157,7 +228,10 @@ export class Renderer {
       textures: info.memory.textures,
       toneMapping: 'ACESFilmic',
       exposure: this.graphicsRenderer.toneMappingExposure,
-      shadows: this.sunLight.castShadow
+      shadows: this.sunLight.castShadow,
+      shadowMapSize: this.renderProfile.shadowMapSize,
+      shadowCasters: this.shadowStats.casters,
+      shadowReceivers: this.shadowStats.receivers
     };
   }
 
@@ -165,8 +239,10 @@ export class Renderer {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.graphicsRenderer.setSize(window.innerWidth, window.innerHeight);
-    const maxPixelRatio = this.qualityTier === 'low' ? 1.25 : 2;
-    this.graphicsRenderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPixelRatio));
+    this.graphicsRenderer.setPixelRatio(Math.min(
+      window.devicePixelRatio,
+      this.renderProfile.maxPixelRatio
+    ));
   }
 
   render() {

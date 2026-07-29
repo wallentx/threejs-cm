@@ -563,6 +563,18 @@ test('disabled ammunition stowage blocks future reloads but not an already chamb
   assert.equal(coax.fireState, 'AMMO_STOWAGE_DISABLED');
 });
 
+test('disabled hull component does not make a crewed vehicle vanish from combat', () => {
+  const panzer = makeVehicle('PANZER_III_D', 'disabled_hull_vehicle');
+  setVehicleComponentHealth(panzer.vehicleComponents, 'hull', 20);
+  panzer.syncLegacyVehicleDamage();
+
+  assert.equal(panzer.vehicleDamage.hull, 'DESTROYED');
+  assert.equal(panzer.vehicleDamageState.destroyed, false);
+  assert.equal(panzer.getLivingCrew().length, panzer.roster.length);
+  assert.equal(panzer.isCombatEffective(), true);
+  assert.equal(panzer.canVehicleFire(), true);
+});
+
 test('damaged ammunition stowage slows main and mounted-weapon handling deterministically', () => {
   const healthy = makeVehicle('PANZER_III_D', 'healthy_ammunition_handling');
   const damaged = makeVehicle('PANZER_III_D', 'damaged_ammunition_handling');

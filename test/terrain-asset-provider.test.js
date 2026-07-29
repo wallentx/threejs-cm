@@ -24,6 +24,7 @@ const MATERIAL_ROLES = Object.freeze([
   'water',
   'bridgeRoad',
   'masonry',
+  'fenceCard',
   'foliageTrunk',
   'foliageLeaves',
   'foliageLeavesDark'
@@ -137,6 +138,10 @@ test('replacement terrain surface provider reaches live ground, riverbank, river
   assert.equal(
     terrain.stoneWallSegments[0].material.userData.replacementRole,
     'masonry'
+  );
+  assert.equal(
+    terrain.fenceCardRuns[0].material.userData.replacementRole,
+    'fenceCard'
   );
   const tree = scene.getObjectByName('MatureTree');
   assert.ok(

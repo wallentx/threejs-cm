@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {
   TerrainBuilder,
-  createGroundConformingWallGeometry
+  createGroundConformingWallGeometry,
+  createGroundConformingFenceCardGeometry
 } from './helpers/France1940TestTerrain.js';
 import { TERRAIN_SCALE } from '../src/world/TerrainScale.js';
 import { FR_HOUSE_12X9_2F } from '../src/maps/france/FranceHouse12x9_2F.js';
@@ -15,6 +16,7 @@ import {
 } from '../src/world/buildings/FrenchHouse.js';
 
 const EPSILON = 1e-5;
+const STONE_WALL_PROFILE = STONNE_1940_MAP.wallProfiles['stone-wall'];
 const STRUCTURE_ADAPTERS = Object.freeze({
   [FR_HOUSE_12X9_2F.id]: createFrenchHouseVisualAdapter(FR_HOUSE_12X9_2F),
   [FR_FARMHOUSE_8X6_1F.id]:
@@ -87,10 +89,10 @@ test('terrain scale uses metres and plausible human-relative dimensions', () => 
     TERRAIN_SCALE.infantryReferenceHeight >= 1.7
       && TERRAIN_SCALE.infantryReferenceHeight <= 1.9
   );
-  assert.ok(TERRAIN_SCALE.stoneWall.height >= 1);
-  assert.ok(TERRAIN_SCALE.stoneWall.height <= 1.3);
-  assert.ok(TERRAIN_SCALE.stoneWall.thickness >= 0.5);
-  assert.ok(TERRAIN_SCALE.stoneWall.thickness <= 0.8);
+  assert.ok(STONE_WALL_PROFILE.height >= 1);
+  assert.ok(STONE_WALL_PROFILE.height <= 1.3);
+  assert.ok(STONE_WALL_PROFILE.thickness >= 0.5);
+  assert.ok(STONE_WALL_PROFILE.thickness <= 0.8);
   assert.ok(TERRAIN_SCALE.house.eavesHeight <= 7);
   assert.ok(TERRAIN_SCALE.bridge.roadwayWidth >= 5.5);
   assert.ok(TERRAIN_SCALE.bridge.roadwayWidth <= 7.5);
@@ -104,8 +106,8 @@ test('wall geometry is grounded, manifold, and outward-wound', () => {
   const geometry = createGroundConformingWallGeometry({
     start: { x: -2, z: 1 },
     end: { x: 3, z: 4 },
-    height: TERRAIN_SCALE.stoneWall.height,
-    thickness: TERRAIN_SCALE.stoneWall.thickness,
+    height: STONE_WALL_PROFILE.height,
+    thickness: STONE_WALL_PROFILE.thickness,
     getHeightAt
   });
 
@@ -133,11 +135,14 @@ test('stone wall runs use contiguous grounded segments and matching collisions',
   const scene = new THREE.Scene();
   const terrain = createTerrain(scene);
   terrain.buildStoneWalls();
+  const stoneRuns = STONNE_1940_MAP.wallRuns.filter(run => (
+    STONNE_1940_MAP.wallProfiles[run.profileId].presentationKind === 'solid-prism'
+  ));
 
-  const expectedSegmentCount = STONNE_1940_MAP.wallRuns.reduce(
+  const expectedSegmentCount = stoneRuns.reduce(
     (sum, run) => sum + Math.ceil(
       Math.hypot(run.end[0] - run.start[0], run.end[1] - run.start[1])
-        / TERRAIN_SCALE.stoneWall.maximumSegmentLength
+        / STONNE_1940_MAP.wallProfiles[run.profileId].maximumSegmentLength
     ),
     0
   );
@@ -162,9 +167,9 @@ test('stone wall runs use contiguous grounded segments and matching collisions',
     assert.equal(wall.userData.adjacentGateId, sourceRun.adjacentGateId ?? null);
 
     const dimensions = wall.userData.dimensionsMeters;
-    assert.ok(dimensions.length <= TERRAIN_SCALE.stoneWall.maximumSegmentLength);
-    assert.equal(dimensions.height, TERRAIN_SCALE.stoneWall.height);
-    assert.equal(dimensions.thickness, TERRAIN_SCALE.stoneWall.thickness);
+    assert.ok(dimensions.length <= STONE_WALL_PROFILE.maximumSegmentLength);
+    assert.equal(dimensions.height, STONE_WALL_PROFILE.height);
+    assert.equal(dimensions.thickness, STONE_WALL_PROFILE.thickness);
 
     for (const [x, y, z] of wall.geometry.userData.footprintCorners) {
       assertNear(y, terrain.getHeightAt(x, z), 'rendered corner grounding');
@@ -185,16 +190,17 @@ test('stone wall runs use contiguous grounded segments and matching collisions',
     assertNear(obstacle.maxZ, wall.geometry.boundingBox.max.z, 'collision maxZ');
   }
 
-  assert.equal(runs.size, STONNE_1940_MAP.wallRuns.length);
-  for (const sourceRun of STONNE_1940_MAP.wallRuns) {
+  assert.equal(runs.size, stoneRuns.length);
+  for (const sourceRun of stoneRuns) {
     const segments = runs.get(sourceRun.id);
+    const profile = STONNE_1940_MAP.wallProfiles[sourceRun.profileId];
     const runLength = Math.hypot(
       sourceRun.end[0] - sourceRun.start[0],
       sourceRun.end[1] - sourceRun.start[1]
     );
     assert.equal(
       segments.length,
-      Math.ceil(runLength / TERRAIN_SCALE.stoneWall.maximumSegmentLength)
+      Math.ceil(runLength / profile.maximumSegmentLength)
     );
     segments.sort((a, b) => a.userData.segmentIndex - b.userData.segmentIndex);
     for (let index = 1; index < segments.length; index++) {
@@ -210,6 +216,178 @@ test('stone wall runs use contiguous grounded segments and matching collisions',
       );
     }
   }
+});
+
+test('fence card geometry follows terrain with one indexed cutout ribbon', () => {
+  const start = { x: -3, z: 2 };
+  const end = { x: 5, z: 6 };
+  const getHeightAt = (x, z) => x * 0.08 - z * 0.03;
+  const geometry = createGroundConformingFenceCardGeometry({
+    start,
+    end,
+    height: 1.1,
+    thickness: 0.18,
+    maximumSegmentLength: 2,
+    textureRepeatMeters: 2,
+    groundOffset: 0.015,
+    getHeightAt
+  });
+
+  const expectedSegments = Math.ceil(Math.hypot(8, 4) / 2);
+  assert.equal(geometry.userData.segmentCount, expectedSegments);
+  assert.equal(geometry.attributes.position.count, expectedSegments * 12 + 8);
+  assert.equal(geometry.index.count, expectedSegments * 18 + 12);
+  assert.equal(geometry.userData.groundSamples.length, expectedSegments + 1);
+  for (const [x, y, z] of geometry.userData.groundSamples) {
+    assertNear(y, getHeightAt(x, z), 'fence ground sample');
+  }
+  assert.equal(geometry.userData.presentationKind, 'alpha-tested-card');
+  assert.equal(geometry.userData.metresPerUvRepeat, 2);
+  assert.equal(geometry.userData.thicknessMeters, 0.18);
+  assert.deepEqual(geometry.userData.faceBands, ['front', 'back', 'top', 'ends']);
+  assert.equal(
+    geometry.userData.segmentVertexIndices.length,
+    expectedSegments
+  );
+  assert.equal(
+    geometry.userData.segmentVertexIndices
+      .reduce((count, record) => count + record.length, 0),
+    geometry.attributes.position.count
+  );
+  assert.equal(
+    geometry.userData.originalPositions.length,
+    geometry.attributes.position.count * 3
+  );
+  const topBandOffset = 8;
+  assertNear(geometry.attributes.uv.getY(topBandOffset), 0.88, 'top UV lower band');
+  assertNear(geometry.attributes.uv.getY(topBandOffset + 2), 0.98, 'top UV upper band');
+  assert.ok(
+    geometry.boundingBox.max.x - geometry.boundingBox.min.x > 8,
+    'oriented ribbon must retain visible physical width'
+  );
+});
+
+test('farmhouse fences use one alpha-tested mesh per run and separate collision', () => {
+  const scene = new THREE.Scene();
+  const terrain = createTerrain(scene);
+  terrain.buildStoneWalls();
+  const fenceRuns = STONNE_1940_MAP.wallRuns.filter(run => (
+    STONNE_1940_MAP.wallProfiles[run.profileId].presentationKind
+      === 'alpha-tested-card'
+  ));
+
+  assert.equal(terrain.fenceCardRuns.length, fenceRuns.length);
+  assert.ok(
+    terrain.fenceCardRuns.length
+      < terrain.fenceCardRuns.reduce(
+        (sum, fence) => sum + fence.geometry.userData.segmentCount,
+        0
+      ),
+    'terrain tessellation must stay inside one submitted mesh per authored run'
+  );
+  for (const fence of terrain.fenceCardRuns) {
+    const sourceRun = fenceRuns.find(run => run.id === fence.userData.runId);
+    const profile = STONNE_1940_MAP.wallProfiles[sourceRun.profileId];
+    assert.equal(fence.userData.profileId, profile.id);
+    assert.equal(fence.material, terrain.getSurfaceAssets().materials.fenceCard);
+    assert.equal(fence.material.transparent, false);
+    assert.equal(fence.material.depthWrite, true);
+    assert.ok(fence.material.alphaTest > 0);
+    assert.equal(fence.material.side, THREE.FrontSide);
+    assert.equal(fence.castShadow, false);
+    assert.equal(fence.receiveShadow, true);
+    assert.equal(fence.userData.rendererApproximation.blendedTransparency, false);
+    for (const [x, y, z] of fence.geometry.userData.groundSamples) {
+      assertNear(y, terrain.getHeightAt(x, z), 'fence terrain sample');
+    }
+
+    for (
+      let segmentIndex = 0;
+      segmentIndex < fence.geometry.userData.segmentCount;
+      segmentIndex++
+    ) {
+      const obstacle = terrain.bocageObstacles.find(
+        candidate => candidate.id === `${sourceRun.id}_${segmentIndex}`
+      );
+      assert.ok(obstacle);
+      assert.equal(obstacle.type, 'fence');
+      assert.equal(obstacle.occludesSight, false);
+      const collider = terrain.colliderRecords.find(
+        candidate => candidate.id
+          === `wall:${sourceRun.id}:${segmentIndex}`
+      );
+      assert.ok(collider);
+      assert.equal(collider.type, 'fence');
+      assert.deepEqual(collider.blocks, ['infantry', 'vehicle']);
+    }
+  }
+  assert.equal(
+    terrain.stoneWallSegments.every(
+      wall => wall.userData.profileId === 'stone-wall'
+    ),
+    true,
+    'masonry runs must retain solid geometry'
+  );
+});
+
+test('fence panels own independent visual, collision, and rollback state', () => {
+  const terrain = createTerrain(new THREE.Scene());
+  terrain.buildStoneWalls();
+  const fence = terrain.fenceCardRuns[0];
+  const runId = fence.userData.runId;
+  const segmentId = `fence:${runId}:0`;
+  const colliderId = `wall:${runId}:0`;
+  const neighborColliderId = `wall:${runId}:1`;
+  const original = Float32Array.from(
+    fence.geometry.attributes.position.array
+  );
+  const intact = structuredClone(
+    terrain.captureDestructibleObstacleState()
+  );
+
+  const result = terrain.applyVehicleImpactToLinearObstacle({
+    colliderId,
+    massTonnes: 10,
+    speedMetersPerSecond: 0.5,
+    vehicleId: 'test-tank'
+  });
+
+  assert.equal(result.id, segmentId);
+  assert.equal(result.destroyed, true);
+  assert.equal(terrain.collisionWorld.getCollider(colliderId), null);
+  assert.ok(terrain.collisionWorld.getCollider(neighborColliderId));
+  assert.equal(
+    terrain.bocageObstacles.some(record => record.id === `${runId}_0`),
+    false
+  );
+  assert.equal(
+    terrain.bocageObstacles.some(record => record.id === `${runId}_1`),
+    true
+  );
+  const position = fence.geometry.attributes.position;
+  for (const vertexIndex of fence.geometry.userData.segmentVertexIndices[0]) {
+    assertNear(
+      position.getY(vertexIndex),
+      terrain.getHeightAt(position.getX(vertexIndex), position.getZ(vertexIndex))
+        + fence.userData.groundOffset,
+      'destroyed panel must collapse to terrain'
+    );
+  }
+  for (const vertexIndex of fence.geometry.userData.segmentVertexIndices[1]) {
+    assertNear(
+      position.getY(vertexIndex),
+      original[vertexIndex * 3 + 1],
+      'neighboring panel must retain original geometry'
+    );
+  }
+
+  terrain.restoreDestructibleObstacleState(intact);
+  assert.deepEqual(
+    Array.from(fence.geometry.attributes.position.array),
+    Array.from(original)
+  );
+  assert.ok(terrain.collisionWorld.getCollider(colliderId));
+  assert.deepEqual(terrain.captureDestructibleObstacleState(), intact);
 });
 
 test('stone walls form gated lots around authored buildings instead of map-spanning barriers', () => {
@@ -267,10 +445,10 @@ test('stone walls form gated lots around authored buildings instead of map-spann
       const worldX = structure.position[0] + localX * cos + localZ * sin;
       const worldZ = structure.position[1] - localX * sin + localZ * cos;
       assert.ok(
-        worldX > minX + TERRAIN_SCALE.stoneWall.thickness
-          && worldX < maxX - TERRAIN_SCALE.stoneWall.thickness
-          && worldZ > minZ + TERRAIN_SCALE.stoneWall.thickness
-          && worldZ < maxZ - TERRAIN_SCALE.stoneWall.thickness,
+        worldX > minX + STONE_WALL_PROFILE.thickness
+          && worldX < maxX - STONE_WALL_PROFILE.thickness
+          && worldZ > minZ + STONE_WALL_PROFILE.thickness
+          && worldZ < maxZ - STONE_WALL_PROFILE.thickness,
         `${structure.id} footprint must sit inside, not on, its wall boundary`
       );
     }

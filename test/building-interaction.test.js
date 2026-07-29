@@ -203,6 +203,10 @@ function restoreCapacityHarness(harness, snapshot) {
 
 test('four individual soldiers enter upper floor, use window arcs, and exit', () => {
   const { buildings, interactions, unit, agents } = createHarness();
+  for (const agent of agents) {
+    agent.targetUnitId = 'outside-enemy';
+    agent.targetSoldierId = 'outside-enemy:0';
+  }
   const order = interactions.issueEnter(unit, 'house', 'upper-floor');
   assert.equal(order.accepted, true);
   assert.equal(order.assigned.length, 4);
@@ -226,6 +230,10 @@ test('four individual soldiers enter upper floor, use window arcs, and exit', ()
 
   const occupied = agents.filter(agent => agent.buildingLocation?.phase === 'occupied');
   assert.equal(occupied.length, 4);
+  assert.ok(occupied.every(agent =>
+    agent.targetUnitId === null
+    && agent.targetSoldierId === null
+  ), 'entering cover clears exposed outside firing solutions');
   assert.deepEqual(
     Object.keys(buildings.getBuildingSnapshot('house').occupancy).sort(),
     [

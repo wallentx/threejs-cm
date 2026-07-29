@@ -153,6 +153,33 @@ test('line-of-sight uses obstacle height and rejects nearby non-intersecting seg
   );
 });
 
+test('alpha-card fence collision does not become an opaque sight blocker', () => {
+  const bounds = {
+    minX: -1,
+    maxX: 1,
+    minY: 0,
+    maxY: 3,
+    minZ: 9,
+    maxZ: 11,
+    height: 3,
+    type: 'fence',
+    occludesSight: false
+  };
+  const spotting = makeSpotting(makeTerrain([bounds]));
+  const clear = spotting.checkLOS(
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(0, 0, 20)
+  );
+  assert.equal(clear.clear, true);
+
+  bounds.occludesSight = true;
+  const blocked = spotting.checkLOS(
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(0, 0, 20)
+  );
+  assert.equal(blocked.clear, false);
+});
+
 test('KIA observers cannot acquire, relay, or retain observation state', () => {
   const observer = makeUnit({
     id: 'observer',
@@ -172,6 +199,46 @@ test('KIA observers cannot acquire, relay, or retain observation state', () => {
   assert.deepEqual(spotting.getVisibilityProjection('blue', [observer, target]).visibleUnitIds, [
     'observer'
   ]);
+});
+
+test('occupied infantry remain concealed until attacking through a fire port', () => {
+  const observer = makeUnit({
+    id: 'observer',
+    faction: 'blue',
+    x: 0,
+    z: 0
+  });
+  const target = makeUnit({
+    id: 'target',
+    faction: 'red',
+    x: 0,
+    z: 30
+  });
+  Object.assign(target.roster[0], {
+    buildingLocation: {
+      phase: 'occupied',
+      buildingId: 'house',
+      nodeId: 'upper-slot',
+      firePortId: 'upper-window'
+    },
+    state: 'OBSERVING',
+    targetUnitId: null
+  });
+  const spotting = makeSpotting();
+
+  acquire(spotting, [observer, target], 20);
+  const concealed = spotting.getObservation(observer.id, 0, target.id);
+  assert.equal(concealed.visibleNow, false);
+  assert.equal(concealed.acquisition, 0);
+  assert.equal(concealed.lastSeenPosition, null);
+
+  target.roster[0].targetUnitId = observer.id;
+  target.roster[0].state = 'AIMING';
+  acquire(spotting, [observer, target], 4);
+  assert.equal(
+    spotting.getObservation(observer.id, 0, target.id).visibleNow,
+    true
+  );
 });
 
 test('occlusion prevents acquisition even inside nominal spotting range', () => {
@@ -487,7 +554,7 @@ test('capture and restore preserve deep state during visibility grace', () => {
   );
 });
 
-test('binoculars shorten acquisition without creating an observation by themselves', () => {
+test('squad-leader binoculars improve spotting only while individually observing', () => {
   const plain = makeUnit({ id: 'plain', faction: 'blue', x: -2, z: 0 });
   const binocular = makeUnit({ id: 'binocular', faction: 'blue', x: 2, z: 0 });
   const target = makeUnit({ id: 'target', faction: 'red', x: 0, z: 130 });
@@ -496,6 +563,12 @@ test('binoculars shorten acquisition without creating an observation by themselv
     soldierEquipment: { 0: ['BINOCULARS'] }
   }]);
 
+  spotting.advance([plain, binocular, target], 0.2);
+  const idlePlain = spotting.getObservation('plain', 0, 'target');
+  const idleBinocular = spotting.getObservation('binocular', 0, 'target');
+  assert.equal(idleBinocular.acquisition, idlePlain.acquisition);
+
+  binocular.roster[0].state = 'OBSERVING';
   spotting.advance([plain, binocular, target], 0.8);
 
   const plainObservation = spotting.getObservation('plain', 0, 'target');
@@ -505,7 +578,7 @@ test('binoculars shorten acquisition without creating an observation by themselv
   assert.equal(plainObservation.visibleNow, false);
 });
 
-test('a replacement gunner loses commander-owned binocular observation', () => {
+test('unbuttoned commander binoculars are lost after a gunner-role transfer', () => {
   const panzer = new Unit({
     id: 'replacement_observer',
     faction: 'german',
@@ -531,15 +604,17 @@ test('a replacement gunner loses commander-owned binocular observation', () => {
     ),
     true
   );
+  assert.equal(panzer.toggleVehicleCommanderPosture(), 'UNBUTTONED');
 
   const before = makeSpotting();
-  before.advance([panzer, target], 0.8);
+  before.advance([panzer, target], 0.65);
   const commanderObservation = before.getObservation(panzer.id, commander.id, target.id);
 
   gunner.health = 0;
   gunner.status = 'KIA';
   panzer.updateVehicleSystems(5);
   assert.equal(panzer.getEffectiveCrewRole(commander), null);
+  assert.equal(panzer.vehicleCrewPosture, 'BUTTONED');
   assert.equal(
     observerHasEquipment(
       panzer,
@@ -561,7 +636,7 @@ test('a replacement gunner loses commander-owned binocular observation', () => {
   );
 
   const after = makeSpotting();
-  after.advance([panzer, target], 0.8);
+  after.advance([panzer, target], 0.65);
   const replacementObservation = after.getObservation(panzer.id, commander.id, target.id);
   assert.ok(replacementObservation.acquisition < commanderObservation.acquisition);
   assert.equal(commanderObservation.visibleNow, true);

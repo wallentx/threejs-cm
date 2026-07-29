@@ -17,6 +17,12 @@ import {
 import {
   getVehicleArmorAimPoint
 } from '../simulation/vehicles/VehicleArmorCollision.js';
+import {
+  setProceduralVfxProgress
+} from '../world/vfx/ProceduralVfxNodes.js';
+import {
+  calculateLinearObstacleBlastDamage
+} from '../simulation/terrain/DestructibleLinearObstacleSystem.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const scratchAim = new THREE.Vector3();
@@ -326,7 +332,12 @@ export class CombatSystem {
       this.vfxProvider.createCombatResources()
     );
     this.vfxAssetBinding = this.vfxResources.assetBinding ?? null;
-    this.effectPools = { impact: [], explosion: [], buildingDebris: [] };
+    this.effectPools = {
+      impact: [],
+      explosion: [],
+      muzzleFlash: [],
+      buildingDebris: []
+    };
     this.effectGeometries = this.vfxResources.effectGeometries;
     this.effectCaps = this.vfxResources.effectCaps;
     this.shotSequence = 0;
@@ -486,6 +497,7 @@ export class CombatSystem {
     };
     this.projectiles.push(projectile);
     this.telemetry.shotsFired++;
+    this.createMuzzleFlashEffect(fromPos, weapon);
 
     if (this.onAuditoryEvent) {
       this.onAuditoryEvent(createWeaponReportEvent({
@@ -837,6 +849,34 @@ export class CombatSystem {
       return false;
     }
 
+    if (impact.kind === 'exposed_vehicle_crew') {
+      const damage = weapon.woundDamage * (0.78 + this.random() * 0.44);
+      const casualty = impact.unit.applyExposedVehicleCrewDamage(
+        impact.agent.id,
+        damage
+      );
+      impact.unit.applySuppression(18);
+      this.telemetry.infantryHits++;
+      this.recordImpact(projectile, impact, {
+        crewResult: {
+          penetrated: false,
+          casualty,
+          casualties: casualty ? [casualty] : [],
+          damage: {
+            amount: damage,
+            cause: 'unbuttoned_commander_hit'
+          }
+        }
+      });
+      if (weapon.explosiveRadius > 0) {
+        this.applyBlast(impact.point, weapon, projectile.attacker);
+        this.createExplosionEffect(impact.point, 0.7);
+      } else {
+        this.createImpactEffect(impact.point, 0xffc266);
+      }
+      return false;
+    }
+
     if (impact.kind === 'vehicle') {
       const result = this.ballistics.resolveVehicleImpact(projectile, impact);
       impact.unit.applySuppression(result.penetrated ? 55 : 14);
@@ -927,6 +967,12 @@ export class CombatSystem {
         unit.applySuppression(22);
       }
     }
+
+    this.ballistics.terrain?.applyBlastDamageToLinearObstacles?.({
+      position,
+      radiusMeters: radius,
+      damageAtCenter: calculateLinearObstacleBlastDamage(weapon)
+    });
 
     if (!this.buildingSystem) return;
     const amount = calculateBuildingBlastDamage(weapon);
@@ -1076,7 +1122,9 @@ export class CombatSystem {
       if (!material?.isMaterial) {
         throw new TypeError(`combat VFX ${kind} material must be a Three.js material`);
       }
-      const mesh = new THREE.Mesh(this.effectGeometries[kind], material);
+      const mesh = material.isSpriteNodeMaterial
+        ? new THREE.Sprite(material)
+        : new THREE.Mesh(this.effectGeometries[kind], material);
       if (this.vfxAssetBinding) mesh.userData.assetBinding = this.vfxAssetBinding;
       effect = {
         kind,
@@ -1117,8 +1165,9 @@ export class CombatSystem {
     effect.initialOpacity = initialOpacity;
     effect.growthPerSecond = growthPerSecond;
     effect.debrisEvent = debrisEvent;
-    effect.material.color.setHex(color);
+    effect.material.color?.setHex?.(color);
     effect.material.opacity = initialOpacity;
+    setProceduralVfxProgress(effect.material, 0);
     effect.mesh.position.copy(pos);
     effect.mesh.scale.setScalar(scale);
     effect.mesh.visible = true;
@@ -1135,6 +1184,7 @@ export class CombatSystem {
     effect.active = false;
     effect.mesh.visible = false;
     effect.material.opacity = 0;
+    setProceduralVfxProgress(effect.material, 1);
     effect.debrisEvent = null;
     delete effect.mesh.userData.buildingDebrisEvent;
     if (effect.mesh.parent) effect.mesh.parent.remove(effect.mesh);
@@ -1152,10 +1202,38 @@ export class CombatSystem {
   createExplosionEffect(pos, scale = 1) {
     this.sound?.playExplosion?.({ scale });
     const style = this.vfxResources.styles.explosion;
-    this.startEffect('explosion', pos, {
+    const visualScale = scale * style.initialScale;
+    const effect = this.startEffect('explosion', pos, {
       color: style.color,
-      scale,
+      scale: visualScale,
       maxLife: style.maxLife
+    });
+    if (effect) {
+      // Sprite origin is centered. Lift presentation so terrain does not
+      // depth-occlude the lower half of a ground impact.
+      effect.mesh.position.y += visualScale * 0.38;
+      effect.mesh.userData.authoritativeImpactPosition = pos.toArray();
+    }
+    return effect;
+  }
+
+  createMuzzleFlashEffect(pos, weapon) {
+    const style = this.vfxResources.styles.muzzleFlash;
+    const cannon = String(weapon?.kind ?? '').startsWith('cannon');
+    const automatic = [
+      'machine_gun',
+      'submachine_gun',
+      'light_machine_gun'
+    ].includes(weapon?.kind);
+    const caliberScale = cannon
+      ? THREE.MathUtils.clamp((weapon?.caliberMm ?? 20) / 24, 0.8, 2.6)
+      : automatic ? 0.42 : 0.34;
+    return this.startEffect('muzzleFlash', pos, {
+      color: style.color,
+      scale: caliberScale,
+      maxLife: style.maxLife,
+      initialOpacity: style.initialOpacity,
+      growthPerSecond: style.growthPerSecond
     });
   }
 
@@ -1273,9 +1351,11 @@ export class CombatSystem {
         ? effect.growthPerSecond
         : this.vfxResources.styles[effect.kind]?.growthPerSecond ?? 2.4;
       effect.mesh.scale.multiplyScalar(1 + delta * growthPerSecond);
-      effect.material.opacity = effect.kind === 'buildingDebris'
-        ? effect.initialOpacity * Math.max(0, 1 - progress)
-        : 1 - progress;
+      if (!setProceduralVfxProgress(effect.material, progress)) {
+        effect.material.opacity = effect.kind === 'buildingDebris'
+          ? effect.initialOpacity * Math.max(0, 1 - progress)
+          : 1 - progress;
+      }
       if (effect.lifetime >= effect.maxLife) {
         this.retireEffect(effect);
       }

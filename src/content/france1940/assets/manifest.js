@@ -40,7 +40,7 @@ export const FRANCE_1940_ASSET_MANIFEST = defineAssetManifest({
       kind: 'terrain-surface-provider',
       source: {
         type: 'procedural',
-        generatorId: 'france-1940-procedural-terrain-surfaces-v1'
+        generatorId: 'france-1940-procedural-terrain-surfaces-v2'
       },
       provenance: 'deterministic procedural battlefield surface approximation',
       metadata: {
@@ -49,6 +49,7 @@ export const FRANCE_1940_ASSET_MANIFEST = defineAssetManifest({
           'water',
           'bridge-road',
           'masonry',
+          'fence-card',
           'foliage-trunk',
           'foliage-leaves',
           'foliage-leaves-dark'
@@ -102,7 +103,7 @@ export const FRANCE_1940_ASSET_MANIFEST = defineAssetManifest({
       kind: 'battlefield-vfx-provider',
       source: {
         type: 'procedural',
-        generatorId: 'procedural-battlefield-vfx-v1'
+        generatorId: 'procedural-battlefield-vfx-v2'
       },
       provenance: 'deterministic bounded battlefield VFX approximation',
       metadata: {

@@ -420,6 +420,43 @@ test('target-order integration may accept or reject a handled command without mu
   assert.equal(calls[0].unit, unit);
 });
 
+test('mortar area target forwards the authored radius and closes the command tool', () => {
+  const calls = [];
+  const commands = new CommandSystem(new THREE.Scene(), {
+    onTargetOrder(unit, point, targetUnit, mode, context) {
+      calls.push({
+        unit,
+        point: point.toArray(),
+        targetUnit,
+        mode,
+        radiusMeters: context.areaRadiusMeters
+      });
+      return { handled: true, accepted: true };
+    }
+  });
+  const unit = createUnit();
+  unit.mortarTeamConfig = { weaponId: 'test-mortar' };
+  commands.setActiveUnit(unit);
+  commands.setCommandMode('MORTAR_HE');
+
+  assert.equal(
+    commands.handleMapClick(
+      new THREE.Vector3(10, 0, 12),
+      null,
+      { areaRadiusMeters: 7.5 }
+    ),
+    true
+  );
+  assert.equal(commands.activeMode, null);
+  assert.deepEqual(calls, [{
+    unit,
+    point: [10, 0, 12],
+    targetUnit: null,
+    mode: 'MORTAR_HE',
+    radiusMeters: 7.5
+  }]);
+});
+
 test('AP, HE, and MG target tools persist their explicit mode on the order', () => {
   const commands = new CommandSystem(new THREE.Scene());
   const target = { id: 'target' };

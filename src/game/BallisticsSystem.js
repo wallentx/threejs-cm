@@ -15,6 +15,9 @@ import {
   queryVehicleInternalBlastCandidates,
   traceVehicleInternalPath
 } from '../simulation/vehicles/VehicleInternalCollision.js';
+import {
+  intersectExposedVehicleCrew
+} from '../simulation/vehicles/VehicleCrewExposure.js';
 import { resolveArmorRicochet } from '../simulation/ballistics/ProjectileImpactPhysics.js';
 import {
   resolveArmorPerforationEnergy,
@@ -249,8 +252,12 @@ export class BallisticsSystem {
       units.push(projectile.targetUnit);
     }
     for (const unit of units) {
-      if (!unit?.isCombatEffective?.() || unit === projectile.attacker) continue;
+      if (!unit || unit === projectile.attacker) continue;
       if (unit.faction === projectile.attacker?.faction) continue;
+      // Combat effectiveness controls decisions and weapon operation, not
+      // physical existence. Disabled and knocked-out vehicle hulls remain
+      // valid swept armor collision targets.
+      if (!unit.vehicleSpec && !unit.isCombatEffective?.()) continue;
 
       if (unit.type === 'infantry_squad') {
         for (const agent of unit.soldierAI?.getLivingAgents() ?? []) {
@@ -280,6 +287,24 @@ export class BallisticsSystem {
       }
 
       if (unit.vehicleSpec) {
+        const exposedCrewHit = intersectExposedVehicleCrew(
+          projectile.previousPosition,
+          projectile.position,
+          unit
+        );
+        if (exposedCrewHit) {
+          const point = new THREE.Vector3(...exposedCrewHit.point);
+          consider({
+            kind: 'exposed_vehicle_crew',
+            unit,
+            agent: exposedCrewHit.crewman,
+            distance: point.distanceTo(projectile.previousPosition),
+            point,
+            hitVolumeId: exposedCrewHit.hitVolumeId,
+            hitVolumeModelVersion: exposedCrewHit.modelVersion,
+            hitVolumeDataQuality: exposedCrewHit.dataQuality
+          });
+        }
         const armorHit = intersectVehicleArmor(
           projectile.previousPosition,
           projectile.position,

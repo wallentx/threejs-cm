@@ -12,14 +12,15 @@ test('main is a composition-only entrypoint and GameApp owns browser runtime orc
     source('../src/app/GameApp.js')
   ]);
 
-  assert.match(mainSource, /new GameApp\(gameDefinition\)/);
+  assert.match(mainSource, /new GameApp\(createGameDefinition\(selection\)\)/);
   assert.match(mainSource, /createFamilyRegistry/);
   assert.match(mainSource, /createFrance1940VisualFactories/);
-  assert.match(mainSource, /STONNE_1940_SCENARIO/);
-  assert.match(mainSource, /STONNE_1940_MAP/);
+  assert.match(mainSource, /createConfiguredBattleScenario/);
+  assert.match(mainSource, /new BattleSetupScreen/);
+  assert.match(mainSource, /FRANCE_1940_MAPS/);
   assert.doesNotMatch(
     mainSource,
-    /^import\s.+?from\s+['"].*\/(?:engine|game|simulation|ui|editor)\//m
+    /^import\s.+?from\s+['"].*\/(?:engine|game|simulation|editor)\//m
   );
   assert.doesNotMatch(mainSource, /\bsimulateStep\s*\(|requestAnimationFrame\(/);
 

@@ -1,7 +1,10 @@
 import * as THREE from 'three';
+import {
+  createProceduralSpriteMaterial
+} from './ProceduralVfxNodes.js';
 
 export const PROCEDURAL_BATTLEFIELD_VFX_IMPLEMENTATION_ID =
-  'procedural-battlefield-vfx-v1';
+  'procedural-battlefield-vfx-v2';
 
 function markResource(resource, role) {
   resource.userData.vfxRole = role;
@@ -107,10 +110,14 @@ function resolveBuildingDebrisStyle(materialLabel, severity = 'damaged') {
 
 function createCombatResources() {
   const effectGeometries = Object.freeze({
-    impact: markResource(new THREE.SphereGeometry(0.16, 6, 5), 'combat-impact'),
+    impact: markResource(new THREE.PlaneGeometry(1, 1), 'combat-impact'),
     explosion: markResource(
-      new THREE.SphereGeometry(2.5, 12, 12),
+      new THREE.PlaneGeometry(1, 1),
       'combat-explosion'
+    ),
+    muzzleFlash: markResource(
+      new THREE.PlaneGeometry(1, 1),
+      'combat-muzzle-flash'
     ),
     buildingDebris: markResource(
       new THREE.TetrahedronGeometry(0.34, 0),
@@ -130,6 +137,16 @@ function createCombatResources() {
       initialOpacity: 0.9,
       maxLife: 0.6,
       growthPerSecond: 2.4,
+      // Impact call sites pass blast-relative factors around 0.55-0.7. The
+      // former sphere was five metres wide; preserve that visible scale after
+      // moving presentation to a unit-sized sprite.
+      initialScale: 4.5
+    }),
+    muzzleFlash: Object.freeze({
+      color: 0xffd166,
+      initialOpacity: 1,
+      maxLife: 0.055,
+      growthPerSecond: 5.5,
       initialScale: 1
     }),
     buildingDebris: BUILDING_DEBRIS_MATERIAL_STYLES.fallback
@@ -137,6 +154,7 @@ function createCombatResources() {
   const effectCaps = Object.freeze({
     impact: 48,
     explosion: 12,
+    muzzleFlash: 48,
     buildingDebris: 24
   });
   const projectileResources = new Map();
@@ -150,6 +168,12 @@ function createCombatResources() {
     createEffectMaterial(kind) {
       const style = styles[kind];
       if (!style) throw new Error(`unknown combat VFX role ${kind}`);
+      if (kind !== 'buildingDebris') {
+        return markResource(
+          createProceduralSpriteMaterial(kind),
+          `combat-${kind}`
+        );
+      }
       return markResource(new THREE.MeshBasicMaterial({
         color: style.color,
         transparent: true,
@@ -211,11 +235,11 @@ function createCombatResources() {
 function createVehicleDamageResources() {
   const geometries = Object.freeze({
     smoke: markResource(
-      new THREE.SphereGeometry(0.34, 7, 6),
+      new THREE.PlaneGeometry(1, 1),
       'vehicle-damage-smoke'
     ),
     flame: markResource(
-      new THREE.ConeGeometry(0.19, 0.72, 6, 1),
+      new THREE.PlaneGeometry(1, 1),
       'vehicle-damage-flame'
     ),
     spark: markResource(
@@ -232,20 +256,14 @@ function createVehicleDamageResources() {
     )
   });
   const materials = Object.freeze({
-    smoke: markResource(new THREE.MeshBasicMaterial({
-      color: 0x262522,
-      transparent: true,
-      opacity: 0.42,
-      depthWrite: false
-    }), 'vehicle-damage-smoke'),
-    flame: markResource(new THREE.MeshBasicMaterial({
-      color: 0xff641c,
-      transparent: true,
-      opacity: 0.9,
-      toneMapped: false,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending
-    }), 'vehicle-damage-flame'),
+    smoke: markResource(
+      createProceduralSpriteMaterial('smoke'),
+      'vehicle-damage-smoke'
+    ),
+    flame: markResource(
+      createProceduralSpriteMaterial('flame'),
+      'vehicle-damage-flame'
+    ),
     spark: markResource(new THREE.MeshBasicMaterial({
       color: 0xffc35a,
       transparent: true,
@@ -275,14 +293,10 @@ function createVehicleDamageResources() {
     materials,
     capacities,
     createBlastMaterial() {
-      return markResource(new THREE.MeshBasicMaterial({
-        color: 0xff8a24,
-        transparent: true,
-        opacity: 0,
-        toneMapped: false,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending
-      }), 'vehicle-damage-blast');
+      return markResource(
+        createProceduralSpriteMaterial('blast'),
+        'vehicle-damage-blast'
+      );
     },
     dispose() {
       if (disposed) return false;

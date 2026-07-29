@@ -41,6 +41,10 @@ import {
   createFrance1940InfantryWeaponRig,
   FRANCE_1940_INFANTRY_WEAPON_VISUALS
 } from './France1940InfantryWeaponFactory.js';
+import {
+  createFrance1940VehicleCrewFigure,
+  FRANCE_1940_VEHICLE_CREW_FIGURES
+} from './France1940VehicleCrewFigure.js';
 
 export const FRANCE_1940_FACTION_PRESENTATION = Object.freeze(
   Object.fromEntries(Object.entries(FRANCE_1940_FACTIONS).map(([factionId, faction]) => [
@@ -74,6 +78,7 @@ export function createFrance1940VisualFactories({
       : createFrance1940VfxProvider(assetResolver),
     infantryMeshes: unitMeshes.infantryMeshes,
     structureMeshes: unitMeshes.structureMeshes,
+    vehicleCrewFigures: FRANCE_1940_VEHICLE_CREW_FIGURES,
     vehicleMeshes: assetResolver === FRANCE_1940_ASSET_RESOLVER
       ? FRANCE_1940_VEHICLE_MESH_FACTORIES
       : createFrance1940VehicleMeshFactories(assetResolver)
@@ -88,6 +93,7 @@ export {
   createFrance1940CalibrationReferenceRegistry,
   createFrance1940InfantryWeaponRig,
   createFrance1940InfantrySquadMesh,
+  createFrance1940VehicleCrewFigure,
   createFrance1940TerrainSurfaceProvider,
   createFrance1940UnitMeshFactories,
   createFrance1940VehicleVisualBundles,
@@ -103,5 +109,6 @@ export {
   FRANCE_1940_TERRAIN_SURFACE_PROVIDER,
   FRANCE_1940_VFX_PROVIDER,
   FRANCE_1940_VEHICLE_VISUAL_BUNDLES,
+  FRANCE_1940_VEHICLE_CREW_FIGURES,
   FRANCE_1940_VEHICLE_MESH_FACTORIES
 };

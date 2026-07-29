@@ -4,7 +4,12 @@ const PROVENANCE = Object.freeze({
 });
 
 function freezeMembers(members) {
-  return Object.freeze(members.map(member => Object.freeze({ ...member })));
+  return Object.freeze(members.map(member => Object.freeze({
+    ...member,
+    equipment: member.equipment
+      ? Object.freeze([...member.equipment])
+      : undefined
+  })));
 }
 
 function freezeSupportAmmunitionTransfers(transfers = []) {
@@ -60,13 +65,55 @@ const FRENCH_60MM_MORTAR_PROVENANCE = Object.freeze({
 });
 
 export const FRANCE_1940_FORMATIONS = Object.freeze({
+  FRENCH_CHASSEURS_PORTES_PLATOON_HQ: freezeFormation({
+    id: 'FRENCH_CHASSEURS_PORTES_PLATOON_HQ',
+    factionId: 'french',
+    name: 'Chasseurs Portes Platoon HQ',
+    namePrefix: 'HQ',
+    members: [
+      {
+        id: 'platoon-leader',
+        name: 'Platoon Leader',
+        role: 'Platoon Leader',
+        weaponId: 'MAS36',
+        equipment: ['BINOCULARS'],
+        equipmentDataQuality:
+          'gameplay approximation requested for command observation; exact formation issue remains unverified'
+      },
+      {
+        id: 'assistant-leader',
+        name: 'Assistant Platoon Leader',
+        role: 'Assistant Platoon Leader',
+        weaponId: 'MAS38'
+      },
+      {
+        id: 'radio-operator',
+        name: 'Radio Operator',
+        role: 'Radio Operator',
+        weaponId: 'MAS36',
+        equipment: ['RADIO'],
+        equipmentDataQuality:
+          'gameplay-scale command-net endpoint restored from the legacy scenario HQ; exact 1940 platoon allocation remains unverified'
+      }
+    ],
+    dataQuality:
+      'gameplay-scale platoon headquarters restored from the legacy scenario command role; exact 1940 strength and equipment require formation-specific primary TO&E evidence'
+  }),
   FRENCH_CHASSEURS_PORTES_SQUAD: freezeFormation({
     id: 'FRENCH_CHASSEURS_PORTES_SQUAD',
     factionId: 'french',
     name: 'Chasseurs Portes Squad',
     namePrefix: 'Chasseur',
     members: [
-      { id: 'squad-leader', name: 'Chasseur 1', role: 'Squad Leader', weaponId: 'MAS36' },
+      {
+        id: 'squad-leader',
+        name: 'Chasseur 1',
+        role: 'Squad Leader',
+        weaponId: 'MAS36',
+        equipment: ['BINOCULARS'],
+        equipmentDataQuality:
+          'gameplay approximation requested for squad-leader observation; exact formation issue remains unverified'
+      },
       { id: 'rifleman-1', name: 'Chasseur 2', role: 'Rifleman', weaponId: 'MAS36' },
       { id: 'automatic-rifleman', name: 'Chasseur 3', role: 'Automatic Rifleman', weaponId: 'FM2429' },
       { id: 'rifleman-2', name: 'Chasseur 4', role: 'Rifleman', weaponId: 'MAS36' },
@@ -147,13 +194,55 @@ export const FRANCE_1940_FORMATIONS = Object.freeze({
     },
     provenance: FRENCH_60MM_MORTAR_PROVENANCE
   }),
+  GERMAN_GRENADIER_PLATOON_HQ_1940: freezeFormation({
+    id: 'GERMAN_GRENADIER_PLATOON_HQ_1940',
+    factionId: 'german',
+    name: '1940 Grenadier Platoon HQ',
+    namePrefix: 'HQ',
+    members: [
+      {
+        id: 'platoon-leader',
+        name: 'Zugfuhrer',
+        role: 'Platoon Leader',
+        weaponId: 'MP40',
+        equipment: ['BINOCULARS'],
+        equipmentDataQuality:
+          'gameplay approximation requested for command observation; exact formation issue remains unverified'
+      },
+      {
+        id: 'platoon-sergeant',
+        name: 'Zugtruppfuhrer',
+        role: 'Platoon Sergeant',
+        weaponId: 'KAR98K'
+      },
+      {
+        id: 'radio-operator',
+        name: 'Funker',
+        role: 'Radio Operator',
+        weaponId: 'KAR98K',
+        equipment: ['RADIO'],
+        equipmentDataQuality:
+          'gameplay-scale command-net endpoint; exact 1940 platoon radio allocation remains unverified'
+      }
+    ],
+    dataQuality:
+      'gameplay-scale platoon headquarters; exact 1940 strength and equipment require formation-specific primary TO&E evidence'
+  }),
   GERMAN_GRENADIER_SQUAD_1940: freezeFormation({
     id: 'GERMAN_GRENADIER_SQUAD_1940',
     factionId: 'german',
     name: '1940 Grenadier Squad',
     namePrefix: 'Grenadier',
     members: [
-      { id: 'squad-leader', name: 'Grenadier 1', role: 'Squad Leader', weaponId: 'KAR98K' },
+      {
+        id: 'squad-leader',
+        name: 'Grenadier 1',
+        role: 'Squad Leader',
+        weaponId: 'KAR98K',
+        equipment: ['BINOCULARS'],
+        equipmentDataQuality:
+          'gameplay approximation requested for squad-leader observation; exact formation issue remains unverified'
+      },
       { id: 'rifleman-1', name: 'Grenadier 2', role: 'Rifleman', weaponId: 'KAR98K' },
       { id: 'automatic-rifleman', name: 'Grenadier 3', role: 'Automatic Rifleman', weaponId: 'MG34' },
       { id: 'rifleman-2', name: 'Grenadier 4', role: 'Rifleman', weaponId: 'KAR98K' },

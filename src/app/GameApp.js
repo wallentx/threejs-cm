@@ -23,6 +23,10 @@ import { BuildingSystem } from '../simulation/buildings/index.js';
 import {
   InfantrySeparationSystem
 } from '../simulation/infantry/InfantrySeparationSystem.js';
+import {
+  collisionRecordsForVehicle,
+  createDynamicVehicleCollisionRecords
+} from '../simulation/collision/DynamicVehicleCollision.js';
 import { buildFactionRosterIndex } from './FactionRosterIndex.js';
 import {
   createMapEditorPort,
@@ -135,6 +139,9 @@ export class GameApp {
     this.catalogPorts = catalogPorts;
     this.visualFactories = visualFactories;
     this.playerFactionId = playerFactionId;
+    this.enemyFactionId = scenario.enemyFactionId
+      ?? Object.keys(family.factions).find(id => id !== playerFactionId);
+    this.enemyAiDifficulty = scenario.enemyAiDifficulty ?? 'regular';
     this.factionOrder = Object.keys(family.factions);
     this.factionPresentation = Object.freeze(Object.fromEntries(
       Object.entries(family.factions).map(([factionId, faction]) => [
@@ -179,7 +186,9 @@ export class GameApp {
         10
       ) >>> 0;
       this.randomState = this.seed || 1;
-      this.qualityTier = params.get('quality') === 'low' ? 'low' : 'high';
+      this.qualityTier = ['low', 'ultra'].includes(params.get('quality'))
+        ? params.get('quality')
+        : 'high';
       this.requestedPlayMode = params.get('mode') === 'realtime' ? 'realtime' : 'wego';
       this.startWithoutSelection = params.get('selected') === 'none';
       this.visualDebugMode = params.get('debug') || 'final';
@@ -188,6 +197,13 @@ export class GameApp {
         : 'design';
       this.lastDiagnosticsUpdate = 0;
       this.simulationStepper = new FixedStepAccumulator(1 / 30);
+      // Gameplay approximation: observation samples the authoritative world at
+      // 10 Hz while movement, fire control, and ballistics retain their existing
+      // fixed-step rates. The pending fraction is rollback state.
+      this.spottingStepper = new FixedStepAccumulator(1 / 10);
+      this.visibilityProjection = null;
+      this.visibilityProjectionDirty = true;
+      this.visibleUnitIdSet = new Set();
 
       // 1. Renderer
       log('Creating WebGPU Renderer...', 'info');
@@ -234,6 +250,7 @@ export class GameApp {
       this.movedUnitIds = new Set();
       this.selectedUnit = null;
       this.selectedUnits = [];
+      this.inspectedUnit = null;
       this.matchStarted = false;
       this.infantrySeparation = new InfantrySeparationSystem();
       this.buildingInteraction = new BuildingInteractionSystem({
@@ -252,7 +269,18 @@ export class GameApp {
           'warn'
         ),
         onBuildingOrder: (unit, action, point, buildingId, orderType) =>
-          this.issueBuildingOrder(unit, action, point, buildingId, orderType)
+          this.issueBuildingOrder(unit, action, point, buildingId, orderType),
+        onTargetOrder: (unit, point, target, mode, context) => {
+          if (!['MORTAR_HE', 'MORTAR_SMOKE'].includes(mode)) return null;
+          return {
+            handled: true,
+            accepted: unit.setMortarTargetOrder?.(
+              point,
+              mode,
+              context.areaRadiusMeters
+            ) ?? false
+          };
+        }
       });
       this.spotting = new SpottingSystem(this.scene, this.terrain, {
         unitProfiles: this.scenario.units,
@@ -292,6 +320,7 @@ export class GameApp {
         playerFactionId: this.playerFactionId,
         getSelectedUnit: () => this.selectedUnit,
         getSelectedUnits: () => [...this.selectedUnits],
+        getDisplayedUnit: () => this.inspectedUnit,
         getVisibilityProjection: units => this.visibilityProjection
           ?? this.spotting.getVisibilityProjection(this.playerFactionId, units),
         getBocageObstacles: () => this.terrain.bocageObstacles,
@@ -307,6 +336,7 @@ export class GameApp {
           }
         },
         selectUnit: (unit, options) => this.selectUnit(unit, options),
+        inspectUnit: unit => this.inspectUnit(unit),
         deselectUnit: () => this.deselectUnit(),
         splitUnit: unit => this.splitUnit(unit),
         issueBuildingExit: unit => this.issueBuildingExit(unit)
@@ -341,12 +371,15 @@ export class GameApp {
       document.body.dataset.scenarioId = this.scenario.id;
       document.body.dataset.mapId = this.mapDescriptor.id;
       document.body.dataset.gameFamilyId = this.scenario.gameFamilyId;
+      document.body.dataset.playerFactionId = this.playerFactionId;
+      document.body.dataset.enemyFactionId = this.enemyFactionId;
+      document.body.dataset.enemyAiDifficulty = this.enemyAiDifficulty;
       document.body.dataset.rendererBackend = this.renderer.backendName;
       const audioBinding = this.sound.assetBinding;
       document.body.dataset.audioProvider = audioBinding
         ? `${audioBinding.logicalId}:${audioBinding.sourcePackId}:${audioBinding.implementationId}`
         : this.sound.audioProvider.id;
-      document.body.dataset.captureManifest = `${this.seed}:${this.cameraBookmark}:${this.qualityTier}:${this.visualDebugMode}:${this.wego.playMode}`;
+      document.body.dataset.captureManifest = `${this.seed}:${this.cameraBookmark}:${this.qualityTier}:${this.visualDebugMode}:${this.wego.playMode}:${this.enemyAiDifficulty}`;
 
       // 8. Start Game Loop
       this.timer = new THREE.Timer();
@@ -371,11 +404,14 @@ export class GameApp {
       visualFactories: this.visualFactories
     });
     this.units = loaded.units;
+    this.visibilityProjectionDirty = true;
     this.rebuildFactionIndex();
     this.terrain.registerUnitColliders(this.units);
+    if (loaded.cameraTarget) {
+      this.cameraManager.setHomeTarget(loaded.cameraTarget.position);
+    }
     if (this.startWithoutSelection || !loaded.initialSelection) this.deselectUnit();
     else this.selectUnit(loaded.initialSelection);
-    if (loaded.cameraTarget) this.cameraManager.setFocusTarget(loaded.cameraTarget.position);
   }
 
   rebuildFactionIndex() {
@@ -471,7 +507,7 @@ export class GameApp {
     }
   }
 
-  selectUnits(units, primaryUnit = null) {
+  selectUnits(units, primaryUnit = null, { frameCamera = true } = {}) {
     const uniqueUnits = [...new Set((units ?? []).filter(unit =>
       unit
       && unit.faction === this.playerFactionId
@@ -486,6 +522,7 @@ export class GameApp {
     this.selectedUnit = selectedSet.has(primaryUnit)
       ? primaryUnit
       : (uniqueUnits.at(-1) ?? null);
+    this.inspectedUnit = this.selectedUnit;
     if (globalThis.document?.body) {
       document.body.dataset.selectedUnit = this.selectedUnit?.id ?? 'none';
       document.body.dataset.selectedUnits = uniqueUnits
@@ -493,14 +530,18 @@ export class GameApp {
         .join(',');
     }
     this.commands.setActiveUnits(uniqueUnits, this.selectedUnit);
-    this.cameraManager.followUnit = null;
+    if (frameCamera && this.selectedUnit) {
+      this.cameraManager.focusTarget(this.selectedUnit.position);
+    } else {
+      this.cameraManager.followUnit = null;
+    }
     if (this.selectedUnit) this.ui.updateUnitHUD(this.selectedUnit);
     else this.ui.clearUnitHUD();
     this.ui.renderCommandGrid();
     return this.selectedUnit;
   }
 
-  selectUnit(unit, { additive = false } = {}) {
+  selectUnit(unit, { additive = false, frameCamera = true } = {}) {
     if (
       !unit
       || unit.faction !== this.playerFactionId
@@ -509,18 +550,47 @@ export class GameApp {
       return false;
     }
     if (!additive) {
-      this.selectUnits([unit], unit);
+      this.selectUnits([unit], unit, { frameCamera });
       return true;
     }
     const selected = this.selectedUnits.includes(unit)
       ? this.selectedUnits.filter(candidate => candidate !== unit)
       : [...this.selectedUnits, unit];
-    this.selectUnits(selected, selected.includes(unit) ? unit : selected.at(-1));
+    this.selectUnits(
+      selected,
+      selected.includes(unit) ? unit : selected.at(-1),
+      { frameCamera }
+    );
     return true;
   }
 
-  deselectUnit() {
-    this.selectUnits([]);
+  inspectUnit(unit, { frameCamera = true } = {}) {
+    if (
+      !unit
+      || unit.faction === this.playerFactionId
+      || !this.units.includes(unit)
+      || unit.mesh?.visible === false
+    ) {
+      return false;
+    }
+    this.selectUnits([], null, { frameCamera: false });
+    this.inspectedUnit = unit;
+    if (frameCamera) this.cameraManager.focusTarget(unit.position);
+    if (globalThis.document?.body) {
+      document.body.dataset.inspectedUnit = unit.id;
+    }
+    this.ui.updateUnitHUD(unit);
+    this.ui.renderCommandGrid();
+    return true;
+  }
+
+  deselectUnit({ frameCamera = true } = {}) {
+    this.selectUnits([], null, { frameCamera: false });
+    if (frameCamera) this.cameraManager.resetHome();
+    this.inspectedUnit = null;
+    if (globalThis.document?.body) {
+      document.body.dataset.inspectedUnit = 'none';
+    }
   }
 
   splitUnit(unit) {
@@ -565,6 +635,7 @@ export class GameApp {
     }
 
     this.units.push(splitUnit);
+    this.visibilityProjectionDirty = true;
     this.rebuildFactionIndex();
     this.scene.add(splitUnit.mesh);
     this.renderer.configureSceneShadows();
@@ -586,20 +657,35 @@ export class GameApp {
       randomState: this.randomState,
       units: this.units.map(unit => unit.captureState()),
       buildings: this.buildingSystem.captureState(),
+      linearObstacles:
+        this.terrain.captureDestructibleObstacleState?.() ?? null,
       buildingInteractions: this.buildingInteraction.captureState(),
       spotting: this.spotting.captureState(),
+      spottingStepRemainderSeconds: this.spottingStepper.remainderSeconds,
       combat: this.combat.captureState(),
       supportMissions: this.support.captureState(),
       selectedUnitId: this.selectedUnit?.id ?? null,
       selectedUnitIds: this.selectedUnits.map(unit => unit.id),
+      inspectedUnitId: this.inspectedUnit?.id ?? null,
       matchStarted: this.matchStarted
     };
   }
 
   restoreSimulationState(state) {
     this.simulationStepper.reset();
+    this.spottingStepper.reset();
+    if (Number.isFinite(state.spottingStepRemainderSeconds)) {
+      this.spottingStepper.remainderSeconds = THREE.MathUtils.clamp(
+        state.spottingStepRemainderSeconds,
+        0,
+        this.spottingStepper.stepSeconds
+      );
+    }
     this.randomState = state.randomState >>> 0;
     this.buildingSystem.restoreState(state.buildings);
+    this.terrain.restoreDestructibleObstacleState?.(
+      state.linearObstacles ?? null
+    );
     const unitMap = new Map(this.units.map(unit => [unit.id, unit]));
     for (const unitState of state.units) {
       unitMap.get(unitState.id)?.restoreState(unitState, unitMap);
@@ -611,6 +697,7 @@ export class GameApp {
     }
     this.spotting.invalidateBuildingColliders();
     this.spotting.restoreState(state.spotting);
+    this.visibilityProjectionDirty = true;
     this.combat.restoreState(state.combat, unitMap);
     this.vehicleDamageEffects.resetTransient();
     this.shotTrajectoryOverlay.clear();
@@ -620,9 +707,19 @@ export class GameApp {
       .map(id => unitMap.get(id))
       .filter(Boolean);
     const selected = state.selectedUnitId ? unitMap.get(state.selectedUnitId) : null;
-    if (selectedUnits.length > 0) this.selectUnits(selectedUnits, selected);
-    else if (selected) this.selectUnit(selected);
-    else this.deselectUnit();
+    const inspected = state.inspectedUnitId
+      ? unitMap.get(state.inspectedUnitId)
+      : null;
+    const cameraOptions = { frameCamera: false };
+    if (selectedUnits.length > 0) {
+      this.selectUnits(selectedUnits, selected, cameraOptions);
+    } else if (selected) {
+      this.selectUnit(selected, cameraOptions);
+    } else if (inspected) {
+      this.inspectUnit(inspected, cameraOptions);
+    } else {
+      this.deselectUnit(cameraOptions);
+    }
     this.commands.renderOverlays();
   }
 
@@ -653,6 +750,8 @@ export class GameApp {
 
   simulateStep(delta) {
     this.movedUnitIds.clear();
+    const dynamicVehicleColliders =
+      createDynamicVehicleCollisionRecords(this.units);
     this.units.forEach(unit => {
       const previousX = unit.position.x;
       const previousZ = unit.position.z;
@@ -663,10 +762,15 @@ export class GameApp {
         unit.targetUnit
         && this.spotting.canPrecisionTarget(unit, unit.targetUnit)
       );
-      unit.update(delta, this.terrain, {
+      const updateOptions = {
         haltMovement: huntStopped,
         hasDirectPrecisionObservation
-      });
+      };
+      if (unit.vehicleSpec) {
+        updateOptions.dynamicVehicleColliders =
+          collisionRecordsForVehicle(dynamicVehicleColliders, unit.id);
+      }
+      unit.update(delta, this.terrain, updateOptions);
       if (Math.hypot(unit.position.x - previousX, unit.position.z - previousZ) > 1e-5) {
         this.movedUnitIds.add(unit.id);
       }
@@ -688,9 +792,9 @@ export class GameApp {
     for (const unit of this.units) {
       unit.soldierAI?.advanceSupportAmmunitionTransfers(delta);
     }
-    // Observation is authoritative simulation state. Advance it exactly once,
-    // after movement/collision and before any weapon may select a target.
-    this.spotting.advance(this.units, delta);
+    // Observation remains authoritative, but samples the fixed-step world at a
+    // bounded deterministic cadence. The stepper carries exact elapsed time.
+    GameApp.prototype.advanceSpotting.call(this, delta);
     // Movement consumed the observation snapshot from the start of this step.
     // Reconcile any post-movement loss before combat without moving twice.
     for (const unit of this.units) {
@@ -763,6 +867,18 @@ export class GameApp {
     this.support.update(delta);
   }
 
+  advanceSpotting(delta) {
+    const result = this.spottingStepper.advance(
+      delta,
+      spottingDelta => this.spotting.advance(
+        this.units,
+        spottingDelta
+      )
+    );
+    if (result.steps > 0) this.visibilityProjectionDirty = true;
+    return result;
+  }
+
   simulateToTime(targetTime) {
     const fixedStep = this.simulationStepper.stepSeconds;
     while (this.wego.currentTurnTime + fixedStep <= targetTime + 1e-9) {
@@ -776,17 +892,90 @@ export class GameApp {
 
   initInteraction() {
     const dom = this.renderer.domElement;
+    const terrainPointAt = (clientX, clientY) => {
+      if (
+        clientX == null
+        || clientY == null
+        || !this.terrain.terrainMesh
+      ) {
+        return null;
+      }
+      this.mouse.x = (clientX / window.innerWidth) * 2 - 1;
+      this.mouse.y = -(clientY / window.innerHeight) * 2 + 1;
+      this.raycaster.setFromCamera(this.mouse, this.camera);
+      return this.raycaster.intersectObject(
+        this.terrain.terrainMesh
+      )[0]?.point?.clone() ?? null;
+    };
 
     const onPointerDown = (e) => {
       const x = e.clientX ?? e.touches?.[0]?.clientX;
       const y = e.clientY ?? e.touches?.[0]?.clientY;
       this.pointerStart = { x, y };
+      if (!['MORTAR_HE', 'MORTAR_SMOKE'].includes(this.commands.activeMode)) {
+        return;
+      }
+      const center = terrainPointAt(x, y);
+      const unit = this.commands.activeUnit;
+      const defaultRadius = unit?.getMortarDefaultDispersionRadius?.(center);
+      if (!center || !Number.isFinite(defaultRadius)) return;
+      e.preventDefault?.();
+      this.mortarAreaDrag = {
+        center,
+        radiusMeters: defaultRadius,
+        mode: this.commands.activeMode
+      };
+      this.commands.setAreaTargetPreview(
+        center,
+        defaultRadius,
+        this.commands.activeMode
+      );
+    };
+
+    const onPointerMove = (e) => {
+      if (!this.mortarAreaDrag) return;
+      const x = e.clientX ?? e.touches?.[0]?.clientX;
+      const y = e.clientY ?? e.touches?.[0]?.clientY;
+      const point = terrainPointAt(x, y);
+      if (!point) return;
+      e.preventDefault?.();
+      const horizontalDistance = Math.hypot(
+        point.x - this.mortarAreaDrag.center.x,
+        point.z - this.mortarAreaDrag.center.z
+      );
+      const defaultRadius =
+        this.commands.activeUnit?.getMortarDefaultDispersionRadius?.(
+          this.mortarAreaDrag.center
+        ) ?? 0.1;
+      this.mortarAreaDrag.radiusMeters = Math.max(
+        defaultRadius,
+        horizontalDistance
+      );
+      this.commands.setAreaTargetPreview(
+        this.mortarAreaDrag.center,
+        this.mortarAreaDrag.radiusMeters,
+        this.mortarAreaDrag.mode
+      );
     };
 
     const onPointerUp = (e) => {
       const clientX = e.clientX ?? e.changedTouches?.[0]?.clientX;
       const clientY = e.clientY ?? e.changedTouches?.[0]?.clientY;
       if (clientX == null || clientY == null) return;
+
+      if (this.mortarAreaDrag) {
+        e.preventDefault?.();
+        const drag = this.mortarAreaDrag;
+        this.mortarAreaDrag = null;
+        this.commands.handleMapClick(
+          drag.center,
+          null,
+          { areaRadiusMeters: drag.radiusMeters }
+        );
+        this.ui.renderCommandGrid();
+        this.sound.playUIClick();
+        return;
+      }
 
       const dx = Math.abs(clientX - this.pointerStart.x);
       const dy = Math.abs(clientY - this.pointerStart.y);
@@ -879,9 +1068,11 @@ export class GameApp {
     };
 
     dom.addEventListener('mousedown', onPointerDown);
+    dom.addEventListener('mousemove', onPointerMove);
     dom.addEventListener('mouseup', onPointerUp);
-    dom.addEventListener('touchstart', onPointerDown, { passive: true });
-    dom.addEventListener('touchend', onPointerUp, { passive: true });
+    dom.addEventListener('touchstart', onPointerDown, { passive: false });
+    dom.addEventListener('touchmove', onPointerMove, { passive: false });
+    dom.addEventListener('touchend', onPointerUp, { passive: false });
     dom.addEventListener('contextmenu', onContextMenu);
   }
 
@@ -900,16 +1091,7 @@ export class GameApp {
         if (this.wego.phase !== 'ACTION_PHASE') this.simulationStepper.reset();
       }
 
-      const visibility = this.spotting.getVisibilityProjection(this.playerFactionId, this.units);
-      this.visibilityProjection = visibility;
-      if (!this.visibleUnitIdSet) this.visibleUnitIdSet = new Set();
-      else this.visibleUnitIdSet.clear();
-      for (let i = 0; i < visibility.visibleUnitIds.length; i++) {
-        this.visibleUnitIdSet.add(visibility.visibleUnitIds[i]);
-      }
-      for (const unit of this.units) {
-        if (unit.mesh) unit.mesh.visible = this.visibleUnitIdSet.has(unit.id);
-      }
+      this.refreshVisibilityProjection();
       this.cameraManager.update(delta);
       const lodCounts = { high: 0, medium: 0, low: 0 };
       for (const unit of this.units) {
@@ -921,13 +1103,15 @@ export class GameApp {
         this.units,
         this.combat.telemetry.impacts
       );
-      this.ui.render(this.units, this.cameraManager);
+      this.ui.render(this.units, this.cameraManager, timestamp);
       this.renderer.render();
 
-      const now = performance.now();
+      const now = timestamp;
       if (now - this.lastDiagnosticsUpdate >= 1000) {
         const diagnostics = this.renderer.getDiagnostics();
         document.body.dataset.renderStats = `${diagnostics.drawCalls}:${diagnostics.triangles}:${diagnostics.geometries}:${diagnostics.textures}`;
+        document.body.dataset.shadowStats = `${diagnostics.shadowCasters}:${diagnostics.shadowReceivers}:${diagnostics.shadowMapSize}`;
+        document.body.dataset.renderQuality = `${diagnostics.qualityTier}:${diagnostics.pixelRatio}`;
         document.body.dataset.lodStats = `${lodCounts.high}:${lodCounts.medium}:${lodCounts.low}`;
         document.body.dataset.ballisticsStats = `${this.combat.telemetry.shotsFired}:${this.combat.telemetry.infantryHits}:${this.combat.telemetry.vehicleHits}:${this.combat.telemetry.buildingHits}:${this.combat.telemetry.penetrations}:${this.combat.telemetry.ricochets}:${this.combat.telemetry.stops}`;
         this.lastDiagnosticsUpdate = now;
@@ -938,5 +1122,29 @@ export class GameApp {
       document.body.dataset.gameError = err.message;
       log(`FATAL RENDER ERROR: ${err.message}`, 'error');
     }
+  }
+
+  refreshVisibilityProjection(force = false) {
+    if (
+      !force
+      && !this.visibilityProjectionDirty
+      && this.visibilityProjection
+    ) {
+      return this.visibilityProjection;
+    }
+    const visibility = this.spotting.getVisibilityProjection(
+      this.playerFactionId,
+      this.units
+    );
+    this.visibilityProjection = visibility;
+    this.visibilityProjectionDirty = false;
+    this.visibleUnitIdSet.clear();
+    for (let i = 0; i < visibility.visibleUnitIds.length; i++) {
+      this.visibleUnitIdSet.add(visibility.visibleUnitIds[i]);
+    }
+    for (const unit of this.units) {
+      if (unit.mesh) unit.mesh.visible = this.visibleUnitIdSet.has(unit.id);
+    }
+    return visibility;
   }
 }

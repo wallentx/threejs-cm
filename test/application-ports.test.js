@@ -23,6 +23,10 @@ function runtimeHarness() {
       this.stance = 'KNEELING';
       calls.push(['mortar-deployment', 'SETTING_UP']);
       return 'SETTING_UP';
+    },
+    toggleVehicleCommanderPosture() {
+      calls.push(['commander-posture', 'UNBUTTONED']);
+      return 'UNBUTTONED';
     }
   };
   let selectedUnit = unit;
@@ -84,6 +88,7 @@ function runtimeHarness() {
     playerFactionId: 'blue',
     getSelectedUnit: () => selectedUnit,
     getSelectedUnits: () => selectedUnits,
+    getDisplayedUnit: () => selectedUnit,
     getVisibilityProjection: () => ({ visibleUnitIds: ['blue-1'], contacts: [] }),
     getBocageObstacles: () => [{ id: 'hedge-1' }],
     getImpacts: () => [{ id: 9 }],
@@ -94,6 +99,11 @@ function runtimeHarness() {
         ? [...selectedUnits, next]
         : [next];
       selectedUnit = next;
+    },
+    inspectUnit: next => {
+      selectedUnits = [];
+      selectedUnit = next;
+      calls.push(['inspect', next.id]);
     },
     deselectUnit: () => {
       selectedUnit = null;
@@ -168,6 +178,8 @@ test('UI runtime port owns direct selected-unit mutations and building event bin
   port.clearTarget();
   assert.equal(port.toggleHiding(), true);
   assert.equal(port.toggleDeployment(), 'SETTING_UP');
+  assert.equal(port.toggleVehicleCommanderPosture(), 'UNBUTTONED');
+  assert.deepEqual(calls.at(-1), ['commander-posture', 'UNBUTTONED']);
   port.splitSelectedUnit();
   port.exitSelectedBuilding();
   assert.deepEqual(port.issueBuildingOrder(

@@ -1460,16 +1460,16 @@
       "designation": "SOMUA S35",
       "view": "front",
       "lod": "core",
-      "triangleCount": 2364,
+      "triangleCount": 2460,
       "projectedBoundsMeters": {
         "minU": -1.0536,
         "maxU": 1.0536,
         "minV": 0.0367,
-        "maxV": 2.27,
+        "maxV": 2.62,
         "width": 2.1072,
-        "height": 2.2333
+        "height": 2.5833
       },
-      "svgHash": "62bc29b41bd82d1f9f4aa5a00e15c7329e10a154d7e6ed2cbe4412550f319b5c"
+      "svgHash": "29f4c6f3f682f3e9d50be86836eb7d360c956efa123e3ae1d00ad8bca70c9a11"
     },
     "fr_somua:front:high": {
       "key": "fr_somua:front:high",
@@ -1494,16 +1494,16 @@
       "designation": "SOMUA S35",
       "view": "front",
       "lod": "medium",
-      "triangleCount": 4110,
+      "triangleCount": 4158,
       "projectedBoundsMeters": {
         "minU": -1.055,
         "maxU": 1.055,
         "minV": 0.015,
-        "maxV": 2.6,
+        "maxV": 2.62,
         "width": 2.11,
-        "height": 2.585
+        "height": 2.605
       },
-      "svgHash": "7aa4fc3b73305e236fcc1dbae98ceb95633f62c1956221962c5845b77632122a"
+      "svgHash": "7962a9e440bbffa95a1a8261108cb7a62ec823a99d11b4d10e027824fffd673f"
     },
     "fr_somua:front:proxy": {
       "key": "fr_somua:front:proxy",
@@ -1511,16 +1511,16 @@
       "designation": "SOMUA S35",
       "view": "front",
       "lod": "proxy",
-      "triangleCount": 1172,
+      "triangleCount": 1268,
       "projectedBoundsMeters": {
         "minU": -1.0536,
         "maxU": 1.0536,
         "minV": 0.015,
-        "maxV": 2.27,
+        "maxV": 2.62,
         "width": 2.1072,
-        "height": 2.255
+        "height": 2.605
       },
-      "svgHash": "28a30132c85f7a264c20e5de234cfcdd5f8a4f2d65eb6b980b657813099af783"
+      "svgHash": "df0018fd057b28598068ef61d0945327cc484acdc7f959dfa7f829e5a29b2a20"
     },
     "fr_somua:side:core": {
       "key": "fr_somua:side:core",
@@ -1528,16 +1528,16 @@
       "designation": "SOMUA S35",
       "view": "side",
       "lod": "core",
-      "triangleCount": 2364,
+      "triangleCount": 2460,
       "projectedBoundsMeters": {
         "minU": -2.69,
         "maxU": 2.69,
         "minV": 0.0367,
-        "maxV": 2.27,
+        "maxV": 2.62,
         "width": 5.38,
-        "height": 2.2333
+        "height": 2.5833
       },
-      "svgHash": "787102f2f4e4a6832df303c1a75b6c782771be8144bd29deb32a97964ba0e0ba"
+      "svgHash": "2894ea63f5ffdaab2f58977334f7fc94d5bb6a63cab6707e6ea9239458cfcb3d"
     },
     "fr_somua:side:high": {
       "key": "fr_somua:side:high",
@@ -1562,16 +1562,16 @@
       "designation": "SOMUA S35",
       "view": "side",
       "lod": "medium",
-      "triangleCount": 4110,
+      "triangleCount": 4158,
       "projectedBoundsMeters": {
         "minU": -2.69,
         "maxU": 2.69,
         "minV": 0.015,
-        "maxV": 2.6,
+        "maxV": 2.62,
         "width": 5.38,
-        "height": 2.585
+        "height": 2.605
       },
-      "svgHash": "81282ce3cf2efc289caea5bee257ec4d9f89085833bb75cab1453fddfa922ea9"
+      "svgHash": "7820b58c618c525408900ea1e79c251bcd211bdee3e1102a2bfa3680af3aaf20"
     },
     "fr_somua:side:proxy": {
       "key": "fr_somua:side:proxy",
@@ -1579,16 +1579,16 @@
       "designation": "SOMUA S35",
       "view": "side",
       "lod": "proxy",
-      "triangleCount": 1172,
+      "triangleCount": 1268,
       "projectedBoundsMeters": {
         "minU": -2.69,
         "maxU": 2.69,
         "minV": 0.015,
-        "maxV": 2.27,
+        "maxV": 2.62,
         "width": 5.38,
-        "height": 2.255
+        "height": 2.605
       },
-      "svgHash": "82a8eb75a94d21b5274eae53f9df59fdf4f63a0284ee250c2df1522ab3682a35"
+      "svgHash": "d5a7c2aaf7f8c024aa6ca34426160db331fb0bb580aad11454a30478bc410b75"
     },
     "fr_somua:top:core": {
       "key": "fr_somua:top:core",
@@ -1596,7 +1596,7 @@
       "designation": "SOMUA S35",
       "view": "top",
       "lod": "core",
-      "triangleCount": 2364,
+      "triangleCount": 2460,
       "projectedBoundsMeters": {
         "minU": -1.0536,
         "maxU": 1.0536,
@@ -1605,7 +1605,7 @@
         "width": 2.1072,
         "height": 5.38
       },
-      "svgHash": "e1b889461a7a32627a0a519b58c0601616ab2787685924db0146431a30c10a2e"
+      "svgHash": "b1da1bda22dcad1e13921d52c3e0ea2740d5b2eb57d232b04a328a56da51353c"
     },
     "fr_somua:top:high": {
       "key": "fr_somua:top:high",
@@ -1630,7 +1630,7 @@
       "designation": "SOMUA S35",
       "view": "top",
       "lod": "medium",
-      "triangleCount": 4110,
+      "triangleCount": 4158,
       "projectedBoundsMeters": {
         "minU": -1.055,
         "maxU": 1.055,
@@ -1639,7 +1639,7 @@
         "width": 2.11,
         "height": 5.38
       },
-      "svgHash": "7d2287c73967658b1d6402f71d6ae0bb3cc69f16110a7467bc3c22827a28fc89"
+      "svgHash": "2bba37ee4f872e5f5ec299b94327efac2589bf5a87f99d4718b1e6a3d95e7785"
     },
     "fr_somua:top:proxy": {
       "key": "fr_somua:top:proxy",
@@ -1647,7 +1647,7 @@
       "designation": "SOMUA S35",
       "view": "top",
       "lod": "proxy",
-      "triangleCount": 1172,
+      "triangleCount": 1268,
       "projectedBoundsMeters": {
         "minU": -1.0536,
         "maxU": 1.0536,
@@ -1656,7 +1656,7 @@
         "width": 2.1072,
         "height": 5.38
       },
-      "svgHash": "4a7618db837093b9da28ea7e9a87df960b99c15142f3898a82e2a50628f409a2"
+      "svgHash": "619983994f4c6eb1acd848ede8031f854f9623b79884df6bc515358940c16f07"
     },
     "ger_opel_blitz:front:core": {
       "key": "ger_opel_blitz:front:core",
@@ -2480,16 +2480,16 @@
       "designation": "Panzerkampfwagen III Ausf. D",
       "view": "front",
       "lod": "core",
-      "triangleCount": 2572,
+      "triangleCount": 2724,
       "projectedBoundsMeters": {
         "minU": -1.4478,
         "maxU": 1.4478,
         "minV": 0.0388,
-        "maxV": 2.2,
+        "maxV": 2.5,
         "width": 2.8956,
-        "height": 2.1612
+        "height": 2.4612
       },
-      "svgHash": "842e9af3c37e31c88a0a93188d0e7a697a015804348a82c4a9582e77f989d527"
+      "svgHash": "24ef1a215d16d53e7f43ca5ee58ef78fdcf2dcba4c08ffe3860b691c1addf7b4"
     },
     "ger_panzer3:front:high": {
       "key": "ger_panzer3:front:high",
@@ -2497,7 +2497,7 @@
       "designation": "Panzerkampfwagen III Ausf. D",
       "view": "front",
       "lod": "high",
-      "triangleCount": 7060,
+      "triangleCount": 7116,
       "projectedBoundsMeters": {
         "minU": -1.455,
         "maxU": 1.455,
@@ -2506,7 +2506,7 @@
         "width": 2.91,
         "height": 2.5009
       },
-      "svgHash": "39ff0b5cfd47df05c8ef3d8f9ace1d735ec222345cc01da96a2b7df9d091774b"
+      "svgHash": "d93cc088c52cf4fbe0851c4522c28d9fdbe76fc28e26e40bb74cf46f25c2903d"
     },
     "ger_panzer3:front:medium": {
       "key": "ger_panzer3:front:medium",
@@ -2514,16 +2514,16 @@
       "designation": "Panzerkampfwagen III Ausf. D",
       "view": "front",
       "lod": "medium",
-      "triangleCount": 4048,
+      "triangleCount": 4152,
       "projectedBoundsMeters": {
         "minU": -1.4478,
         "maxU": 1.4478,
         "minV": 0.02,
-        "maxV": 2.48,
+        "maxV": 2.5,
         "width": 2.8956,
-        "height": 2.46
+        "height": 2.48
       },
-      "svgHash": "80a380baec462656c499b312a6821f2ecf13bf13382dee12807b7785ea9e4f49"
+      "svgHash": "7e357fc639fcce202830029eee71468b03e6f1401e1aa38d09c24241aea8c0c0"
     },
     "ger_panzer3:front:proxy": {
       "key": "ger_panzer3:front:proxy",
@@ -2531,16 +2531,16 @@
       "designation": "Panzerkampfwagen III Ausf. D",
       "view": "front",
       "lod": "proxy",
-      "triangleCount": 992,
+      "triangleCount": 1144,
       "projectedBoundsMeters": {
         "minU": -1.4478,
         "maxU": 1.4478,
         "minV": 0.02,
-        "maxV": 2.2,
+        "maxV": 2.5,
         "width": 2.8956,
-        "height": 2.18
+        "height": 2.48
       },
-      "svgHash": "d862903ad51fb125d4e0b19e8ea77823055bad6ad94a45859d38ac6d93546e14"
+      "svgHash": "9a58b3b4d6a5ccdf8779203b2a6be931cee98514dd458534d5319351b9afb998"
     },
     "ger_panzer3:side:core": {
       "key": "ger_panzer3:side:core",
@@ -2548,16 +2548,16 @@
       "designation": "Panzerkampfwagen III Ausf. D",
       "view": "side",
       "lod": "core",
-      "triangleCount": 2572,
+      "triangleCount": 2724,
       "projectedBoundsMeters": {
         "minU": -2.69,
         "maxU": 2.69,
         "minV": 0.0388,
-        "maxV": 2.2,
+        "maxV": 2.5,
         "width": 5.38,
-        "height": 2.1612
+        "height": 2.4612
       },
-      "svgHash": "34d8cf4594f0bdddc69c7c3dee56cc680f960cdafb8552be02f2a88326ec525b"
+      "svgHash": "733098fbfa8d23d84c97620172408121739a3dd60d708e634409001ac00a1162"
     },
     "ger_panzer3:side:high": {
       "key": "ger_panzer3:side:high",
@@ -2565,7 +2565,7 @@
       "designation": "Panzerkampfwagen III Ausf. D",
       "view": "side",
       "lod": "high",
-      "triangleCount": 7060,
+      "triangleCount": 7116,
       "projectedBoundsMeters": {
         "minU": -2.69,
         "maxU": 2.69,
@@ -2574,7 +2574,7 @@
         "width": 5.38,
         "height": 2.5009
       },
-      "svgHash": "44fc6265cb3cb39c089896bfa246e33e96e64453a6f0513af36fd112c9184304"
+      "svgHash": "0bc12ba6ed230a6e2fc38bbed4dd8b6b46b5006e671526e8a11e29bb4242da7c"
     },
     "ger_panzer3:side:medium": {
       "key": "ger_panzer3:side:medium",
@@ -2582,16 +2582,16 @@
       "designation": "Panzerkampfwagen III Ausf. D",
       "view": "side",
       "lod": "medium",
-      "triangleCount": 4048,
+      "triangleCount": 4152,
       "projectedBoundsMeters": {
         "minU": -2.69,
         "maxU": 2.69,
         "minV": 0.02,
-        "maxV": 2.48,
+        "maxV": 2.5,
         "width": 5.38,
-        "height": 2.46
+        "height": 2.48
       },
-      "svgHash": "f8d818a5f191b5091077e11a964853ae62f42f524c0a9692325917308d656766"
+      "svgHash": "1c4dbff731f83c1b1c3b48e3149becf3e894903a89b154b6de873af38949b318"
     },
     "ger_panzer3:side:proxy": {
       "key": "ger_panzer3:side:proxy",
@@ -2599,16 +2599,16 @@
       "designation": "Panzerkampfwagen III Ausf. D",
       "view": "side",
       "lod": "proxy",
-      "triangleCount": 992,
+      "triangleCount": 1144,
       "projectedBoundsMeters": {
         "minU": -2.69,
         "maxU": 2.69,
         "minV": 0.02,
-        "maxV": 2.2,
+        "maxV": 2.5,
         "width": 5.38,
-        "height": 2.18
+        "height": 2.48
       },
-      "svgHash": "1baf820b23d1b329e72043e76f27fd46ff813d712dd897cbe2569dd226052b3e"
+      "svgHash": "4f38ebd306807d3f04b60d78e6730c5a4bb0a32fc6d2949db037a9ee5558b892"
     },
     "ger_panzer3:top:core": {
       "key": "ger_panzer3:top:core",
@@ -2616,7 +2616,7 @@
       "designation": "Panzerkampfwagen III Ausf. D",
       "view": "top",
       "lod": "core",
-      "triangleCount": 2572,
+      "triangleCount": 2724,
       "projectedBoundsMeters": {
         "minU": -1.4478,
         "maxU": 1.4478,
@@ -2625,7 +2625,7 @@
         "width": 2.8956,
         "height": 5.38
       },
-      "svgHash": "4853a90c9bf3e9f9be016a34d3f06443059561759359beaaca8bc6bc9490e5a3"
+      "svgHash": "2b0c19a55ebf0dac88f1bb4c5e9ed21d7b2f7c3ff2e4d20dc591b6e4ee354228"
     },
     "ger_panzer3:top:high": {
       "key": "ger_panzer3:top:high",
@@ -2633,7 +2633,7 @@
       "designation": "Panzerkampfwagen III Ausf. D",
       "view": "top",
       "lod": "high",
-      "triangleCount": 7060,
+      "triangleCount": 7116,
       "projectedBoundsMeters": {
         "minU": -1.455,
         "maxU": 1.455,
@@ -2642,7 +2642,7 @@
         "width": 2.91,
         "height": 5.38
       },
-      "svgHash": "e567a3efb77b0d5d1f5a47efd49675fb28260977708c7382b34018761b981ae6"
+      "svgHash": "fed1bf270d5bf65b816010e9948e164e5ffe8baaad1b7a386098fd05049375ef"
     },
     "ger_panzer3:top:medium": {
       "key": "ger_panzer3:top:medium",
@@ -2650,7 +2650,7 @@
       "designation": "Panzerkampfwagen III Ausf. D",
       "view": "top",
       "lod": "medium",
-      "triangleCount": 4048,
+      "triangleCount": 4152,
       "projectedBoundsMeters": {
         "minU": -1.4478,
         "maxU": 1.4478,
@@ -2659,7 +2659,7 @@
         "width": 2.8956,
         "height": 5.38
       },
-      "svgHash": "437d6cad723a6250c15e3576ff265c4232786e19a4b3077fde8972c3b9e79ef5"
+      "svgHash": "ea6e11c77db6539ae3fb4443ae388e34b224fc0efe7c9ff79ca3fc126cc8d71a"
     },
     "ger_panzer3:top:proxy": {
       "key": "ger_panzer3:top:proxy",
@@ -2667,7 +2667,7 @@
       "designation": "Panzerkampfwagen III Ausf. D",
       "view": "top",
       "lod": "proxy",
-      "triangleCount": 992,
+      "triangleCount": 1144,
       "projectedBoundsMeters": {
         "minU": -1.4478,
         "maxU": 1.4478,
@@ -2676,7 +2676,7 @@
         "width": 2.8956,
         "height": 5.38
       },
-      "svgHash": "8f63a517b04a91ec6359d3556e908daabbf7ebc51604839d3cf180582ccdd8e4"
+      "svgHash": "42c17091611d6b5d43b56b6d98c87b537e8fbfbf3bdfa3e849229726885e749c"
     },
     "ger_panzer4:front:core": {
       "key": "ger_panzer4:front:core",

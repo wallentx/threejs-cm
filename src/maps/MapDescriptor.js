@@ -105,6 +105,87 @@ function validateRiverBankMaterial(record, path) {
   }
 }
 
+const WALL_PRESENTATION_KINDS = new Set([
+  'solid-prism',
+  'alpha-tested-card'
+]);
+
+function validateWallProfiles(profiles) {
+  requireRecord(profiles, 'map.wallProfiles');
+  const entries = Object.entries(profiles);
+  if (entries.length === 0) {
+    throw new Error('map.wallProfiles requires at least one profile');
+  }
+  for (const [profileId, profile] of entries) {
+    const path = `map.wallProfiles.${profileId}`;
+    requireRecord(profile, path);
+    if (requireId(profile.id, `${path}.id`) !== profileId) {
+      throw new Error(`${path}.id must match profile key ${profileId}`);
+    }
+    if (!WALL_PRESENTATION_KINDS.has(profile.presentationKind)) {
+      throw new Error(
+        `${path}.presentationKind must be solid-prism or alpha-tested-card`
+      );
+    }
+    requireId(profile.materialRole, `${path}.materialRole`);
+    requireId(profile.collisionType, `${path}.collisionType`);
+    for (const key of ['height', 'thickness', 'maximumSegmentLength']) {
+      requireFinite(profile[key], `${path}.${key}`, { positive: true });
+    }
+    if (profile.presentationKind === 'alpha-tested-card') {
+      requireFinite(
+        profile.textureRepeatMeters,
+        `${path}.textureRepeatMeters`,
+        { positive: true }
+      );
+      requireFinite(profile.groundOffset, `${path}.groundOffset`);
+      if (profile.groundOffset < 0 || profile.groundOffset > 0.1) {
+        throw new Error(`${path}.groundOffset must be between 0 and 0.1 metres`);
+      }
+      requireRecord(profile.destruction, `${path}.destruction`);
+      for (const key of [
+        'maxHealth',
+        'minimumMovingSpeedMps',
+        'heavyVehicleMassTonnes',
+        'highImpactSpeedMps',
+        'momentumThresholdTonneMps',
+        'blastDamageScale'
+      ]) {
+        requireFinite(
+          profile.destruction[key],
+          `${path}.destruction.${key}`,
+          { positive: key === 'maxHealth' || key === 'blastDamageScale' }
+        );
+        if (profile.destruction[key] < 0) {
+          throw new Error(`${path}.destruction.${key} must not be negative`);
+        }
+      }
+      requireId(
+        profile.destruction.dataQuality,
+        `${path}.destruction.dataQuality`
+      );
+    }
+    if (!Array.isArray(profile.blocks) || profile.blocks.length === 0) {
+      throw new Error(`${path}.blocks must be a non-empty array`);
+    }
+    for (const [index, moverType] of profile.blocks.entries()) {
+      if (!['vehicle', 'infantry'].includes(moverType)) {
+        throw new Error(`${path}.blocks[${index}] must be vehicle or infantry`);
+      }
+    }
+    if (typeof profile.occludesSight !== 'boolean') {
+      throw new Error(`${path}.occludesSight must be boolean`);
+    }
+    if (
+      typeof profile.dataQuality !== 'string'
+      || profile.dataQuality.trim().length === 0
+    ) {
+      throw new Error(`${path}.dataQuality requires a non-empty label`);
+    }
+  }
+  return profiles;
+}
+
 function requireTuple(value, length, path) {
   if (!Array.isArray(value) || value.length !== length) {
     throw new Error(`${path} must contain ${length} values`);
@@ -312,64 +393,77 @@ export function validateMapDescriptor(map) {
     }
   });
 
-  const river = requireRecord(map.river, 'map.river');
-  registerFeatureId(ids, river, 'map.river');
-  requireFinite(river.centerZ, 'map.river.centerZ');
-  for (const key of ['waterWidth', 'cutWidth']) {
-    requireFinite(river[key], `map.river.${key}`, { positive: true });
+  const hasRiver = map.river != null;
+  const hasBridge = map.bridge != null;
+  if (hasRiver !== hasBridge) {
+    throw new Error('map.river and map.bridge must either both exist or both be omitted');
   }
-  if (river.cutWidth <= river.waterWidth) {
-    throw new Error('map.river.cutWidth must exceed waterWidth');
-  }
-  requireFinite(river.waterLevel, 'map.river.waterLevel');
-  requireFinite(river.bedLevel, 'map.river.bedLevel');
-  if (river.bedLevel >= river.waterLevel) {
-    throw new Error('map.river.bedLevel must be below waterLevel');
-  }
-  if (Math.abs(river.centerZ) + river.cutWidth * 0.5 > dimensions.depth * 0.5) {
-    throw new Error('map.river lies outside map bounds');
-  }
+  if (hasRiver) {
+    const river = requireRecord(map.river, 'map.river');
+    registerFeatureId(ids, river, 'map.river');
+    requireFinite(river.centerZ, 'map.river.centerZ');
+    for (const key of ['waterWidth', 'cutWidth']) {
+      requireFinite(river[key], `map.river.${key}`, { positive: true });
+    }
+    if (river.cutWidth <= river.waterWidth) {
+      throw new Error('map.river.cutWidth must exceed waterWidth');
+    }
+    requireFinite(river.waterLevel, 'map.river.waterLevel');
+    requireFinite(river.bedLevel, 'map.river.bedLevel');
+    if (river.bedLevel >= river.waterLevel) {
+      throw new Error('map.river.bedLevel must be below waterLevel');
+    }
+    if (Math.abs(river.centerZ) + river.cutWidth * 0.5 > dimensions.depth * 0.5) {
+      throw new Error('map.river lies outside map bounds');
+    }
 
-  const bridge = requireRecord(map.bridge, 'map.bridge');
-  registerFeatureId(ids, bridge, 'map.bridge');
-  requireFinite(bridge.centerX, 'map.bridge.centerX');
-  requireFinite(bridge.centerZ, 'map.bridge.centerZ');
-  requireFinite(bridge.span, 'map.bridge.span', { positive: true });
-  requireFinite(
-    bridge.approachLength,
-    'map.bridge.approachLength',
-    { positive: true }
-  );
-  if (
-    typeof bridge.approachDataQuality !== 'string'
-    || bridge.approachDataQuality.trim().length === 0
-  ) {
-    throw new Error(
-      'map.bridge.approachDataQuality requires a non-empty label'
+    const bridge = requireRecord(map.bridge, 'map.bridge');
+    registerFeatureId(ids, bridge, 'map.bridge');
+    requireFinite(bridge.centerX, 'map.bridge.centerX');
+    requireFinite(bridge.centerZ, 'map.bridge.centerZ');
+    requireFinite(bridge.span, 'map.bridge.span', { positive: true });
+    requireFinite(
+      bridge.approachLength,
+      'map.bridge.approachLength',
+      { positive: true }
     );
-  }
-  requireId(bridge.profileId, 'map.bridge.profileId');
-  requireInsideMap([bridge.centerX, bridge.centerZ], dimensions, 'map.bridge');
-  if (bridge.centerZ !== river.centerZ) {
-    throw new Error('map.bridge.centerZ must align with map.river.centerZ');
-  }
-  if (bridge.span <= river.cutWidth) {
-    throw new Error('map.bridge.span must exceed the river cut width');
-  }
-  if (
-    Math.abs(bridge.centerZ)
-      + bridge.span * 0.5
-      + bridge.approachLength
-      > dimensions.depth * 0.5
-  ) {
-    throw new Error('map.bridge span and approaches lie outside map bounds');
+    if (
+      typeof bridge.approachDataQuality !== 'string'
+      || bridge.approachDataQuality.trim().length === 0
+    ) {
+      throw new Error(
+        'map.bridge.approachDataQuality requires a non-empty label'
+      );
+    }
+    requireId(bridge.profileId, 'map.bridge.profileId');
+    requireInsideMap([bridge.centerX, bridge.centerZ], dimensions, 'map.bridge');
+    if (bridge.centerZ !== river.centerZ) {
+      throw new Error('map.bridge.centerZ must align with map.river.centerZ');
+    }
+    if (bridge.span <= river.cutWidth) {
+      throw new Error('map.bridge.span must exceed the river cut width');
+    }
+    if (
+      Math.abs(bridge.centerZ)
+        + bridge.span * 0.5
+        + bridge.approachLength
+        > dimensions.depth * 0.5
+    ) {
+      throw new Error('map.bridge span and approaches lie outside map bounds');
+    }
   }
 
   if (!Array.isArray(map.wallRuns)) throw new Error('map.wallRuns must be an array');
+  const wallProfiles = validateWallProfiles(map.wallProfiles);
   map.wallRuns.forEach((wall, index) => {
     requireRecord(wall, `map.wallRuns[${index}]`);
     registerFeatureId(ids, wall, `map.wallRuns[${index}]`);
-    requireId(wall.profileId, `map.wallRuns[${index}].profileId`);
+    const profileId = requireId(wall.profileId, `map.wallRuns[${index}].profileId`);
+    if (!wallProfiles[profileId]) {
+      throw new Error(
+        `map.wallRuns[${index}].profileId references unknown profile ${profileId}`
+      );
+    }
     const start = requireTuple(wall.start, 2, `map.wallRuns[${index}].start`);
     const end = requireTuple(wall.end, 2, `map.wallRuns[${index}].end`);
     requireInsideMap(start, dimensions, `map.wallRuns[${index}].start`);
@@ -474,6 +568,18 @@ export function validateMapDescriptor(map) {
       throw new Error(`map.foliage[${index}] must explicitly declare visualOnly`);
     }
   });
+  if (map.foliageRendering != null) {
+    const rendering = requireRecord(
+      map.foliageRendering,
+      'map.foliageRendering'
+    );
+    if (!['individual', 'instanced'].includes(rendering.mode)) {
+      throw new Error(
+        'map.foliageRendering.mode must be individual or instanced'
+      );
+    }
+    requireId(rendering.dataQuality, 'map.foliageRendering.dataQuality');
+  }
 
   validateDeploymentZones(map.deploymentZones, dimensions);
   return map;

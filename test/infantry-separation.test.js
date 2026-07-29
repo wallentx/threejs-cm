@@ -571,6 +571,7 @@ test('GameApp simulateStep resolves after all units and before building transit'
         events.push('spotting');
       }
     },
+    spottingStepper: new FixedStepAccumulator(1 / 30),
     factionOrder: [],
     combat: {
       update() {

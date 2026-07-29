@@ -31,11 +31,13 @@ export function createUIRuntimePort({
   playerFactionId,
   getSelectedUnit,
   getSelectedUnits,
+  getDisplayedUnit,
   getVisibilityProjection,
   getBocageObstacles,
   getImpacts,
   getBuildingFloorIds,
   selectUnit,
+  inspectUnit,
   deselectUnit,
   splitUnit,
   issueBuildingExit
@@ -61,11 +63,13 @@ export function createUIRuntimePort({
   for (const [label, value] of Object.entries({
     getSelectedUnit,
     getSelectedUnits,
+    getDisplayedUnit,
     getVisibilityProjection,
     getBocageObstacles,
     getImpacts,
     getBuildingFloorIds,
     selectUnit,
+    inspectUnit,
     deselectUnit,
     splitUnit,
     issueBuildingExit
@@ -85,6 +89,9 @@ export function createUIRuntimePort({
     get selectedUnits() {
       const units = getSelectedUnits();
       return Array.isArray(units) ? [...units] : [];
+    },
+    get displayedUnit() {
+      return getDisplayedUnit();
     },
     get commandMode() {
       return commands.activeMode;
@@ -148,6 +155,7 @@ export function createUIRuntimePort({
       commands.targetLinesGroup.visible = Boolean(visible);
     },
     selectUnit,
+    inspectUnit,
     deselectUnit,
     setCameraHeight(level) {
       return cameraManager.setHeightPreset(level);
@@ -189,6 +197,8 @@ export function createUIRuntimePort({
       return selectedAction(getSelectedUnit, unit => {
         unit.targetUnit = null;
         unit.targetPos = null;
+        unit.targetMode = null;
+        unit.clearMortarTargetOrder?.();
         commands.renderOverlays();
         return true;
       });
@@ -205,6 +215,12 @@ export function createUIRuntimePort({
       return selectedAction(
         getSelectedUnit,
         unit => unit.toggleCrewServedDeployment?.() ?? null
+      );
+    },
+    toggleVehicleCommanderPosture() {
+      return selectedAction(
+        getSelectedUnit,
+        unit => unit.toggleVehicleCommanderPosture?.() ?? null
       );
     },
     splitSelectedUnit() {

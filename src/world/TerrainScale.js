@@ -6,11 +6,6 @@ import { WORLD_SCALE } from './WorldScale.js';
  */
 export const TERRAIN_SCALE = Object.freeze({
   infantryReferenceHeight: WORLD_SCALE.standingInfantryHeight,
-  stoneWall: Object.freeze({
-    height: 1.2,
-    thickness: 0.65,
-    maximumSegmentLength: 4
-  }),
   house: Object.freeze({
     width: 12,
     depth: 9,

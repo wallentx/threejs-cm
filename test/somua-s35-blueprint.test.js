@@ -103,4 +103,10 @@ test('SOMUA armament and proxy retain articulated silhouette ownership', () => {
   assert.ok(vehicle.getObjectByName('S35_ProxyCastHull'));
   assert.equal(vehicle.userData.proxyTurret.parent, vehicle.userData.turret);
   assert.equal(vehicle.userData.proxyBarrel.parent, vehicle.userData.turret);
+  assert.ok(vehicle.getObjectByName('S35_ClosedCupolaRoof'));
+  assert.equal(vehicle.getObjectByName('S35_CupolaHatch'), undefined);
+  assert.equal(vehicle.userData.commanderStation.canUnbutton, false);
+  assert.deepEqual(vehicle.userData.commanderHatches, []);
+  assert.equal(vehicle.userData.proxyCupola.userData.lodBand, 'proxy');
+  assert.equal(vehicle.userData.proxyCupolaRoof.userData.lodBand, 'proxy');
 });

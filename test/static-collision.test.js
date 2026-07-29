@@ -5,6 +5,10 @@ import {
   StaticCollisionWorld,
   createCapsuleOffsets
 } from '../src/simulation/collision/StaticCollisionWorld.js';
+import {
+  collisionRecordsForVehicle,
+  createDynamicVehicleCollisionRecords
+} from '../src/simulation/collision/DynamicVehicleCollision.js';
 import { Unit } from './helpers/France1940TestUnit.js';
 import { BuildingInteractionSystem } from '../src/game/BuildingInteractionSystem.js';
 import { BuildingSystem } from '../src/simulation/buildings/index.js';
@@ -42,6 +46,46 @@ const WALL = Object.freeze({
   rotation: 0,
   blocks: ['vehicle', 'infantry']
 });
+const FENCE = Object.freeze({
+  id: 'fence',
+  type: 'fence',
+  centerX: 0,
+  centerZ: 0,
+  halfX: 6,
+  halfZ: 0.09,
+  rotation: 0,
+  blocks: ['vehicle', 'infantry']
+});
+const DESTRUCTIBLE_FENCE_POLICY = Object.freeze({
+  maxHealth: 100,
+  minimumMovingSpeedMps: 0.4,
+  heavyVehicleMassTonnes: 8,
+  highImpactSpeedMps: 3.3,
+  momentumThresholdTonneMps: 12,
+  blastDamageScale: 1.2,
+  dataQuality: 'test gameplay approximation'
+});
+
+function registerDestructibleFence(terrain) {
+  const colliderRecord = terrain.addColliderRecord(FENCE);
+  const obstacleRecord = {
+    id: 'run_0',
+    type: 'fence',
+    occludesSight: false
+  };
+  terrain.bocageObstacles.push(obstacleRecord);
+  terrain.destructibleLinearObstacles.registerSegment({
+    id: 'fence:run:0',
+    colliderId: FENCE.id,
+    runId: 'run',
+    segmentIndex: 0,
+    start: [-6, 0],
+    end: [6, 0],
+    colliderRecord,
+    obstacleRecord,
+    policy: DESTRUCTIBLE_FENCE_POLICY
+  });
+}
 
 test('swept vehicle capsule cannot tunnel through a wall and slides along it', () => {
   const world = new StaticCollisionWorld([WALL]);
@@ -56,6 +100,51 @@ test('swept vehicle capsule cannot tunnel through a wall and slides along it', (
   assert.equal(resolved.blocked, true);
   assert.ok(resolved.z <= -(WALL.halfZ + radius));
   assert.ok(resolved.x > -1, 'remaining motion should slide along the wall face');
+});
+
+test('transient vehicle envelopes block crossing without entering static-world state', () => {
+  const movingVehicle = {
+    id: 'moving',
+    position: { x: 0, z: -8 },
+    rotation: 0,
+    vehicleSpec: {
+      dimensionsMeters: { length: 4, width: 2 }
+    }
+  };
+  const disabledVehicle = {
+    id: 'disabled',
+    position: { x: 0, z: 0 },
+    rotation: 0,
+    vehicleDamageState: { destroyed: true },
+    vehicleSpec: {
+      dimensionsMeters: { length: 5, width: 2.4 }
+    }
+  };
+  const records = createDynamicVehicleCollisionRecords([
+    disabledVehicle,
+    movingVehicle
+  ]);
+  assert.deepEqual(
+    records.map(record => record.unitId),
+    ['disabled', 'moving']
+  );
+
+  const world = new StaticCollisionWorld();
+  const resolved = world.resolveFootprintMotion(
+    movingVehicle.position,
+    { x: 0, z: 16 },
+    {
+      moverType: 'vehicle',
+      radius: 1,
+      offsets: createCapsuleOffsets(4, 1),
+      rotation: 0,
+      transientColliders: collisionRecordsForVehicle(records, movingVehicle.id)
+    }
+  );
+
+  assert.equal(resolved.blocked, true);
+  assert.ok(resolved.z < -3.49, `vehicle crossed blocker at z=${resolved.z}`);
+  assert.equal(world.getCollider('dynamic-vehicle:disabled'), null);
 });
 
 test('large accelerated movement and bounded frame steps resolve to the same wall contact', () => {
@@ -79,6 +168,92 @@ test('large accelerated movement and bounded frame steps resolve to the same wal
   assert.ok(Math.abs(oneStep.x - many.x) < 1e-9);
   assert.ok(Math.abs(oneStep.z - many.z) < 2e-5);
   assert.ok(oneStep.z < 0);
+});
+
+test('fence traversal is explicit, swept, and never grants vehicle passage', () => {
+  const world = new StaticCollisionWorld([FENCE]);
+  const slow = world.resolveCircleMotion(
+    { x: 0, z: -2 },
+    { x: 0, z: 4 },
+    0.32,
+    { moverType: 'infantry' }
+  );
+  const quick = world.resolveCircleMotion(
+    { x: 0, z: -2 },
+    { x: 0, z: 4 },
+    0.32,
+    {
+      moverType: 'infantry',
+      traverseColliderTypes: ['fence']
+    }
+  );
+  const vehicle = world.resolveCircleMotion(
+    { x: 0, z: -2 },
+    { x: 0, z: 4 },
+    1,
+    { moverType: 'vehicle' }
+  );
+
+  assert.equal(slow.blocked, true);
+  assert.equal(quick.blocked, false);
+  assert.equal(quick.z, 2);
+  assert.deepEqual(quick.traversedColliderIds, ['fence']);
+  assert.equal(vehicle.blocked, true);
+  assert.deepEqual(
+    world.getNavigationPath(
+      { x: 0, z: -2 },
+      { x: 0, z: 2 },
+      0.32,
+      'infantry',
+      { traverseColliderTypes: ['fence'] }
+    ),
+    [{ x: 0, z: 2 }]
+  );
+});
+
+test('vehicle speed and mass thresholds control localized fence crushing', () => {
+  const slowTerrain = createTerrain();
+  registerDestructibleFence(slowTerrain);
+  const slowTruck = new Unit({
+    id: 'slow-fence-truck',
+    faction: 'german',
+    type: 'vehicle',
+    vehicleId: 'OPEL_BLITZ',
+    position: new THREE.Vector3(0, 0, -8)
+  });
+  slowTerrain.registerUnitColliders([slowTruck]);
+  slowTruck.addWaypoint(new THREE.Vector3(0, 0, 8), 'MOVE');
+  for (let step = 0; step < 180; step++) {
+    slowTruck.update(1 / 30, slowTerrain);
+  }
+  assert.equal(
+    slowTerrain.destructibleLinearObstacles
+      .getSegment('fence:run:0').destroyed,
+    false
+  );
+  assert.ok(slowTruck.position.z < 0);
+
+  const fastTerrain = createTerrain();
+  registerDestructibleFence(fastTerrain);
+  const fastTruck = new Unit({
+    id: 'fast-fence-truck',
+    faction: 'german',
+    type: 'vehicle',
+    vehicleId: 'OPEL_BLITZ',
+    position: new THREE.Vector3(0, 0, -8)
+  });
+  fastTerrain.registerUnitColliders([fastTruck]);
+  fastTruck.addWaypoint(new THREE.Vector3(0, 0, 8), 'FAST');
+  for (let step = 0; step < 180; step++) {
+    fastTruck.update(1 / 30, fastTerrain);
+  }
+  assert.equal(
+    fastTerrain.destructibleLinearObstacles
+      .getSegment('fence:run:0').destroyed,
+    true
+  );
+  assert.equal(fastTerrain.collisionWorld.getCollider(FENCE.id), null);
+  assert.ok(fastTruck.position.z > 0);
 });
 
 test('building collision snapshots accept halfWidth and halfDepth aliases', () => {
@@ -267,6 +442,7 @@ test('terrain publishes bridge, abutment, river exclusion, wall, and building re
     'bridge_abutment',
     'river_exclusion',
     'stonewall',
+    'fence',
     'building'
   ]) {
     assert.ok(types.has(type), `missing ${type} collider records`);
@@ -445,6 +621,65 @@ test('soldier stages at wall stand-off and uses tangential space without clippin
 
   assert.ok(agent.position.z <= -0.62, 'soldier center must retain wall stand-off');
   assert.ok(agent.position.x > 1.5, 'soldier should slide into useful space along the wall');
+});
+
+test('QUICK infantry vault a fence with rollback-owned hop state while MOVE stops', () => {
+  const terrain = createTerrain();
+  terrain.addColliderRecord(FENCE);
+  const createAgent = (id) => {
+    const unit = new Unit({
+      id,
+      faction: 'german',
+      type: 'infantry_squad',
+      position: new THREE.Vector3(0, 0, -1.5)
+    });
+    const agent = unit.soldierAI.agents[0];
+    agent.position.set(0, 0, -1.5);
+    agent.velocity.set(0, 0, 0);
+    agent.reactionDelay = 0;
+    return agent;
+  };
+  const goal = new THREE.Vector3(0, 0, 1.5);
+  const context = (agent, orderType) => ({
+    anchorMoving: true,
+    orderType,
+    goal,
+    neighbors: [agent],
+    squadPinned: false,
+    waypointIndex: 0
+  });
+
+  const slow = createAgent('slow_fence_squad');
+  for (let step = 0; step < 90; step++) {
+    slow.updateMovement(1 / 30, terrain, context(slow, 'MOVE'));
+  }
+  assert.ok(slow.position.z <= -(FENCE.halfZ + 0.32));
+  assert.equal(slow.fenceVault, null);
+
+  const quick = createAgent('quick_fence_squad');
+  let snapshot = null;
+  for (let step = 0; step < 90 && quick.position.z < 1; step++) {
+    quick.updateMovement(1 / 30, terrain, context(quick, 'QUICK'));
+    if (!snapshot && quick.state === 'VAULTING') snapshot = quick.capture();
+  }
+  assert.ok(snapshot, 'vault must expose persistent in-progress state');
+  assert.equal(snapshot.state, 'VAULTING');
+  assert.equal(snapshot.stance, 'CROUCHED');
+  assert.ok(snapshot.worldPosition[1] > 0);
+  assert.equal(snapshot.fenceVault.colliderId, FENCE.id);
+  assert.ok(quick.position.z > 0.5);
+
+  const rollbackPoint = structuredClone(snapshot);
+  quick.restore(structuredClone(rollbackPoint));
+  for (let step = 0; step < 6; step++) {
+    quick.updateMovement(1 / 30, terrain, context(quick, 'QUICK'));
+  }
+  const expected = quick.capture();
+  quick.restore(structuredClone(rollbackPoint));
+  for (let step = 0; step < 6; step++) {
+    quick.updateMovement(1 / 30, terrain, context(quick, 'QUICK'));
+  }
+  assert.deepEqual(quick.capture(), expected);
 });
 
 test('infantry anchor cannot complete through a wall', () => {

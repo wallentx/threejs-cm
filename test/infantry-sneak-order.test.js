@@ -227,7 +227,7 @@ test('casualty, unavailable, building, and morale reactions outrank SNEAK', () =
   assert.equal(occupant.state, 'READY');
   assert.equal(occupant.velocity.lengthSq(), 0);
 
-  pinned.suppression = 80;
+  pinned.suppression = 85;
   pinned.reactionDelay = 0;
   pinned.updateMovement(0.1, flatTerrain, movementContext(pinned, unit));
   assert.equal(pinned.state, 'PINNED');

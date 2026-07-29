@@ -22,6 +22,7 @@ src/
 |   |-- systems/
 |   `-- ports/
 |-- scenario/
+|   |-- BattleSetup.js              # Generic force resolution and scenario generation
 |   |-- ScenarioRuntime.js          # Runs one loaded scenario
 |   |-- FamilyRegistry.js           # Registry type and content validation
 |   |-- loadScenario.js             # Future dedicated loader boundary
@@ -29,6 +30,7 @@ src/
 |-- content/
 |   `-- france1940/
 |       |-- index.js                # Family registration surface
+|       |-- battleSetup.js          # Selectable countries, units, and force packages
 |       |-- factions.js
 |       |-- formations.js
 |       |-- presentation.js
@@ -40,11 +42,13 @@ src/
 |       `-- render/                 # Family-specific mesh factories
 |-- maps/
 |   `-- france/
-|       `-- stonne.js               # Terrain, zones, landmarks, placements
+|       |-- index.js                # Selectable France 1940 map registry
+|       |-- stonne.js               # Legacy-ID Bridge terrain
+|       `-- stonneApproach.js       # Reference-guided Stonne crossroads
 |-- scenarios/
 |   `-- france1940/
 |       `-- stonne1940.js           # Sides, units, map ID, victory setup
-|-- ui/                             # HUD and minimap; runtime facade client
+|-- ui/                             # Pre-battle setup, HUD, and minimap
 |-- editor/                         # Scenario/map authoring clients
 |-- assets/
 |   `-- AssetManifest.js            # Generic validation and pack resolution
@@ -77,6 +81,12 @@ The first boundary slice now exists:
   ordered infantry rosters and validates vehicle ownership before any live
   `Unit` exists. Family-tagged scenarios require that registry; the no-registry
   compatibility path is restricted to untagged legacy descriptors.
+- `src/scenario/BattleSetup.js` validates an injected family-owned setup
+  catalog, resolves either package or a-la-carte force selections, lays every
+  selected unit into its faction's injected deployment zone, faces both forces
+  toward the opposing zone, and emits one deeply frozen plain scenario. Enemy
+  difficulty maps to existing deterministic experience and leadership soft
+  factors rather than a disconnected UI label.
 - `src/scenario/FamilyRegistry.js` validates isolated, composition-owned family
   registrations. It checks stable record IDs, faction presentation and vehicle
   ownership, unique stable formation-member IDs, and every weapon reference without
@@ -86,6 +96,10 @@ The first boundary slice now exists:
   logical asset records.
   Scenario equipment and radio records address stable formation-member IDs,
   not array positions.
+- `src/content/france1940/battleSetup.js` owns France/Germany setup labels,
+  selectable formation/vehicle/structure records, gameplay-scale force
+  packages, defaults, and explicit selection limits. Its package names and
+  counts are scenario-design choices, not claims of complete divisional TO&E.
 - `src/content/france1940/weapons.js` owns the single frozen 26-record weapon
   map, default materialization, legacy display-name aliases, and lookup.
   `src/game/WeaponCatalog.js` remains a narrow strict-identity compatibility
@@ -173,12 +187,19 @@ The first boundary slice now exists:
 - `UIManager`, `Minimap`, and `MapEditor` consume those ports. Faction flags and
   colors resolve through family presentation records, and minimap projection
   uses injected map dimensions instead of Stonne constants.
+- `src/ui/BattleSetupScreen.js` is a pre-runtime DOM client. It edits only its
+  local selection state and calls injected force-validation and launch
+  callbacks. It never imports `GameApp`, constructs `Unit`, or owns scenario
+  resolution.
 - `src/maps/MapDescriptor.js` defines and validates renderer-neutral, deeply
   frozen map records, including bounded surface recipes, material values,
   globally stable feature IDs, bridge/channel alignment, map extents, and
-  deployment-zone bounds. `src/maps/france/stonne.js` owns the selected map
-  extent, elevation waves, surfaces, river, bridge, wall runs, structure
-  placement, foliage, and deployment zones.
+  deployment-zone bounds. River and bridge records are a paired optional
+  capability rather than a requirement imposed on every battlefield.
+  `src/maps/france/index.js` registers selectable maps; the legacy-ID
+  `stonne.js` record displays as Bridge, while `stonneApproach.js` separately
+  owns the reference-guided Stonne crossroads, rolling terrain, surface
+  composition, structures, foliage, fences, and deployment zones.
 - `src/scenario/DeploymentRules.js` validates complete unit footprints against
   injected setup-zone records.
 - `src/scenarios/france1940/stonne1940.js` owns the Stonne roster, positions,
@@ -188,7 +209,11 @@ The first boundary slice now exists:
 - `TerrainBuilder` receives one map descriptor plus narrow structure visual
   adapters. It derives rendering, terrain height, collision, navigation, and
   setup-zone meshes from the same feature records without importing Stonne or
-  a concrete building descriptor.
+  a concrete building descriptor. Maps without a paired river/bridge emit
+  ordinary open-ground height and no crossing mesh, collider, or navigation
+  record. Large visual-only foliage sets may explicitly request deterministic
+  instancing; Stonne's 152 tree centers then cost four shared draw submissions
+  instead of one group and four meshes per tree.
 - `src/world/WorldScale.js` owns the shared metre and standing-infantry
   reference; `TerrainScale.js` owns bounded environmental dimensions.
 - `src/world/vehicles/VehicleMaterialLibrary.js` owns cached procedural vehicle
@@ -272,9 +297,10 @@ The first boundary slice now exists:
   It never decides damage.
 - `src/ui/VehicleStatusPresenter.js` converts plain vehicle snapshots into HUD
   view data. `UIManager` renders that view without becoming simulation state.
-- `main.js` is now composition-only. It selects the scenario/map/family,
-  constructs catalog, asset, visual, and structure adapters, declares the
-  player faction, installs error handling, and constructs `GameApp`.
+- `main.js` is composition-only. It registers available maps and one family
+  setup catalog, constructs catalog, asset, visual, and structure adapters,
+  mounts the setup screen, generates the selected plain scenario through
+  `BattleSetup`, and constructs `GameApp` only after the user launches.
 
 ## Current vertical-slice seams
 
@@ -282,11 +308,16 @@ These seams are usable now, before the staged directory migration is complete:
 
 | Concern | Authoritative owner | Read-only consumer |
 | --- | --- | --- |
+| Pre-battle country, selectable-unit, and force-package data | `content/france1940/battleSetup.js` | Generic battle setup resolver and setup UI |
+| Configured-force validation, deterministic deployment, and scenario generation | `scenario/BattleSetup.js` | Composition root, then `ScenarioRuntime` |
+| Pre-runtime selection state and controls | `ui/BattleSetupScreen.js` | Injected composition callback only |
 | Family identity, faction vehicle ownership, formations, presentation records | `content/france1940/*`, injected `FamilyRegistry` | Scenario resolution; future UI/render consumers |
 | France 1940 weapon definitions and aliases | `content/france1940/weapons.js` | Injected `catalogPorts.weapons`; legacy compatibility re-export |
 | France 1940 vehicle, armor, crew, mount, and internal-layout definitions | `content/france1940/vehicles.js`, `content/france1940/vehicleData/*` | Injected `catalogPorts.vehicles`; legacy compatibility re-export |
 | France 1940 structure definitions | `content/france1940/structures.js` | Injected `catalogPorts.structures`; legacy compatibility re-export |
-| Stonne terrain and placement records | `maps/france/stonne.js`, validated by `maps/MapDescriptor.js` | Scenario loader, `TerrainBuilder`, command/deployment systems |
+| Bridge terrain and placement records | `maps/france/stonne.js`, validated by `maps/MapDescriptor.js` | Scenario loader, `TerrainBuilder`, command/deployment systems |
+| Selectable France 1940 map registry | `maps/france/index.js` | Composition and pre-battle setup only |
+| Reference-guided Stonne terrain and placement records | `maps/france/stonneApproach.js`, validated by `maps/MapDescriptor.js` | Scenario generation, `TerrainBuilder`, command/deployment systems |
 | Individual infantry state and choices | `SoldierAgent`, `SoldierAI` | Infantry pose renderer, roster HUD |
 | Weapon target acquisition, aim work, tracking, and range estimation | `simulation/combat/FireControl.js` plus per-soldier and per-mount state | `GameApp` target/motion inputs, `CombatSystem` holdover/telemetry, HUD presenters |
 | Vehicle crew, components, mounts, ammo, damage events | `Unit`, `VehicleSystems` | Combat telemetry, damage report |
@@ -466,7 +497,7 @@ candidates for a future physics evaluation.
 | Scenario runtime | Loaded-session state, deterministic clock/RNG, save/restore, subsystem sequencing | Hard-coded Stonne or France 1940 records |
 | Scenario loader | Validation and resolution of IDs through injected registries | Rendering, global registries, browser state |
 | France 1940 content | Weapons, vehicles, structures, formations, faction data, family-specific visuals | Runtime orchestration, map geometry, UI |
-| Maps and scenarios | Terrain specification, zones, placements, side composition, objectives | Generic simulation algorithms or engine setup |
+| Maps and scenarios | Terrain specification, zones, placements, configured or authored side composition, objectives | Generic simulation algorithms or engine setup |
 | UI and editor | HUD, minimap, controls, authoring workflows | Direct scene mutation or private simulation state |
 | Assets | Stable logical IDs, files, loading metadata, procedural/external source choice | Gameplay behavior |
 
@@ -476,6 +507,7 @@ An arrow means the source may import the target's public entry point.
 
 ```text
 main.js / app
+|---> battle setup -------> family/map data
 |---> scenario runtime ---> simulation
 |          |-----------> engine
 |          `-----------> scenario loader
@@ -497,7 +529,8 @@ simulation -------> shared math and data only
 Rules:
 
 1. `main.js` is the only module allowed to import every top-level area. Keep it
-   declarative: register families and scenarios, construct `GameApp`, then start.
+   declarative: register families/maps, bind setup callbacks, construct
+   `GameApp`, then start.
 2. Lower layers never import `main.js`, `GameApp`, UI, editor, or a concrete
    scenario.
 3. Simulation code does not import `three`, DOM APIs, engine modules, world mesh

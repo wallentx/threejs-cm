@@ -3,12 +3,109 @@ import { Minimap } from './Minimap.js';
 import { buildVehicleStatusView } from './VehicleStatusPresenter.js';
 
 const scratchPos = new THREE.Vector3();
-const iconOffset = new THREE.Vector3(0, 3.5, 0);
+const iconOffset = new THREE.Vector3(0, 5.5, 0);
+const badgeWorldAnchor = new THREE.Vector3();
+const badgeCameraPosition = new THREE.Vector3();
+const badgeRayDirection = new THREE.Vector3();
+const badgeOccluderCenter = new THREE.Vector3();
+const badgeOccluderOffset = new THREE.Vector3();
 const INFANTRY_ONLY_MOVE_COMMANDS = new Set([
   'SNEAK',
   'CRAWL',
   'ASSAULT'
 ]);
+const ICON_UPDATE_INTERVAL_MS = 1000 / 30;
+const MINIMAP_UPDATE_INTERVAL_MS = 100;
+export const UNIT_BADGE_SCREEN_CLEARANCE_PIXELS = 48;
+
+export function projectUnitBadgeAnchor(
+  unit,
+  camera,
+  viewportHeight,
+  projectedAnchor,
+  worldAnchor
+) {
+  if (!(viewportHeight > 0)) {
+    throw new Error('Unit badge projection requires positive viewport height');
+  }
+  projectedAnchor.copy(unit.position).add(iconOffset).project(camera);
+  projectedAnchor.y += (
+    UNIT_BADGE_SCREEN_CLEARANCE_PIXELS * 2 / viewportHeight
+  );
+  worldAnchor.copy(projectedAnchor).unproject(camera);
+  return projectedAnchor;
+}
+
+function readUnitDimensions(unit) {
+  const dimensions =
+    unit?.mesh?.userData?.modelMetadata?.dimensionsMeters
+    ?? unit?.vehicleSpec?.dimensionsMeters
+    ?? unit?.structureSpec?.dimensionsMeters
+    ?? null;
+  if (!dimensions) return null;
+  if (![
+    Number(dimensions.length),
+    Number(dimensions.width),
+    Number(dimensions.height)
+  ].every(value =>
+    Number.isFinite(value) && value > 0)) {
+    return null;
+  }
+  return dimensions;
+}
+
+function unitOcclusionSphere(unit) {
+  const dimensions = readUnitDimensions(unit);
+  badgeOccluderCenter.copy(unit.position);
+  if (dimensions) {
+    const length = Number(dimensions.length);
+    const width = Number(dimensions.width);
+    const height = Number(dimensions.height);
+    badgeOccluderCenter.y += height * 0.5;
+    return Math.hypot(length, width, height) * 0.5;
+  }
+
+  let radius = Math.max(1.2, Number(unit.collisionRadius) || 0);
+  if (unit.type === 'infantry_squad') {
+    for (const agent of unit.soldierAI?.getLivingAgents?.() ?? []) {
+      radius = Math.max(
+        radius,
+        Math.hypot(
+          agent.position.x - unit.position.x,
+          agent.position.y - unit.position.y,
+          agent.position.z - unit.position.z
+        ) + 1
+      );
+    }
+    badgeOccluderCenter.y += 0.9;
+  }
+  return radius;
+}
+
+function materialOccludesBadge(material) {
+  const materials = Array.isArray(material) ? material : [material];
+  return materials.some(candidate =>
+    candidate
+    && candidate.visible !== false
+    && (!candidate.transparent || Number(candidate.opacity ?? 1) > 0.05)
+  );
+}
+
+function hitUsesVisibleModelGeometry(hit, root) {
+  if (
+    hit.object?.userData?.lodBand === 'ui'
+    || !materialOccludesBadge(hit.object?.material)
+  ) {
+    return false;
+  }
+  let object = hit.object;
+  while (object) {
+    if (object.visible === false) return false;
+    if (object === root) return true;
+    object = object.parent;
+  }
+  return false;
+}
 
 export function buildRosterMemberPresentation(unit, soldier) {
   const roleLabel = String(soldier?.role ?? soldier?.name ?? 'CREW')
@@ -39,6 +136,10 @@ export class UIManager {
     this.showMinimap = true;
     this.showHUD = true;
     this.lastHudUpdate = 0;
+    this.lastIconUpdate = Number.NEGATIVE_INFINITY;
+    this.lastMinimapUpdate = Number.NEGATIVE_INFINITY;
+    this.badgeOcclusionRaycaster = new THREE.Raycaster();
+    this.badgeOcclusionHits = [];
     this.lastImpactKey = null;
     this.lastCrewServedCommandKey = null;
     this.iconPool = new Map();
@@ -198,6 +299,16 @@ export class UIManager {
       if (e.code === 'KeyO') this.triggerCommand('FACE');
       if (e.code === 'KeyH') this.handleDirectAction('HIDE');
       if (
+        e.code === 'KeyB'
+        && (
+          this.runtime.selectedUnit?.canUnbuttonCommander?.()
+          || this.runtime.selectedUnit?.vehicleCrewPosture === 'UNBUTTONED'
+        )
+      ) {
+        e.preventDefault();
+        this.handleDirectAction('TOGGLE_COMMANDER_POSTURE');
+      }
+      if (
         e.code === 'KeyD'
         && this.runtime.selectedUnit?.hasDeployableCrewServedWeapon?.()
       ) {
@@ -236,21 +347,35 @@ export class UIManager {
     if (!grid) return;
     grid.innerHTML = '';
     const hasSelection = Boolean(this.runtime.selectedUnit);
+    const hasDisplayedUnit = Boolean(
+      this.runtime.displayedUnit ?? this.runtime.selectedUnit
+    );
     const commandPanel = document.getElementById('panel-commands');
     const rosterPanel = document.getElementById('panel-team-roster');
-    for (const panel of [commandPanel, rosterPanel]) {
+    for (const [panel, active] of [
+      [commandPanel, hasSelection],
+      [rosterPanel, hasDisplayedUnit]
+    ]) {
       if (!panel) continue;
       // Keep the HUD grid stable: empty selection-dependent panels stay in
       // their cells, but their controls/content become non-interactive.
       panel.hidden = false;
-      panel.inert = !hasSelection;
-      panel.setAttribute('aria-disabled', String(!hasSelection));
-      panel.classList.toggle('is-selection-empty', !hasSelection);
+      panel.inert = !active;
+      panel.setAttribute('aria-disabled', String(!active));
+      panel.classList.toggle('is-selection-empty', !active);
     }
     document.body?.classList.toggle('no-unit-selected', !hasSelection);
     if (!hasSelection) return;
 
     const selectedVehicle = this.runtime.selectedUnit?.vehicleSpec ?? null;
+    const mortarTargetCommands = this.runtime.selectedUnit?.mortarTeamConfig
+      ? [
+          { label: 'TARGET HE', mode: 'MORTAR_HE', key: 'E' },
+          ...(this.runtime.selectedUnit.mortarTeamConfig.smokeWeaponId
+            ? [{ label: 'TARGET SMOKE', mode: 'MORTAR_SMOKE', key: 'S' }]
+            : [])
+        ]
+      : null;
     const vehicleTargetCommands = selectedVehicle
       ? [
           ...(selectedVehicle.mainGun || selectedVehicle.weaponMounts?.length
@@ -284,7 +409,7 @@ export class UIManager {
         { label: 'CLEAR', action: 'CLEAR_PATHS', key: 'C' }
       ],
       combat: [
-        ...(vehicleTargetCommands ?? [
+        ...(mortarTargetCommands ?? vehicleTargetCommands ?? [
           { label: 'TARGET', mode: 'TARGET', key: 'T' },
           { label: 'TARGET LIGHT', mode: 'TARGET_LIGHT', key: 'I' }
         ]),
@@ -293,6 +418,18 @@ export class UIManager {
       ],
       special: [
         { label: 'HIDE', action: 'HIDE', key: 'H' },
+        ...(
+          this.runtime.selectedUnit?.canUnbuttonCommander?.()
+          || this.runtime.selectedUnit?.vehicleCrewPosture === 'UNBUTTONED'
+            ? [{
+                label: this.runtime.selectedUnit.vehicleCrewPosture === 'UNBUTTONED'
+                  ? 'BUTTON UP'
+                  : 'UNBUTTON',
+                action: 'TOGGLE_COMMANDER_POSTURE',
+                key: 'B'
+              }]
+            : []
+        ),
         ...(this.runtime.selectedUnit?.hasDeployableCrewServedWeapon?.()
           ? [{
               label: ['READY', 'SETTING_UP'].includes(
@@ -381,6 +518,19 @@ export class UIManager {
         this.showToast(`Unit Stance: ${hiding ? 'Hiding (Prone)' : 'Normal'}`, 'info');
         break;
       }
+      case 'TOGGLE_COMMANDER_POSTURE': {
+        const posture = this.runtime.toggleVehicleCommanderPosture();
+        if (posture) {
+          this.showToast(
+            posture === 'UNBUTTONED'
+              ? 'Commander unbuttoned: improved observation, exposed to fire'
+              : 'Commander buttoned up',
+            posture === 'UNBUTTONED' ? 'warn' : 'info'
+          );
+          this.renderCommandGrid();
+        }
+        break;
+      }
       case 'DEPLOY': {
         const deploymentState = this.runtime.toggleDeployment();
         const deploymentMessages = {
@@ -462,7 +612,7 @@ export class UIManager {
       const nameEl = document.getElementById('unit-name');
       if (nameEl) nameEl.innerText = 'NO UNIT SELECTED';
       const subEl = document.getElementById('unit-sub');
-      if (subEl) subEl.innerText = 'Click a friendly badge';
+      if (subEl) subEl.innerText = 'Click a unit badge';
       const rosterGrid = document.getElementById('roster-grid');
       if (rosterGrid) rosterGrid.innerHTML = '';
       const rifleEl = document.getElementById('ammo-rifle');
@@ -608,8 +758,13 @@ export class UIManager {
       root.classList.toggle('destroyed', view.destroyed);
     }
     if (header) {
-      const condition = view.destroyed ? ' · KNOCKED OUT' : (view.burning ? ' · BURNING' : '');
-      header.textContent = `CREW, WEAPONS & SYSTEMS${condition}`;
+      const condition = [
+        view.destroyed ? 'KNOCKED OUT' : (view.burning ? 'BURNING' : null),
+        view.crewPosture === 'UNBUTTONED' ? 'UNBUTTONED' : null
+      ].filter(Boolean);
+      header.textContent = `CREW, WEAPONS & SYSTEMS${
+        condition.length > 0 ? ` · ${condition.join(' · ')}` : ''
+      }`;
     }
 
     if (componentGrid) {
@@ -903,8 +1058,13 @@ export class UIManager {
     units.forEach(u => {
       if (u.mesh && !u.mesh.visible) return;
 
-      scratchPos.copy(u.position).add(iconOffset);
-      scratchPos.project(cameraManager.camera);
+      projectUnitBadgeAnchor(
+        u,
+        cameraManager.camera,
+        window.innerHeight,
+        scratchPos,
+        badgeWorldAnchor
+      );
 
       if (scratchPos.z > 1) return;
 
@@ -918,11 +1078,17 @@ export class UIManager {
         iconDiv = document.createElement('div');
         iconDiv.className = 'unit-floating-icon';
         iconDiv.addEventListener('click', (e) => {
-          if (!e.target.closest('.icon-badge.friendly')) return;
+          const friendlyBadge = e.target.closest('.icon-badge.friendly');
+          const hostileBadge = e.target.closest('.icon-badge.hostile');
+          if (!friendlyBadge && !hostileBadge) return;
           e.stopPropagation();
-          this.runtime.selectUnit(u, {
-            additive: e.shiftKey || e.ctrlKey || e.metaKey
-          });
+          if (friendlyBadge) {
+            this.runtime.selectUnit(u, {
+              additive: e.shiftKey || e.ctrlKey || e.metaKey
+            });
+          } else {
+            this.runtime.inspectUnit(u);
+          }
         });
         this.iconPool.set(u.id, iconDiv);
         overlay.appendChild(iconDiv);
@@ -931,12 +1097,18 @@ export class UIManager {
       iconDiv.style.left = `${screenX}px`;
       iconDiv.style.top = `${screenY}px`;
       iconDiv.style.display = 'block';
+      iconDiv.style.visibility = this.isBadgeOccluded(
+        u,
+        units,
+        cameraManager.camera,
+        badgeWorldAnchor
+      )
+        ? 'hidden'
+        : 'visible';
 
-      const selectedUnits = this.runtime.selectedUnits?.length
-        ? this.runtime.selectedUnits
-        : (this.runtime.selectedUnit ? [this.runtime.selectedUnit] : []);
-      const isSelected = selectedUnits
-        .some(unit => unit.id === u.id);
+      const displayedUnit =
+        this.runtime.displayedUnit ?? this.runtime.selectedUnit;
+      const isSelected = displayedUnit?.id === u.id;
       const isPlayer = this.runtime.isPlayerFaction(u.faction);
       const presentation = this.runtime.getFactionPresentation(u.faction);
       const vehicleStatus = isSelected ? buildVehicleStatusView(u) : null;
@@ -953,18 +1125,20 @@ export class UIManager {
             ? `<button type="button" class="icon-badge faction friendly ${isSelected ? 'selected' : ''}" title="Select ${u.name}; Shift/Ctrl-click to add or remove">
                 ${u.vehicleSpec ? '🛡️' : '⚔️'}
               </button>`
-            : `<div class="icon-badge faction hostile" aria-hidden="true">
+            : `<button type="button" class="icon-badge faction hostile ${isSelected ? 'selected' : ''}" title="Inspect ${u.name}">
                 ${u.vehicleSpec ? '🛡️' : '⚔️'}
-              </div>`}
-          <div class="icon-label">${u.name}</div>
-          ${vehicleStatus ? `
-            ${vehicleStatus.destroyed
-              ? '<div class="vehicle-floating-condition destroyed">KNOCKED OUT</div>'
-              : (vehicleStatus.burning
-                  ? '<div class="vehicle-floating-condition burning">BURNING</div>'
-                  : '')}
-            ${damagedLabels ? `<div class="vehicle-floating-damage">${damagedLabels}</div>` : ''}
-          ` : ''}
+              </button>`}
+          <div class="icon-details">
+            <div class="icon-label">${u.name}</div>
+            ${vehicleStatus ? `
+              ${vehicleStatus.destroyed
+                ? '<div class="vehicle-floating-condition destroyed">KNOCKED OUT</div>'
+                : (vehicleStatus.burning
+                    ? '<div class="vehicle-floating-condition burning">BURNING</div>'
+                    : '')}
+              ${damagedLabels ? `<div class="vehicle-floating-damage">${damagedLabels}</div>` : ''}
+            ` : ''}
+          </div>
         `;
         iconDiv.querySelector('.icon-badge')?.style.setProperty(
           '--faction-color',
@@ -978,6 +1152,56 @@ export class UIManager {
         el.style.display = 'none';
       }
     });
+  }
+
+  isBadgeOccluded(owner, units, camera, anchor) {
+    if (!camera || !anchor?.isVector3) return false;
+    const raycaster =
+      this.badgeOcclusionRaycaster
+      ??= new THREE.Raycaster();
+    camera.getWorldPosition(badgeCameraPosition);
+    badgeRayDirection.subVectors(anchor, badgeCameraPosition);
+    const anchorDistance = badgeRayDirection.length();
+    if (anchorDistance <= 0.05) return false;
+    badgeRayDirection.divideScalar(anchorDistance);
+    raycaster.set(badgeCameraPosition, badgeRayDirection);
+    raycaster.near = 0;
+    raycaster.far = anchorDistance - 0.05;
+
+    for (const candidate of units) {
+      if (
+        candidate === owner
+        || !candidate?.mesh
+        || candidate.mesh.visible === false
+      ) {
+        continue;
+      }
+      const radius = unitOcclusionSphere(candidate);
+      const distanceAlongRay = badgeRayDirection.dot(
+        badgeOccluderOffset.subVectors(
+          badgeOccluderCenter,
+          badgeCameraPosition
+        )
+      );
+      if (
+        distanceAlongRay <= 0
+        || distanceAlongRay >= anchorDistance
+      ) {
+        continue;
+      }
+      const closestDistanceSquared =
+        raycaster.ray.distanceSqToPoint(badgeOccluderCenter);
+      if (closestDistanceSquared > radius * radius) continue;
+      const hits = this.badgeOcclusionHits ??= [];
+      hits.length = 0;
+      raycaster.intersectObject(candidate.mesh, true, hits);
+      for (const hit of hits) {
+        if (hitUsesVisibleModelGeometry(hit, candidate.mesh)) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   showToast(message, type = 'info') {
@@ -1058,10 +1282,25 @@ export class UIManager {
     return true;
   }
 
-  render(units, cameraManager) {
-    this.updateFloatingIcons(units, cameraManager);
-    if (this.showMinimap && this.minimap && this.minimap.render) {
+  render(units, cameraManager, now = performance.now()) {
+    if (
+      !Number.isFinite(this.lastIconUpdate)
+      || now - this.lastIconUpdate >= ICON_UPDATE_INTERVAL_MS
+    ) {
+      this.updateFloatingIcons(units, cameraManager);
+      this.lastIconUpdate = now;
+    }
+    if (
+      this.showMinimap
+      && this.minimap
+      && this.minimap.render
+      && (
+        !Number.isFinite(this.lastMinimapUpdate)
+        || now - this.lastMinimapUpdate >= MINIMAP_UPDATE_INTERVAL_MS
+      )
+    ) {
       this.minimap.render(units, cameraManager);
+      this.lastMinimapUpdate = now;
     }
     this.updateShotInspector(this.runtime.getImpacts());
     const crewServedCommandKey = this.runtime.selectedUnit?.mortarTeamState
@@ -1073,9 +1312,10 @@ export class UIManager {
       this.lastCrewServedCommandKey = crewServedCommandKey;
       this.renderCommandGrid();
     }
-    const now = performance.now();
-    if (this.runtime.selectedUnit && now - this.lastHudUpdate >= 100) {
-      this.updateUnitHUD(this.runtime.selectedUnit);
+    const displayedUnit =
+      this.runtime.displayedUnit ?? this.runtime.selectedUnit;
+    if (displayedUnit && now - this.lastHudUpdate >= 100) {
+      this.updateUnitHUD(displayedUnit);
       this.lastHudUpdate = now;
     }
   }

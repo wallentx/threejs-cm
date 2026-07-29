@@ -76,6 +76,67 @@ test('individual soldier consumes own magazine and dead soldier cannot fire', ()
   assert.equal(shots, 1);
 });
 
+test('hidden infantry holds fire throughout building movement and occupancy', () => {
+  const attacker = new Unit({
+    id: 'hidden_fire',
+    faction: 'french',
+    type: 'infantry_squad',
+    position: new THREE.Vector3()
+  });
+  const target = new Unit({
+    id: 'hidden_target',
+    faction: 'german',
+    type: 'infantry_squad',
+    position: new THREE.Vector3(0, 0, 20)
+  });
+  const agent = attacker.soldierAI.agents[0];
+  let shots = 0;
+  const context = {
+    opposingUnits: [target],
+    spotting: {
+      checkLOS(from, to) {
+        return { clear: true, dist: from.distanceTo(to) };
+      }
+    },
+    buildingInteraction: {
+      canFireAt() {
+        return true;
+      }
+    },
+    combat: {
+      fireWeapon() {
+        shots++;
+        return true;
+      }
+    }
+  };
+
+  attacker.isHiding = true;
+  for (const phase of [
+    null,
+    'approaching',
+    'transit',
+    'occupied',
+    'exit-waiting',
+    'exiting'
+  ]) {
+    agent.state = 'READY';
+    agent.buildingLocation = phase ? { phase } : null;
+    assert.equal(agent.updateCombat(2, context), false);
+    assert.equal(agent.fireControl.phase, 'HIDDEN_HOLD_FIRE');
+    assert.equal(agent.targetUnitId, null);
+    assert.equal(agent.targetSoldierId, null);
+  }
+  assert.equal(shots, 0);
+
+  attacker.isHiding = false;
+  agent.buildingLocation = null;
+  assert.equal(agent.updateCombat(0.1, context), false);
+  assert.equal(agent.fireControl.phase, 'AIMING');
+  assert.equal(agent.updateCombat(2, context), true);
+  assert.equal(shots, 1);
+});
+
 test('individual fire requires a stationary shooter, LOS, range, aperture permission, and an accepted projectile', () => {
   const attacker = new Unit({
     id: 'guarded_fire',
@@ -263,6 +324,36 @@ test('ballistics applies gravity and armor slope instead of magic hit damage', (
   assert.equal(resolveArmorPenetration(WEAPONS.KAR98K, 760, 14.5, 1).penetrated, false);
   assert.equal(resolveArmorPenetration(WEAPONS.SA35_AP, 660, 30, 1).penetrated, true);
   assert.equal(resolveArmorPenetration(WEAPONS.SA35_AP, 660, 30, 0.5).penetrated, false);
+});
+
+test('destroyed and crewless vehicles remain physical swept armor targets', () => {
+  const target = new Unit({
+    id: 'physical_wreck',
+    faction: 'german',
+    type: 'vehicle',
+    vehicleId: 'PANZER_III_D',
+    position: new THREE.Vector3()
+  });
+  for (const crewman of target.roster) {
+    crewman.health = 0;
+    crewman.status = 'KIA';
+  }
+  target.vehicleDamageState.destroyed = true;
+  target.syncLegacyVehicleDamage();
+  assert.equal(target.isCombatEffective(), false);
+
+  const projectile = terrainSweepProjectile(
+    new THREE.Vector3(0, 0.8, -8),
+    new THREE.Vector3(0, 0.8, 8)
+  );
+  const hit = new BallisticsSystem({
+    terrain: flatTerrain,
+    getUnits: () => [target]
+  }).detectImpact(projectile);
+
+  assert.equal(hit?.kind, 'vehicle');
+  assert.equal(hit?.unit, target);
+  assert.equal(hit?.armorPart, 'hull');
 });
 
 function terrainSweepProjectile(start, end) {

@@ -249,6 +249,7 @@ function measureLongitudinalContainment(inner, outer) {
 
 test('Stonne map owns immutable terrain, surface, feature, structure, and deployment records', () => {
   assert.equal(STONNE_1940_MAP.id, 'stonne-1940');
+  assert.equal(STONNE_1940_MAP.title, 'Bridge');
   assert.deepEqual(STONNE_1940_MAP.dimensions, {
     width: 240,
     depth: 240,
@@ -285,6 +286,26 @@ test('Stonne map owns immutable terrain, surface, feature, structure, and deploy
       'farmhouse_east_south',
       'farmhouse_east_north'
     ]
+  );
+  assert.deepEqual(
+    Object.keys(STONNE_1940_MAP.wallProfiles),
+    ['stone-wall', 'wood-picket-fence']
+  );
+  assert.equal(
+    STONNE_1940_MAP.wallProfiles['wood-picket-fence'].presentationKind,
+    'alpha-tested-card'
+  );
+  assert.equal(
+    STONNE_1940_MAP.wallRuns
+      .filter(run => run.enclosureId === 'farmhouse-lot')
+      .every(run => run.profileId === 'wood-picket-fence'),
+    true
+  );
+  assert.equal(
+    STONNE_1940_MAP.wallRuns
+      .filter(run => run.enclosureId === 'village-house-lot')
+      .every(run => run.profileId === 'stone-wall'),
+    true
   );
   assert.deepEqual(
     STONNE_1940_MAP.wallEnclosures.map(enclosure => ({
@@ -601,6 +622,27 @@ test('map definition clones plain input before deep freezing it', () => {
   assertDeepFrozen(defined);
 });
 
+test('map descriptors support waterless terrain but reject half-configured crossings', () => {
+  const waterless = mutableMap();
+  delete waterless.river;
+  delete waterless.bridge;
+  assert.doesNotThrow(() => validateMapDescriptor(waterless));
+
+  const riverOnly = mutableMap();
+  delete riverOnly.bridge;
+  assert.throws(
+    () => validateMapDescriptor(riverOnly),
+    /must either both exist or both be omitted/
+  );
+
+  const bridgeOnly = mutableMap();
+  delete bridgeOnly.river;
+  assert.throws(
+    () => validateMapDescriptor(bridgeOnly),
+    /must either both exist or both be omitted/
+  );
+});
+
 test('map validation rejects malformed extents, duplicate IDs, bad features, and invalid zones', () => {
   const cases = [
     [map => { map.dimensions.width = 0; }, /dimensions\.width/],
@@ -619,6 +661,30 @@ test('map validation rejects malformed extents, duplicate IDs, bad features, and
     [map => { map.bridge.span = map.river.cutWidth; }, /span must exceed/],
     [map => { map.bridge.approachLength = 0; }, /approachLength/],
     [map => { map.bridge.approachDataQuality = ''; }, /approachDataQuality/],
+    [map => { map.wallProfiles = {}; }, /requires at least one profile/],
+    [map => {
+      map.wallProfiles['stone-wall'].presentationKind = 'billboard';
+    }, /presentationKind/],
+    [map => {
+      map.wallProfiles['wood-picket-fence'].textureRepeatMeters = 0;
+    }, /textureRepeatMeters/],
+    [map => {
+      delete map.wallProfiles['wood-picket-fence'].destruction;
+    }, /destruction must be a plain record/],
+    [map => {
+      map.wallProfiles['wood-picket-fence']
+        .destruction.heavyVehicleMassTonnes = -1;
+    }, /heavyVehicleMassTonnes must not be negative/],
+    [map => {
+      map.wallProfiles['wood-picket-fence'].destruction.maxHealth = 0;
+    }, /maxHealth must be positive/],
+    [map => {
+      map.wallProfiles['wood-picket-fence'].occludesSight = 'no';
+    }, /occludesSight/],
+    [map => {
+      map.wallProfiles['wood-picket-fence'].blocks = ['aircraft'];
+    }, /must be vehicle or infantry/],
+    [map => { map.wallRuns[0].profileId = 'missing'; }, /unknown profile/],
     [map => { map.wallRuns[0].end = [...map.wallRuns[0].start]; }, /distinct endpoints/],
     [map => { map.structures[0].descriptorId = ''; }, /descriptorId requires/],
     [map => { map.wallEnclosures = {}; }, /wallEnclosures must be an array/],

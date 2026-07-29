@@ -881,6 +881,10 @@ export class BuildingInteractionSystem {
         syncAgent(agent);
         return;
       }
+      // Entering cover breaks any exposed outside firing solution. The
+      // occupant may reacquire and attack through its assigned fire port.
+      agent.targetUnitId = null;
+      agent.targetSoldierId = null;
       this.#setOccupiedPose(agent);
       return;
     }

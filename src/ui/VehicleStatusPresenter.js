@@ -204,6 +204,9 @@ export function buildVehicleStatusView(unit) {
   return {
     burning: Boolean(burning),
     destroyed: Boolean(destroyed),
+    crewPosture: unit.vehicleCrewPosture === 'UNBUTTONED'
+      ? 'UNBUTTONED'
+      : 'BUTTONED',
     components,
     mounts,
     damagedComponents: components.filter(component => component.status !== 'OK')

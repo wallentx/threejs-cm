@@ -689,7 +689,7 @@ test('exact rotated Stonne placement avoids authored obstacles and initial units
         expandedSegmentBounds(
           run.start,
           run.end,
-          TERRAIN_SCALE.stoneWall.thickness
+          STONNE_1940_MAP.wallProfiles[run.profileId].thickness
         ),
         farmhouse
       )

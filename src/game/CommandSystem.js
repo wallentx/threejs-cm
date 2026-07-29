@@ -11,7 +11,9 @@ const TARGET_COMMAND_MODES = new Set([
   'TARGET_LIGHT',
   'TARGET_AP',
   'TARGET_HE',
-  'TARGET_MG'
+  'TARGET_MG',
+  'MORTAR_HE',
+  'MORTAR_SMOKE'
 ]);
 
 export function isTargetCommandMode(mode) {
@@ -23,6 +25,10 @@ function canUnitUseCommandMode(unit, mode) {
   if (mode === 'TARGET_HE') return Boolean(unit?.vehicleSpec?.mainGun?.he);
   if (mode === 'TARGET_MG') {
     return (unit?.vehicleSpec?.weaponMounts?.length ?? 0) > 0;
+  }
+  if (mode === 'MORTAR_HE') return Boolean(unit?.mortarTeamConfig);
+  if (mode === 'MORTAR_SMOKE') {
+    return Boolean(unit?.mortarTeamConfig?.smokeWeaponId);
   }
   return true;
 }
@@ -48,6 +54,7 @@ export class CommandSystem {
     this.activeUnit = null;
     this.activeUnits = [];
     this.activeMode = null;
+    this.areaTargetPreview = null;
 
     // Visual overlay objects
     this.pathLinesGroup = new THREE.Group();
@@ -72,6 +79,8 @@ export class CommandSystem {
       TARGET_AP: 0xff3b30,
       TARGET_HE: 0xff7b00,
       TARGET_MG: 0xf4d35e,
+      MORTAR_HE: 0xff7b00,
+      MORTAR_SMOKE: 0xd7ddd2,
       FACE: 0xd4af37      // Gold
     };
   }
@@ -91,19 +100,38 @@ export class CommandSystem {
 
   setCommandMode(mode) {
     this.activeMode = this.activeMode === mode ? null : mode;
+    this.areaTargetPreview = null;
+    this.renderOverlays();
     return this.activeMode;
   }
 
   cancelActiveMode() {
     const cancelled = this.activeMode;
     this.activeMode = null;
+    this.areaTargetPreview = null;
+    this.renderOverlays();
     return cancelled;
+  }
+
+  setAreaTargetPreview(center, radiusMeters, mode = this.activeMode) {
+    if (!['MORTAR_HE', 'MORTAR_SMOKE'].includes(mode)) return false;
+    if (!center?.isVector3 || !Number.isFinite(radiusMeters) || radiusMeters <= 0) {
+      return false;
+    }
+    this.areaTargetPreview = {
+      center: center.clone(),
+      radiusMeters,
+      mode
+    };
+    this.renderOverlays();
+    return true;
   }
 
   clearActiveUnit() {
     this.activeUnits = [];
     this.activeUnit = null;
     this.activeMode = null;
+    this.areaTargetPreview = null;
     this.renderOverlays();
   }
 
@@ -302,11 +330,13 @@ export class CommandSystem {
         this.activeUnit,
         pointVec3,
         targetUnit,
-        this.activeMode
+        this.activeMode,
+        context
       );
       if (result?.handled) {
         if (result.accepted) {
           this.activeMode = null;
+          this.areaTargetPreview = null;
           this.renderOverlays();
         }
         return result.accepted;
@@ -386,6 +416,39 @@ export class CommandSystem {
         const line = new THREE.Line(geo, mat);
         this.targetLinesGroup.add(line);
       }
+      if (unit.mortarTargetOrder) {
+        this.addAreaTargetCircle({
+          center: new THREE.Vector3().fromArray(
+            unit.mortarTargetOrder.center
+          ),
+          radiusMeters: unit.mortarTargetOrder.radiusMeters,
+          mode: unit.targetMode
+        });
+      }
     }
+    if (this.areaTargetPreview) {
+      this.addAreaTargetCircle(this.areaTargetPreview);
+    }
+  }
+
+  addAreaTargetCircle({ center, radiusMeters, mode }) {
+    const points = [];
+    const segments = 48;
+    for (let index = 0; index <= segments; index++) {
+      const angle = index / segments * Math.PI * 2;
+      const x = center.x + Math.cos(angle) * radiusMeters;
+      const z = center.z + Math.sin(angle) * radiusMeters;
+      const y = this.terrain?.getHeightAt?.(x, z) ?? center.y;
+      points.push(new THREE.Vector3(x, y + 0.08, z));
+    }
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    const material = new THREE.LineBasicMaterial({
+      color: this.colors[mode] ?? this.colors.MORTAR_HE,
+      transparent: true,
+      opacity: 0.82
+    });
+    const circle = new THREE.Line(geometry, material);
+    circle.name = 'MortarTargetArea';
+    this.targetLinesGroup.add(circle);
   }
 }

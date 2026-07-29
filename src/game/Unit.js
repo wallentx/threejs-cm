@@ -42,8 +42,16 @@ import {
   InfantryBuddyBounds
 } from '../simulation/infantry/InfantryBuddyBounds.js';
 import {
+  advanceInfantryUnitSuppression,
+  classifyInfantryUnitMorale
+} from '../simulation/infantry/InfantrySuppression.js';
+import {
+  canInfantryVaultFence,
   getInfantryMovementOrderProfile
 } from '../simulation/infantry/InfantryMovementOrders.js';
+import {
+  estimateVehicleCrushMassTonnes
+} from '../simulation/terrain/DestructibleLinearObstacleSystem.js';
 import {
   selectVehicleTargetWeapons
 } from '../simulation/combat/VehicleWeaponSelection.js';
@@ -54,6 +62,10 @@ import {
   VEHICLE_PHYSICS_DATA_QUALITY,
   VEHICLE_PHYSICS_MODEL
 } from '../simulation/vehicles/VehiclePhysics.js';
+import {
+  getUnbuttonedCommander,
+  getUnbuttonedCommanderWorldPosition
+} from '../simulation/vehicles/VehicleCrewExposure.js';
 import {
   advanceMortarTeamState,
   canFireMortar,
@@ -76,6 +88,14 @@ import {
   requestMortarFireMission as requestMortarFireMissionState,
   restoreMortarFireMissionState
 } from '../simulation/indirect/MortarFireMission.js';
+import {
+  advanceMortarTargetOrder,
+  captureMortarTargetOrder,
+  createMortarTargetOrder,
+  recordMortarTargetOrderShot,
+  restoreMortarTargetOrder,
+  sampleMortarTargetPoint
+} from '../simulation/indirect/MortarTargetOrder.js';
 
 function wrapAngle(angle) {
   return Math.atan2(Math.sin(angle), Math.cos(angle));
@@ -85,6 +105,9 @@ const MAX_VEHICLE_MOUNT_ROUNDS_PER_STEP = 64;
 const VEHICLE_MOUNT_CADENCE_EPSILON = 1e-9;
 const VEHICLE_MAIN_GUN_CATCHUP_HZ = 60;
 const MAX_VEHICLE_MAIN_GUN_CATCHUP_STEPS = 4096;
+const COMMANDER_PRESENTATION_LOCAL = new THREE.Vector3();
+const COMMANDER_PRESENTATION_OFFSET = new THREE.Vector3();
+const COMMANDER_PRESENTATION_UP = new THREE.Vector3(0, 1, 0);
 const UNAVAILABLE_INFANTRY_STATUSES = new Set([
   'KIA',
   'INCAPACITATED',
@@ -111,6 +134,7 @@ function cloneRoster(roster) {
     worldPosition: soldier.worldPosition ? [...soldier.worldPosition] : undefined,
     velocity: soldier.velocity ? [...soldier.velocity] : undefined,
     slotOffset: soldier.slotOffset ? [...soldier.slotOffset] : undefined,
+    equipment: soldier.equipment ? [...soldier.equipment] : undefined,
     buildingLocation: soldier.buildingLocation
       ? JSON.parse(JSON.stringify(soldier.buildingLocation))
       : soldier.buildingLocation
@@ -252,6 +276,7 @@ export class Unit {
     this.mortarFireMissionState = this.mortarTeamConfig
       ? createMortarFireMissionState(this.mortarFireMissionConfig)
       : null;
+    this.mortarTargetOrder = null;
     this.mortarOperatorIds = new Set(
       this.mortarTeamConfig
         ? [
@@ -281,6 +306,11 @@ export class Unit {
     this.isHiding = false;
     this.isDeployed = false;
     this.stance = 'STANDING';
+    this.vehicleCrewPosture = this.vehicleSpec
+      ? (config.vehicleCrewPosture === 'UNBUTTONED'
+          ? 'UNBUTTONED'
+          : 'BUTTONED')
+      : null;
 
     // Combat Target
     this.targetUnit = null;
@@ -402,6 +432,25 @@ export class Unit {
     }
 
     this.syncTransformPresentation();
+    if (this.vehicleSpec) {
+      const commanderPresentation =
+        this.vehicleSpec.observationEquipment?.unbuttonedCommander;
+      const commanderFactory =
+        this.visualFactories.vehicleCrewFigures?.[this.faction];
+      if (commanderPresentation && typeof commanderFactory === 'function') {
+        const figure = commanderFactory({
+          vehicleId: this.vehicleId,
+          commanderRole: commanderPresentation.role,
+          headgearId: commanderPresentation.headgearId ?? null
+        });
+        if (figure?.isObject3D) {
+          figure.visible = false;
+          this.mesh.add(figure);
+          this.mesh.userData.commanderFigure = figure;
+        }
+      }
+      this.syncVehicleCommanderPresentation();
+    }
     this.mesh.userData.unitId = this.id;
     this.mesh.userData.unitRoot = true;
   }
@@ -502,6 +551,18 @@ export class Unit {
 
   applySuppression(amount) {
     this.suppression = Math.min(100, this.suppression + amount);
+    if (this.type === 'infantry_squad') {
+      this.morale = classifyInfantryUnitMorale(
+        this.suppression,
+        this.morale
+      );
+      if (this.morale === 'Pinned' || this.morale === 'Broken') {
+        this.stance = 'PRONE';
+      } else if (this.morale === 'Shaken') {
+        this.stance = 'KNEELING';
+      }
+      return;
+    }
     if (this.suppression > 75) {
       this.morale = 'Broken';
       this.stance = 'PRONE';
@@ -525,7 +586,7 @@ export class Unit {
     if (this.structureSpec) return !this.structureState.destroyed && !this.structureState.firingDisabled;
     if (this.vehicleSpec) {
       return this.roster.some(crewman => crewman.health > 0 && crewman.status !== 'KIA')
-        && this.vehicleDamage.hull !== 'DESTROYED';
+        && !this.vehicleDamageState.destroyed;
     }
     return true;
   }
@@ -693,13 +754,101 @@ export class Unit {
     return muzzle.getWorldPosition(new THREE.Vector3());
   }
 
+  getMortarDefaultDispersionRadius(targetPoint) {
+    if (!this.mortarTeamConfig) return null;
+    const weapon = this.weaponLookup(this.mortarTeamConfig.weaponId);
+    if (!weapon) return null;
+    const point = targetPoint?.isVector3
+      ? targetPoint
+      : new THREE.Vector3().fromArray(targetPoint);
+    const horizontalRangeMeters = Math.hypot(
+      point.x - this.position.x,
+      point.z - this.position.z
+    );
+    const dispersionRadians = weapon.dispersionMOA * Math.PI / (180 * 60);
+    return Math.max(0.1, Math.tan(dispersionRadians) * horizontalRangeMeters);
+  }
+
+  setMortarTargetOrder(targetPoint, mode, radiusMeters = null) {
+    if (!this.mortarTeamConfig || mode !== 'MORTAR_HE') return false;
+    const center = targetPoint?.isVector3
+      ? targetPoint.toArray()
+      : targetPoint;
+    if (
+      !Array.isArray(center)
+      || center.length < 3
+      || !center.slice(0, 3).every(Number.isFinite)
+    ) {
+      return false;
+    }
+    const horizontalRangeMeters = Math.hypot(
+      center[0] - this.position.x,
+      center[2] - this.position.z
+    );
+    if (
+      horizontalRangeMeters < this.mortarTeamConfig.minimumRangeMeters
+      || horizontalRangeMeters > this.mortarTeamConfig.maximumRangeMeters
+    ) {
+      return false;
+    }
+    const defaultDispersionRadiusMeters =
+      this.getMortarDefaultDispersionRadius(center);
+    const rangeEnvelopeRadiusMeters = Math.max(
+      defaultDispersionRadiusMeters,
+      Math.min(
+        horizontalRangeMeters - this.mortarTeamConfig.minimumRangeMeters,
+        this.mortarTeamConfig.maximumRangeMeters - horizontalRangeMeters
+      )
+    );
+    this.mortarTargetOrder = createMortarTargetOrder({
+      ammunitionType: 'HE',
+      center,
+      radiusMeters: THREE.MathUtils.clamp(
+        Number.isFinite(radiusMeters)
+          ? radiusMeters
+          : defaultDispersionRadiusMeters,
+        defaultDispersionRadiusMeters,
+        rangeEnvelopeRadiusMeters
+      ),
+      defaultDispersionRadiusMeters,
+      firstRoundDelaySeconds: 1
+    });
+    this.targetUnit = null;
+    this.targetPos = new THREE.Vector3().fromArray(
+      this.mortarTargetOrder.center
+    );
+    this.targetMode = mode;
+    return true;
+  }
+
+  clearMortarTargetOrder() {
+    this.mortarTargetOrder = null;
+  }
+
   updateMortarCombat(context = {}) {
     const pendingMissionShot = this.getPendingMortarFireMissionShot();
     const hasMission = Boolean(this.mortarFireMissionState?.mission);
     const targetSource = pendingMissionShot
       ? new THREE.Vector3().fromArray(pendingMissionShot.aimPoint)
-      : (hasMission ? null : this.targetPos);
+      : (
+          hasMission
+            ? null
+            : (
+                this.targetMode === 'MORTAR_HE' && this.mortarTargetOrder
+                  ? new THREE.Vector3().fromArray(
+                      this.mortarTargetOrder.center
+                    )
+                  : null
+              )
+        );
     if (!this.mortarTeamState || !this.mortarTeamConfig || !targetSource) {
+      return false;
+    }
+    if (this.isHiding) return false;
+    if (
+      !pendingMissionShot
+      && this.mortarTargetOrder.firstRoundDelayRemainingSeconds > 0
+    ) {
       return false;
     }
     if (
@@ -729,14 +878,20 @@ export class Unit {
     }
     const weapon = this.weaponLookup(this.mortarTeamConfig.weaponId);
     if (!weapon) return false;
-    const dispersionRadians =
-      weapon.dispersionMOA * Math.PI / (180 * 60);
-    const dispersionRadius =
-      Math.tan(dispersionRadians) * horizontalRangeMeters;
-    const dispersionAngle = random() * Math.PI * 2;
-    const dispersionDistance = Math.sqrt(random()) * dispersionRadius;
-    target.x += Math.cos(dispersionAngle) * dispersionDistance;
-    target.z += Math.sin(dispersionAngle) * dispersionDistance;
+    if (!pendingMissionShot) {
+      target.fromArray(
+        sampleMortarTargetPoint(this.mortarTargetOrder, random)
+      );
+    } else {
+      const dispersionRadians =
+        weapon.dispersionMOA * Math.PI / (180 * 60);
+      const dispersionRadius =
+        Math.tan(dispersionRadians) * horizontalRangeMeters;
+      const dispersionAngle = random() * Math.PI * 2;
+      const dispersionDistance = Math.sqrt(random()) * dispersionRadius;
+      target.x += Math.cos(dispersionAngle) * dispersionDistance;
+      target.z += Math.sin(dispersionAngle) * dispersionDistance;
+    }
     target.y = context.terrain?.getHeightAt?.(target.x, target.z)
       ?? target.y;
 
@@ -810,6 +965,8 @@ export class Unit {
           + `without a valid mission acknowledgement: ${acknowledgement.reason}`
         );
       }
+    } else {
+      recordMortarTargetOrderShot(this.mortarTargetOrder);
     }
     return true;
   }
@@ -835,6 +992,123 @@ export class Unit {
   getLivingCrew() {
     if (!this.vehicleSpec) return [];
     return this.roster.filter(crewman => crewman.health > 0 && crewman.status !== 'KIA');
+  }
+
+  getUnbuttonedCommander() {
+    return getUnbuttonedCommander(this);
+  }
+
+  canUnbuttonCommander() {
+    return Boolean(
+      this.vehicleSpec?.observationEquipment?.unbuttonedCommander
+      && this.getLivingCrew().some(crewman =>
+        this.getEffectiveCrewRole(crewman)
+          === this.vehicleSpec.observationEquipment.unbuttonedCommander.role)
+      && !this.vehicleDamageState.destroyed
+      && !this.vehicleDamageState.burning
+    );
+  }
+
+  toggleVehicleCommanderPosture() {
+    if (!this.vehicleSpec) return null;
+    if (this.vehicleCrewPosture === 'UNBUTTONED') {
+      this.vehicleCrewPosture = 'BUTTONED';
+    } else {
+      if (!this.canUnbuttonCommander()) return null;
+      this.vehicleCrewPosture = 'UNBUTTONED';
+    }
+    this.syncVehicleCommanderPresentation();
+    return this.vehicleCrewPosture;
+  }
+
+  getObserverWorldPosition(person) {
+    if (!this.vehicleSpec) return null;
+    const exposed = this.getUnbuttonedCommander();
+    if (exposed && String(exposed.id) === String(person?.id)) {
+      const position = getUnbuttonedCommanderWorldPosition(this);
+      return position
+        ? new THREE.Vector3(position.x, position.y, position.z)
+        : null;
+    }
+    return this.position.clone().add(new THREE.Vector3(
+      0,
+      this.vehicleSpec.dimensionsMeters.height * 0.76,
+      0
+    ));
+  }
+
+  getExposedCommanderTargetPosition() {
+    const position = getUnbuttonedCommanderWorldPosition(this);
+    return position
+      ? new THREE.Vector3(position.x, position.y, position.z)
+      : null;
+  }
+
+  applyExposedVehicleCrewDamage(crewmanId, damage) {
+    const commander = this.getUnbuttonedCommander();
+    if (!commander || String(commander.id) !== String(crewmanId)) return null;
+    commander.health = Math.max(0, commander.health - Math.max(0, damage));
+    commander.status = commander.health <= 0 ? 'KIA' : 'WOUNDED';
+    recordVehicleEvent(this.vehicleDamageState, 'crew_hit', {
+      crewmanId: commander.id,
+      role: commander.role,
+      status: commander.status,
+      health: commander.health,
+      cause: 'unbuttoned_commander_hit',
+      dataQuality:
+        this.vehicleSpec.observationEquipment.unbuttonedCommander.dataQuality
+    });
+    this.vehicleCrewPosture = 'BUTTONED';
+    if (this.getLivingCrew().length === 0) {
+      this.vehicleDamageState.destroyed = true;
+      setVehicleComponentHealth(this.vehicleComponents, 'hull', 0);
+      recordVehicleEvent(this.vehicleDamageState, 'vehicle_destroyed', {
+        cause: 'crew_loss'
+      });
+    }
+    this.syncVehicleCommanderPresentation();
+    this.syncLegacyVehicleDamage();
+    return commander;
+  }
+
+  syncVehicleCommanderPresentation() {
+    if (!this.mesh || !this.vehicleSpec) return;
+    const commander = this.getUnbuttonedCommander();
+    const worldPosition = getUnbuttonedCommanderWorldPosition(this);
+    for (const hatch of this.mesh.userData.commanderHatches ?? []) {
+      const axis = hatch.userData.rotationAxis;
+      if (!['x', 'y', 'z'].includes(axis)) continue;
+      hatch.rotation[axis] = commander
+        ? hatch.userData.openAngleRadians
+        : hatch.userData.closedAngleRadians;
+    }
+    const figure = this.mesh.userData.commanderFigure;
+    if (!figure) return;
+    figure.visible = Boolean(commander && worldPosition);
+    if (!figure.visible) return;
+    this.mesh.updateWorldMatrix(true, false);
+    const local = this.mesh.worldToLocal(COMMANDER_PRESENTATION_LOCAL.set(
+      worldPosition.x,
+      worldPosition.y,
+      worldPosition.z
+    ));
+    const commanderPresentation =
+      this.vehicleSpec.observationEquipment.unbuttonedCommander;
+    const presentationOffset = COMMANDER_PRESENTATION_OFFSET.fromArray(
+      commanderPresentation.presentationOffset ?? [0, 0, 0]
+    );
+    if (commanderPresentation.followsTurret) {
+      presentationOffset.applyAxisAngle(
+        COMMANDER_PRESENTATION_UP,
+        this.vehicleWeapon?.turretYaw ?? 0
+      );
+    }
+    local.add(presentationOffset);
+    figure.position.copy(local);
+    figure.rotation.y =
+      commanderPresentation.followsTurret
+        ? (this.vehicleWeapon?.turretYaw ?? 0)
+        : 0;
   }
 
   isOriginalCrewRoleAlive(roles) {
@@ -1164,6 +1438,12 @@ export class Unit {
 
   updateVehicleSystems(delta) {
     if (!this.vehicleSpec) return;
+    if (
+      this.vehicleCrewPosture === 'UNBUTTONED'
+      && !this.canUnbuttonCommander()
+    ) {
+      this.vehicleCrewPosture = 'BUTTONED';
+    }
     const crewTaskStep = advanceVehicleCrewTaskStep(
       this.vehicleCrewTasks,
       this.vehicleSpec.crewTaskPolicy,
@@ -1172,6 +1452,12 @@ export class Unit {
     );
     this.vehicleCrewTasks = crewTaskStep.state;
     this.vehicleMainGunnerCombatSeconds = crewTaskStep.mainGunnerAvailableSeconds;
+    if (
+      this.vehicleCrewPosture === 'UNBUTTONED'
+      && !this.canUnbuttonCommander()
+    ) {
+      this.vehicleCrewPosture = 'BUTTONED';
+    }
     if (this.vehicleDamageState.destroyed) {
       if (this.vehicleWeapon) {
         this.vehicleWeapon.isFiring = false;
@@ -1185,6 +1471,7 @@ export class Unit {
       }
       this.syncLegacyVehicleDamage();
       this.refreshAmmoSummary();
+      this.syncVehicleCommanderPresentation();
       return;
     }
     if (this.vehicleWeapon) {
@@ -1226,6 +1513,7 @@ export class Unit {
     }
     this.syncLegacyVehicleDamage();
     this.refreshAmmoSummary();
+    this.syncVehicleCommanderPresentation();
   }
 
   canVehicleFire() {
@@ -1836,10 +2124,12 @@ export class Unit {
       stance: this.stance,
       isHiding: this.isHiding,
       isDeployed: this.isDeployed,
+      vehicleCrewPosture: this.vehicleCrewPosture,
       mortarTeam: captureMortarTeamState(this.mortarTeamState),
       mortarFireMission: captureMortarFireMissionState(
         this.mortarFireMissionState
       ),
+      mortarTargetOrder: captureMortarTargetOrder(this.mortarTargetOrder),
       currentWaypointIndex: this.currentWaypointIndex,
       waypoints: this.waypoints.map(waypoint => ({
         position: waypoint.position.toArray(),
@@ -1902,6 +2192,11 @@ export class Unit {
     this.stance = state.stance;
     this.isHiding = state.isHiding;
     this.isDeployed = state.isDeployed;
+    this.vehicleCrewPosture = this.vehicleSpec
+      ? (state.vehicleCrewPosture === 'UNBUTTONED'
+          ? 'UNBUTTONED'
+          : 'BUTTONED')
+      : null;
     if (this.mortarTeamConfig) {
       this.mortarTeamState = state.mortarTeam
         ? restoreMortarTeamState(this.mortarTeamConfig, state.mortarTeam)
@@ -1912,6 +2207,9 @@ export class Unit {
             state.mortarFireMission
           )
         : createMortarFireMissionState(this.mortarFireMissionConfig);
+      this.mortarTargetOrder = restoreMortarTargetOrder(
+        state.mortarTargetOrder
+      );
       this.syncMortarDeploymentCompatibility();
     }
     this.currentWaypointIndex = state.currentWaypointIndex;
@@ -1954,6 +2252,7 @@ export class Unit {
     this.syncStructureCollision();
     this.refreshAmmoSummary();
     this.syncMortarVisuals();
+    this.syncVehicleCommanderPresentation();
   }
 
   updateStanceVisuals() {
@@ -1995,14 +2294,58 @@ export class Unit {
   update(delta, terrain, options = {}) {
     const {
       haltMovement = false,
-      hasDirectPrecisionObservation = false
+      hasDirectPrecisionObservation = false,
+      dynamicVehicleColliders = []
     } = options;
     if (this.mortarTeamState) {
       advanceMortarTeamState(this.mortarTeamState, Math.max(0, delta));
+      if (
+        this.mortarTargetOrder
+        && this.mortarTeamState.deploymentState === 'READY'
+      ) {
+        advanceMortarTargetOrder(
+          this.mortarTargetOrder,
+          Math.max(0, delta)
+        );
+      }
       this.syncMortarDeploymentCompatibility();
       this.syncMortarVisuals();
     }
-    if (this.suppression > 0) {
+    if (
+      this.type === 'infantry_squad'
+      && (this.suppression > 0 || this.morale !== 'OK')
+    ) {
+      let recentIncomingFireSeconds = 0;
+      for (const agent of this.soldierAI?.agents ?? []) {
+        if (!agent.isAlive) continue;
+        recentIncomingFireSeconds = Math.max(
+          recentIncomingFireSeconds,
+          agent.record.incomingFireTimer ?? 0
+        );
+      }
+      const previousMorale = this.morale;
+      const advancedSuppression = advanceInfantryUnitSuppression(
+        {
+          suppression: this.suppression,
+          morale: this.morale
+        },
+        Math.max(0, delta),
+        recentIncomingFireSeconds
+      );
+      this.suppression = advancedSuppression.suppression;
+      this.morale = advancedSuppression.morale;
+      if (this.morale === 'Pinned' || this.morale === 'Broken') {
+        this.stance = 'PRONE';
+      } else if (this.morale === 'Shaken') {
+        this.stance = 'KNEELING';
+      } else if (
+        previousMorale !== 'OK'
+        && !this.isHiding
+        && !this.isDeployed
+      ) {
+        this.stance = 'STANDING';
+      }
+    } else if (this.suppression > 0) {
       this.suppression = Math.max(0, this.suppression - delta * 4.0);
       if (this.suppression < 15 && this.morale === 'Pinned') {
         this.morale = 'OK';
@@ -2093,26 +2436,61 @@ export class Unit {
             z: dir.z * intendedDistance
           };
           const desiredRotation = Math.atan2(dir.x, dir.z);
-          const resolved = this.collisionWorld
-            ? this.vehicleSpec
-              ? this.collisionWorld.resolveFootprintMotion(this.position, displacement, {
-                moverType: 'vehicle',
-                radius: this.collisionRadius,
-                offsets: this.collisionOffsets,
-                rotation: desiredRotation
-              })
-              : this.collisionWorld.resolveCircleMotion(
+          let resolved;
+          if (this.collisionWorld && this.vehicleSpec) {
+            const collisionOptions = {
+              moverType: 'vehicle',
+              radius: this.collisionRadius,
+              offsets: this.collisionOffsets,
+              rotation: desiredRotation,
+              transientColliders: dynamicVehicleColliders
+            };
+            const impactSpeed = intendedDistance / Math.max(delta, 1e-9);
+            const impactMass = estimateVehicleCrushMassTonnes(this.vehicleSpec);
+            // Long footprints can cross several independently owned panels in
+            // one fixed step. Destroy qualifying panels in stable collider
+            // order, then resolve the original displacement again.
+            for (let pass = 0; pass < 8; pass++) {
+              resolved = this.collisionWorld.resolveFootprintMotion(
                 this.position,
                 displacement,
-                this.collisionRadius,
-                { moverType: 'infantry' }
-              )
-            : {
-                x: this.position.x + displacement.x,
-                z: this.position.z + displacement.z,
-                movedX: displacement.x,
-                movedZ: displacement.z
-              };
+                collisionOptions
+              );
+              const colliderIds = [...new Set(
+                resolved.contacts.map(contact => contact.colliderId)
+              )].sort((left, right) => left.localeCompare(right));
+              let removedPanel = false;
+              for (const colliderId of colliderIds) {
+                const result = terrain.applyVehicleImpactToLinearObstacle?.({
+                  colliderId,
+                  massTonnes: impactMass,
+                  speedMetersPerSecond: impactSpeed,
+                  vehicleId: this.id
+                });
+                if (result?.destroyed) removedPanel = true;
+              }
+              if (!removedPanel) break;
+            }
+          } else if (this.collisionWorld) {
+            resolved = this.collisionWorld.resolveCircleMotion(
+              this.position,
+              displacement,
+              this.collisionRadius,
+              {
+                moverType: 'infantry',
+                traverseColliderTypes: canInfantryVaultFence(activeOrderType)
+                  ? ['fence']
+                  : []
+              }
+            );
+          } else {
+            resolved = {
+              x: this.position.x + displacement.x,
+              z: this.position.z + displacement.z,
+              movedX: displacement.x,
+              movedZ: displacement.z
+            };
+          }
           this.position.x = resolved.x;
           this.position.z = resolved.z;
           const anchorDisplaced = Math.hypot(resolved.movedX, resolved.movedZ) > 1e-5;
@@ -2133,6 +2511,7 @@ export class Unit {
     }
 
     this.updateVehiclePhysics(delta, terrain);
+    this.syncVehicleCommanderPresentation();
 
     this.soldierAI?.update(delta, terrain, {
       anchorMoving,

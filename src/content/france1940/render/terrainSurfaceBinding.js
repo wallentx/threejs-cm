@@ -6,6 +6,7 @@ const MATERIAL_ROLES = Object.freeze([
   'water',
   'bridgeRoad',
   'masonry',
+  'fenceCard',
   'foliageTrunk',
   'foliageLeaves',
   'foliageLeavesDark'

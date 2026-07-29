@@ -3,6 +3,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const CAMERA_PAN_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD']);
 const UP = new THREE.Vector3(0, 1, 0);
+export const CAMERA_UNIT_FOCUS_DISTANCE = 40;
+export const CAMERA_HOME_DISTANCE = 70;
 
 function isEditableTarget(target) {
   return target?.tagName === 'INPUT'
@@ -58,6 +60,7 @@ export class CameraManager {
     this.controls.target.set(0, 0, 10);
     this.camera.position.set(0, 45, 95);
     this.controls.update();
+    this.homeTarget = this.controls.target.clone();
 
     this.followUnit = null;
     this.pressedPanKeys = new Set();
@@ -90,6 +93,36 @@ export class CameraManager {
     this.controls.target.copy(posVec3);
     this.camera.position.copy(posVec3).add(offset);
     this.controls.update();
+  }
+
+  frameTarget(posVec3, distance) {
+    const direction = new THREE.Vector3()
+      .subVectors(this.camera.position, this.controls.target);
+    if (direction.lengthSq() < 1e-8) direction.set(0, 0.55, 1);
+    direction.normalize();
+    this.controls.target.copy(posVec3);
+    this.camera.position
+      .copy(posVec3)
+      .addScaledVector(direction, THREE.MathUtils.clamp(
+        distance,
+        this.controls.minDistance,
+        this.controls.maxDistance
+      ));
+    this.followUnit = null;
+    this.controls.update();
+  }
+
+  setHomeTarget(posVec3, { frame = false } = {}) {
+    this.homeTarget.copy(posVec3);
+    if (frame) this.resetHome();
+  }
+
+  focusTarget(posVec3) {
+    this.frameTarget(posVec3, CAMERA_UNIT_FOCUS_DISTANCE);
+  }
+
+  resetHome() {
+    this.frameTarget(this.homeTarget, CAMERA_HOME_DISTANCE);
   }
 
   setHeightPreset(level) {

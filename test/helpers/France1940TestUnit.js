@@ -28,6 +28,7 @@ function createTestRoster(faction, squadSize) {
       role: member.role,
       weaponId: member.weaponId,
       weapon: weapon.name,
+      equipment: [...(member.equipment ?? [])],
       status: 'OK',
       health: 100
     };

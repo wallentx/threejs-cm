@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import {
+  PANZER_III_D_COMMANDER_STATION
+} from '../../content/france1940/vehicleData/CommanderStations.js';
 import { lateralX } from '../LocalFrame.js';
 import { setVehicleMaterialSlot } from './VehicleMaterialLibrary.js';
 import {
@@ -287,6 +290,57 @@ function addMesh(parent, geometry, material, name, lodBand, {
   return object;
 }
 
+function createCommanderHatches(parent, material) {
+  const hatchData = PANZER_III_D_COMMANDER_STATION.hatch;
+  const [centerX, centerY, centerZ] = hatchData.centerTurretLocal;
+  const pivots = [];
+  for (const side of ['left', 'right']) {
+    const sideSign = side === 'left' ? 1 : -1;
+    const pivot = new THREE.Group();
+    pivot.name = `PanzerIIID_${side === 'left' ? 'Left' : 'Right'}CupolaHatchPivot`;
+    pivot.position.set(
+      centerX + sideSign * hatchData.radiusMeters,
+      centerY,
+      centerZ
+    );
+    pivot.userData = {
+      articulatedPart: 'commander-hatch',
+      hatchId: hatchData.id,
+      hatchSide: side,
+      rotationAxis: hatchData.hingeAxis,
+      closedAngleRadians: 0,
+      openAngleRadians: hatchData.openAngleRadiansBySide[side],
+      dataQuality: hatchData.dataQuality,
+      referenceUrl: hatchData.referenceUrl
+    };
+    parent.add(pivot);
+
+    const thetaStart = side === 'left' ? 0 : Math.PI;
+    const geometry = new THREE.CylinderGeometry(
+      hatchData.radiusMeters,
+      hatchData.radiusMeters,
+      hatchData.thicknessMeters,
+      16,
+      1,
+      false,
+      thetaStart,
+      Math.PI
+    );
+    geometry.translate(-sideSign * hatchData.radiusMeters, 0, 0);
+    const leaf = addMesh(
+      pivot,
+      geometry,
+      material,
+      `PanzerIIID_${side === 'left' ? 'Left' : 'Right'}CupolaHatchLeaf`,
+      'core'
+    );
+    leaf.userData.articulatedPart = 'commander-hatch-leaf';
+    leaf.userData.hatchSide = side;
+    pivots.push(pivot);
+  }
+  return pivots;
+}
+
 function repositionRunningGear(runningGear) {
   const { roadWheels, sprockets, idlers } = runningGear.userData.trackParts;
   for (let side = 0; side < 2; side++) {
@@ -564,23 +618,26 @@ export function createPanzerIIIMesh() {
   };
   turretGroup.add(coaxMuzzle);
 
+  const commanderStation = PANZER_III_D_COMMANDER_STATION;
+  const cupolaData = commanderStation.cupola;
   const cupola = addMesh(
     turretGroup,
-    new THREE.CylinderGeometry(0.31, 0.35, 0.22, 12),
+    new THREE.CylinderGeometry(
+      cupolaData.radiusTopMeters,
+      cupolaData.radiusBottomMeters,
+      cupolaData.heightMeters,
+      12,
+      1,
+      true
+    ),
     turretMat,
     'PanzerIIID_CommanderCupola',
-    'medium',
-    { position: [0.06, 0.79, -0.22] }
+    'core',
+    { position: cupolaData.centerTurretLocal }
   );
   cupola.userData.envelopeDatum = 'authoritative-height-2.50m';
-  addMesh(
-    turretGroup,
-    new THREE.CylinderGeometry(0.30, 0.30, 0.045, 12),
-    turretMat,
-    'PanzerIIID_CupolaHatch',
-    'high',
-    { position: [0.06, 0.8975, -0.22] }
-  );
+  cupola.userData.dataQuality = cupolaData.dataQuality;
+  const commanderHatches = createCommanderHatches(turretGroup, turretMat);
 
   const driverVisor = addMesh(
     tankGroup,
@@ -698,6 +755,21 @@ export function createPanzerIIIMesh() {
 
   const proxyTurret = cloneProxyPart(turret, 'PanzerIIID_ProxyTurret', turretGroup);
   proxyTurret.position.set(0, 0, 0);
+  const proxyCupola = cloneProxyPart(
+    cupola,
+    'PanzerIIID_ProxyCommanderCupola',
+    turretGroup
+  );
+  for (const pivot of commanderHatches) {
+    const leaf = pivot.children.find(child =>
+      child.userData.articulatedPart === 'commander-hatch-leaf'
+    );
+    cloneProxyPart(
+      leaf,
+      `PanzerIIID_Proxy${pivot.userData.hatchSide === 'left' ? 'Left' : 'Right'}CupolaHatchLeaf`,
+      pivot
+    );
+  }
   const proxyBarrel = new THREE.Mesh(barrel.geometry.clone(), barrel.material);
   proxyBarrel.name = 'PanzerIIID_ProxyBarrel';
   proxyBarrel.visible = false;
@@ -715,7 +787,10 @@ export function createPanzerIIIMesh() {
   };
   tankGroup.userData.authoredHull = lowerHull;
   tankGroup.userData.proxyTurret = proxyTurret;
+  tankGroup.userData.proxyCupola = proxyCupola;
   tankGroup.userData.proxyBarrel = proxyBarrel;
+  tankGroup.userData.commanderStation = commanderStation;
+  tankGroup.userData.commanderHatches = commanderHatches;
   tankGroup.userData.modelMetadata = {
     designation: 'Panzerkampfwagen III Ausf. D',
     dimensionsMeters: {

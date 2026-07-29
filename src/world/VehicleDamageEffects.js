@@ -3,6 +3,9 @@ import {
   validateBattlefieldVfxProvider,
   validateVehicleDamageVfxResourceSet
 } from './vfx/BattlefieldVfxContract.js';
+import {
+  setProceduralVfxProgress
+} from './vfx/ProceduralVfxNodes.js';
 
 const FIRE_COMPONENTS = Object.freeze(['engine', 'fuel', 'ammunition']);
 const DESTROYED_STATES = new Set(['DESTROYED', 'DISABLED', 'KNOCKED_OUT']);
@@ -126,6 +129,19 @@ function disableRaycast(object) {
   return object;
 }
 
+function createPersistentEffectObject(geometry, material, capacity) {
+  if (material.isSpriteNodeMaterial) {
+    const sprite = new THREE.Sprite(material);
+    sprite.userData.effectCapacity = capacity;
+    sprite.userData.layerCount = 0;
+    sprite.visible = false;
+    return sprite;
+  }
+  const instances = new THREE.InstancedMesh(geometry, material, capacity);
+  instances.count = 0;
+  return instances;
+}
+
 function setInstance(mesh, index, x, y, z, scale, quaternion = IDENTITY_QUATERNION) {
   scratchPosition.set(x, y, z);
   scratchScale.setScalar(scale);
@@ -202,21 +218,19 @@ export class VehicleDamageEffects {
       unit.mesh.userData.assetBindings.vehicleDamageVfx = this.vfxAssetBinding;
     }
 
-    const smoke = disableRaycast(new THREE.InstancedMesh(
+    const smoke = disableRaycast(createPersistentEffectObject(
       this.geometries.smoke,
       this.materials.smoke,
       this.capacities.smoke
     ));
     smoke.name = 'EngineSmoke';
-    smoke.count = 0;
 
-    const flames = disableRaycast(new THREE.InstancedMesh(
+    const flames = disableRaycast(createPersistentEffectObject(
       this.geometries.flame,
       this.materials.flame,
       this.capacities.flame
     ));
     flames.name = 'VehicleFire';
-    flames.count = 0;
 
     const sparks = disableRaycast(new THREE.InstancedMesh(
       this.geometries.spark,
@@ -238,7 +252,11 @@ export class VehicleDamageEffects {
     if (!blastMaterial?.isMaterial) {
       throw new TypeError('vehicle-damage VFX blast material must be a Three.js material');
     }
-    const blast = disableRaycast(new THREE.Mesh(this.geometries.blast, blastMaterial));
+    const blast = disableRaycast(
+      blastMaterial.isSpriteNodeMaterial
+        ? new THREE.Sprite(blastMaterial)
+        : new THREE.Mesh(this.geometries.blast, blastMaterial)
+    );
     blast.name = 'VehicleSecondaryExplosion';
     blast.position.copy(effectAnchor(dimensions));
     blast.visible = false;
@@ -358,35 +376,64 @@ export class VehicleDamageEffects {
           : this.capacities.flame)
       : 0;
 
-    record.smoke.count = smokeCount;
-    record.flames.count = flameCount;
-
-    for (let index = 0; index < smokeCount; index++) {
-      const phase = (this.elapsedSeconds * 0.29 + index / smokeCount) % 1;
-      const spread = 0.13 + phase * 0.42;
-      setInstance(
-        record.smoke,
-        index,
-        record.anchor.x + Math.sin(index * 2.47 + this.elapsedSeconds * 0.7) * spread,
-        record.anchor.y + phase * record.dimensions.height * 1.25,
-        record.anchor.z + Math.cos(index * 1.91 + this.elapsedSeconds * 0.5) * spread,
-        0.45 + phase * 1.35
+    if (record.smoke.isSprite) {
+      record.smoke.userData.layerCount = smokeCount;
+      record.smoke.visible = smokeCount > 0;
+      record.smoke.position.set(
+        record.anchor.x,
+        record.anchor.y + record.dimensions.height * 0.72,
+        record.anchor.z
       );
-    }
-    if (smokeCount > 0) record.smoke.instanceMatrix.needsUpdate = true;
-
-    for (let index = 0; index < flameCount; index++) {
-      const phase = (this.elapsedSeconds * (2.1 + index * 0.07) + index * 0.17) % 1;
-      setInstance(
-        record.flames,
-        index,
-        record.anchor.x + Math.sin(index * 3.1) * 0.28,
-        record.anchor.y + 0.18 + phase * 0.52,
-        record.anchor.z + Math.cos(index * 2.3) * 0.24,
-        0.58 + (1 - phase) * 0.72
+      record.smoke.scale.set(
+        record.dimensions.width * 0.95,
+        record.dimensions.height * 2.15,
+        1
       );
+    } else {
+      record.smoke.count = smokeCount;
+      for (let index = 0; index < smokeCount; index++) {
+        const phase = (this.elapsedSeconds * 0.29 + index / smokeCount) % 1;
+        const spread = 0.13 + phase * 0.42;
+        setInstance(
+          record.smoke,
+          index,
+          record.anchor.x + Math.sin(index * 2.47 + this.elapsedSeconds * 0.7) * spread,
+          record.anchor.y + phase * record.dimensions.height * 1.25,
+          record.anchor.z + Math.cos(index * 1.91 + this.elapsedSeconds * 0.5) * spread,
+          0.45 + phase * 1.35
+        );
+      }
+      if (smokeCount > 0) record.smoke.instanceMatrix.needsUpdate = true;
     }
-    if (flameCount > 0) record.flames.instanceMatrix.needsUpdate = true;
+
+    if (record.flames.isSprite) {
+      record.flames.userData.layerCount = flameCount;
+      record.flames.visible = flameCount > 0;
+      record.flames.position.set(
+        record.anchor.x,
+        record.anchor.y + record.dimensions.height * 0.28,
+        record.anchor.z
+      );
+      record.flames.scale.set(
+        record.dimensions.width * 0.72,
+        record.dimensions.height * 1.18,
+        1
+      );
+    } else {
+      record.flames.count = flameCount;
+      for (let index = 0; index < flameCount; index++) {
+        const phase = (this.elapsedSeconds * (2.1 + index * 0.07) + index * 0.17) % 1;
+        setInstance(
+          record.flames,
+          index,
+          record.anchor.x + Math.sin(index * 3.1) * 0.28,
+          record.anchor.y + 0.18 + phase * 0.52,
+          record.anchor.z + Math.cos(index * 2.3) * 0.24,
+          0.58 + (1 - phase) * 0.72
+        );
+      }
+      if (flameCount > 0) record.flames.instanceMatrix.needsUpdate = true;
+    }
 
     if (damage.burning && !record.lastBurning) record.explosionTimer = 0.75;
     if (damage.destroyed && !record.lastDestroyed) record.explosionTimer = 1.05;
@@ -460,16 +507,20 @@ export class VehicleDamageEffects {
       const progress = THREE.MathUtils.clamp(1 - record.explosionTimer / 1.05, 0, 1);
       record.blast.visible = true;
       record.blast.scale.setScalar(0.35 + Math.sin(progress * Math.PI) * 2.4);
-      record.blastMaterial.opacity = Math.sin(progress * Math.PI) * 0.82;
+      if (!setProceduralVfxProgress(record.blastMaterial, progress)) {
+        record.blastMaterial.opacity = Math.sin(progress * Math.PI) * 0.82;
+      }
     } else {
       record.blast.visible = false;
       record.blastMaterial.opacity = 0;
+      setProceduralVfxProgress(record.blastMaterial, 1);
     }
     const activeTimer = Math.max(record.impactTimer, record.explosionTimer);
     if (activeTimer <= 0) {
       record.sparks.count = 0;
       record.blast.visible = false;
       record.blastMaterial.opacity = 0;
+      setProceduralVfxProgress(record.blastMaterial, 1);
       return;
     }
 
@@ -526,6 +577,7 @@ export class VehicleDamageEffects {
       record.sparks.count = 0;
       record.blast.visible = false;
       record.blastMaterial.opacity = 0;
+      setProceduralVfxProgress(record.blastMaterial, 1);
       record.scorch.count = 0;
       record.scorchCursor = 0;
       // Restore establishes a new presentation baseline. Persistent smoke,

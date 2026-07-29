@@ -2,7 +2,10 @@ import { defineMapDescriptor } from '../MapDescriptor.js';
 
 export const STONNE_1940_MAP = defineMapDescriptor({
   id: 'stonne-1940',
-  title: 'Stonne, Ardennes',
+  title: 'Bridge',
+  description:
+    'River crossing with bridge approaches, village walls, farms, and mixed elevation.',
+  previewStyle: 'bridge',
   dimensions: {
     width: 240,
     depth: 240,
@@ -212,6 +215,46 @@ export const STONNE_1940_MAP = defineMapDescriptor({
     approachDataQuality:
       'scenario-authored renderer and movement approximation; not surveyed bridge approach evidence'
   },
+  wallProfiles: {
+    'stone-wall': {
+      id: 'stone-wall',
+      presentationKind: 'solid-prism',
+      materialRole: 'masonry',
+      collisionType: 'stonewall',
+      height: 1.2,
+      thickness: 0.65,
+      maximumSegmentLength: 4,
+      blocks: ['vehicle', 'infantry'],
+      occludesSight: true,
+      dataQuality:
+        'scenario-authored masonry boundary approximation; dimensions are gameplay values'
+    },
+    'wood-picket-fence': {
+      id: 'wood-picket-fence',
+      presentationKind: 'alpha-tested-card',
+      materialRole: 'fenceCard',
+      collisionType: 'fence',
+      height: 1.1,
+      thickness: 0.18,
+      maximumSegmentLength: 2,
+      textureRepeatMeters: 2,
+      groundOffset: 0.015,
+      destruction: {
+        maxHealth: 100,
+        minimumMovingSpeedMps: 0.4,
+        heavyVehicleMassTonnes: 8,
+        highImpactSpeedMps: 3.3,
+        momentumThresholdTonneMps: 12,
+        blastDamageScale: 1.2,
+        dataQuality:
+          'gameplay approximation for dry rural wood fencing; vehicle thresholds await sourced fence trials'
+      },
+      blocks: ['vehicle', 'infantry'],
+      occludesSight: false,
+      dataQuality:
+        'scenario-authored rural wood fence and collision approximation; not surveyed Stonne evidence'
+    }
+  },
   wallRuns: [
     {
       id: 'village_house_rear',
@@ -257,7 +300,7 @@ export const STONNE_1940_MAP = defineMapDescriptor({
     },
     {
       id: 'farmhouse_south',
-      profileId: 'stone-wall',
+      profileId: 'wood-picket-fence',
       enclosureId: 'farmhouse-lot',
       boundarySide: 'south',
       start: [-58, 22],
@@ -265,7 +308,7 @@ export const STONNE_1940_MAP = defineMapDescriptor({
     },
     {
       id: 'farmhouse_north',
-      profileId: 'stone-wall',
+      profileId: 'wood-picket-fence',
       enclosureId: 'farmhouse-lot',
       boundarySide: 'north',
       start: [-58, 46],
@@ -273,7 +316,7 @@ export const STONNE_1940_MAP = defineMapDescriptor({
     },
     {
       id: 'farmhouse_west',
-      profileId: 'stone-wall',
+      profileId: 'wood-picket-fence',
       enclosureId: 'farmhouse-lot',
       boundarySide: 'west',
       start: [-58, 22],
@@ -281,7 +324,7 @@ export const STONNE_1940_MAP = defineMapDescriptor({
     },
     {
       id: 'farmhouse_east_south',
-      profileId: 'stone-wall',
+      profileId: 'wood-picket-fence',
       enclosureId: 'farmhouse-lot',
       boundarySide: 'east',
       adjacentGateId: 'farmhouse-east-gate',
@@ -290,7 +333,7 @@ export const STONNE_1940_MAP = defineMapDescriptor({
     },
     {
       id: 'farmhouse_east_north',
-      profileId: 'stone-wall',
+      profileId: 'wood-picket-fence',
       enclosureId: 'farmhouse-lot',
       boundarySide: 'east',
       adjacentGateId: 'farmhouse-east-gate',

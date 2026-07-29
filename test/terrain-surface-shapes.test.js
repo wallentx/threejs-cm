@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as THREE from 'three';
 import {
   drawTerrainSurfaceLayers,
   FRANCE_1940_TERRAIN_SURFACE_IMPLEMENTATION
@@ -172,9 +173,18 @@ test('default Stonne surface creation draws every polygon and disposes all resou
       ...Object.values(surfaceSet.materials),
       surfaceSet.materials.ground.map,
       surfaceSet.materials.masonry.map,
-      surfaceSet.materials.masonry.bumpMap
+      surfaceSet.materials.masonry.bumpMap,
+      surfaceSet.materials.fenceCard.map
     ];
     assert.ok(resources.every(Boolean));
+    assert.equal(surfaceSet.materials.fenceCard.transparent, false);
+    assert.equal(surfaceSet.materials.fenceCard.depthWrite, true);
+    assert.equal(surfaceSet.materials.fenceCard.alphaTest, 0.5);
+    assert.equal(surfaceSet.materials.fenceCard.side, THREE.FrontSide);
+    assert.equal(
+      surfaceSet.materials.fenceCard.map.name,
+      'WoodPicketFenceCutout'
+    );
     const disposalCounts = new Map(resources.map(resource => [resource, 0]));
     for (const resource of resources) {
       resource.addEventListener('dispose', () => {

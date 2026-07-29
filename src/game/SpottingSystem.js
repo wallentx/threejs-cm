@@ -8,8 +8,6 @@ import {
   publicContact
 } from '../simulation/observation/ContactState.js';
 import {
-  OBSERVATION_EQUIPMENT,
-  observerHasEquipment,
   isLivingObserver
 } from '../simulation/observation/ObservationEquipment.js';
 import {
@@ -34,6 +32,14 @@ import {
   validateIdentificationProjection
 } from '../simulation/observation/IdentificationQuality.js';
 import { intersectSegmentOrientedBox3D } from '../simulation/geometry/OrientedBox.js';
+import {
+  isBuildingOccupantExposed
+} from '../simulation/buildings/BuildingExposure.js';
+import {
+  observerCapabilityFacingYaw,
+  pointInsideObserverFov,
+  resolveObserverCapabilities
+} from '../simulation/observation/ObserverCapabilities.js';
 
 const EXPERIENCE_RANGE_M = Object.freeze({
   Green: 140,
@@ -774,6 +780,8 @@ function captureContact(contact) {
 
 function personPosition(unit, person) {
   if (person?.worldPosition) return positionObject(person.worldPosition);
+  const observerPosition = unit?.getObserverWorldPosition?.(person);
+  if (observerPosition) return positionObject(observerPosition);
   const resolved = unit?.getSoldierWorldPosition?.(person?.id);
   return positionObject(resolved ?? unit?.position);
 }
@@ -783,8 +791,10 @@ function livingPeople(unit) {
 }
 
 function targetPoints(unit) {
-  const people = sortedPeople(unit);
-  if (unit?.type === 'infantry_squad' && people.length > 0) {
+  const people = sortedPeople(unit).filter(person =>
+    isBuildingOccupantExposed(person, unit)
+  );
+  if (unit?.type === 'infantry_squad') {
     return people.map(person => ({
       person,
       position: personPosition(unit, person),
@@ -962,6 +972,7 @@ export class SpottingSystem {
 
     for (const obstacle of this.terrain?.bocageObstacles ?? []) {
       if (obstacle.buildingId) continue;
+      if (obstacle.occludesSight === false) continue;
       if (this.segmentIntersectsBox(origin, target, obstacle)) {
         return { clear: false, coverType: obstacle.type ?? 'Obstacle', dist };
       }
@@ -984,8 +995,14 @@ export class SpottingSystem {
     return { clear: true, coverType: 'Open Ground', dist };
   }
 
-  maximumObservationRange(observerUnit, targetUnit, targetPerson = null) {
+  maximumObservationRange(
+    observerUnit,
+    targetUnit,
+    targetPerson = null,
+    capability = null
+  ) {
     let range = EXPERIENCE_RANGE_M[observerUnit?.experience] ?? EXPERIENCE_RANGE_M.Regular;
+    range *= capability?.rangeMultiplier ?? 1;
     if (targetUnit?.isHiding) range *= 0.55;
     const targetStance = stanceName(targetPerson, targetUnit);
     if (targetStance === 'PRONE') range *= 0.72;
@@ -1000,9 +1017,14 @@ export class SpottingSystem {
     targetUnit,
     targetPerson,
     distance,
-    hasBinoculars
+    capability = null
   ) {
-    const maximumRange = this.maximumObservationRange(observerUnit, targetUnit, targetPerson);
+    const maximumRange = this.maximumObservationRange(
+      observerUnit,
+      targetUnit,
+      targetPerson,
+      capability
+    );
     const normalizedRange = Math.max(0, Math.min(1, distance / Math.max(1, maximumRange)));
     let seconds = this.settings.baseAcquisitionSeconds * (0.75 + normalizedRange * 2.25);
 
@@ -1017,44 +1039,71 @@ export class SpottingSystem {
     else if (targetStance === 'KNEELING' || targetStance === 'CROUCHED') seconds *= 1.12;
     if (targetUnit?.isHiding) seconds *= 1.8;
     if (velocityMagnitude(targetPerson, targetUnit) > 0.2) seconds *= 0.72;
-    if (hasBinoculars) seconds *= 0.58;
+    seconds *= capability?.acquisitionTimeMultiplier ?? 1;
     return Math.max(0.2, seconds);
   }
 
-  evaluateObservation(observerUnit, observer, targetUnit, hasBinoculars) {
+  evaluateObservation(
+    observerUnit,
+    observer,
+    targetUnit,
+    capabilityInput = null
+  ) {
     const observerPosition = personPosition(observerUnit, observer);
     const observerStance = stanceName(observer, observerUnit);
+    const profile = unitProfile(observerUnit, this.unitProfiles);
+    const capabilities = Array.isArray(capabilityInput)
+      ? capabilityInput
+      : resolveObserverCapabilities(observerUnit, observer, profile);
     let best = null;
 
-    for (const target of targetPoints(targetUnit)) {
-      const targetStance = stanceName(target.person, targetUnit);
-      const maximumRange = this.maximumObservationRange(
-        observerUnit,
-        targetUnit,
-        target.person
-      );
-      const los = this.checkLOS(observerPosition, target.position, {
-        observerStance,
-        targetStance,
-        fromEyeHeight: eyeHeight(observerStance),
-        toAimHeight: targetAimHeight(targetUnit, target.person)
-      });
-      if (!los.clear || los.dist > maximumRange) continue;
-      const acquisitionSeconds = this.acquisitionSeconds(
+    for (const capability of capabilities) {
+      const facingYaw = observerCapabilityFacingYaw(
         observerUnit,
         observer,
-        targetUnit,
-        target.person,
-        los.dist,
-        hasBinoculars
+        capability
       );
-      if (!best || acquisitionSeconds < best.acquisitionSeconds) {
-        best = {
-          distance: los.dist,
-          acquisitionSeconds,
-          targetPosition: target.position,
-          targetSoldierId: target.targetSoldierId ?? null
-        };
+      for (const target of targetPoints(targetUnit)) {
+        if (!pointInsideObserverFov(
+          observerPosition,
+          target.position,
+          facingYaw,
+          capability.horizontalFovDegrees
+        )) {
+          continue;
+        }
+        const targetStance = stanceName(target.person, targetUnit);
+        const maximumRange = this.maximumObservationRange(
+          observerUnit,
+          targetUnit,
+          target.person,
+          capability
+        );
+        const los = this.checkLOS(observerPosition, target.position, {
+          observerStance,
+          targetStance,
+          fromEyeHeight: capability.eyeHeightOffsetMeters
+            ?? eyeHeight(observerStance),
+          toAimHeight: targetAimHeight(targetUnit, target.person)
+        });
+        if (!los.clear || los.dist > maximumRange) continue;
+        const acquisitionSeconds = this.acquisitionSeconds(
+          observerUnit,
+          observer,
+          targetUnit,
+          target.person,
+          los.dist,
+          capability
+        );
+        if (!best || acquisitionSeconds < best.acquisitionSeconds) {
+          best = {
+            distance: los.dist,
+            acquisitionSeconds,
+            targetPosition: target.position,
+            targetSoldierId: target.targetSoldierId ?? null,
+            observerCapabilityId: capability.id
+          };
+        }
       }
     }
     return best;
@@ -1099,17 +1148,16 @@ export class SpottingSystem {
     const wasEpisodeActive = existing.directEpisodeActive === true;
     let acquisitionEvent = null;
     const profile = unitProfile(observerUnit, this.unitProfiles);
-    const hasBinoculars = observerHasEquipment(
+    const capabilities = resolveObserverCapabilities(
       observerUnit,
       observer,
-      OBSERVATION_EQUIPMENT.BINOCULARS,
       profile
     );
     const evaluation = this.evaluateObservation(
       observerUnit,
       observer,
       targetUnit,
-      hasBinoculars
+      capabilities
     );
 
     if (evaluation) {
@@ -1565,6 +1613,7 @@ export class SpottingSystem {
   }
 
   refreshBuildingColliders() {
+    if (!this.buildingCollidersDirty) return this.buildingColliders;
     if (!this.buildingSystem) {
       this.buildingColliders = [];
       this.buildingCollidersDirty = false;
@@ -1646,29 +1695,33 @@ export class SpottingSystem {
   }
 
   getVisibilityProjection(viewerFaction, allUnits) {
+    const units = allUnits ?? [];
+    const unitFactionById = new Map();
+    const targetableUnitIds = new Set();
     const visibleUnitIds = new Set();
-    for (const unit of allUnits ?? []) {
+    for (const unit of units) {
+      unitFactionById.set(unit.id, unit.faction);
       if (unit.faction === viewerFaction) visibleUnitIds.add(unit.id);
+      else targetableUnitIds.add(unit.id);
     }
-    for (const targetUnit of allUnits ?? []) {
-      if (targetUnit.faction === viewerFaction) continue;
-      for (const targetMap of this.observations.values()) {
-        const observation = targetMap.get(targetUnit.id);
+    for (const targetMap of this.observations.values()) {
+      for (const observation of targetMap.values()) {
         if (!observation?.visibleNow
             && (observation?.visibilityGraceRemainingNanoseconds ?? 0) <= 0) {
           continue;
         }
-        const observerUnit = (allUnits ?? []).find(unit => unit.id === observation.observerUnitId);
-        if (observerUnit?.faction === viewerFaction) {
-          visibleUnitIds.add(targetUnit.id);
-          break;
+        if (
+          unitFactionById.get(observation.observerUnitId) === viewerFaction
+          && targetableUnitIds.has(observation.targetUnitId)
+        ) {
+          visibleUnitIds.add(observation.targetUnitId);
         }
       }
     }
     return {
       viewerFaction,
       visibleUnitIds: [...visibleUnitIds].sort(),
-      contacts: this.getFactionContacts(viewerFaction, allUnits)
+      contacts: this.getFactionContacts(viewerFaction, units)
     };
   }
 

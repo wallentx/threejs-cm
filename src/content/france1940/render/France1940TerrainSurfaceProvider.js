@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 export const FRANCE_1940_TERRAIN_SURFACE_IMPLEMENTATION_ID =
-  'france-1940-procedural-terrain-surfaces-v1';
+  'france-1940-procedural-terrain-surfaces-v2';
 
 function createCanvas(width, height) {
   if (typeof document === 'undefined') return null;
@@ -91,6 +91,58 @@ function createMasonryTextures() {
   return { color, bump };
 }
 
+function createFenceCardTexture() {
+  const width = 128;
+  const height = 64;
+  const data = new Uint8Array(width * height * 4);
+  const setPixel = (x, y, red, green, blue, alpha) => {
+    const offset = (y * width + x) * 4;
+    data[offset] = red;
+    data[offset + 1] = green;
+    data[offset + 2] = blue;
+    data[offset + 3] = alpha;
+  };
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const picketX = x % 32;
+      const picketTop = picketX < 8
+        ? 4 + Math.abs(picketX - 4)
+        : Infinity;
+      const picket = picketX < 8 && y >= picketTop;
+      const rail = (y >= 21 && y <= 27) || (y >= 43 && y <= 49);
+      if (!picket && !rail) {
+        setPixel(x, y, 0, 0, 0, 0);
+        continue;
+      }
+      const grain = ((x * 13 + y * 7) % 17) - 8;
+      setPixel(
+        x,
+        y,
+        112 + grain,
+        82 + Math.round(grain * 0.65),
+        47 + Math.round(grain * 0.4),
+        255
+      );
+    }
+  }
+  const texture = new THREE.DataTexture(
+    data,
+    width,
+    height,
+    THREE.RGBAFormat,
+    THREE.UnsignedByteType
+  );
+  texture.name = 'WoodPicketFenceCutout';
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = true;
+  texture.needsUpdate = true;
+  return texture;
+}
+
 function markMaterial(material, role) {
   material.userData.terrainSurfaceRole = role;
   material.userData.terrainSurfaceImplementationId =
@@ -104,6 +156,7 @@ function createSurfaceSet(surfaces) {
   }
   const groundTexture = createGroundTexture(surfaces);
   const masonryTextures = createMasonryTextures();
+  const fenceCardTexture = createFenceCardTexture();
   const materials = Object.freeze({
     ground: markMaterial(new THREE.MeshStandardMaterial({
       map: groundTexture,
@@ -136,6 +189,17 @@ function createSurfaceSet(surfaces) {
       roughness: 0.96,
       metalness: 0
     }), 'masonry'),
+    fenceCard: markMaterial(new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      map: fenceCardTexture,
+      alphaTest: 0.5,
+      transparent: false,
+      depthWrite: true,
+      roughness: 0.94,
+      metalness: 0,
+      side: THREE.FrontSide,
+      shadowSide: THREE.FrontSide
+    }), 'fence-card'),
     foliageTrunk: markMaterial(
       new THREE.MeshLambertMaterial({ color: '#57534e' }),
       'foliage-trunk'
@@ -152,7 +216,8 @@ function createSurfaceSet(surfaces) {
   const textures = [
     groundTexture,
     masonryTextures.color,
-    masonryTextures.bump
+    masonryTextures.bump,
+    fenceCardTexture
   ].filter(Boolean);
   let disposed = false;
   return Object.freeze({

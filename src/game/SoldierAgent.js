@@ -18,9 +18,17 @@ import {
   INFANTRY_COLLISION_RADIUS
 } from '../simulation/infantry/InfantrySeparationSystem.js';
 import {
+  canInfantryVaultFence,
   getInfantryMovementOrderProfile,
+  INFANTRY_FENCE_VAULT_POLICY,
   isInfantryOrderMovingFireProhibited
 } from '../simulation/infantry/InfantryMovementOrders.js';
+import {
+  isBuildingOccupantExposed
+} from '../simulation/buildings/BuildingExposure.js';
+import {
+  classifyIndividualMorale
+} from '../simulation/infantry/InfantrySuppression.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const MAX_INFANTRY_ROUNDS_PER_STEP = 64;
@@ -34,6 +42,27 @@ function hash01(value) {
     hash = Math.imul(hash, 16777619);
   }
   return (hash >>> 0) / 0x100000000;
+}
+
+function restoreFenceVault(value) {
+  if (!value || typeof value !== 'object' || typeof value.colliderId !== 'string') {
+    return null;
+  }
+  return {
+    colliderId: value.colliderId,
+    elapsedSeconds: Math.max(0, Number(value.elapsedSeconds) || 0),
+    durationSeconds: Math.max(
+      0.001,
+      Number(value.durationSeconds)
+        || INFANTRY_FENCE_VAULT_POLICY.durationSeconds
+    ),
+    presentationHeightMeters: Math.max(
+      0,
+      Number(value.presentationHeightMeters)
+        || INFANTRY_FENCE_VAULT_POLICY.presentationHeightMeters
+    ),
+    modelVersion: INFANTRY_FENCE_VAULT_POLICY.modelVersion
+  };
 }
 
 export class SoldierAgent {
@@ -85,6 +114,7 @@ export class SoldierAgent {
       ? JSON.parse(JSON.stringify(record.buildingLocation))
       : null;
     this.commandWaypoint = record.commandWaypoint ?? -1;
+    this.fenceVault = restoreFenceVault(record.fenceVault);
     this.syncRecord();
   }
 
@@ -129,11 +159,15 @@ export class SoldierAgent {
       threatMemory: this.threatMemory.captureState(),
       buildingLocation: this.record.buildingLocation
         ? JSON.parse(JSON.stringify(this.record.buildingLocation))
+        : null,
+      fenceVault: this.record.fenceVault
+        ? { ...this.record.fenceVault }
         : null
     };
     if (!snapshot.supportAmmunitionTransfer) {
       delete snapshot.supportAmmunitionTransfer;
     }
+    if (!snapshot.fenceVault) delete snapshot.fenceVault;
     return snapshot;
   }
 
@@ -175,6 +209,7 @@ export class SoldierAgent {
     this.fireControl = createFireControlState(record.fireControl);
     this.buildingLocation = record.buildingLocation ? JSON.parse(JSON.stringify(record.buildingLocation)) : null;
     this.commandWaypoint = record.commandWaypoint ?? -1;
+    this.fenceVault = restoreFenceVault(record.fenceVault);
     this.syncRecord();
   }
 
@@ -208,7 +243,8 @@ export class SoldierAgent {
       buildingLocation: this.buildingLocation
         ? JSON.parse(JSON.stringify(this.buildingLocation))
         : null,
-      commandWaypoint: this.commandWaypoint
+      commandWaypoint: this.commandWaypoint,
+      fenceVault: this.fenceVault ? { ...this.fenceVault } : null
     });
     if (this.status === 'KIA' && this.casualtyFallStartStance != null) {
       this.record.casualtyFallStartStance = this.casualtyFallStartStance;
@@ -224,6 +260,7 @@ export class SoldierAgent {
     } else {
       delete this.record.supportAmmunitionTransfer;
     }
+    if (!this.fenceVault) delete this.record.fenceVault;
   }
 
   updateMovement(delta, terrain, context = {}) {
@@ -239,6 +276,7 @@ export class SoldierAgent {
       if (this.reloadTimer === 0) this.completeReload();
     }
     if (!this.isAlive || ['INCAPACITATED', 'DEAD'].includes(this.status)) {
+      this.fenceVault = null;
       this.state = 'CASUALTY';
       this.stance = 'PRONE';
       this.moraleTier = 'CASUALTY';
@@ -250,6 +288,7 @@ export class SoldierAgent {
     if (this.buildingLocation
         && ['transit', 'exiting', 'exit-waiting', 'occupied']
           .includes(this.buildingLocation.phase)) {
+      this.fenceVault = null;
       this.velocity.set(0, 0, 0);
       this.syncRecord();
       return;
@@ -267,18 +306,7 @@ export class SoldierAgent {
     this.suppression = Math.max(0, this.suppression - dt * recoveryRate);
 
     // 5-Tier Morale Classification
-    let moraleTier = 'READY';
-    if (this.suppression > 90) {
-      moraleTier = 'ROUTED';
-    } else if (this.suppression >= 75) {
-      moraleTier = 'PINNED';
-    } else if (this.suppression >= 55) {
-      moraleTier = 'TAKING_COVER';
-    } else if (this.suppression >= 35) {
-      moraleTier = 'DUCKING';
-    } else if (this.suppression >= 15) {
-      moraleTier = 'CAUTIOUS';
-    }
+    let moraleTier = classifyIndividualMorale(this.suppression);
     if (context.squadPinned && moraleTier !== 'ROUTED') moraleTier = 'PINNED';
     this.moraleTier = moraleTier;
 
@@ -421,7 +449,12 @@ export class SoldierAgent {
       this.position,
       intendedMovement,
       INFANTRY_COLLISION_RADIUS,
-      { moverType: 'infantry' }
+      {
+        moverType: 'infantry',
+        traverseColliderTypes: (
+          canInfantryVaultFence(context.orderType) || this.fenceVault
+        ) ? ['fence'] : []
+      }
     );
     if (resolvedMovement) {
       this.position.x = resolvedMovement.x;
@@ -433,14 +466,43 @@ export class SoldierAgent {
           this.velocity.z -= contact.normalZ * inward;
         }
       }
+      const crossedFenceId = resolvedMovement.traversedColliderIds?.[0] ?? null;
+      if (crossedFenceId && !this.fenceVault) {
+        this.fenceVault = {
+          colliderId: crossedFenceId,
+          elapsedSeconds: 0,
+          durationSeconds: INFANTRY_FENCE_VAULT_POLICY.durationSeconds,
+          presentationHeightMeters:
+            INFANTRY_FENCE_VAULT_POLICY.presentationHeightMeters,
+          modelVersion: INFANTRY_FENCE_VAULT_POLICY.modelVersion
+        };
+      }
     } else {
       this.position.x += intendedMovement.x;
       this.position.z += intendedMovement.z;
     }
     if (!this.buildingLocation && !this.vehicleLocation) {
-      this.position.y = terrain.getMovementHeightAt
+      const groundY = terrain.getMovementHeightAt
         ? terrain.getMovementHeightAt(this.position.x, this.position.z)
         : terrain.getHeightAt(this.position.x, this.position.z);
+      let vaultOffsetY = 0;
+      if (this.fenceVault) {
+        this.fenceVault.elapsedSeconds = Math.min(
+          this.fenceVault.durationSeconds,
+          this.fenceVault.elapsedSeconds + dt
+        );
+        const progress =
+          this.fenceVault.elapsedSeconds / this.fenceVault.durationSeconds;
+        vaultOffsetY = Math.sin(progress * Math.PI)
+          * this.fenceVault.presentationHeightMeters;
+        if (progress < 1) {
+          this.state = 'VAULTING';
+          this.stance = 'CROUCHED';
+        } else {
+          this.fenceVault = null;
+        }
+      }
+      this.position.y = groundY + vaultOffsetY;
     }
     this.stridePhase += Math.hypot(
       resolvedMovement?.movedX ?? intendedMovement.x,
@@ -489,6 +551,13 @@ export class SoldierAgent {
     }
 
     this.fireCooldown = Math.max(-elapsed, this.fireCooldown - elapsed);
+    if (this.unit.isHiding) {
+      resetFireControlState(this.fireControl, 'HIDDEN_HOLD_FIRE');
+      this.targetUnitId = null;
+      this.targetSoldierId = null;
+      this.syncRecord();
+      return false;
+    }
     if (context.holdFireSoldierIds?.has(String(this.id))) {
       resetFireControlState(this.fireControl, 'CREW_SERVED_WEAPON');
       this.targetUnitId = null;
@@ -500,6 +569,7 @@ export class SoldierAgent {
         || isInfantryOrderMovingFireProhibited(this.state)
         || this.state === 'REACTING' || this.state === 'ADVANCING'
         || this.state === 'BOUNDING'
+        || this.state === 'VAULTING'
         || this.state === 'TAKING_COVER' || this.state === 'FLEEING') {
       resetFireControlState(this.fireControl, 'MOVING');
       this.targetUnitId = null;
@@ -542,15 +612,31 @@ export class SoldierAgent {
             && !precisionGate.call(context.spotting, this.unit, enemyUnit))) continue;
       const enemyAgents = enemyUnit.soldierAI?.getLivingAgents() ?? [];
       if (enemyAgents.length === 0) {
-        const los = checkLOS.call(context.spotting, this.position, enemyUnit.position);
+        const exposedCommander =
+          enemyUnit.getExposedCommanderTargetPosition?.() ?? null;
+        const targetPosition = exposedCommander ?? enemyUnit.position;
+        const los = checkLOS.call(
+          context.spotting,
+          this.position,
+          targetPosition
+        );
         if (los.clear && los.dist <= weapon.maxRange
-            && context.buildingInteraction?.canFireAt?.(this, enemyUnit.position) !== false
+            && context.buildingInteraction?.canFireAt?.(
+              this,
+              targetPosition
+            ) !== false
             && (!best || los.dist < best.distance)) {
-          best = { unit: enemyUnit, agent: null, position: enemyUnit.position, distance: los.dist };
+          best = {
+            unit: enemyUnit,
+            agent: null,
+            position: targetPosition,
+            distance: los.dist
+          };
         }
         continue;
       }
       for (const enemy of enemyAgents) {
+        if (!isBuildingOccupantExposed(enemy, enemyUnit)) continue;
         const los = checkLOS.call(context.spotting, this.position, enemy.position);
         if (los.clear && los.dist <= weapon.maxRange
             && context.buildingInteraction?.canFireAt?.(this, enemy.position) !== false

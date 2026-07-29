@@ -6,7 +6,8 @@ import {
 } from '../../src/content/france1940/render/index.js';
 
 export {
-  createGroundConformingWallGeometry
+  createGroundConformingWallGeometry,
+  createGroundConformingFenceCardGeometry
 } from '../../src/world/TerrainBuilder.js';
 
 /**

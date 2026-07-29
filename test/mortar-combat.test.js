@@ -164,8 +164,42 @@ test('deployed mortar launches a captured high arc, consumes one owned round, an
 
   mortar.toggleCrewServedDeployment();
   advanceUnit(mortar, 5);
+  assert.equal(
+    mortar.setMortarTargetOrder(
+      new THREE.Vector3(0, 0, 10),
+      'MORTAR_HE'
+    ),
+    false,
+    'mortar target centers inside minimum range are rejected'
+  );
   mortar.targetPos = new THREE.Vector3(0, 0, 100);
   mortar.targetMode = 'TARGET';
+  assert.equal(mortar.updateMortarCombat({
+    terrain: flatTerrain,
+    combat,
+    random: () => 0
+  }), false, 'ordinary squad target orders must not silently fire the mortar');
+  assert.equal(
+    mortar.setMortarTargetOrder(
+      new THREE.Vector3(0, 0, 100),
+      'MORTAR_HE'
+    ),
+    true
+  );
+  assert.equal(mortar.updateMortarCombat({
+    terrain: flatTerrain,
+    combat,
+    random: () => 0
+  }), false, 'first round waits for the mortar laying delay');
+  advanceUnit(mortar, 1);
+  mortar.isHiding = true;
+  assert.equal(mortar.updateMortarCombat({
+    terrain: flatTerrain,
+    combat,
+    random: () => 0
+  }), false, 'hidden mortar teams hold their ready fire mission');
+  assert.equal(combat.projectiles.length, 0);
+  mortar.isHiding = false;
   assert.equal(mortar.updateMortarCombat({
     terrain: flatTerrain,
     combat,

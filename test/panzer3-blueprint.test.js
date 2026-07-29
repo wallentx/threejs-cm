@@ -120,4 +120,23 @@ test('Panzer III weapons and proxy preserve articulation ownership', () => {
   assert.equal(vehicle.userData.proxyBarrel.parent, vehicle.userData.barrel);
   assert.equal(vehicle.getObjectByName('ProxyRoadWheels').count, 16);
   assert.ok(vehicle.getObjectByName('PanzerIIID_ProxyEngineDeck'));
+  assert.equal(vehicle.userData.commanderHatches.length, 2);
+  assert.deepEqual(
+    vehicle.userData.commanderHatches.map(hatch => hatch.userData.hatchSide),
+    ['left', 'right']
+  );
+  for (const hatch of vehicle.userData.commanderHatches) {
+    assert.equal(hatch.parent, vehicle.userData.turret);
+    assert.equal(hatch.userData.articulatedPart, 'commander-hatch');
+    assert.equal(hatch.userData.rotationAxis, 'z');
+    assert.ok(Number.isFinite(hatch.userData.openAngleRadians));
+    const leaf = hatch.children[0];
+    assert.equal(leaf.userData.articulatedPart, 'commander-hatch-leaf');
+    assert.equal(leaf.userData.lodBand, 'core');
+    assert.equal(
+      hatch.children.some(child => child.userData.lodBand === 'proxy'),
+      true
+    );
+  }
+  assert.equal(vehicle.userData.proxyCupola.userData.lodBand, 'proxy');
 });

@@ -98,6 +98,20 @@ const INFANTRY_MOVEMENT_PROFILE_BY_STATE = Object.freeze({
     ASSAULT_INFANTRY_MOVEMENT_PROFILE
 });
 
+export const INFANTRY_FENCE_VAULT_POLICY = Object.freeze({
+  modelVersion: 1,
+  dataQuality: 'gameplay-approximation',
+  eligibleOrderTypes: Object.freeze(['QUICK', 'FAST']),
+  durationSeconds: 0.62,
+  presentationHeightMeters: 0.68,
+  description:
+    'Living infantry may vault fence colliders during QUICK or FAST movement; slower orders and vehicles remain blocked.'
+});
+
+export function canInfantryVaultFence(orderType) {
+  return INFANTRY_FENCE_VAULT_POLICY.eligibleOrderTypes.includes(orderType);
+}
+
 export function getInfantryMovementOrderProfile(orderType) {
   return INFANTRY_MOVEMENT_ORDER_PROFILES[orderType] ?? null;
 }

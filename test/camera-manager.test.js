@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {
+  CAMERA_HOME_DISTANCE,
+  CAMERA_UNIT_FOCUS_DISTANCE,
   CameraManager,
   getKeyboardPanOffset
 } from '../src/engine/CameraManager.js';
@@ -57,4 +59,43 @@ test('camera update moves position and target together without changing framing'
   );
   assert.ok(manager.controls.target.x < 0);
   assert.equal(updates, 1);
+});
+
+test('unit focus and home reset replace stale orbit distance and target', () => {
+  const manager = Object.create(CameraManager.prototype);
+  manager.camera = {
+    position: new THREE.Vector3(0, 210, 280)
+  };
+  let updates = 0;
+  manager.controls = {
+    target: new THREE.Vector3(0, 0, 0),
+    minDistance: 3,
+    maxDistance: 350,
+    update() { updates++; }
+  };
+  manager.homeTarget = new THREE.Vector3(25, 0, -30);
+  manager.followUnit = { id: 'previous-follow' };
+
+  const selectedPosition = new THREE.Vector3(-40, 2, 65);
+  manager.focusTarget(selectedPosition);
+
+  assert.deepEqual(manager.controls.target.toArray(), selectedPosition.toArray());
+  assert.ok(
+    Math.abs(
+      manager.camera.position.distanceTo(manager.controls.target)
+        - CAMERA_UNIT_FOCUS_DISTANCE
+    ) < 1e-9
+  );
+  assert.equal(manager.followUnit, null);
+
+  manager.resetHome();
+
+  assert.deepEqual(manager.controls.target.toArray(), manager.homeTarget.toArray());
+  assert.ok(
+    Math.abs(
+      manager.camera.position.distanceTo(manager.controls.target)
+        - CAMERA_HOME_DISTANCE
+    ) < 1e-9
+  );
+  assert.equal(updates, 2);
 });

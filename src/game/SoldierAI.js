@@ -864,6 +864,15 @@ export class SoldierAI {
     parts.rightArm.rotation.x = -0.72 + stride * gait * 0.45;
     parts.weapon.rotation.x = -0.16 + Math.abs(stride) * gait * 0.08;
 
+    if (soldier.state === 'VAULTING') {
+      parts.leftLeg.rotation.x = -0.72;
+      parts.rightLeg.rotation.x = 0.58;
+      parts.leftArm.rotation.x = -1.08;
+      parts.rightArm.rotation.x = -0.96;
+      parts.weapon.rotation.x = 0.08;
+      parts.weapon.position.set(weaponRestX - 0.02, 1.38, 0.04);
+    }
+
     // 2. State-driven Aiming Poses
     if (soldier.state === 'AIMING' || soldier.state === 'OBSERVING') {
       if (isLMG) {

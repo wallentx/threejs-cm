@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 import {
+  SOMUA_S35_COMMANDER_STATION
+} from '../../content/france1940/vehicleData/CommanderStations.js';
+import {
   SOMUA_S35_HULL_STATIONS as HULL_STATIONS,
   SOMUA_S35_TURRET_STATIONS as TURRET_STATIONS
 } from '../../game/vehicleData/SomuaS35Shape.js';
@@ -546,24 +549,38 @@ export function createSomuaS35Mesh() {
   };
   turretGroup.add(coaxMuzzle);
 
+  const cupolaData = SOMUA_S35_COMMANDER_STATION.cupola;
   const cupola = addMesh(
     turretGroup,
-    new THREE.CylinderGeometry(0.245, 0.30, 0.35, 12),
+    new THREE.CylinderGeometry(
+      cupolaData.radiusTopMeters,
+      cupolaData.radiusBottomMeters,
+      cupolaData.heightMeters,
+      12
+    ),
     darkGreen,
     'S35_ClosedObservationCupola',
-    'medium',
-    { position: [0.02, 0.875, 0] }
+    'core',
+    { position: cupolaData.centerTurretLocal }
   );
   cupola.userData.historicalState = 'original closed French cupola';
-  const hatch = addMesh(
+  cupola.userData.dataQuality = SOMUA_S35_COMMANDER_STATION.dataQuality;
+  const cupolaRoof = addMesh(
     turretGroup,
-    new THREE.CylinderGeometry(0.225, 0.225, 0.05, 12),
+    new THREE.CylinderGeometry(
+      cupolaData.roofRadiusMeters,
+      cupolaData.roofRadiusMeters,
+      cupolaData.roofThicknessMeters,
+      12
+    ),
     castOchre,
-    'S35_CupolaHatch',
-    'high',
-    { position: [0.02, 1.045, 0] }
+    'S35_ClosedCupolaRoof',
+    'core',
+    { position: cupolaData.roofCenterTurretLocal }
   );
-  hatch.userData.envelopeDatum = 'published-height-2.62m';
+  cupolaRoof.userData.envelopeDatum = 'published-height-2.62m';
+  cupolaRoof.userData.historicalState =
+    'fixed roof on original French hatchless cupola';
 
   const driverVisor = addMesh(
     root,
@@ -619,6 +636,16 @@ export function createSomuaS35Mesh() {
   root.add(proxyGroup);
   const proxyTurret = cloneProxyMesh(turret, 'S35_ProxyAPXTurret', turretGroup);
   const proxyBarrel = cloneProxyMesh(barrel, 'S35_ProxySA35Barrel', turretGroup);
+  const proxyCupola = cloneProxyMesh(
+    cupola,
+    'S35_ProxyClosedObservationCupola',
+    turretGroup
+  );
+  const proxyCupolaRoof = cloneProxyMesh(
+    cupolaRoof,
+    'S35_ProxyClosedCupolaRoof',
+    turretGroup
+  );
 
   root.userData.turret = turretGroup;
   root.userData.barrel = barrel;
@@ -627,6 +654,10 @@ export function createSomuaS35Mesh() {
   root.userData.authoredHull = hull;
   root.userData.proxyTurret = proxyTurret;
   root.userData.proxyBarrel = proxyBarrel;
+  root.userData.proxyCupola = proxyCupola;
+  root.userData.proxyCupolaRoof = proxyCupolaRoof;
+  root.userData.commanderStation = SOMUA_S35_COMMANDER_STATION;
+  root.userData.commanderHatches = [];
   root.userData.modelMetadata = {
     designation: 'SOMUA S35',
     dimensionsMeters: {

@@ -343,13 +343,13 @@ test('morale tiers grant distinct postures and automated reactions', () => {
   assert.equal(agent.moraleTier, 'TAKING_COVER');
 
   // Tier 5: PINNED
-  agent.suppression = 80;
+  agent.suppression = 85;
   squad.soldierAI.update(0.1, flatTerrain);
   assert.equal(agent.moraleTier, 'PINNED');
   assert.equal(agent.stance, 'PRONE');
 
   // Tier 6: ROUTED
-  agent.suppression = 95;
+  agent.suppression = 99;
   squad.soldierAI.update(0.1, flatTerrain);
   assert.equal(agent.moraleTier, 'ROUTED');
   assert.equal(agent.state, 'FLEEING');

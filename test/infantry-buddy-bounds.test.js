@@ -152,6 +152,7 @@ test('GameApp passes only the current direct precision-observation boolean', () 
       },
       advance() {}
     },
+    spottingStepper: new FixedStepAccumulator(STEP_SECONDS),
     infantrySeparation: null,
     buildingInteraction: {
       advance() {}
@@ -270,6 +271,7 @@ test('GameApp clears same-step observation loss before combat', () => {
         };
       }
     },
+    spottingStepper: new FixedStepAccumulator(STEP_SECONDS),
     infantrySeparation: null,
     buildingInteraction: {
       advance() {},

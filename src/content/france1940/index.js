@@ -5,6 +5,10 @@ import { FRANCE_1940_STRUCTURES } from './structures.js';
 import { FRANCE_1940_VEHICLES } from './vehicles.js';
 import { FRANCE_1940_WEAPONS } from './weapons.js';
 import { FRANCE_1940_ASSET_MANIFEST } from './assets/index.js';
+import {
+  FRANCE_1940_BATTLE_SETUP,
+  FRANCE_1940_FORCE_PACKAGES
+} from './battleSetup.js';
 
 /**
  * France 1940 owns its canonical weapon, vehicle, and structure catalogs.
@@ -30,7 +34,9 @@ export function createFrance1940Family() {
 
 export {
   FRANCE_1940_ASSET_MANIFEST,
+  FRANCE_1940_BATTLE_SETUP,
   FRANCE_1940_FACTIONS,
+  FRANCE_1940_FORCE_PACKAGES,
   FRANCE_1940_FORMATIONS,
   FRANCE_1940_PRESENTATION,
   FRANCE_1940_STRUCTURES,

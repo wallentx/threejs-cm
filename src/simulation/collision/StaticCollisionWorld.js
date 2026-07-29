@@ -411,6 +411,9 @@ export class StaticCollisionWorld {
     );
     const waypointClearance = Math.max(0, finite(options.waypointClearance));
     const ignored = new Set((options.ignoreColliderIds ?? []).map(String));
+    const traversableTypes = new Set(
+      (options.traverseColliderTypes ?? []).map(String)
+    );
     const stages = [];
     let stageStart = routeStart;
 
@@ -438,7 +441,11 @@ export class StaticCollisionWorld {
     appendDistinctPoint(stages, routeGoal);
 
     const records = [...this.colliders.values()]
-      .filter(record => blocksMover(record, moverType) && !ignored.has(record.id))
+      .filter(record => (
+        blocksMover(record, moverType)
+        && !ignored.has(record.id)
+        && !traversableTypes.has(record.type)
+      ))
       .sort((a, b) => a.id.localeCompare(b.id));
     const path = [];
     let segmentStart = routeStart;
@@ -588,11 +595,36 @@ export class StaticCollisionWorld {
     const offsets = (options.offsets?.length ? options.offsets : [{ x: 0, z: 0 }])
       .map(offset => rotateOffset(offset, rotation));
     const ignored = new Set((options.ignoreColliderIds ?? []).map(String));
-    const records = [...this.colliders.values()]
+    const traversableTypes = new Set(
+      (options.traverseColliderTypes ?? []).map(String)
+    );
+    const transientRecords = (options.transientColliders ?? [])
+      .map(normalizeRecord);
+    const blockingRecords = [
+      ...this.colliders.values(),
+      ...transientRecords
+    ]
       .filter(record => blocksMover(record, moverType) && !ignored.has(record.id))
       .sort((a, b) => a.id.localeCompare(b.id));
+    const traversalRecords = blockingRecords.filter(record =>
+      traversableTypes.has(record.type));
+    const records = blockingRecords.filter(record =>
+      !traversableTypes.has(record.type));
     const resolved = { x: finite(position.x), z: finite(position.z) };
     const contacts = [];
+    const traversedColliderIds = [];
+    for (const record of traversalRecords) {
+      const crossed = offsets.some(offset => sweepCircleAgainstRecord(
+        {
+          x: resolved.x + offset.x,
+          z: resolved.z + offset.z
+        },
+        displacement,
+        radius,
+        record
+      ));
+      if (crossed) traversedColliderIds.push(record.id);
+    }
 
     // Deterministically recover a footprint restored or deployed slightly
     // inside a static obstacle before resolving its requested motion.
@@ -660,7 +692,8 @@ export class StaticCollisionWorld {
       movedX: resolved.x - finite(position.x),
       movedZ: resolved.z - finite(position.z),
       blocked: contacts.length > 0,
-      contacts
+      contacts,
+      traversedColliderIds
     };
   }
 }

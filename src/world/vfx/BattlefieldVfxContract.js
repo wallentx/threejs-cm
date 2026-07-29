@@ -1,6 +1,7 @@
 const COMBAT_EFFECT_ROLES = Object.freeze([
   'impact',
   'explosion',
+  'muzzleFlash',
   'buildingDebris'
 ]);
 const VEHICLE_GEOMETRY_ROLES = Object.freeze([

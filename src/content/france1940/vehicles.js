@@ -6,6 +6,10 @@ import {
   createPanzerIIIDInternalLayout
 } from './vehicleData/internalLayouts/PanzerIIIDInternalLayout.js';
 import {
+  PANZER_III_D_COMMANDER_STATION,
+  SOMUA_S35_COMMANDER_STATION
+} from './vehicleData/CommanderStations.js';
+import {
   createRenaultR35InternalLayout
 } from './vehicleData/internalLayouts/RenaultR35InternalLayout.js';
 import {
@@ -237,9 +241,166 @@ function freezeCrewTaskPolicy(vehicle) {
   });
 }
 
+const VEHICLE_OBSERVATION_APPROXIMATION =
+  'gameplay approximation; role, range, field of view, and exposed-crew volume require vehicle-specific optical manual and hatch-station calibration';
+
+function stationId(role, kind) {
+  return `${String(role).toLowerCase().replaceAll('_', '-')}-${kind}`;
+}
+
+function createObservationStation(
+  role,
+  kind,
+  {
+    rangeMultiplier,
+    acquisitionTimeMultiplier,
+    horizontalFovDegrees,
+    facingFrame,
+    componentId = null
+  }
+) {
+  return {
+    id: stationId(role, kind),
+    kind,
+    roles: [role],
+    rangeMultiplier,
+    acquisitionTimeMultiplier,
+    horizontalFovDegrees,
+    facingFrame,
+    directionOffsetRadians: 0,
+    componentId,
+    dataQuality: VEHICLE_OBSERVATION_APPROXIMATION
+  };
+}
+
+function defaultObservationStations(vehicle, hasNominalArmor) {
+  if (!hasNominalArmor) {
+    return vehicle.crew.map(crewman =>
+      createObservationStation(crewman.role, 'OPEN_STATION', {
+        rangeMultiplier: 1,
+        acquisitionTimeMultiplier: 1,
+        horizontalFovDegrees: 210,
+        facingFrame: 'hull'
+      }));
+  }
+
+  const stations = [];
+  const roles = new Set();
+  for (const role of vehicle.driverRoles ?? ['DRIVER']) {
+    roles.add(`${role}:VISION_SLOT`);
+    stations.push(createObservationStation(role, 'VISION_SLOT', {
+      rangeMultiplier: 0.84,
+      acquisitionTimeMultiplier: 1.2,
+      horizontalFovDegrees: 62,
+      facingFrame: 'hull'
+    }));
+  }
+  for (const role of vehicle.gunnerRoles ?? []) {
+    if (!roles.has(`${role}:VISION_SLOT`)) {
+      roles.add(`${role}:VISION_SLOT`);
+      stations.push(createObservationStation(role, 'VISION_SLOT', {
+        rangeMultiplier: 0.92,
+        acquisitionTimeMultiplier: 1.08,
+        horizontalFovDegrees: 96,
+        facingFrame: vehicle.mainGun ? 'turret' : 'hull'
+      }));
+    }
+    stations.push(createObservationStation(role, 'GUN_SIGHT', {
+      rangeMultiplier: 1.32,
+      acquisitionTimeMultiplier: 0.74,
+      horizontalFovDegrees: 24,
+      facingFrame: vehicle.mainGun ? 'turret' : 'hull',
+      componentId: 'optics'
+    }));
+  }
+  for (const role of vehicle.observationEquipment?.binocularRoles ?? []) {
+    if (roles.has(`${role}:VISION_SLOT`)) continue;
+    roles.add(`${role}:VISION_SLOT`);
+    stations.push(createObservationStation(role, 'CUPOLA_VISION', {
+      rangeMultiplier: 1,
+      acquisitionTimeMultiplier: 0.95,
+      horizontalFovDegrees: 118,
+      facingFrame: vehicle.mainGun ? 'turret' : 'hull'
+    }));
+  }
+  return stations;
+}
+
+function deriveUnbuttonedCommander(vehicle, internalLayout, hasNominalArmor) {
+  const role = vehicle.observationEquipment?.binocularRoles?.[0];
+  if (!hasNominalArmor || !role || !vehicle.mainGun) return null;
+  const volume = internalLayout?.volumes?.find(candidate =>
+    candidate.kind === 'crew'
+    && candidate.crewRoles?.includes(role)
+  );
+  if (!volume) return null;
+  return {
+    id: 'exposed-commander',
+    role,
+    center: [
+      volume.center[0],
+      vehicle.dimensionsMeters.height + 0.08,
+      volume.center[2]
+    ],
+    offset: [
+      volume.offset?.[0] ?? 0,
+      0,
+      volume.offset?.[2] ?? 0
+    ],
+    halfExtents: [0.24, 0.32, 0.20],
+    followsTurret: Boolean(volume.followsTurret),
+    capability: {
+      id: `${stationId(role, 'unbuttoned-binoculars')}`,
+      rangeMultiplier: 1.55,
+      acquisitionTimeMultiplier: 0.56,
+      horizontalFovDegrees: 46
+    },
+    dataQuality: VEHICLE_OBSERVATION_APPROXIMATION,
+    referenceUrl: vehicle.dataQuality?.referenceUrl ?? null
+  };
+}
+
+function freezeObservationEquipment(
+  vehicle,
+  internalLayout,
+  hasNominalArmor
+) {
+  const source = vehicle.observationEquipment ?? {};
+  const stations = source.stations
+    ?? defaultObservationStations(vehicle, hasNominalArmor);
+  const unbuttonedCommander = Object.hasOwn(source, 'unbuttonedCommander')
+    ? source.unbuttonedCommander
+    : deriveUnbuttonedCommander(vehicle, internalLayout, hasNominalArmor);
+  return Object.freeze({
+    ...source,
+    binocularRoles: Object.freeze([...(source.binocularRoles ?? [])]),
+    stations: Object.freeze(stations.map(station => Object.freeze({
+      ...station,
+      roles: Object.freeze([...station.roles])
+    }))),
+    unbuttonedCommander: unbuttonedCommander
+      ? Object.freeze({
+          ...unbuttonedCommander,
+          center: Object.freeze([...unbuttonedCommander.center]),
+          offset: Object.freeze([...unbuttonedCommander.offset]),
+          presentationOffset: Object.freeze([
+            ...(unbuttonedCommander.presentationOffset ?? [0, 0, 0])
+          ]),
+          halfExtents: Object.freeze([...unbuttonedCommander.halfExtents]),
+          capability: Object.freeze({
+            ...unbuttonedCommander.capability
+          })
+        })
+      : null,
+    dataQuality: source.dataQuality
+      ?? VEHICLE_OBSERVATION_APPROXIMATION
+  });
+}
+
 function freezeVehicle(vehicle) {
   const hasNominalArmor = Object.values(vehicle.armorMm ?? {})
     .some(value => Number(value) > 0);
+  const internalLayout = freezeInternalLayout(vehicle);
   const derivedExplosiveProtection = {
     class: hasNominalArmor ? 'armored_enclosed' : 'unarmored_enclosed',
     dataQuality: hasNominalArmor
@@ -264,7 +425,7 @@ function freezeVehicle(vehicle) {
       ...(vehicle.explosiveProtection ?? {})
     }),
     armorCollision: freezeArmorCollision(vehicle),
-    internalLayout: freezeInternalLayout(vehicle),
+    internalLayout,
     zoneCrew: freezeZones(vehicle.zoneCrew),
     weaponMounts: freezeMounts(
       vehicle.weaponMounts
@@ -278,12 +439,11 @@ function freezeVehicle(vehicle) {
       ...(vehicle.communications ?? {}),
       operatorRoles: Object.freeze([...(vehicle.communications?.operatorRoles ?? [])])
     }),
-    observationEquipment: Object.freeze({
-      binocularRoles: Object.freeze([]),
-      dataQuality: 'gameplay approximation',
-      ...(vehicle.observationEquipment ?? {}),
-      binocularRoles: Object.freeze([...(vehicle.observationEquipment?.binocularRoles ?? [])])
-    }),
+    observationEquipment: freezeObservationEquipment(
+      vehicle,
+      internalLayout,
+      hasNominalArmor
+    ),
     dataQuality: Object.freeze({ ...vehicle.dataQuality })
   });
 }
@@ -325,8 +485,9 @@ const communications = (radioInstalled, operatorRoles, dataQuality) => ({
   operatorRoles,
   dataQuality
 });
-const observationEquipment = binocularRoles => ({
+const observationEquipment = (binocularRoles, overrides = {}) => ({
   binocularRoles,
+  ...overrides,
   dataQuality: 'role-based gameplay approximation; no optical precision is asserted'
 });
 
@@ -438,7 +599,11 @@ export const FRANCE_1940_VEHICLES = Object.freeze({
     ],
     communications: communications(true, ['RADIO_OPERATOR'],
       'historical radio/operator configuration; command-net membership is scenario data'),
-    observationEquipment: observationEquipment(['COMMANDER_GUNNER']),
+    observationEquipment: observationEquipment(['COMMANDER_GUNNER'], {
+      unbuttonedCommander: null,
+      unbuttonedPostureDataQuality: SOMUA_S35_COMMANDER_STATION.dataQuality,
+      unbuttonedPostureReferenceUrl: SOMUA_S35_COMMANDER_STATION.referenceUrl
+    }),
     gunnerRoles: ['COMMANDER_GUNNER'],
     loaderRoles: ['COMMANDER_GUNNER'],
     mainGun: { ap: 'SA35_AP', he: 'SA35_HE' },
@@ -745,7 +910,9 @@ export const FRANCE_1940_VEHICLES = Object.freeze({
     ],
     communications: communications(true, ['RADIO_OPERATOR'],
       'historical radio/operator configuration; command-net membership is scenario data'),
-    observationEquipment: observationEquipment(['COMMANDER']),
+    observationEquipment: observationEquipment(['COMMANDER'], {
+      unbuttonedCommander: PANZER_III_D_COMMANDER_STATION.exposure
+    }),
     gunnerRoles: ['GUNNER'],
     loaderRoles: ['LOADER'],
     crewTaskPolicy: {
