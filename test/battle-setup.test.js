@@ -7,9 +7,13 @@ import {
 import { STONNE_1940_MAP } from '../src/maps/france/stonne.js';
 import {
   BATTLE_SETUP_AI_LEVELS,
+  INFANTRY_SEPARATION_MAX_CANDIDATES,
+  countForceLivingInfantry,
+  createBattleSetupValidationPort,
   createConfiguredBattleScenario,
   resolveBattleForce,
-  validateBattleSetupCatalog
+  validateBattleSetupCatalog,
+  validateRosterSeparationCapacity
 } from '../src/scenario/BattleSetup.js';
 import { createFamilyRegistry } from '../src/scenario/FamilyRegistry.js';
 import {
@@ -279,4 +283,139 @@ test('initial setup header stays neutral and omits the numbered step bubbles', (
   assert.doesNotMatch(markup, /class="setup-matchup"/);
   assert.doesNotMatch(markup, /class="setup-steps"/);
   assert.doesNotMatch(markup, /🇫🇷 French\s*<\/span>\s*<b>VS<\/b>/);
+});
+
+test('battle setup validates expanded living infantry separation capacity boundary', () => {
+  const frenchCount = countForceLivingInfantry(catalog, family, 'french', packageSelection('french'));
+  const germanCount = countForceLivingInfantry(catalog, family, 'german', packageSelection('german'));
+
+  assert.equal(frenchCount, 19); // 1 HQ (3) + 2 squads (12) + 1 mortar (4) = 19
+  assert.equal(germanCount, 15); // 1 HQ (3) + 2 squads (12) = 15
+
+  // Package selections count their fully expanded individual formations.
+  const valid = validateRosterSeparationCapacity({
+    catalog,
+    family,
+    playerFactionId: 'french',
+    playerForceSelection: packageSelection('french'),
+    enemyFactionId: 'german',
+    enemyForceSelection: packageSelection('german')
+  });
+  assert.equal(valid.totalInfantry, 34);
+
+  const repeatedPackageCatalog = {
+    ...catalog,
+    forcePackages: {
+      ...catalog.forcePackages,
+      'fr-repeated-squads': {
+        id: 'fr-repeated-squads',
+        factionId: 'french',
+        name: 'Repeated squad package',
+        entries: [
+          {
+            optionId: 'formation:FRENCH_CHASSEURS_PORTES_SQUAD',
+            count: 9
+          },
+          {
+            optionId: 'formation:FRENCH_CHASSEURS_PORTES_SQUAD',
+            count: 11
+          }
+        ]
+      }
+    }
+  };
+  assert.equal(
+    countForceLivingInfantry(
+      repeatedPackageCatalog,
+      family,
+      'french',
+      { mode: 'package', packageId: 'fr-repeated-squads' }
+    ),
+    120,
+    'repeated package entries aggregate before individual expansion'
+  );
+
+  // French custom force: 20 squads + 6 HQs + 1 mortar = 142.
+  // German custom force: 19 squads = 114. Total = exact 256 boundary.
+  const boundaryPlayer = {
+    mode: 'custom',
+    counts: {
+      'formation:FRENCH_CHASSEURS_PORTES_SQUAD': 20,
+      'formation:FRENCH_CHASSEURS_PORTES_PLATOON_HQ': 6,
+      'formation:FRENCH_BRANDT_MLE1935_60MM_TEAM': 1
+    }
+  };
+  const boundaryEnemy = {
+    mode: 'custom',
+    counts: {
+      'formation:GERMAN_GRENADIER_SQUAD_1940': 19
+    }
+  };
+
+  const exactScenario = createScenario({
+    playerForceSelection: boundaryPlayer,
+    enemyForceSelection: boundaryEnemy
+  });
+  assert.equal(
+    exactScenario.units
+      .filter(unit => unit.type === 'infantry_squad')
+      .reduce(
+        (total, unit) => total + family.formations[unit.formationId].members.length,
+        0
+      ),
+    INFANTRY_SEPARATION_MAX_CANDIDATES
+  );
+
+  // One extra French mortar member makes the real scenario request exactly 257.
+  const overLimitPlayer = {
+    mode: 'custom',
+    counts: {
+      'formation:FRENCH_CHASSEURS_PORTES_SQUAD': 20,
+      'formation:FRENCH_CHASSEURS_PORTES_PLATOON_HQ': 5,
+      'formation:FRENCH_BRANDT_MLE1935_60MM_TEAM': 2
+    }
+  };
+
+  assert.throws(
+    () => createConfiguredBattleScenario({
+      mapDescriptor: null,
+      family,
+      catalog,
+      playerFactionId: 'french',
+      enemyFactionId: 'german',
+      playerForceSelection: overLimitPlayer,
+      enemyForceSelection: boundaryEnemy,
+      enemyAiDifficulty: 'regular'
+    }),
+    err => {
+      assert.ok(err instanceof RangeError);
+      assert.match(err.message, /enemy german option formation:GERMAN_GRENADIER_SQUAD_1940/);
+      assert.match(err.message, /contributes 114 living infantry/);
+      assert.match(err.message, /19 selected formation\(s\)/);
+      assert.match(err.message, /cumulative count 257/);
+      assert.match(err.message, /separation limit 256/);
+      return true;
+    }
+  );
+
+  const validateSetup = createBattleSetupValidationPort({ catalog, family });
+  assert.throws(
+    () => validateSetup({
+      playerFactionId: 'german',
+      playerForceSelection: {
+        mode: 'custom',
+        counts: { 'formation:GERMAN_GRENADIER_SQUAD_1940': 20 }
+      },
+      enemyFactionId: 'french',
+      enemyForceSelection: {
+        mode: 'custom',
+        counts: {
+          'formation:FRENCH_CHASSEURS_PORTES_PLATOON_HQ': 3,
+          'formation:FRENCH_CHASSEURS_PORTES_SQUAD': 20,
+          'formation:FRENCH_BRANDT_MLE1935_60MM_TEAM': 2
+        }
+      }
+    }),
+    /enemy french option formation:FRENCH_BRANDT_MLE1935_60MM_TEAM.*contributes 8 living infantry.*2 selected formation\(s\).*cumulative count 257.*separation limit 256/
+  );
 });

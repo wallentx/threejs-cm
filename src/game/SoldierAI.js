@@ -33,6 +33,19 @@ import {
 import {
   classifyIndividualMorale
 } from '../simulation/infantry/InfantrySuppression.js';
+import {
+  canParticipateInInfantryFireMovement,
+  evaluateInfantryFireMovementOrder,
+  planHaltedHuntMoverGoal
+} from '../simulation/infantry/InfantryFireMovement.js';
+import {
+  INFANTRY_BUDDY_BOUND_MODEL
+} from '../simulation/infantry/InfantryBuddyBounds.js';
+import {
+  appendProcessedCasualtyEvent,
+  evaluateInfantryCasualtyReaction,
+  INFANTRY_CASUALTY_REACTION_POLICY
+} from '../simulation/infantry/InfantryCasualtyReaction.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const scratchGoal = new THREE.Vector3();
@@ -57,6 +70,20 @@ function copySoldier(soldier) {
     worldPosition: [...soldier.worldPosition],
     velocity: [...soldier.velocity],
     slotOffset: [...soldier.slotOffset],
+    processedCasualtyEvents: Array.isArray(soldier.processedCasualtyEvents)
+      ? soldier.processedCasualtyEvents.slice(
+          -INFANTRY_CASUALTY_REACTION_POLICY.maxProcessedCasualtyEvents
+        )
+      : [],
+    lastCasualtyState: soldier.lastCasualtyState ?? 'OK',
+    casualtyEventEvidence: soldier.casualtyEventEvidence
+      ? {
+          ...soldier.casualtyEventEvidence,
+          position: Array.isArray(soldier.casualtyEventEvidence.position)
+            ? [...soldier.casualtyEventEvidence.position]
+            : null
+        }
+      : null,
     incomingThreatPosition: soldier.incomingThreatPosition
       ? [...soldier.incomingThreatPosition]
       : null,
@@ -106,6 +133,154 @@ function copySoldier(soldier) {
   }
   delete copy.dangerMapState;
   return copy;
+}
+
+function stableIdCompare(left, right) {
+  const leftKey = String(left);
+  const rightKey = String(right);
+  if (leftKey < rightKey) return -1;
+  if (leftKey > rightKey) return 1;
+  return 0;
+}
+
+function isCasualtyEventEvidence(event) {
+  return Boolean(
+    event
+    && ((typeof event.eventId === 'string' && event.eventId.length > 0)
+      || (typeof event.eventId === 'number' && Number.isFinite(event.eventId)))
+    && ((typeof event.unitId === 'string' && event.unitId.length > 0)
+      || (typeof event.unitId === 'number' && Number.isFinite(event.unitId)))
+    && ((typeof event.casualtyId === 'string' && event.casualtyId.length > 0)
+      || (typeof event.casualtyId === 'number' && Number.isFinite(event.casualtyId)))
+    && Array.isArray(event.position)
+    && event.position.length >= 3
+    && event.position.slice(0, 3).every(Number.isFinite)
+  );
+}
+
+function casualtyState(agent) {
+  if (!agent.isAlive || agent.status === 'KIA' || agent.status === 'DEAD') {
+    return 'KIA';
+  }
+  if (agent.status === 'INCAPACITATED') return 'INCAPACITATED';
+  if (agent.status === 'WOUNDED') return 'WOUNDED';
+  return 'OK';
+}
+
+function obstacleVerticalBounds(obstacle, terrain) {
+  const centerX = Number.isFinite(obstacle.centerX)
+    ? obstacle.centerX
+    : Number.isFinite(obstacle.x)
+      ? obstacle.x
+      : ((obstacle.minX ?? 0) + (obstacle.maxX ?? 0)) * 0.5;
+  const centerZ = Number.isFinite(obstacle.centerZ)
+    ? obstacle.centerZ
+    : Number.isFinite(obstacle.z)
+      ? obstacle.z
+      : ((obstacle.minZ ?? 0) + (obstacle.maxZ ?? 0)) * 0.5;
+  const groundY = typeof terrain?.getHeightAt === 'function'
+    ? terrain.getHeightAt(centerX, centerZ)
+    : 0;
+  const minY = Number.isFinite(obstacle.minY) ? obstacle.minY : groundY;
+  const maxY = Number.isFinite(obstacle.maxY)
+    ? obstacle.maxY
+    : minY + Math.max(0, Number(obstacle.height) || 2);
+  return [minY, maxY];
+}
+
+function segmentIntersectsObstacle3D(start, end, obstacle, terrain) {
+  const minX = Number.isFinite(obstacle.minX)
+    ? obstacle.minX
+    : ((obstacle.centerX ?? obstacle.x ?? 0)
+      - (obstacle.halfX ?? (obstacle.width ?? 1) * 0.5));
+  const maxX = Number.isFinite(obstacle.maxX)
+    ? obstacle.maxX
+    : ((obstacle.centerX ?? obstacle.x ?? 0)
+      + (obstacle.halfX ?? (obstacle.width ?? 1) * 0.5));
+  const minZ = Number.isFinite(obstacle.minZ)
+    ? obstacle.minZ
+    : ((obstacle.centerZ ?? obstacle.z ?? 0)
+      - (obstacle.halfZ ?? (obstacle.depth ?? 1) * 0.5));
+  const maxZ = Number.isFinite(obstacle.maxZ)
+    ? obstacle.maxZ
+    : ((obstacle.centerZ ?? obstacle.z ?? 0)
+      + (obstacle.halfZ ?? (obstacle.depth ?? 1) * 0.5));
+  const [minY, maxY] = obstacleVerticalBounds(obstacle, terrain);
+
+  let t0 = 0;
+  let t1 = 1;
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const dz = end.z - start.z;
+
+  const p = [-dx, dx, -dy, dy, -dz, dz];
+  const q = [
+    start.x - minX,
+    maxX - start.x,
+    start.y - minY,
+    maxY - start.y,
+    start.z - minZ,
+    maxZ - start.z
+  ];
+
+  for (let i = 0; i < 6; i++) {
+    if (p[i] === 0) {
+      if (q[i] < 0) return false;
+    } else {
+      const r = q[i] / p[i];
+      if (p[i] < 0) {
+        if (r > t1) return false;
+        if (r > t0) t0 = r;
+      } else {
+        if (r < t0) return false;
+        if (r < t1) t1 = r;
+      }
+    }
+  }
+  return t0 <= t1;
+}
+
+function checkCasualtyLOS(observerPos, casualtyPos, terrain) {
+  const start = {
+    x: observerPos.x ?? observerPos[0],
+    y: (observerPos.y ?? observerPos[1] ?? 0) + 1.45,
+    z: observerPos.z ?? observerPos[2] ?? observerPos[1]
+  };
+  const end = {
+    x: casualtyPos.x ?? casualtyPos[0],
+    y: (casualtyPos.y ?? casualtyPos[1] ?? 0) + 0.9,
+    z: casualtyPos.z ?? casualtyPos[2] ?? casualtyPos[1]
+  };
+  if (![start.x, start.y, start.z, end.x, end.y, end.z].every(Number.isFinite)) {
+    return false;
+  }
+
+  let obstacles;
+  if (typeof terrain?.getSightOccluderSnapshot === 'function') {
+    const snapshot = terrain.getSightOccluderSnapshot();
+    if (!snapshot || !Number.isSafeInteger(snapshot.revision)
+        || !Array.isArray(snapshot.records)) return false;
+    obstacles = snapshot.records;
+  } else {
+    obstacles = terrain?.bocageObstacles ?? [];
+  }
+  for (const obstacle of obstacles) {
+    if (obstacle?.occludesSight === false) continue;
+    if (segmentIntersectsObstacle3D(start, end, obstacle, terrain)) return false;
+  }
+
+  if (typeof terrain?.getHeightAt === 'function') {
+    const distance = Math.hypot(end.x - start.x, end.z - start.z);
+    const samples = Math.floor(distance / 2);
+    for (let sample = 1; sample < samples; sample++) {
+      const t = sample / samples;
+      const x = start.x + (end.x - start.x) * t;
+      const z = start.z + (end.z - start.z) * t;
+      const sightY = start.y + (end.y - start.y) * t;
+      if (terrain.getHeightAt(x, z) >= sightY) return false;
+    }
+  }
+  return true;
 }
 
 function readPosition(value, target) {
@@ -165,27 +340,6 @@ function canReactToThreat(agent) {
     && !['INCAPACITATED', 'DEAD', 'SURRENDERED'].includes(agent.status)
     && agent.state !== 'SURRENDERED'
   );
-}
-
-function canParticipateInBuddyBounds(agent, unit, livingCount) {
-  const buildingPhase = agent.buildingLocation?.phase ?? null;
-  return Boolean(
-    canReactToThreat(agent)
-    && (
-      !buildingPhase
-      || ['outside', 'approaching'].includes(buildingPhase)
-    )
-  )
-    && agent.reloadTimer <= 0
-    && agent.magazineAmmo > 0
-    && agent.suppression < 35
-    && !['PINNED', 'ROUTED'].includes(agent.moraleTier)
-    && !['Pinned', 'Broken'].includes(unit.morale)
-    && agent.threatMemory.size === 0
-    && (agent.record.incomingFireTimer ?? 0) <= 0
-    && (agent.record.casualtyResponseTimer ?? 0) <= 0
-    && agent.suppression - (agent.record.lastSuppression ?? agent.suppression) < 4
-    && livingCount >= (agent.record.knownLivingCount ?? livingCount);
 }
 
 function hasStableUnitId(unit) {
@@ -373,9 +527,6 @@ export class SoldierAI {
 
   initialize() {
     const meshes = this.unit.mesh?.userData.soldiers ?? [];
-    const livingCount = this.unit.roster.filter(soldier =>
-      (soldier.health ?? 100) > 0 && soldier.status !== 'KIA'
-    ).length;
     this.unit.roster.forEach((soldier, index) => {
       const mesh = meshes[index];
       const slotOffset = mesh?.userData.slotOffset ?? this.getFormationOffset(index, 'QUICK').toArray();
@@ -385,12 +536,39 @@ export class SoldierAI {
         .add(this.unit.position);
 
       const variation = hash01(`${this.unit.id}:${soldier.id}`);
+      const initialStatus = soldier.status ?? 'OK';
+      const initialHealth = soldier.health ?? 100;
+      const initialCasualtyState = (initialHealth <= 0 || initialStatus === 'KIA' || initialStatus === 'DEAD')
+        ? 'KIA'
+        : (initialStatus === 'INCAPACITATED')
+          ? 'INCAPACITATED'
+          : (initialStatus === 'WOUNDED')
+            ? 'WOUNDED'
+            : 'OK';
+
       Object.assign(soldier, {
         role: soldier.role ?? this.getRole(soldier.weapon),
         health: soldier.health ?? 100,
         suppression: soldier.suppression ?? 0,
         stance: soldier.stance ?? 'STANDING',
         state: soldier.state ?? 'READY',
+        lastCasualtyState: soldier.lastCasualtyState ?? initialCasualtyState,
+        casualtyEventVersion: Number.isSafeInteger(soldier.casualtyEventVersion)
+          ? Math.max(0, soldier.casualtyEventVersion)
+          : 0,
+        casualtyEventEvidence: soldier.casualtyEventEvidence
+          ? {
+              ...soldier.casualtyEventEvidence,
+              position: Array.isArray(soldier.casualtyEventEvidence.position)
+                ? [...soldier.casualtyEventEvidence.position]
+                : null
+            }
+          : null,
+        processedCasualtyEvents: Array.isArray(soldier.processedCasualtyEvents)
+          ? soldier.processedCasualtyEvents.slice(
+              -INFANTRY_CASUALTY_REACTION_POLICY.maxProcessedCasualtyEvents
+            )
+          : [],
         worldPosition: soldier.worldPosition ?? scratchPosition.toArray(),
         velocity: soldier.velocity ?? [0, 0, 0],
         facing: soldier.facing ?? this.unit.rotation,
@@ -412,7 +590,19 @@ export class SoldierAI {
           ? [...soldier.incomingImpactPosition]
           : null,
         casualtyResponseTimer: soldier.casualtyResponseTimer ?? 0,
-        knownLivingCount: soldier.knownLivingCount ?? livingCount,
+        casualtyResponseTicksRemaining: Number.isSafeInteger(
+          soldier.casualtyResponseTicksRemaining
+        )
+          ? Math.max(0, soldier.casualtyResponseTicksRemaining)
+          : Math.max(0, Math.round(
+              (soldier.casualtyResponseTimer ?? 0)
+              * INFANTRY_CASUALTY_REACTION_POLICY.timerTicksPerSecond
+            )),
+        casualtyResponseTickRemainder: Number.isFinite(
+          soldier.casualtyResponseTickRemainder
+        )
+          ? Math.max(0, Math.min(1, soldier.casualtyResponseTickRemainder))
+          : 0,
         lastSuppression: soldier.lastSuppression ?? soldier.suppression ?? 0,
         tacticalDecision: soldier.tacticalDecision ?? {
           reason: 'formation',
@@ -531,6 +721,47 @@ export class SoldierAI {
     return 1 - progress * (1 - blockedRouteCrawlScale);
   }
 
+  recordCasualtyTransitions() {
+    const victims = [...this.agents]
+      .sort((left, right) => stableIdCompare(left.id, right.id));
+    for (const victim of victims) {
+      const currentState = casualtyState(victim);
+      const previousState = victim.record.lastCasualtyState ?? 'OK';
+      if (currentState === previousState) continue;
+      victim.record.lastCasualtyState = currentState;
+      if (currentState === 'OK') continue;
+
+      const version = Math.max(
+        0,
+        Number.isSafeInteger(victim.record.casualtyEventVersion)
+          ? victim.record.casualtyEventVersion
+          : 0
+      ) + 1;
+      if (!Number.isSafeInteger(version)) {
+        throw new RangeError(`casualty event version exhausted for ${victim.id}`);
+      }
+      const eventId = `casualty:${this.unit.id}:${victim.id}:v${version}:${currentState}`;
+      const evidence = {
+        eventId,
+        unitId: this.unit.id,
+        casualtyId: victim.id,
+        version,
+        state: currentState,
+        position: [victim.position.x, victim.position.y, victim.position.z]
+      };
+      victim.record.casualtyEventVersion = version;
+      victim.record.casualtyEventEvidence = evidence;
+      this.dangerMap.recordCasualty({
+        sourceId: eventId,
+        casualtyPosition: [victim.position.x, victim.position.z],
+        radiusMeters: 10,
+        intensity: 0.8,
+        confidence: 1.0,
+        lifetimeTicks: 20
+      });
+    }
+  }
+
   update(delta, terrain, context = {}) {
     const { anchorMoving = false, orderType = 'QUICK' } = context;
     const dt = Math.max(0, Number.isFinite(delta) ? delta : 0);
@@ -574,27 +805,15 @@ export class SoldierAI {
       ) < 0.8
     );
     const currentOrderType = activeWaypoint?.orderType ?? orderType;
-    const explicitAssault = Boolean(
-      activeWaypoint
-      && activeWaypoint.orderType === 'ASSAULT'
-      && (orderType === 'ASSAULT' || currentOrderType === 'ASSAULT')
-    );
-    const explicitHunt = Boolean(
-      activeWaypoint
-      && activeWaypoint.orderType === 'HUNT'
-      && (orderType === 'HUNT' || currentOrderType === 'HUNT')
-    );
-    const knownTargetQuick = Boolean(
-      activeWaypoint
-      && activeWaypoint.orderType === 'QUICK'
-      && (orderType === 'QUICK' || currentOrderType === 'QUICK')
-      && hasValidRetainedDirectTarget(this.unit)
-      && context.hasDirectPrecisionObservation === true
-    );
-    const coordinatorActive = Boolean(
-      (explicitAssault || explicitHunt || knownTargetQuick)
-      && !isBuildingTransitActive(this.agents)
-    );
+    const fireMovement = evaluateInfantryFireMovementOrder({
+      waypointOrderType: activeWaypoint?.orderType ?? null,
+      requestedOrderType: currentOrderType,
+      hasValidDirectTarget: hasValidRetainedDirectTarget(this.unit),
+      hasDirectPrecisionObservation:
+        context.hasDirectPrecisionObservation === true,
+      buildingTransitActive: isBuildingTransitActive(this.agents),
+      nearFinalWaypoint
+    });
     const waypointKey = activeWaypoint
       ? [
           waypointIndex,
@@ -604,14 +823,30 @@ export class SoldierAI {
           activeWaypoint.position.z
         ].join(':')
       : null;
-    const boundMembers = coordinatorActive
+    const boundMembers = fireMovement.active
       ? this.agents
           .map((agent, index) => ({
             agent,
             goal: this.formationGoals[index]
           }))
           .filter(({ agent }) =>
-            canParticipateInBuddyBounds(agent, this.unit, livingCount))
+            canParticipateInInfantryFireMovement({
+              alive: agent.isAlive,
+              status: agent.status,
+              state: agent.state,
+              buildingPhase: agent.buildingLocation?.phase ?? null,
+              reloadSeconds: agent.reloadTimer,
+              magazineAmmo: agent.magazineAmmo,
+              suppression: agent.suppression,
+              moraleTier: agent.moraleTier,
+              unitMorale: this.unit.morale,
+              incomingFireSeconds: agent.record.incomingFireTimer,
+              casualtyResponseSeconds:
+                agent.record.casualtyResponseTimer,
+              suppressionDelta:
+                agent.suppression
+                - (agent.record.lastSuppression ?? agent.suppression)
+            }))
           .map(({ agent, goal }) => ({
             id: agent.id,
             x: agent.position.x,
@@ -621,11 +856,21 @@ export class SoldierAI {
           }))
       : [];
     const boundDirectives = this.unit.infantryBuddyBounds?.update({
-      active: coordinatorActive,
-      reform: nearFinalWaypoint,
+      active: fireMovement.active,
+      reform: fireMovement.reform,
       waypointKey,
       members: boundMembers
     }) ?? new Map();
+    const haltedHuntPairs = (
+      context.haltAnchorMovement === true
+      && currentOrderType === 'HUNT'
+      && fireMovement.active
+    )
+      ? new Map(
+          (this.unit.infantryBuddyBounds?.captureState().pairs ?? [])
+            .map(pair => [pair.pairId, pair])
+        )
+      : null;
 
     if (hasValidRetainedDirectTarget(this.unit) && context.hasDirectPrecisionObservation === true) {
       const target = this.unit.targetUnit;
@@ -636,6 +881,12 @@ export class SoldierAI {
         lifetimeTicks: 15
       });
     }
+
+    this.recordCasualtyTransitions();
+    const casualtyEvents = [...this.agents]
+      .sort((left, right) => stableIdCompare(left.id, right.id))
+      .map(victim => victim.record.casualtyEventEvidence)
+      .filter(isCasualtyEventEvidence);
 
     for (let index = 0; index < this.agents.length; index++) {
       const agent = this.agents[index];
@@ -653,32 +904,97 @@ export class SoldierAI {
 
       soldier.incomingFireTimer = Math.max(0, (soldier.incomingFireTimer ?? 0) - dt);
       if (soldier.incomingFireTimer === 0) soldier.incomingFireIntensity = 0;
-      soldier.casualtyResponseTimer = Math.max(0, (soldier.casualtyResponseTimer ?? 0) - dt);
       const suppressionIncrease = agent.suppression - (soldier.lastSuppression ?? agent.suppression);
       if (suppressionIncrease >= 4) soldier.incomingFireTimer = Math.max(soldier.incomingFireTimer, 2.4);
 
+      if (!Array.isArray(soldier.processedCasualtyEvents)) {
+        soldier.processedCasualtyEvents = [];
+      }
+
       let casualtyProximityResponse = false;
       let minCasualtyDist = Infinity;
-      const casualtyOccurred = livingCount < (soldier.knownLivingCount ?? livingCount);
-      if (casualtyOccurred || soldier.casualtyResponseTimer > 0) {
-        const casualties = this.agents.filter(a =>
-          !a.isAlive
-          || ['WOUNDED', 'KIA', 'INCAPACITATED'].includes(a.status)
-        );
-        for (const c of casualties) {
-          const dist = agent.position.distanceTo(c.position);
-          if (dist < minCasualtyDist) minCasualtyDist = dist;
-        }
-        if (casualtyOccurred) {
-          soldier.casualtyResponseTimer = Math.max(soldier.casualtyResponseTimer, 4.5);
-          if (minCasualtyDist <= 18) {
+      let casualtyShock = 0;
+      let newCasualtyReaction = false;
+      const responseActiveAtStepStart =
+        (soldier.casualtyResponseTicksRemaining ?? 0) > 0;
+      const suppressionBeforeCasualtyReaction = agent.suppression;
+
+      for (const cEvent of casualtyEvents) {
+        const alreadyProcessed = soldier.processedCasualtyEvents.includes(cEvent.eventId);
+        const isDead = !agent.isAlive || agent.status === 'KIA' || agent.status === 'DEAD';
+        const isIncapped = agent.status === 'INCAPACITATED';
+        const isSurrendered = agent.status === 'SURRENDERED' || agent.state === 'SURRENDERED';
+        const hasLOS = checkCasualtyLOS(agent.position, cEvent.position, terrain);
+        const reactionInput = {
+          soldierId: agent.id,
+          casualtyId: cEvent.casualtyId,
+          eventId: cEvent.eventId,
+          observerPosition: [agent.position.x, agent.position.z],
+          casualtyPosition: [cEvent.position[0], cEvent.position[2]],
+          available: agent.isAlive && !isBuildingTransitActive([agent]),
+          living: !isDead,
+          incapacitated: isIncapped,
+          surrendered: isSurrendered,
+          sameUnit: cEvent.unitId === this.unit.id,
+          awareOfCasualty: hasLOS,
+          hasLOS,
+          alreadyProcessed
+        };
+        const reaction = evaluateInfantryCasualtyReaction(reactionInput);
+        if (reaction.active) {
+          soldier.processedCasualtyEvents = appendProcessedCasualtyEvent(
+            soldier.processedCasualtyEvents,
+            cEvent.eventId
+          );
+          casualtyShock += reaction.shock;
+          soldier.casualtyResponseTicksRemaining = Math.max(
+            soldier.casualtyResponseTicksRemaining ?? 0,
+            Math.round(
+              reaction.timerSeconds
+              * INFANTRY_CASUALTY_REACTION_POLICY.timerTicksPerSecond
+            )
+          );
+          newCasualtyReaction = true;
+          casualtyProximityResponse = true;
+          minCasualtyDist = Math.min(minCasualtyDist, reaction.distanceMeters);
+        } else if (reaction.reason === 'already-processed') {
+          const dist = Math.hypot(
+            agent.position.x - cEvent.position[0],
+            agent.position.z - cEvent.position[2]
+          );
+          if (dist <= INFANTRY_CASUALTY_REACTION_POLICY.maximumDistanceMeters
+              && (soldier.casualtyResponseTicksRemaining ?? 0) > 0) {
             casualtyProximityResponse = true;
-            agent.suppression = Math.min(100, agent.suppression + Math.max(12, 28 - minCasualtyDist));
-            this.unit.applySuppression?.(15);
+            minCasualtyDist = Math.min(minCasualtyDist, dist);
           }
         }
       }
-
+      if ((soldier.casualtyResponseTicksRemaining ?? 0) > 0) {
+        const priorRemainder = newCasualtyReaction && !responseActiveAtStepStart
+          ? 0
+          : Math.max(0, soldier.casualtyResponseTickRemainder ?? 0);
+        const tickProgress = priorRemainder
+          + dt * INFANTRY_CASUALTY_REACTION_POLICY.timerTicksPerSecond;
+        const elapsedResponseTicks = Math.floor(tickProgress + 1e-9);
+        soldier.casualtyResponseTickRemainder = Number(
+          Math.max(0, tickProgress - elapsedResponseTicks).toFixed(12)
+        );
+        soldier.casualtyResponseTicksRemaining = Math.max(
+          0,
+          soldier.casualtyResponseTicksRemaining - elapsedResponseTicks
+        );
+        if (soldier.casualtyResponseTicksRemaining === 0) {
+          soldier.casualtyResponseTickRemainder = 0;
+        }
+      } else {
+        soldier.casualtyResponseTickRemainder = 0;
+      }
+      soldier.casualtyResponseTimer = Number((
+        soldier.casualtyResponseTicksRemaining
+        / INFANTRY_CASUALTY_REACTION_POLICY.timerTicksPerSecond
+      ).toFixed(9));
+      casualtyProximityResponse = casualtyProximityResponse
+        && soldier.casualtyResponseTicksRemaining > 0;
       const goal = scratchGoal
         .copy(this.formationGoals[index]);
       const boundDirective =
@@ -688,6 +1004,30 @@ export class SoldierAI {
         ) ?? null;
       const hasBoundRole = boundDirective?.role === 'mover'
         || boundDirective?.role === 'coverer';
+      const haltedHuntPair = haltedHuntPairs?.get(
+        boundDirective?.pairId
+      ) ?? null;
+      const haltedHuntGoal = planHaltedHuntMoverGoal({
+        active: fireMovement.active,
+        orderType: currentOrderType,
+        haltAnchorMovement: context.haltAnchorMovement === true,
+        role: boundDirective?.role ?? null,
+        moverStart: haltedHuntPair?.moverStart ?? null,
+        formationGoal: [goal.x, goal.z],
+        anchorPosition: [this.unit.position.x, this.unit.position.z],
+        waypointPosition: activeWaypoint
+          ? [activeWaypoint.position.x, activeWaypoint.position.z]
+          : null,
+        maximumAdvanceMeters:
+          INFANTRY_BUDDY_BOUND_MODEL.boundDistanceMeters
+      });
+      if (haltedHuntGoal) {
+        goal.set(
+          haltedHuntGoal.x,
+          terrain.getHeightAt(haltedHuntGoal.x, haltedHuntGoal.z),
+          haltedHuntGoal.z
+        );
+      }
 
       const spacing = spacingCorrection(agent, this.agents);
       if (
@@ -877,6 +1217,36 @@ export class SoldierAI {
         goal.copy(cover.position);
       }
 
+      const buildingApproachPosition =
+        agent.buildingLocation?.phase === 'approaching'
+          && Array.isArray(
+            agent.buildingLocation.approachGoal
+              ?? agent.buildingLocation.approachPosition
+          )
+          && (
+            agent.buildingLocation.approachGoal
+              ?? agent.buildingLocation.approachPosition
+          ).length >= 3
+          && (
+            agent.buildingLocation.approachGoal
+              ?? agent.buildingLocation.approachPosition
+          ).every(Number.isFinite)
+          ? (
+              agent.buildingLocation.approachGoal
+                ?? agent.buildingLocation.approachPosition
+            )
+          : null;
+      const followingBuildingApproach = Boolean(
+        buildingApproachPosition && !surrenderActive && !withdrawalActive
+      );
+      if (followingBuildingApproach) {
+        goal.set(
+          buildingApproachPosition[0],
+          buildingApproachPosition[1],
+          buildingApproachPosition[2]
+        );
+      }
+
       const spacingReaction = !hasBoundRole && spacing.nearest < 1.05;
       const reactingToEnvironment = Boolean(
         ((reactionReason !== 'withdrawal' && cover) || spacingReaction || withdrawalActive)
@@ -887,6 +1257,8 @@ export class SoldierAI {
         ? 'surrender'
         : withdrawalActive
           ? withdrawal.reason
+          : followingBuildingApproach
+            ? 'building-approach'
           : reactionReason === 'withdrawal'
             ? `withdrawal-${withdrawal.reason}`
           : cover
@@ -1005,7 +1377,8 @@ export class SoldierAI {
       agent.updateMovement(delta, terrain, {
         anchorMoving: boundDirective?.holdMovement
           ? false
-          : anchorMoving || reactingToEnvironment,
+          : anchorMoving || reactingToEnvironment || Boolean(haltedHuntGoal)
+            || followingBuildingApproach,
         orderType,
         goal,
         neighbors: this.agents,
@@ -1016,15 +1389,35 @@ export class SoldierAI {
         isShielded: cover?.shielded ?? false,
         hasLeaderNearby,
         coveringHold: boundDirective?.holdMovement ?? false,
-        coveringStance: (explicitAssault || explicitHunt) ? 'KNEELING' : null,
+        coveringStance: fireMovement.coveringStance,
         buddyBoundMover: boundDirective?.blockFire ?? false
       });
+      if (casualtyShock > 0) {
+        let recoveryRate = soldier.incomingFireTimer > 0 ? 4 : 18;
+        if (cover?.shielded || agent.buildingLocation) recoveryRate += 8;
+        if (hasLeaderNearby) recoveryRate += 6;
+        const reactionSuppression = Math.max(
+          0,
+          Math.min(
+            100,
+            suppressionBeforeCasualtyReaction + casualtyShock
+          ) - dt * recoveryRate
+        );
+        agent.suppression = Math.max(
+          agent.suppression,
+          reactionSuppression
+        );
+      }
+      if (soldier.casualtyResponseTicksRemaining > 0 || casualtyShock > 0) {
+        agent.suppression = Number(agent.suppression.toFixed(9));
+        agent.moraleTier = classifyIndividualMorale(agent.suppression);
+        agent.syncRecord();
+      }
       if (withdrawalActive && threatPosition) {
         agent.facing = Math.atan2(threatPosition.x - agent.position.x, threatPosition.z - agent.position.z);
         agent.syncRecord();
       }
       soldier.lastSuppression = agent.suppression;
-      soldier.knownLivingCount = livingCount;
     }
 
     this.syncMeshes();
@@ -1377,11 +1770,18 @@ export class SoldierAI {
       parts.rightArm.rotation.set(2.6, 0, 0.2);
       parts.weapon.position.set(0.35, 0.05, 0.2);
       parts.weapon.rotation.set(0, 0, Math.PI / 2);
-      applyInfantrySecondaryPose(mesh, soldier);
+      applyInfantrySecondaryPose(
+        mesh,
+        soldier,
+        mesh.userData.mortarOperatorPose ?? null
+      );
       return;
     }
-    applyInfantrySecondaryPose(mesh, soldier);
-    bindInfantryHandsToWeapon(mesh, soldier);
+    const mortarOperatorPose = mesh.userData.mortarOperatorPose ?? null;
+    applyInfantrySecondaryPose(mesh, soldier, mortarOperatorPose);
+    if (!mortarOperatorPose?.operating) {
+      bindInfantryHandsToWeapon(mesh, soldier);
+    }
   }
 
   applySquadStance() {
@@ -1446,18 +1846,7 @@ export class SoldierAI {
     if (!agent) return null;
     const damage = random() < lethality ? 120 : 45;
     agent.applyDamage(damage, 42);
-    if (!agent.isAlive || agent.status === 'KIA' || agent.status === 'INCAPACITATED') {
-      this.dangerMap.recordCasualty({
-        sourceId: `casualty:${this.unit.id}:${agent.id}`,
-        casualtyPosition: [agent.position.x, agent.position.z],
-        radiusMeters: 10,
-        intensity: 0.8,
-        confidence: 1.0,
-        lifetimeTicks: 20
-      });
-    }
-    const casualtyRatio = 1 - this.getLivingAgents().length / Math.max(1, this.unit.roster.length);
-    this.unit.applySuppression(10 + casualtyRatio * 28);
+    this.recordCasualtyTransitions();
     this.syncMeshes();
     return agent.record;
   }
@@ -1467,18 +1856,7 @@ export class SoldierAI {
     const agent = living.find(candidate => candidate.id === soldierId) ?? living[0];
     if (!agent) return null;
     agent.applyDamage(damage, suppression);
-    if (!agent.isAlive || agent.status === 'KIA' || agent.status === 'INCAPACITATED') {
-      this.dangerMap.recordCasualty({
-        sourceId: `casualty:${this.unit.id}:${agent.id}`,
-        casualtyPosition: [agent.position.x, agent.position.z],
-        radiusMeters: 10,
-        intensity: 0.8,
-        confidence: 1.0,
-        lifetimeTicks: 20
-      });
-    }
-    const casualtyRatio = 1 - this.getLivingAgents().length / Math.max(1, this.agents.length);
-    this.unit.applySuppression(8 + casualtyRatio * 24);
+    this.recordCasualtyTransitions();
     this.syncMeshes();
     return agent.record;
   }

@@ -10,13 +10,14 @@ import { BuildingInteractionSystem } from '../src/game/BuildingInteractionSystem
 import { Unit } from './helpers/France1940TestUnit.js';
 import { FR_HOUSE_12X9_2F } from '../src/maps/france/FranceHouse12x9_2F.js';
 import { StaticCollisionWorld } from '../src/simulation/collision/StaticCollisionWorld.js';
+import { createRoomSlotIndex } from '../src/simulation/buildings/BuildingOccupancy.js';
 
-function createHarness() {
+function createHarness(descriptor = FR_HOUSE_12X9_2F) {
   const buildings = new BuildingSystem();
-  buildings.registerDescriptor(FR_HOUSE_12X9_2F);
+  buildings.registerDescriptor(descriptor);
   buildings.addBuilding({
     id: 'house',
-    descriptorId: FR_HOUSE_12X9_2F.id,
+    descriptorId: descriptor.id,
     transform: { position: [10, 2, 20], rotationY: 0 }
   });
   const agents = Array.from({ length: 6 }, (_, index) => {
@@ -122,7 +123,7 @@ function createCapacityUnit(id) {
 
 function createCapacityHarness(unitIds = ['unit-a', 'unit-b']) {
   const descriptor = structuredClone(FR_HOUSE_12X9_2F);
-  descriptor.id = 'fr_house_12x9_2f_two_upper_slots';
+  descriptor.id = 'fr_house_12x9_2f_sparse_upper_positions';
   const upperRoom = descriptor.rooms.find(room => room.id === 'upper-room');
   upperRoom.slots = upperRoom.slots.filter(slot =>
     slot.id === 'upper-front-left' || slot.id === 'upper-front-right');
@@ -201,7 +202,7 @@ function restoreCapacityHarness(harness, snapshot) {
   }
 }
 
-test('four individual soldiers enter upper floor, use window arcs, and exit', () => {
+test('six individual soldiers enter upper floor (4 window slots + 2 support slots), use window arcs, and exit', () => {
   const { buildings, interactions, unit, agents } = createHarness();
   for (const agent of agents) {
     agent.targetUnitId = 'outside-enemy';
@@ -209,27 +210,27 @@ test('four individual soldiers enter upper floor, use window arcs, and exit', ()
   }
   const order = interactions.issueEnter(unit, 'house', 'upper-floor');
   assert.equal(order.accepted, true);
-  assert.equal(order.assigned.length, 4);
-  assert.equal(order.unassigned, 2);
+  assert.equal(order.assigned.length, 6);
+  assert.equal(order.unassigned, 0);
   assert.equal(interactions.getInteriorPresenceCount('house'), 0);
   assert.deepEqual(interactions.getInteriorPresenceCounts(), {});
-  for (const agent of agents.slice(0, 4)) {
+  for (const agent of agents) {
     agent.position.fromArray(order.approachPosition);
   }
 
   interactions.advance(0);
-  assert.equal(interactions.getInteriorPresenceCount('house'), 4);
+  assert.equal(interactions.getInteriorPresenceCount('house'), 6);
   interactions.advance(1.2);
   assert.deepEqual(buildings.getBuildingSnapshot('house').occupancy, {});
   assert.equal(
     interactions.getInteriorPresenceCount('house'),
-    4,
+    6,
     'stair transit remains interior while ground occupancy is temporarily empty'
   );
   interactions.advance(3.8);
 
   const occupied = agents.filter(agent => agent.buildingLocation?.phase === 'occupied');
-  assert.equal(occupied.length, 4);
+  assert.equal(occupied.length, 6);
   assert.ok(occupied.every(agent =>
     agent.targetUnitId === null
     && agent.targetSoldierId === null
@@ -237,6 +238,8 @@ test('four individual soldiers enter upper floor, use window arcs, and exit', ()
   assert.deepEqual(
     Object.keys(buildings.getBuildingSnapshot('house').occupancy).sort(),
     [
+      'upper-floor-interior-support-r0-c0',
+      'upper-floor-interior-support-r0-c1',
       'upper-front-left',
       'upper-front-right',
       'upper-rear-left',
@@ -265,6 +268,8 @@ test('four individual soldiers enter upper floor, use window arcs, and exit', ()
   assert.deepEqual(
     Object.keys(buildings.getBuildingSnapshot('house').occupancy).sort(),
     [
+      'upper-floor-interior-support-r0-c0',
+      'upper-floor-interior-support-r0-c1',
       'upper-front-left',
       'upper-front-right',
       'upper-rear-left',
@@ -388,25 +393,64 @@ test('face fills every available window toward the requested direction before ov
   assert.deepEqual(interactions.captureState(), savedBias);
 });
 
-test('second entry order never depenetrates existing upper-floor occupants', () => {
-  const { interactions, unit, agents } = createHarness();
+test('an eight-person entry keeps every upper-floor occupant at a distinct physical position', () => {
+  const { buildings } = createHarness();
+  const agents = Array.from({ length: 8 }, (_, index) => {
+    const record = { id: `soldier-${index}`, health: 100, status: 'OK' };
+    return {
+      id: record.id,
+      record,
+      position: new THREE.Vector3(),
+      velocity: new THREE.Vector3(),
+      facing: 0,
+      state: 'READY',
+      stance: 'STANDING',
+      health: 100,
+      status: 'OK',
+      buildingLocation: null,
+      get isAlive() { return this.health > 0 && this.status !== 'KIA'; },
+      syncRecord() {
+        Object.assign(this.record, {
+          health: this.health,
+          status: this.status,
+          worldPosition: this.position.toArray(),
+          buildingLocation: this.buildingLocation
+            ? structuredClone(this.buildingLocation)
+            : null
+        });
+      }
+    };
+  });
+  const unit = {
+    id: 'squad',
+    type: 'infantry_squad',
+    waypoints: [],
+    currentWaypointIndex: 0,
+    clearWaypoints() {},
+    soldierAI: {
+      agents,
+      getLivingAgents: () => agents.filter(agent => agent.isAlive),
+      syncMeshes() {}
+    }
+  };
+  const interactions = new BuildingInteractionSystem({
+    buildingSystem: buildings,
+    getUnits: () => [unit]
+  });
+
   const first = interactions.issueEnter(unit, 'house', 'upper-floor');
-  for (const agent of agents.slice(0, 4)) agent.position.fromArray(first.approachPosition);
+  assert.equal(first.accepted, true);
+  assert.equal(first.assigned.length, 8);
+  assert.equal(first.unassigned, 0);
+
+  for (const agent of agents) agent.position.fromArray(first.approachPosition);
   interactions.advance(0);
   interactions.advance(1.2);
-  interactions.advance(3.8);
-  const existing = agents.slice(0, 4).map(agent => ({
-    position: agent.position.toArray(),
-    location: structuredClone(agent.buildingLocation)
-  }));
+  interactions.advance(6.0);
 
-  const second = interactions.issueEnter(unit, 'house', 'ground-floor');
-
-  assert.equal(second.accepted, true);
-  assert.equal(second.assigned.length, 2);
-  agents.slice(0, 4).forEach((agent, index) => {
-    assert.deepEqual(agent.position.toArray(), existing[index].position);
-    assert.deepEqual(agent.buildingLocation, existing[index].location);
+  const positions = new Set(agents.map(agent => agent.position.toArray().join(',')));
+  assert.equal(positions.size, 8);
+  agents.forEach(agent => {
     assert.equal(agent.buildingLocation.phase, 'occupied');
     assert.ok(agent.buildingLocation.nodeId.startsWith('upper-'));
   });
@@ -455,30 +499,243 @@ test('interaction orders and individual transit state replay after capture/resto
   }, expected);
 });
 
-test('collapse consequences damage and relocate occupants deterministically', () => {
-  const { buildings, interactions, unit, agents } = createHarness();
-  const agent = agents[0];
-  buildings.occupySlot('house', {
-    slotId: 'upper-front-left',
+test('collapse consequences reconcile authored and generated support occupants', () => {
+  const descriptor = structuredClone(FR_HOUSE_12X9_2F);
+  descriptor.id = 'fr_house_12x9_2f_noncolliding_support_section';
+  const supportSection = structuredClone(
+    descriptor.sections.find(section => section.id === 'roof')
+  );
+  supportSection.id = 'upper-support-invalidation';
+  supportSection.kind = 'wall';
+  supportSection.supports = [];
+  supportSection.colliderParts = [];
+  descriptor.sections.push(supportSection);
+  const { buildings, interactions, unit, agents } = createHarness(descriptor);
+  const generatedSupportIds = [...createRoomSlotIndex(descriptor).values()]
+    .filter(slot => slot.floorId === 'upper-floor' && slot.isGeneratedSupport)
+    .map(slot => slot.id);
+  const generatedSupportId = generatedSupportIds[0];
+  const sourceIds = ['upper-front-left', generatedSupportId];
+  for (let index = 0; index < sourceIds.length; index++) {
+    const agent = agents[index];
+    const key = `${unit.id}:${agent.id}`;
+    assert.equal(buildings.occupySlot('house', {
+      slotId: sourceIds[index],
+      unitId: unit.id,
+      soldierId: agent.id,
+      soldierKey: key
+    }).accepted, true);
+    agent.buildingLocation = {
+      buildingId: 'house',
+      phase: 'occupied',
+      nodeId: sourceIds[index],
+      soldierKey: key,
+      unitId: unit.id,
+      soldierId: agent.id
+    };
+  }
+  const pendingAgent = agents[2];
+  const pendingKey = `${unit.id}:${pendingAgent.id}`;
+  assert.equal(buildings.resolveReservations('house', [{
+    nodeId: generatedSupportIds[1],
+    orderSequence: 1,
     unitId: unit.id,
-    soldierId: agent.id,
-    soldierKey: `${unit.id}:${agent.id}`
-  });
-  agent.buildingLocation = {
+    soldierId: pendingAgent.id,
+    soldierKey: pendingKey
+  }])[0].accepted, true);
+  pendingAgent.buildingLocation = {
     buildingId: 'house',
-    phase: 'occupied',
-    nodeId: 'upper-front-left',
-    soldierKey: `${unit.id}:${agent.id}`,
+    phase: 'approaching',
+    nodeId: 'outside',
+    targetSlotId: generatedSupportIds[1],
+    entrySlotId: 'ground-front-left',
+    entryPortalId: 'front-door',
+    soldierKey: pendingKey,
     unitId: unit.id,
-    soldierId: agent.id
+    soldierId: pendingAgent.id
   };
+  const beforeCollapse = buildings.getBuildingSnapshot('house');
   const collapse = buildings.applyBlastDamage('house', {
-    sectionDamages: [{ sectionId: 'roof', amount: 1000 }]
+    sectionDamages: [{ sectionId: supportSection.id, amount: 1000 }]
   });
+  const afterCollapse = buildings.getBuildingSnapshot('house');
+  assert.equal(
+    afterCollapse.collisionVersion,
+    beforeCollapse.collisionVersion,
+    'the collapsed zero-collider roof leaves the collider revision unchanged'
+  );
+  assert.ok(afterCollapse.eventVersion > beforeCollapse.eventVersion);
   interactions.handleOccupantConsequences(collapse.occupantConsequences);
-  assert.equal(agent.health, 65);
-  assert.equal(agent.buildingLocation.nodeId, 'ground-front-left');
-  assert.equal(agent.position.y, 2.15);
+  interactions.advance(0);
+
+  assert.ok(agents.slice(0, 2).every(agent => agent.health === 65));
+  assert.ok(agents.slice(0, 2).every(agent =>
+    agent.buildingLocation?.phase === 'occupied'
+      && agent.buildingLocation.nodeId.startsWith('ground-')
+      && agent.position.y === 2.15));
+  const snapshot = buildings.getBuildingSnapshot('house');
+  assert.equal(snapshot.occupancy[generatedSupportId], undefined);
+  assert.equal(snapshot.reservations[generatedSupportId], undefined);
+  assert.equal(snapshot.reservations[generatedSupportIds[1]], undefined);
+  assert.equal(pendingAgent.buildingLocation, null);
+
+  const collapsedState = buildings.captureState();
+  const lateAgent = agents[3];
+  const lateKey = `${unit.id}:${lateAgent.id}`;
+  const lateReservation = () => buildings.resolveReservations('house', [{
+    nodeId: generatedSupportId,
+    orderSequence: 2,
+    unitId: unit.id,
+    soldierId: lateAgent.id,
+    soldierKey: lateKey
+  }])[0];
+  const rejectedLateReservation = lateReservation();
+  assert.deepEqual(
+    {
+      accepted: rejectedLateReservation.accepted,
+      reason: rejectedLateReservation.reason
+    },
+    { accepted: false, reason: 'invalid_node' },
+    'authoritative reservation rejects a derived-invalid support after reconciliation'
+  );
+  assert.deepEqual(
+    buildings.occupySlot('house', {
+      slotId: generatedSupportId,
+      unitId: unit.id,
+      soldierId: lateAgent.id,
+      soldierKey: lateKey
+    }),
+    { accepted: false, reason: 'invalid_slot' },
+    'authoritative occupancy rejects the same late claim'
+  );
+
+  buildings.restoreState(collapsedState);
+  interactions.restoreState(interactions.captureState());
+  const restoredLateReservation = lateReservation();
+  assert.equal(restoredLateReservation.accepted, false);
+  assert.equal(restoredLateReservation.reason, 'invalid_node');
+  assert.equal(buildings.occupySlot('house', {
+    slotId: generatedSupportId,
+    unitId: unit.id,
+    soldierId: lateAgent.id,
+    soldierKey: lateKey
+  }).reason, 'invalid_slot');
+});
+
+test('collapse relocation preserves a lower-slot reservation and replays deterministically', () => {
+  const descriptor = structuredClone(FR_HOUSE_12X9_2F);
+  descriptor.id = 'fr_house_12x9_2f_reserved_collapse_destination';
+  const supportSection = structuredClone(
+    descriptor.sections.find(section => section.id === 'roof')
+  );
+  supportSection.id = 'upper-generated-support-invalidation';
+  supportSection.kind = 'wall';
+  supportSection.supports = [];
+  supportSection.colliderParts = [];
+  descriptor.sections.push(supportSection);
+
+  const buildings = new BuildingSystem();
+  buildings.registerDescriptor(descriptor);
+  buildings.addBuilding({
+    id: 'house',
+    descriptorId: descriptor.id,
+    transform: { position: [0, 0, 0], rotationY: 0 }
+  });
+  const slots = createRoomSlotIndex(descriptor);
+  const source = [...slots.values()].find(slot =>
+    slot.floorId === 'upper-floor' && slot.isGeneratedSupport);
+  assert.ok(source);
+  const floorElevation = new Map(descriptor.floors.map(floor => [
+    floor.id,
+    floor.elevation
+  ]));
+  const lowerCandidates = [...slots.values()]
+    .filter(slot => floorElevation.get(slot.floorId)
+      < floorElevation.get(source.floorId))
+    .sort((left, right) => {
+      const leftDistance = (left.localPosition[0] - source.localPosition[0]) ** 2
+        + (left.localPosition[2] - source.localPosition[2]) ** 2;
+      const rightDistance = (right.localPosition[0] - source.localPosition[0]) ** 2
+        + (right.localPosition[2] - source.localPosition[2]) ** 2;
+      return leftDistance - rightDistance || left.id.localeCompare(right.id);
+    });
+  assert.ok(lowerCandidates.length >= 2);
+  const reservedSlot = lowerCandidates[0];
+  const expectedRelocation = lowerCandidates[1];
+  const occupant = {
+    unitId: 'collapse-squad',
+    soldierId: 'occupant',
+    soldierKey: 'collapse-squad:occupant'
+  };
+  const reserver = {
+    unitId: 'collapse-squad',
+    soldierId: 'reserver',
+    soldierKey: 'collapse-squad:reserver'
+  };
+  assert.equal(buildings.occupySlot('house', {
+    ...occupant,
+    slotId: source.id
+  }).accepted, true);
+  assert.equal(buildings.resolveReservations('house', [{
+    ...reserver,
+    nodeId: reservedSlot.id,
+    orderSequence: 1
+  }])[0].accepted, true);
+  const beforeCollapse = buildings.captureState();
+
+  const collapseOnce = () => {
+    const result = buildings.applyBlastDamage('house', {
+      sectionDamages: [{ sectionId: supportSection.id, amount: 1000 }]
+    });
+    return {
+      consequences: result.occupantConsequences,
+      state: buildings.captureState()
+    };
+  };
+  const first = collapseOnce();
+  assert.equal(first.consequences.length, 1);
+  assert.equal(first.consequences[0].toNodeId, expectedRelocation.id);
+  assert.equal(first.consequences[0].ejected, false);
+  assert.equal(
+    first.state.buildings[0].reservations[reservedSlot.id].soldierKey,
+    reserver.soldierKey
+  );
+  assert.equal(
+    first.state.buildings[0].occupancy[expectedRelocation.id].soldierKey,
+    occupant.soldierKey
+  );
+  assert.equal(first.state.buildings[0].occupancy[reservedSlot.id], undefined);
+
+  buildings.restoreState(beforeCollapse);
+  const replay = collapseOnce();
+  assert.deepEqual(replay, first);
+
+  const door = descriptor.portals.find(portal => {
+    const roomId = slots.get(reservedSlot.id).roomId;
+    return portal.kind === 'door'
+      && ((portal.from === 'outside' && portal.to === roomId)
+        || (portal.to === 'outside' && portal.from === roomId));
+  });
+  assert.ok(door);
+  const transit = buildings.startTransit('house', {
+    ...reserver,
+    portalId: door.id,
+    fromNodeId: 'outside',
+    toNodeId: reservedSlot.id
+  });
+  assert.equal(transit.accepted, true);
+  const completed = buildings.advanceTransit(
+    'house',
+    transit.location,
+    door.transitSeconds
+  );
+  assert.equal(completed.interrupted, false);
+  assert.equal(completed.location.phase, 'occupied');
+  assert.equal(completed.location.nodeId, reservedSlot.id);
+  assert.equal(
+    buildings.getBuildingSnapshot('house').occupancy[reservedSlot.id].soldierKey,
+    reserver.soldierKey
+  );
 });
 
 test('portal collapse interrupts transit at deterministic exterior instead of invalid destination', () => {
@@ -542,16 +799,16 @@ test('exit while approaching entry cancels reservation without stair-wait deadlo
   const { buildings, interactions, unit, agents } = createHarness();
   const enter = interactions.issueEnter(unit, 'house', 'upper-floor');
   assert.equal(enter.accepted, true);
-  assert.equal(Object.keys(buildings.getBuildingSnapshot('house').reservations).length, 4);
+  assert.equal(Object.keys(buildings.getBuildingSnapshot('house').reservations).length, 6);
   unit.waypoints.push({ orderType: 'QUICK', position: enter.approachPosition });
   unit.currentWaypointIndex = 0;
 
   const exit = interactions.issueExit(unit);
   assert.equal(exit.accepted, true);
-  assert.equal(exit.assigned.length, 4);
+  assert.equal(exit.assigned.length, 6);
   assert.deepEqual(unit.waypoints, []);
   assert.equal(unit.currentWaypointIndex, 0);
-  for (const agent of agents.slice(0, 4)) {
+  for (const agent of agents) {
     assert.equal(agent.buildingLocation, null);
   }
   assert.deepEqual(buildings.getBuildingSnapshot('house').reservations, {});
@@ -862,7 +1119,7 @@ test('exact near-wall starts overshoot full-clearance bounds before upper entry'
   }
 });
 
-test('ENTER accepts only real claimable target slots on the requested floor', () => {
+test('ENTER fills finite authored windows before generated floor support', () => {
   const harness = createCapacityHarness(['unit-a']);
   const unit = harness.units[0];
   const agents = harness.agentsByUnit.get(unit.id);
@@ -875,28 +1132,32 @@ test('ENTER accepts only real claimable target slots on the requested floor', ()
   assert.equal(order.accepted, true);
   assert.deepEqual(order.assigned, [
     'unit-a:soldier-a',
-    'unit-a:soldier-b'
+    'unit-a:soldier-b',
+    'unit-a:soldier-c',
+    'unit-a:soldier-d'
   ]);
-  assert.equal(order.unassigned, 2);
+  assert.equal(order.unassigned, 0);
   const assigned = agents.filter(agent =>
     order.assigned.includes(`${unit.id}:${agent.id}`));
   const unassigned = agents.filter(agent =>
     !order.assigned.includes(`${unit.id}:${agent.id}`));
-  const authoredTargets = new Set(
-    harness.descriptor.rooms
-      .find(room => room.id === 'upper-room')
-      .slots
-      .map(slot => slot.id)
-  );
-  assert.deepEqual(
-    assigned.map(agent => agent.buildingLocation.targetSlotId).sort(),
-    [...authoredTargets].sort()
-  );
-  assert.ok(assigned.every(agent =>
-    authoredTargets.has(agent.buildingLocation.targetSlotId)));
-  assert.ok(assigned.every(agent =>
-    !agent.buildingLocation.targetSlotId.includes('interior-')));
-  assert.ok(unassigned.every(agent => agent.buildingLocation === null));
+  const slots = createRoomSlotIndex(harness.descriptor);
+  const targetSlots = [...assigned]
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map(agent => slots.get(agent.buildingLocation.targetSlotId));
+  assert.deepEqual(targetSlots.map(slot => slot.id), [
+    'upper-front-left',
+    'upper-front-right',
+    'upper-floor-interior-support-r0-c0',
+    'upper-floor-interior-support-r0-c1'
+  ]);
+  assert.deepEqual(targetSlots.map(slot => slot.isGeneratedSupport), [
+    false,
+    false,
+    true,
+    true
+  ]);
+  assert.deepEqual(unassigned, []);
 
   for (const agent of assigned) agent.position.fromArray(order.approachPosition);
   harness.interactions.advance(0);
@@ -910,25 +1171,26 @@ test('ENTER accepts only real claimable target slots on the requested floor', ()
   assert.deepEqual(
     Object.keys(harness.buildings.getBuildingSnapshot('house').occupancy)
       .sort(),
-    [...authoredTargets].sort()
+    targetSlots.map(slot => slot.id).sort()
   );
 });
 
 test('ENTER excludes invalid, occupied, and reserved target or staging slots', () => {
   const unavailableTargets = createCapacityHarness(['unit-a']);
-  unavailableTargets.buildings.resolveReservations('house', [{
-    nodeId: 'upper-front-left',
-    orderSequence: 1,
-    unitId: 'occupancy-owner',
-    soldierId: 'reserved',
-    soldierKey: 'occupancy-owner:reserved'
-  }]);
-  unavailableTargets.buildings.occupySlot('house', {
-    slotId: 'upper-front-right',
-    unitId: 'occupancy-owner',
-    soldierId: 'occupied',
-    soldierKey: 'occupancy-owner:occupied'
-  });
+  const upperSlots = [...createRoomSlotIndex(unavailableTargets.descriptor).values()]
+    .filter(slot => slot.floorId === 'upper-floor')
+    .map(slot => slot.id)
+    .sort();
+  unavailableTargets.buildings.resolveReservations(
+    'house',
+    upperSlots.map((nodeId, index) => ({
+      nodeId,
+      orderSequence: 1,
+      unitId: 'occupancy-owner',
+      soldierId: `reserved-${index}`,
+      soldierKey: `occupancy-owner:reserved-${index}`
+    }))
+  );
   assert.deepEqual(
     unavailableTargets.interactions.issueEnter(
       unavailableTargets.units[0],
@@ -939,14 +1201,13 @@ test('ENTER excludes invalid, occupied, and reserved target or staging slots', (
   );
 
   const constrainedEntry = createCapacityHarness(['unit-a']);
-  const groundSlots = constrainedEntry.descriptor.rooms
-    .find(room => room.id === 'ground-room')
-    .slots
+  const groundSlots = [...createRoomSlotIndex(constrainedEntry.descriptor).values()]
+    .filter(slot => slot.floorId === 'ground-floor')
     .map(slot => slot.id)
     .sort();
   constrainedEntry.buildings.resolveReservations(
     'house',
-    groundSlots.slice(0, 3).map((nodeId, index) => ({
+    groundSlots.slice(0, -1).map((nodeId, index) => ({
       nodeId,
       orderSequence: 1,
       unitId: 'staging-owner',
@@ -981,7 +1242,7 @@ test('ENTER excludes invalid, occupied, and reserved target or staging slots', (
   );
 });
 
-test('pending and occupied target claims block later ENTER until lifecycle release', () => {
+test('pending support claims stay exclusive and released positions are reused stably', () => {
   const harness = createCapacityHarness(['unit-a', 'unit-b', 'unit-c']);
   const [firstUnit, secondUnit, thirdUnit] = harness.units;
   const first = harness.interactions.issueEnter(
@@ -989,58 +1250,49 @@ test('pending and occupied target claims block later ENTER until lifecycle relea
     'house',
     'upper-floor'
   );
-  assert.equal(first.assigned.length, 2);
+  assert.equal(first.assigned.length, 4);
   assert.equal(
     Object.keys(
       harness.buildings.getBuildingSnapshot('house').reservations
     ).length,
-    2,
-    'two entry staging slots remain physically available'
+    4,
+    'each pending soldier owns one real entry staging reservation'
   );
+  const firstTargets = harness.agentsByUnit.get(firstUnit.id)
+    .map(agent => agent.buildingLocation.targetSlotId)
+    .sort();
 
-  assert.deepEqual(
-    harness.interactions.issueEnter(secondUnit, 'house', 'upper-floor'),
-    { accepted: false, reason: 'no_free_slots', assigned: [] }
-  );
-
-  assert.equal(harness.interactions.issueExit(firstUnit).accepted, true);
   const second = harness.interactions.issueEnter(
     secondUnit,
     'house',
     'upper-floor'
   );
   assert.equal(second.accepted, true);
-  assert.equal(second.assigned.length, 2);
-  const secondAssigned = harness.agentsByUnit.get(secondUnit.id)
-    .filter(agent => second.assigned.includes(`${secondUnit.id}:${agent.id}`));
-  for (const agent of secondAssigned) {
-    agent.position.fromArray(second.approachPosition);
-  }
-  harness.interactions.advance(0);
-  harness.interactions.advance(1.2);
-  harness.interactions.advance(3.8);
+  assert.equal(second.assigned.length, 4);
+  const secondTargets = harness.agentsByUnit.get(secondUnit.id)
+    .map(agent => agent.buildingLocation.targetSlotId)
+    .sort();
+  assert.ok(secondTargets.every(slotId => !firstTargets.includes(slotId)));
 
-  assert.ok(secondAssigned.every(agent =>
-    agent.buildingLocation?.phase === 'occupied'));
-  assert.deepEqual(
-    harness.interactions.issueEnter(thirdUnit, 'house', 'upper-floor'),
-    { accepted: false, reason: 'no_free_slots', assigned: [] }
-  );
-
-  assert.equal(harness.interactions.issueExit(secondUnit).accepted, true);
-  harness.interactions.advance(0);
+  assert.equal(harness.interactions.issueExit(firstUnit).accepted, true);
   const afterRelease = harness.interactions.issueEnter(
     thirdUnit,
     'house',
     'upper-floor'
   );
   assert.equal(afterRelease.accepted, true);
-  assert.equal(afterRelease.assigned.length, 2);
+  assert.equal(afterRelease.assigned.length, 4);
+  assert.deepEqual(
+    harness.agentsByUnit.get(thirdUnit.id)
+      .map(agent => agent.buildingLocation.targetSlotId)
+      .sort(),
+    firstTargets
+  );
 });
 
-test('pending target claims survive interaction and agent rollback', () => {
+test('pending support claims survive rollback and equal-time partition replay', () => {
   const original = createCapacityHarness(['unit-a', 'unit-b']);
-  const [firstUnit, secondUnit] = original.units;
+  const [firstUnit] = original.units;
   const order = original.interactions.issueEnter(
     firstUnit,
     'house',
@@ -1063,25 +1315,13 @@ test('pending target claims survive interaction and agent rollback', () => {
         agent.buildingLocation.phase === 'transit'
           && agent.buildingLocation.targetSlotId.startsWith('upper-'))
   );
-  assert.deepEqual(
-    original.interactions.issueEnter(secondUnit, 'house', 'upper-floor'),
-    { accepted: false, reason: 'no_free_slots', assigned: [] }
-  );
-
   const restored = createCapacityHarness(['unit-a', 'unit-b']);
   restoreCapacityHarness(restored, pending);
   assert.deepEqual(captureCapacityHarness(restored), pending);
-  assert.deepEqual(
-    restored.interactions.issueEnter(
-      restored.units[1],
-      'house',
-      'upper-floor'
-    ),
-    { accepted: false, reason: 'no_free_slots', assigned: [] }
-  );
 
   original.interactions.advance(0.75);
-  restored.interactions.advance(0.75);
+  restored.interactions.advance(0.25);
+  restored.interactions.advance(0.5);
   original.interactions.advance(3.8);
   restored.interactions.advance(3.8);
 
@@ -1093,6 +1333,11 @@ test('pending target claims survive interaction and agent rollback', () => {
   assert.deepEqual(
     Object.keys(original.buildings.getBuildingSnapshot('house').occupancy)
       .sort(),
-    ['upper-front-left', 'upper-front-right']
+    [
+      'upper-floor-interior-support-r0-c0',
+      'upper-floor-interior-support-r0-c1',
+      'upper-front-left',
+      'upper-front-right'
+    ]
   );
 });

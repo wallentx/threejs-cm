@@ -293,15 +293,15 @@ export class BattleSetupScreen {
     maps,
     catalog,
     aiLevels,
-    resolveForce,
+    validateSetup,
     onStart
   }) {
     if (!root) throw new Error('BattleSetupScreen requires a root element');
     if (!Array.isArray(maps) || maps.length === 0) {
       throw new Error('BattleSetupScreen requires at least one map');
     }
-    if (typeof resolveForce !== 'function') {
-      throw new TypeError('BattleSetupScreen requires resolveForce');
+    if (typeof validateSetup !== 'function') {
+      throw new TypeError('BattleSetupScreen requires validateSetup');
     }
     if (typeof onStart !== 'function') {
       throw new TypeError('BattleSetupScreen requires onStart');
@@ -314,7 +314,7 @@ export class BattleSetupScreen {
     this.maps = maps;
     this.catalog = catalog;
     this.aiLevels = aiLevels;
-    this.resolveForce = resolveForce;
+    this.validateSetup = validateSetup;
     this.onStart = onStart;
     this.errorMessage = '';
     this.launching = false;
@@ -371,16 +371,19 @@ export class BattleSetupScreen {
     return this.state[`${side}FactionId`];
   }
 
-  validateForce(side) {
-    return this.resolveForce(
-      this.factionForSide(side),
-      this.selectionForSide(side)
-    );
+  validateConfiguredForces() {
+    return this.validateSetup({
+      playerFactionId: this.state.playerFactionId,
+      playerForceSelection: this.state.playerForce,
+      enemyFactionId: this.state.enemyFactionId,
+      enemyForceSelection: this.state.enemyForce
+    });
   }
 
   validateCurrentStep() {
-    if (this.state.step === 1) this.validateForce('player');
-    if (this.state.step === 2) this.validateForce('enemy');
+    if ([1, 2, 4].includes(this.state.step)) {
+      this.validateConfiguredForces();
+    }
     if (!this.maps.some(map => map.id === this.state.mapId)) {
       throw new Error('Select an available map');
     }
@@ -490,8 +493,7 @@ export class BattleSetupScreen {
     event.preventDefault();
     if (this.launching) return;
     try {
-      this.validateForce('player');
-      this.validateForce('enemy');
+      this.validateConfiguredForces();
       this.launching = true;
       this.errorMessage = '';
       this.render();
@@ -512,13 +514,17 @@ export class BattleSetupScreen {
     } catch (error) {
       this.launching = false;
       this.errorMessage = error.message;
-      document.body.dataset.gameStatus = 'setup';
+      if (typeof document !== 'undefined' && document.body) {
+        document.body.dataset.gameStatus = 'setup';
+      }
       this.render();
     }
   }
 
   hide() {
     this.root.hidden = true;
-    document.body.classList.remove('battle-setup-active');
+    if (typeof document !== 'undefined' && document.body) {
+      document.body.classList.remove('battle-setup-active');
+    }
   }
 }

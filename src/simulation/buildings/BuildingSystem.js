@@ -16,6 +16,7 @@ import {
   compareBuildingId,
   compareReservationRequests,
   createRoomSlotIndex,
+  isBuildingSlotInvalid,
   normalizeReservationRequest,
   roomForBuildingNode
 } from './BuildingOccupancy.js';
@@ -166,15 +167,15 @@ export class BuildingSystem {
     const state = this.#state(id);
     const descriptor = this.#descriptor(state);
     const slots = createRoomSlotIndex(descriptor);
-    const invalidSlots = new Set(state.invalidSlots);
     const normalized = requests.map(normalizeReservationRequest).sort(compareReservationRequests);
     const seenSoldiers = new Set();
     const results = [];
 
     for (const request of normalized) {
       let reason = null;
-      if (!slots.has(request.nodeId)) reason = 'unknown_node';
-      else if (invalidSlots.has(request.nodeId)) reason = 'invalid_node';
+      const slot = slots.get(request.nodeId);
+      if (!slot) reason = 'unknown_node';
+      else if (isBuildingSlotInvalid(descriptor, state, slot)) reason = 'invalid_node';
       else if (seenSoldiers.has(request.soldierKey)) reason = 'duplicate_request';
       else if (state.occupancy[request.nodeId]) reason = 'occupied';
       else if (state.reservations[request.nodeId]
@@ -234,8 +235,11 @@ export class BuildingSystem {
     const slots = createRoomSlotIndex(descriptor);
     const slotId = String(request.slotId ?? request.nodeId);
     const key = buildingSoldierKey(request);
-    if (!slots.has(slotId)) return { accepted: false, reason: 'unknown_slot' };
-    if (state.invalidSlots.includes(slotId)) return { accepted: false, reason: 'invalid_slot' };
+    const slot = slots.get(slotId);
+    if (!slot) return { accepted: false, reason: 'unknown_slot' };
+    if (isBuildingSlotInvalid(descriptor, state, slot)) {
+      return { accepted: false, reason: 'invalid_slot' };
+    }
     if (state.occupancy[slotId]?.soldierKey !== key && state.occupancy[slotId]) {
       return { accepted: false, reason: 'occupied' };
     }
@@ -252,8 +256,8 @@ export class BuildingSystem {
 
   reassignOccupiedSlots(id, assignments) {
     const state = this.#state(id);
-    const slots = createRoomSlotIndex(this.#descriptor(state));
-    const invalidSlots = new Set(state.invalidSlots);
+    const descriptor = this.#descriptor(state);
+    const slots = createRoomSlotIndex(descriptor);
     const normalized = (assignments ?? []).map(assignment => ({
       soldierKey: buildingSoldierKey(assignment),
       fromSlotId: String(assignment.fromSlotId),
@@ -285,7 +289,11 @@ export class BuildingSystem {
           !== slots.get(assignment.toSlotId).floorId) {
         return { accepted: false, reason: 'floor_mismatch', assignments: [] };
       }
-      if (invalidSlots.has(assignment.toSlotId)) {
+      if (isBuildingSlotInvalid(
+        descriptor,
+        state,
+        slots.get(assignment.toSlotId)
+      )) {
         return { accepted: false, reason: 'invalid_slot', assignments: [] };
       }
       if (state.occupancy[assignment.fromSlotId]?.soldierKey
@@ -341,6 +349,9 @@ export class BuildingSystem {
       return { accepted: false, reason: 'portal_does_not_connect_nodes' };
     }
     if (toNodeId !== 'outside') {
+      if (isBuildingSlotInvalid(descriptor, state, slots.get(toNodeId))) {
+        return { accepted: false, reason: 'invalid_target' };
+      }
       const reservation = state.reservations[toNodeId];
       if (!reservation || reservation.soldierKey !== key) {
         return { accepted: false, reason: 'target_not_reserved' };
@@ -808,8 +819,10 @@ export class BuildingSystem {
   }
 
   #resolveInvalidOccupants(state, descriptor) {
-    const invalid = new Set(state.invalidSlots);
     const slots = createRoomSlotIndex(descriptor);
+    const invalid = new Set([...slots.values()]
+      .filter(slot => isBuildingSlotInvalid(descriptor, state, slot))
+      .map(slot => String(slot.id)));
     const floorMap = floorById(descriptor);
     const consequences = [];
     const entries = Object.entries(state.occupancy)
@@ -822,6 +835,7 @@ export class BuildingSystem {
       const candidates = [...slots.values()]
         .filter(slot => !invalid.has(slot.id)
           && !state.occupancy[slot.id]
+          && !state.reservations[slot.id]
           && floorMap.get(slot.floorId).elevation < sourceElevation - EPSILON)
         .sort((a, b) => {
           const da = (a.localPosition[0] - source.localPosition[0]) ** 2

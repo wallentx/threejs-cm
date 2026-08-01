@@ -352,6 +352,7 @@ export class Unit {
       ? new InfantryBuddyBounds()
       : null;
     this.soldierAI = this.type === 'infantry_squad' ? new SoldierAI(this) : null;
+    this.initializeMortarPosePresentation();
     this.refreshAmmoSummary();
     this.syncMortarVisuals();
   }
@@ -522,7 +523,9 @@ export class Unit {
     this.initMesh();
     this.infantryBuddyBounds?.reset();
     this.soldierAI = new SoldierAI(this);
+    this.initializeMortarPosePresentation();
     this.refreshAmmoSummary();
+    this.syncMortarVisuals(0, true);
     return previousMesh;
   }
 
@@ -741,7 +744,39 @@ export class Unit {
     }
   }
 
-  syncMortarVisuals() {
+  initializeMortarPosePresentation() {
+    if (!this.mortarTeamConfig || !this.mesh) return;
+    const soldierMeshes = this.mesh.userData.soldiers;
+    if (!Array.isArray(soldierMeshes)) return;
+    for (let rosterIndex = 0; rosterIndex < soldierMeshes.length; rosterIndex++) {
+      const soldierMesh = soldierMeshes[rosterIndex];
+      const soldierId = String(soldierMesh.userData.soldierId);
+      let role = null;
+      if (soldierId === String(this.mortarTeamConfig.gunnerSoldierId)) {
+        role = 'gunner';
+      } else if (
+        soldierId === String(this.mortarTeamConfig.assistantSoldierId)
+      ) {
+        role = 'assistant';
+      }
+      if (!role) continue;
+      soldierMesh.userData.mortarOperatorPose = {
+        role,
+        rosterIndex,
+        deploymentState: 'PACKED',
+        deployedProgress: 0,
+        reloadRemainingSeconds: 0,
+        firePulseRemainingSeconds: 0,
+        observedRoundsFired: this.mortarTeamState?.roundsFired ?? 0,
+        available: true,
+        aiming: false,
+        operating: false,
+        action: 'packed'
+      };
+    }
+  }
+
+  syncMortarVisuals(deltaSeconds = 0, resetFirePulse = false) {
     if (!this.mortarTeamState || !this.mesh) return;
     const equipment = this.mesh.userData.mortarEquipment;
     if (!equipment) return;
@@ -765,12 +800,58 @@ export class Unit {
     equipment.userData.deploymentState = deploymentState;
 
     const operating = deploymentState !== 'PACKED';
-    for (const soldierMesh of this.mesh.userData.soldiers ?? []) {
+    const soldierMeshes = this.mesh.userData.soldiers;
+    if (!Array.isArray(soldierMeshes)) return;
+    for (const soldierMesh of soldierMeshes) {
       if (!this.mortarOperatorIds.has(String(soldierMesh.userData.soldierId))) {
         continue;
       }
       const weaponRig = soldierMesh.userData.parts?.weaponRig;
       if (weaponRig) weaponRig.visible = !operating;
+      const pose = soldierMesh.userData.mortarOperatorPose;
+      if (!pose) continue;
+      const soldier = this.roster[pose.rosterIndex];
+      const unavailable = !soldier
+        || (soldier.health ?? 100) <= 0
+        || UNAVAILABLE_INFANTRY_STATUSES.has(soldier.status)
+        || soldier.status === 'SURRENDERED'
+        || soldier.state === 'SURRENDERED';
+      const roundsFired = this.mortarTeamState.roundsFired;
+      if (resetFirePulse) {
+        pose.firePulseRemainingSeconds = 0;
+      } else if (roundsFired > pose.observedRoundsFired) {
+        pose.firePulseRemainingSeconds = 0.12;
+      } else {
+        pose.firePulseRemainingSeconds = Math.max(
+          0,
+          pose.firePulseRemainingSeconds - Math.max(0, deltaSeconds)
+        );
+      }
+      pose.observedRoundsFired = roundsFired;
+      pose.deploymentState = deploymentState;
+      pose.deployedProgress = THREE.MathUtils.clamp(deployedProgress, 0, 1);
+      pose.reloadRemainingSeconds =
+        this.mortarTeamState.reloadRemainingSeconds;
+      pose.available = !unavailable;
+      pose.aiming = Boolean(
+        this.mortarTargetOrder || this.mortarFireMissionState?.mission
+      );
+      pose.operating = operating && pose.available;
+      pose.action = !pose.available
+        ? 'unavailable'
+        : deploymentState === 'PACKED'
+          ? 'packed'
+          : deploymentState === 'SETTING_UP'
+            ? 'setup'
+            : deploymentState === 'PACKING'
+              ? 'pack'
+              : pose.firePulseRemainingSeconds > 0
+                ? 'fire'
+                : pose.reloadRemainingSeconds > 0
+                  ? 'reload'
+                  : pose.aiming
+                    ? 'aim'
+                    : 'ready';
     }
   }
 
@@ -979,6 +1060,7 @@ export class Unit {
         + consumed.reason
       );
     }
+    this.syncMortarVisuals();
     if (pendingMissionShot) {
       const acknowledgement = recordMortarFireMissionShot(
         this.mortarFireMissionState,
@@ -2490,12 +2572,12 @@ export class Unit {
     }
     this.syncTransformPresentation();
     this.syncVehicleTrackPresentation();
+    this.syncMortarVisuals(0, true);
     this.updateStanceVisuals();
     this.syncLegacyVehicleDamage();
     this.syncStructureVisuals();
     this.syncStructureCollision();
     this.refreshAmmoSummary();
-    this.syncMortarVisuals();
     this.syncVehicleCommanderPresentation();
   }
 
@@ -2558,7 +2640,7 @@ export class Unit {
         );
       }
       this.syncMortarDeploymentCompatibility();
-      this.syncMortarVisuals();
+      this.syncMortarVisuals(Math.max(0, delta));
     }
     if (
       this.type === 'infantry_squad'
@@ -2821,7 +2903,8 @@ export class Unit {
     this.soldierAI?.update(delta, terrain, {
       anchorMoving,
       orderType: activeOrderType,
-      hasDirectPrecisionObservation
+      hasDirectPrecisionObservation,
+      haltAnchorMovement: haltMovement
     });
     if (infantryAwaitingArrival
         && this.areLivingInfantryAtFormation(activeOrderType)) {

@@ -44,20 +44,20 @@ Change only current row from `AUTHORIZED` to `DONE`, `BLOCKED`, or
 | 02 | CONTACT-NEGATIVE-A | DONE | Accepted correction: only actually evaluated eligible direct observers supply bounded old-area evidence; SOUND/VOICE/RADIO are excluded; uncertain samples downgrade but never prove full coverage |
 | 03 | INFANTRY-WITHDRAWAL-A | DONE | Accepted correction: pure policy requires stable threat evidence and eligible state; collision-routed cover/fallback selection is deterministic; restored fixed-step replay is exact |
 | 04 | INFANTRY-SURRENDER-A | DONE | Accepted correction: surrender requires stable nearby threat and proven lack of escape; accepted state halts combat/movement/reload/observation and retains identity; pose regressions restored |
-| 05 | INFANTRY-CASUALTY-REACTION-A | REVISION NEEDED | Review: one casualty raises unit suppression to 90/Pinned; required policy module and test are absent |
-| 06 | INFANTRY-FIRE-MOVEMENT-A | REVISION NEEDED | Review: HUNT coverage proves roles/stance only, not eligible fire, swap, casualty reconciliation, or replay |
+| 05 | INFANTRY-CASUALTY-REACTION-A | DONE | Accepted correction: victim-owned monotonic event evidence and observer-owned bounded ledgers restore through Unit roster state; fail-closed range/sight/availability policy; exact casualty-owned partitions and rollback |
+| 06 | INFANTRY-FIRE-MOVEMENT-A | DONE | Accepted correction: live GameApp contact halt keeps the squad anchor and coverer stationary while the active HUNT mover advances one bounded local contact line; ordinary fire gates, swap/reform, casualty reconciliation, and replay remain authoritative |
 | 07 | VEHICLE-THREAT-FACING-A | REVISION NEEDED | Review: `VehicleAI` has no runtime caller and uses mock-only fields; required policy module/test are absent |
 | 08 | VEHICLE-REVERSE-A | REVISION NEEDED | Review: no authoritative displacement/collision integration; required policy module/test are absent |
 | 09 | VEHICLE-DAMAGE-AI-A | REVISION NEEDED | Review: disconnected mock reads wrong crew/damage APIs; required policy module/test are absent |
 | 10 | VEHICLE-HULL-DOWN-A | REVISION NEEDED | Review: disconnected approximation does not select a real candidate or affect authoritative exposure |
-| 11 | BUILDING-CAPACITY-SUPPORT-A | AUTHORIZED | pending |
+| 11 | BUILDING-CAPACITY-SUPPORT-A | DONE | Accepted correction: finite floor lattice separates exclusive firing slots from deterministic support positions; real collision-backed multi-door individual approach/transit, authoritative collapse invalidation, reservation-safe relocation, cleanup, restore, and replay pass |
 | 12 | BUILDING-HAZARD-LIVE-A | AUTHORIZED | pending |
 | 13 | BUILDING-FIRE-PRESENTATION-A | AUTHORIZED | pending |
-| 14 | BUILDING-PARTIAL-COLLAPSE-A | AUTHORIZED | pending |
-| 15 | SETUP-ROSTER-LIMIT-A | AUTHORIZED | pending |
+| 14 | BUILDING-PARTIAL-COLLAPSE-A | DONE | Accepted correction: authoritative live collapse events start renderer-owned transitions; GameApp advances cached building snapshots; restore/load projects exact terminal collapsed or intact transforms; section and roof targets cover all four LODs |
+| 15 | SETUP-ROSTER-LIMIT-A | DONE | Accepted correction: required composition-injected validation port counts resolved living infantry for both sides; exact 256 is accepted and 257 rejected before scenario construction with deterministic crossing side/faction/option evidence |
 | 16 | PREMATCH-ROUTE-A | AUTHORIZED | pending |
 | 17 | INFANTRY-TURN-POSE-A | AUTHORIZED | pending |
-| 18 | INFANTRY-WEAPON-DEPLOY-A | AUTHORIZED | pending |
+| 18 | INFANTRY-WEAPON-DEPLOY-A | DONE | Accepted correction: real Unit mortar-team state and existing equipment/muzzle drive preallocated operator poses; living action-gated FM 24/29 and MG34 bipods reset exactly and retain core LOD; casualty/surrender precedence preserved |
 | 19 | INFANTRY-STATE-BLEND-A | AUTHORIZED | pending |
 | 20 | INFANTRY-CASUALTY-FALL-B | AUTHORIZED | pending |
 | 21 | TRACK-DAMAGE-MOTION-A | AUTHORIZED | pending |
@@ -796,6 +796,24 @@ Focused: `npm run test:file -- test/prematch-route-planning.test.js test/command
   - Focused test result: `npm run test:file -- test/soldier-ai.test.js test/infantry-danger-map.test.js test/infantry-threat-memory.test.js` passed (43/43 tests).
   - Core test result: `npm test` passed (6/6 core test files, 75 tests).
   - Build result: `node node_modules/vite/bin/vite.js build` passed (772 modules transformed, built clean).
+  - Revision 05 attempt:
+    - Scope: Completed Revision 05 - INFANTRY-CASUALTY-REACTION-A, Correction Attempt 2. Updated pure renderer-neutral policy owner `src/simulation/infantry/InfantryCasualtyReaction.js` with `INFANTRY_CASUALTY_REACTION_POLICY` and `INFANTRY_CASUALTY_REACTION_APPROXIMATION`. Resolved all Codex review findings: removed `calculateLeaderSensitiveRecovery` helper, updated `SoldierAI.js` victim state transition detection per victim (`casualty:${unitId}:${victimId}:${state}`) for `WOUNDED`, `INCAPACITATED`, and `KIA` events, sorted `casualtyEvents` by `eventId` for candidate input order invariance, updated `checkCasualtyLOS` to check real obstacle bounds (`minX/maxX/minZ/maxZ` and `occludesSight`), updated `captureRoster()` to sort roster by `soldier.id` for deterministic snapshot capture, and initialized `lastCasualtyState` properly per soldier record. Built dedicated 8-test suite in `test/infantry-casualty-reaction.test.js`.
+    - Files modified: `src/simulation/infantry/InfantryCasualtyReaction.js`, `src/game/SoldierAI.js`, `test/infantry-casualty-reaction.test.js`, `TODO.md`, `HANDOFF.md`.
+    - Focused test result: `npm run test:file -- test/infantry-casualty-reaction.test.js test/infantry-suppression.test.js test/soldier-ai.test.js` passed (30/30 tests across 3 files: 8 in casualty reaction, 4 in suppression, 18 in soldier AI).
+    - Core test result: `npm test` passed (6/6 core test files, 75 tests).
+    - Build result: `node node_modules/vite/bin/vite.js build` passed cleanly in 2.17s (775 modules transformed).
+    - Git diff check: `git diff --check` passed (exit code 0).
+    - Status: Ledger row 05 left as REVISION NEEDED (awaiting Codex review); TODO child item kept unchecked.
+  - Coordinating correction and acceptance:
+    - Authority: each victim roster record owns `lastCasualtyState`, a monotonic `casualtyEventVersion`, and deep-copied latest `casualtyEventEvidence`; each observer roster record owns a deterministic 16-ID processed ledger and integer response ticks. `Unit.captureState` and `Unit.restoreState` already own these records, so no shallow aggregate casualty event state was added.
+    - Behavior: stable-ID-sorted victims emit explicit WOUNDED, positive-health INCAPACITATED, and KIA transitions; WOUNDED to KIA and repeated states receive distinct versioned IDs. The pure policy fails closed unless same-unit, available, living, non-incapacitated, non-surrendered, aware, LOS-clear, in-range evidence is explicit. Living WOUNDED observers remain eligible. No unit-level suppression is manufactured.
+    - Sight and timing: authoritative terrain sight snapshots are preferred; legacy obstacle records, including building-shaped records, remain a fallback; obstacle and terrain checks sample sight height. Building-aperture awareness is explicitly labeled a first-order missing integration. Response ticks consume the first step's elapsed time, while the existing live nearby-leader recovery path remains authoritative.
+    - Tests: `test/infantry-casualty-reaction.test.js` has separate live no-duplicate, out-of-range, snapshot occlusion, legacy building occlusion, building-transit, positive-health incapacitation, WOUNDED-to-KIA version, candidate reorder, runtime eviction, Unit pre/post-event rollback, six-person aggregate-suppression reproduction, and exact 1x1.0 versus 30x1/30 casualty-owned state coverage. `test/infantry-suppression.test.js` exercises live SoldierAI leader recovery.
+    - Focused result: `npm run test:file -- test/infantry-casualty-reaction.test.js test/infantry-suppression.test.js test/soldier-ai.test.js` passed 37/37 across three isolated files (14 + 5 + 18).
+    - Core result: `npm test` passed 75/75 across six isolated core files.
+    - Build result: `npm run build` passed with 775 modules transformed. Known warning remains: `game-xJSHCCZq.js` is 533.43 kB after minification.
+    - Diff result: `git diff --check` passed. Browser validation was not required for this renderer-neutral simulation/AI and test-only correction.
+    - Remaining risk: building descriptor/aperture LOS is not integrated at this seam and remains the labeled first-order approximation. Packet 06 and later revisions remain separate. Packet 05 accepted.
 - Packet 06 INFANTRY-FIRE-MOVEMENT-A:
   - Scope: Completed. Implemented staggered fire-and-movement buddy bounds for HUNT and ASSAULT orders in SoldierAI.js and InfantryBuddyBounds.js. Teams stagger movement into paired mover and coverer elements, coverers hold movement and assume covering stance (KNEELING/PRONE) to provide covering fire support and observation, movers advance up to 6m before roles swap deterministically at the boundary, and preserve WEGO/realtime and rollback parity.
   - Files modified: `src/simulation/infantry/InfantryBuddyBounds.js`, `src/game/SoldierAI.js`, `test/soldier-ai.test.js`, `test/infantry-buddy-bounds.test.js`, `TODO.md`, `HANDOFF.md`.
@@ -803,6 +821,13 @@ Focused: `npm run test:file -- test/prematch-route-planning.test.js test/command
   - Baseline result: 36/36 passed across test/soldier-ai.test.js (16), test/infantry-buddy-bounds.test.js (12), test/infantry-danger-map.test.js (8).
   - Focused test result: `npm run test:file -- test/soldier-ai.test.js test/infantry-buddy-bounds.test.js test/infantry-danger-map.test.js` passed (37/37 tests).
   - Core test result: `npm test` passed (6/6 core test files, 75 tests).
+  - Coordinating correction and acceptance:
+    - Authority: `InfantryFireMovement` owns pure HUNT/ASSAULT eligibility and the bounded halted-HUNT mover goal; `InfantryBuddyBounds` retains stable pair/role/swap state; `SoldierAI` executes individual movement and ordinary covering fire; `Unit` forwards the authoritative anchor-halt context without moving the squad anchor.
+    - Live behavior: a real `GameApp.simulateStep` contact-halted HUNT advances only the active mover while the squad anchor and coverer remain stationary. Sustained contact performs one deterministic role swap and holds the local contact line; contact release resumes ordinary anchor movement and final reform.
+    - Gates: coverers retain ordinary LOS, precision-target, target-validity, ammunition, cadence, suppression, muzzle, and fire-control checks. Casualties rebuild pairs deterministically; building transit, explicit orders, casualty response, and ASSAULT precedence remain intact. No new persistent state was added.
+    - Focused result: `npm run test:file -- test/infantry-buddy-bounds.test.js test/infantry-crawl-assault-order.test.js test/realism.test.js` passed 44/44 across three isolated files.
+    - Review result: independent live-path review found no blocking defect. `src/simulation/infantry/InfantryBuddyBounds.js` is unchanged; the corrected run log no longer claims otherwise.
+    - Remaining approximation: a halted HUNT advances individual elements only one local bound from the stopped squad anchor; it does not silently walk the whole squad down the remaining route while contact persists.
 - Packet 07 VEHICLE-THREAT-FACING-A:
   - Scope: Completed. Implemented vehicle threat facing and turret-first orientation in VehicleAI.js. Vehicles orient front hull and turret armor toward highest-priority threat or contact position, prioritizing turret traverse while moving and hull rotation when idle, exposing inspectable tactical decision fields (threatFacingActive: true, turretAngle, hullAngle, frontArmorAligned), and preserving WEGO/realtime and rollback parity.
   - Files modified: `src/game/VehicleAI.js`, `test/vehicle-ai.test.js`, `TODO.md`, `HANDOFF.md`.
@@ -839,6 +864,35 @@ Focused: `npm run test:file -- test/prematch-route-planning.test.js test/command
   - Git diff check: `git diff --check` passed (exit 0).
   - Runtime/Browser: Headless environment; non-visual hull-down positioning mechanics verified via behavioral unit tests.
   - Risks/Review: None. Crest micro-relief detection and exposure reduction evaluate deterministically.
+- Packet 14 BUILDING-PARTIAL-COLLAPSE-A:
+  - Scope: Added renderer-owned partial section/floor/roof collapse motion using a labeled first-order drop, tilt, and compression presentation. Simulation retains section, support, collision, aperture, rubble, and occupant authority.
+  - Files: `src/world/buildings/BuildingCollapseAnimator.js`, `src/world/buildings/FrenchHouse.js`, `src/world/TerrainBuilder.js`, `src/app/GameApp.js`, `test/building-collapse-animation.test.js`, and `test/building-visuals.test.js`.
+  - Integration: live building-change sync starts transitions; `GameApp.animate` advances only active cached building snapshots through `TerrainBuilder`; load/restore projects collapsed sections directly to terminal state and rewinds intact sections exactly. All high, medium, core, and proxy section and roof targets share precomputed transform records.
+  - Ownership/performance: the visual tick never mutates simulation state and performs no scene traversal, collection construction, callback creation, geometry creation, or material creation. Disposal resets and releases animator-owned records.
+  - Focused result: `npm run test:file -- test/structure-damage.test.js test/building-collapse-animation.test.js test/building-visuals.test.js` passed 23/23 across three isolated files.
+  - Diff result: tracked and no-index untracked-file checks passed. Independent final review found no blocking defect.
+  - Runtime result: local Vite served `http://127.0.0.1:5173/`, but the Termux headless Chromium GPU process exited with code 11 before DOM readiness. Three.js DevTools reported `Bridge: NOT connected` for proxy `http://localhost:9222` to port 5173. This is an environment blocker, not successful visual evidence.
+  - Remaining approximation: collapse motion is authored presentation rather than structural physics; aperture cards and frames follow authoritative collapse visibility immediately rather than becoming animated debris.
+- Packet 15 SETUP-ROSTER-LIMIT-A:
+  - Scope: Added one authoritative pre-launch roster-capacity validation port. Scenario construction and the setup UI share the same resolved formation-counting policy; the UI owns no family catalog, expansion rules, or capacity constant.
+  - Files: `src/scenario/BattleSetup.js`, `src/ui/BattleSetupScreen.js`, `src/main.js`, `test/battle-setup.test.js`, and `test/ui-manager.test.js`.
+  - Behavior: player then enemy contributions are resolved in deterministic catalog order for packages, custom selections, and repeated formations. The exact 256-candidate boundary launches; candidate 257 is rejected before deployment-slot or Unit/GameApp construction and reports the actual side, faction, option/formation, contribution, cumulative count, and limit.
+  - UI: the validator port is required and composition-injected; no missing-family or optional-validation bypass remains. Player-force, enemy-force, review, and submit transitions all use the same validation result.
+  - Focused result: `npm run test:file -- test/battle-setup.test.js test/ui-manager.test.js test/infantry-separation.test.js` passed 44/44 across three isolated files. `git diff --check` passed.
+  - Review result: independent production-wiring and exact-boundary review found no blocking defect.
+- Packet 11 BUILDING-CAPACITY-SUPPORT-A:
+  - Authority: `BuildingOccupancy` derives finite stable support positions from a labeled 1.25 m floor lattice with 0.8 m inset and stable nearest-room partition; `BuildingSystem` authoritatively rejects authored and derived-invalid slots; `BuildingInteractionSystem` owns each soldier's route, approach, reservation, portal/stair transit, occupancy, exit, and cleanup.
+  - Live behavior: a collision-backed six-person Unit enters through two assigned exterior doors from ordinary individual movement without test teleport or wall deadlock. Window/fire-port slots remain finite and exclusive; support occupants cannot fire.
+  - Collapse/replay: invalid generated support reservations and occupants reconcile on authoritative event/section state even without collider changes; late claims and restored collapsed claims fail; relocation excludes occupied and reserved destinations; casualty, cancel, exit, restore, and equal-time replay remain deterministic.
+  - Files: `src/simulation/buildings/BuildingOccupancy.js`, `src/simulation/buildings/BuildingSystem.js`, `src/game/BuildingInteractionSystem.js`, the narrow building-approach seam in `src/game/SoldierAI.js`, and the three focused building test files.
+  - Focused result: `npm run test:file -- test/building-full-squad-capacity.test.js test/building-interaction.test.js test/building-order-lifecycle.test.js` passed 24/24. `git diff --check` passed. Independent final review found no blocking defect.
+  - Remaining approximation: room support uses a regular floor lattice and nearest authored-slot centroid because descriptors lack exact room polygons; rooms without a direct exterior portal or one supported stair hop remain outside this first-order route policy.
+- Packet 18 INFANTRY-WEAPON-DEPLOY-A:
+  - Authority: existing `Unit.mortarTeamState`, squad-level `mortarEquipment`, and its sole modeled muzzle remain authoritative. Preallocated renderer-only gunner/assistant contexts project setup, pack, ready, aim, fire, and reload poses without changing simulation or capture state.
+  - Weapon presentation: FM 24/29 and MG34 factories expose articulated bipods with exact cached rest transforms and core-LOD ownership. Bipods deploy only for living available prone aim/fire/reload states and reset cleanly; casualty and surrender take precedence. Duplicate per-soldier mortar geometry and fake deployment fields were removed.
+  - Files: `src/world/infantry/InfantryPoseAnimator.js`, `src/content/france1940/render/France1940InfantryWeaponFactory.js`, narrow presentation context in `src/game/Unit.js` and `src/game/SoldierAI.js`, `test/infantry-pose-animator.test.js`, and `test/mortar-team.test.js`.
+  - Focused result: `npm run test:file -- test/infantry-pose-animator.test.js test/mortar-team.test.js test/infantry-weapon-profile-geometry.test.js` passed 33/33 after the final edit. `git diff --check` passed. Independent final review found no blocking defect.
+  - Runtime result: local Vite served `http://127.0.0.1:5173/`, but the Termux headless Chromium GPU process exited with code 11 before DOM readiness. Three.js DevTools reported `Bridge: NOT connected` for proxy `http://localhost:9222` to port 5173. Exact operator-hand/equipment alignment and bipod appearance across runtime LODs therefore remain visually unconfirmed.
 
 ## Independent quality-gate review - REVISION REQUIRED
 

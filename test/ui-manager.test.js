@@ -9,6 +9,12 @@ import {
   projectUnitBadgeAnchor
 } from '../src/ui/UIManager.js';
 import { createUIRuntimePort } from '../src/app/ApplicationPorts.js';
+import { BattleSetupScreen } from '../src/ui/BattleSetupScreen.js';
+import { createFrance1940Family, FRANCE_1940_BATTLE_SETUP } from '../src/content/france1940/index.js';
+import {
+  BATTLE_SETUP_AI_LEVELS,
+  createBattleSetupValidationPort
+} from '../src/scenario/BattleSetup.js';
 
 function createHarness() {
   const calls = {
@@ -1651,4 +1657,83 @@ test('realtime mode hides WEGO time sliders, step buttons, and GO execution butt
     if (previousDocument === undefined) delete globalThis.document;
     else globalThis.document = previousDocument;
   }
+});
+
+test('BattleSetupScreen displays actionable separation capacity error alert and blocks battle launch', async () => {
+  const family = createFrance1940Family();
+  const catalog = FRANCE_1940_BATTLE_SETUP;
+  const map = { id: 'stonne', title: 'Stonne' };
+
+  let startCalled = false;
+  let validationCalls = 0;
+  const root = {
+    hidden: false,
+    innerHTML: '',
+    addEventListener() {},
+    removeEventListener() {}
+  };
+
+  const productionValidation = createBattleSetupValidationPort({
+    catalog,
+    family
+  });
+  const screen = new BattleSetupScreen({
+    root,
+    maps: [map],
+    catalog,
+    aiLevels: BATTLE_SETUP_AI_LEVELS,
+    validateSetup: selection => {
+      validationCalls++;
+      return productionValidation(selection);
+    },
+    onStart: async () => { startCalled = true; }
+  });
+
+  // Exact 257: French 143 + German 114.
+  screen.state.playerForce = {
+    mode: 'custom',
+    counts: {
+      'formation:FRENCH_CHASSEURS_PORTES_SQUAD': 20,
+      'formation:FRENCH_CHASSEURS_PORTES_PLATOON_HQ': 5,
+      'formation:FRENCH_BRANDT_MLE1935_60MM_TEAM': 2
+    }
+  };
+  screen.state.enemyForce = {
+    mode: 'custom',
+    counts: {
+      'formation:GERMAN_GRENADIER_SQUAD_1940': 19
+    }
+  };
+
+  screen.state.step = 2;
+  assert.throws(
+    () => screen.validateCurrentStep(),
+    /cumulative count 257.*separation limit 256/
+  );
+  screen.state.step = 4;
+  assert.throws(
+    () => screen.validateCurrentStep(),
+    /cumulative count 257.*separation limit 256/
+  );
+
+  const fakeEvent = { preventDefault() {} };
+  await screen.handleSubmit(fakeEvent);
+
+  assert.equal(validationCalls, 3, 'enemy, review, and submit use one port');
+  assert.equal(startCalled, false, 'onStart must not be called when over-capacity');
+  assert.equal(screen.launching, false);
+  assert.match(screen.errorMessage, /enemy german option formation:GERMAN_GRENADIER_SQUAD_1940/);
+  assert.match(screen.errorMessage, /cumulative count 257/);
+  assert.match(screen.errorMessage, /separation limit 256/);
+
+  assert.throws(
+    () => new BattleSetupScreen({
+      root,
+      maps: [map],
+      catalog,
+      aiLevels: BATTLE_SETUP_AI_LEVELS,
+      onStart: async () => {}
+    }),
+    /requires validateSetup/
+  );
 });

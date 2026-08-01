@@ -6,8 +6,8 @@ import {
 } from './content/france1940/index.js';
 import {
   BATTLE_SETUP_AI_LEVELS,
-  createConfiguredBattleScenario,
-  resolveBattleForce
+  createBattleSetupValidationPort,
+  createConfiguredBattleScenario
 } from './scenario/BattleSetup.js';
 import {
   FRANCE_1940_CATALOG_PORTS
@@ -47,6 +47,10 @@ const buildingDescriptors = Object.freeze([
   FR_HOUSE_12X9_2F,
   FR_FARMHOUSE_8X6_1F
 ]);
+const validateBattleSetup = createBattleSetupValidationPort({
+  catalog: FRANCE_1940_BATTLE_SETUP,
+  family
+});
 
 function createGameDefinition(selection) {
   const selectedMap = availableMaps.find(map => map.id === selection.mapId);
@@ -83,8 +87,7 @@ window.addEventListener('DOMContentLoaded', () => {
     maps: availableMaps,
     catalog: FRANCE_1940_BATTLE_SETUP,
     aiLevels: BATTLE_SETUP_AI_LEVELS,
-    resolveForce: (factionId, selection) =>
-      resolveBattleForce(FRANCE_1940_BATTLE_SETUP, factionId, selection),
+    validateSetup: validateBattleSetup,
     onStart: async selection => {
       const app = new GameApp(createGameDefinition(selection));
       await app.ready;

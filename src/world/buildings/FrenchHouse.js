@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { BuildingCollapseAnimator } from './BuildingCollapseAnimator.js';
 
 const LOD_DISTANCES = Object.freeze({ high: 0, medium: 42, core: 92, proxy: 180 });
 const STAGE_RANK = Object.freeze({ intact: 0, damaged: 1, breached: 2, collapsed: 3 });
@@ -580,6 +581,7 @@ export function createFrenchHouseVisual({ descriptor, runtime, centerX, centerZ,
   const rubble = buildRubble(descriptor);
   root.add(rubble);
   root.userData = {
+    descriptor,
     descriptorId: descriptor.id,
     buildingId: runtime?.id ?? null,
     dimensionsMeters: { width, depth, height: descriptor.bounds.max[1] - descriptor.bounds.min[1] },
@@ -591,12 +593,26 @@ export function createFrenchHouseVisual({ descriptor, runtime, centerX, centerZ,
     detailedRoof: detailed.group.getObjectByName('HouseGabledRoof'),
     rubble
   };
-  applyFrenchHouseVisualState(root, descriptor, runtime);
+  root.userData.collapseAnimator = new BuildingCollapseAnimator(root);
+  if (runtime) {
+    applyFrenchHouseVisualState(root, descriptor, runtime, {
+      collapseProjection: 'restore'
+    });
+  }
   return root;
 }
 
-export function applyFrenchHouseVisualState(root, descriptor, runtime, { interiorPresence = 0 } = {}) {
+export function applyFrenchHouseVisualState(root, descriptor, runtime, {
+  interiorPresence = 0,
+  collapseProjection = 'transition'
+} = {}) {
   if (!root || !descriptor || !runtime) return;
+  if (!root.userData) root.userData = {};
+  if (!root.userData.descriptor) root.userData.descriptor = descriptor;
+  if (!root.userData.collapseAnimator) {
+    root.userData.collapseAnimator = new BuildingCollapseAnimator(root);
+  }
+
   for (const tier of root.userData?.lodTiers ?? []) {
     for (const section of descriptor.sections) {
       const group = tier.sections?.get?.(section.id);
@@ -615,6 +631,7 @@ export function applyFrenchHouseVisualState(root, descriptor, runtime, { interio
       }
     }
   }
+
   const sectionStages = descriptor.sections.map(section => {
     const state = runtime.sections?.[section.id];
     return state?.collapsed ? 'collapsed' : visualStage(section, state);
@@ -673,6 +690,16 @@ export function applyFrenchHouseVisualState(root, descriptor, runtime, { interio
   root.userData.interiorFadeActive = interiorActive;
   root.userData.runtimeEventVersion = runtime.eventVersion ?? 0;
   root.userData.runtimeCollisionVersion = runtime.collisionVersion ?? 0;
+  root.userData.collapseAnimator.project(runtime, collapseProjection);
+}
+
+/** Advance renderer-owned collapse motion from an already cached snapshot. */
+export function advanceFrenchHouseVisualState(root, runtime, deltaTime) {
+  root?.userData?.collapseAnimator?.advance(runtime, deltaTime);
+}
+
+export function hasActiveFrenchHouseVisualTransition(root) {
+  return root?.userData?.collapseAnimator?.hasActiveTransitions?.() === true;
 }
 
 /**
@@ -685,7 +712,9 @@ export function createFrenchHouseVisualAdapter(descriptor) {
   return Object.freeze({
     descriptor,
     createVisual: createFrenchHouseVisual,
-    applyVisualState: applyFrenchHouseVisualState
+    applyVisualState: applyFrenchHouseVisualState,
+    advanceVisualState: advanceFrenchHouseVisualState,
+    hasActiveVisualTransition: hasActiveFrenchHouseVisualTransition
   });
 }
 
@@ -693,6 +722,10 @@ export function createFrenchHouseVisualAdapter(descriptor) {
 export function disposeFrenchHouseVisual(root) {
   if (!root || root.userData?.houseVisualDisposed) return;
   root.userData.houseVisualDisposed = true;
+  if (root.userData?.collapseAnimator) {
+    root.userData.collapseAnimator.dispose();
+    delete root.userData.collapseAnimator;
+  }
   const geometries = new Set();
   const materials = new Set();
   root?.traverse(object => {
@@ -709,4 +742,4 @@ export function disposeFrenchHouseVisual(root) {
   for (const candidate of materials) candidate.dispose();
 }
 
-export { LOD_DISTANCES as FRENCH_HOUSE_LOD_DISTANCES };
+export { LOD_DISTANCES as FRENCH_HOUSE_LOD_DISTANCES, BuildingCollapseAnimator };

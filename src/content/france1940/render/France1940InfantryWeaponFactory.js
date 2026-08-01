@@ -126,19 +126,39 @@ function firingHandHeight(parts) {
   return triggerGuard.position.y + triggerGuard.geometry.boundingBox.min.y;
 }
 
+function storeBipodRestTransform(leg) {
+  leg.userData.bipodRestPosition = Object.freeze(leg.position.toArray());
+  leg.userData.bipodRestRotation = Object.freeze([
+    leg.rotation.x,
+    leg.rotation.y,
+    leg.rotation.z
+  ]);
+  return leg;
+}
+
 function addBipod(model, spec, metalMaterial) {
   const geometry = new THREE.CylinderGeometry(0.008, 0.009, 0.34, 5);
-  for (const side of [-1, 1]) {
-    const leg = meshPart(
-      model,
-      geometry,
-      metalMaterial,
-      `${spec.designation}_Bipod_${side < 0 ? 'Left' : 'Right'}`,
-      [side * 0.055, -0.12, spec.handguardEnd - 0.09]
-    );
-    leg.rotation.z = side * 0.34;
-    leg.rotation.x = 0.1;
-  }
+  const left = meshPart(
+    model,
+    geometry,
+    metalMaterial,
+    `${spec.designation}_Bipod_Left`,
+    [-0.02, -0.015, spec.handguardEnd - 0.09]
+  );
+  left.rotation.x = Math.PI / 2;
+  storeBipodRestTransform(left);
+
+  const right = meshPart(
+    model,
+    geometry,
+    metalMaterial,
+    `${spec.designation}_Bipod_Right`,
+    [0.02, -0.015, spec.handguardEnd - 0.09]
+  );
+  right.rotation.x = Math.PI / 2;
+  storeBipodRestTransform(right);
+
+  return { left, right };
 }
 
 function addMp40FoldingStock(model, spec, metalMaterial) {
@@ -531,16 +551,19 @@ function buildFm2429(spec, materials) {
   frontSight.userData.semanticPart = 'frontSight';
 
   const bipodGeometry = new THREE.CylinderGeometry(0.008, 0.009, 0.34, 5);
-  for (const side of [-1, 1]) {
-    const leg = meshPart(model, bipodGeometry, materials.metal, `${spec.designation}_Bipod_${side < 0 ? 'Left' : 'Right'}`, [side * 0.02, -0.015, spec.overallLength - 0.08 - 0.17]);
-    leg.rotation.x = Math.PI / 2;
-  }
+  const bipodLeft = meshPart(model, bipodGeometry, materials.metal, `${spec.designation}_Bipod_Left`, [-0.02, -0.015, spec.overallLength - 0.08 - 0.17]);
+  bipodLeft.rotation.x = Math.PI / 2;
+  storeBipodRestTransform(bipodLeft);
+  const bipodRight = meshPart(model, bipodGeometry, materials.metal, `${spec.designation}_Bipod_Right`, [0.02, -0.015, spec.overallLength - 0.08 - 0.17]);
+  bipodRight.rotation.x = Math.PI / 2;
+  storeBipodRestTransform(bipodRight);
+  const bipod = { left: bipodLeft, right: bipodRight };
 
-  const coreSilhouette = [stock, receiver, handguard, barrel, gasTube, flashHider, magazine, pistolGrip];
+  const coreSilhouette = [stock, receiver, handguard, barrel, gasTube, flashHider, magazine, pistolGrip, bipodLeft, bipodRight];
   for (const part of coreSilhouette) part.userData.lodBand = 'core';
 
   model.userData.visualContract = { units: 'metres', overallLength: spec.overallLength, definingFeatures: ['top magazine', 'folded bipod', 'cone flash hider', 'club foot', 'gas tube'], ...spec };
-  model.userData.parts = { stock, receiver, handguard, barrel, magazine, muzzle, frontSight, triggerGuard, pistolGrip, chargingHandle, boltHandle: null, coreSilhouette };
+  model.userData.parts = { stock, receiver, handguard, barrel, magazine, muzzle, frontSight, triggerGuard, pistolGrip, chargingHandle, boltHandle: null, bipod, coreSilhouette };
   return model;
 }
 
@@ -665,7 +688,9 @@ function buildWeaponModel(spec, materials) {
     );
     jacket.userData.perforatedJacket = true;
   }
-  if (spec.id === 'fm2429' || spec.id === 'mg34') addBipod(model, spec, materials.metal);
+  const bipod = spec.id === 'mg34'
+    ? addBipod(model, spec, materials.metal)
+    : null;
 
   const magazine = addMagazine(model, spec, materials.metal);
   const fireControls = addFireControls(model, spec, materials);
@@ -716,6 +741,7 @@ function buildWeaponModel(spec, materials) {
   }
   if (spec.id === 'mg34') {
     coreSilhouette.push(model.getObjectByName('MG34_PerforatedBarrelJacket'));
+    coreSilhouette.push(bipod.left, bipod.right);
   }
   for (const part of coreSilhouette) {
     if (part?.isMesh) part.userData.lodBand = 'core';
@@ -738,6 +764,7 @@ function buildWeaponModel(spec, materials) {
     muzzle,
     frontSight,
     profileDetail,
+    bipod,
     coreSilhouette: coreSilhouette.filter(Boolean),
     ...fireControls
   };

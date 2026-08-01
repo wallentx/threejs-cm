@@ -81,3 +81,27 @@ test('suppression recovery and existing recent-fire timers replay after restore'
   squad.update(1.5, flatTerrain);
   assert.deepEqual(squad.captureState(), expected);
 });
+
+test('live SoldierAI recovers an individual faster with a nearby living leader', () => {
+  const leaderNearby = createSquad('leader-nearby-recovery');
+  const leaderFar = createSquad('leader-far-recovery');
+  const nearbyObserver = leaderNearby.soldierAI.agents[2];
+  const farObserver = leaderFar.soldierAI.agents[2];
+
+  for (const observer of [nearbyObserver, farObserver]) {
+    observer.suppression = 50;
+    observer.syncRecord();
+    observer.record.lastSuppression = 50;
+    observer.record.incomingFireTimer = 0;
+  }
+  const distantLeader = leaderFar.soldierAI.agents[0];
+  distantLeader.position.set(100, 0, 100);
+  distantLeader.syncRecord();
+
+  leaderNearby.update(0.1, flatTerrain);
+  leaderFar.update(0.1, flatTerrain);
+
+  assert.equal(nearbyObserver.suppression, 47.6);
+  assert.equal(farObserver.suppression, 48.2);
+  assert.ok(nearbyObserver.suppression < farObserver.suppression);
+});

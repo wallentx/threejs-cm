@@ -385,6 +385,12 @@ test('building damage changes authored geometry at every LOD and collapse reveal
     FR_HOUSE_12X9_2F,
     buildings.getBuildingSnapshot('house-damage')
   );
+  assert.equal(house.getObjectByName('HouseGabledRoof').visible, true);
+  assert.ok(cheapShells.every(group => group.userData.roof.visible === true));
+  house.userData.collapseAnimator.advance(
+    buildings.getBuildingSnapshot('house-damage'),
+    0.8
+  );
   assert.equal(house.getObjectByName('HouseGabledRoof').visible, false);
   assert.ok(cheapShells.every(group => group.userData.roof.visible === false));
   for (const tier of house.userData.lodTiers) {

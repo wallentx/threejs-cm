@@ -4,8 +4,16 @@ import * as THREE from 'three';
 import { Unit } from './helpers/France1940TestUnit.js';
 import { WegoManager } from '../src/game/WegoManager.js';
 import {
-  INFANTRY_CASUALTY_FALL_DURATION_SECONDS
+  INFANTRY_CASUALTY_FALL_DURATION_SECONDS,
+  applyInfantrySecondaryPose
 } from '../src/world/infantry/InfantryPoseAnimator.js';
+import { createFrance1940InfantryWeaponRig } from '../src/content/france1940/render/France1940InfantryWeaponFactory.js';
+import {
+  FRANCE_1940_CATALOG_PORTS
+} from '../src/content/france1940/catalogPorts.js';
+import {
+  FRANCE_1940_FORMATIONS
+} from '../src/content/france1940/formations.js';
 
 const flatTerrain = {
   getHeightAt() {
@@ -1167,4 +1175,197 @@ test('WEGO rewind/replay and realtime consume the same casualty-fall simulation 
   wegoHarness.unit.applySoldierDamage(wegoHarness.agent.id, 200, 0);
   stepMode(wegoHarness, INFANTRY_CASUALTY_FALL_DURATION_SECONDS / 2);
   assert.deepEqual(casualtyProjection(wegoHarness.mesh), expectedMidProjection);
+});
+
+test('FM 24/29 and MG34 bipods deploy only for live prone weapon actions and reset exactly', () => {
+  const materials = {
+    metal: new THREE.MeshBasicMaterial(),
+    wood: new THREE.MeshBasicMaterial()
+  };
+  try {
+    for (const weaponName of ['FM 24/29 LMG', 'MG34 LMG']) {
+      const rig = createFrance1940InfantryWeaponRig(weaponName, materials);
+      const weaponModel = rig.userData.weaponModel;
+      const bipod = weaponModel.userData.parts.bipod;
+      assert.ok(bipod?.left && bipod?.right, `${weaponName} bipod parts`);
+      assert.equal(bipod.left.userData.lodBand, 'core');
+      assert.equal(bipod.right.userData.lodBand, 'core');
+      assert.ok(weaponModel.userData.parts.coreSilhouette.includes(bipod.left));
+      assert.ok(weaponModel.userData.parts.coreSilhouette.includes(bipod.right));
+
+      const mesh = new THREE.Group();
+      mesh.userData.parts = {
+        torso: new THREE.Group(),
+        head: new THREE.Group(),
+        leftLeg: new THREE.Group(),
+        rightLeg: new THREE.Group(),
+        weaponRig: rig
+      };
+      const folded = {
+        leftPosition: [...bipod.left.userData.bipodRestPosition],
+        leftRotation: [...bipod.left.userData.bipodRestRotation],
+        rightPosition: [...bipod.right.userData.bipodRestPosition],
+        rightRotation: [...bipod.right.userData.bipodRestRotation]
+      };
+      const soldier = {
+        stance: 'PRONE',
+        state: 'AIMING',
+        status: 'OK',
+        health: 100,
+        velocity: [0, 0, 0],
+        reloadTimer: 0,
+        recoilTime: 0
+      };
+
+      applyInfantrySecondaryPose(mesh, soldier);
+      assert.equal(weaponModel.userData.bipodDeployment, 'deployed');
+      assert.ok(bipod.left.rotation.z < folded.leftRotation[2]);
+      assert.ok(bipod.right.rotation.z > folded.rightRotation[2]);
+
+      soldier.state = 'MOVING';
+      soldier.velocity[0] = 1;
+      applyInfantrySecondaryPose(mesh, soldier);
+      assert.equal(weaponModel.userData.bipodDeployment, 'folded');
+      assert.deepEqual(bipod.left.position.toArray(), folded.leftPosition);
+      assert.deepEqual(
+        [bipod.left.rotation.x, bipod.left.rotation.y, bipod.left.rotation.z],
+        folded.leftRotation
+      );
+      assert.deepEqual(bipod.right.position.toArray(), folded.rightPosition);
+      assert.deepEqual(
+        [bipod.right.rotation.x, bipod.right.rotation.y, bipod.right.rotation.z],
+        folded.rightRotation
+      );
+
+      soldier.state = 'PINNED';
+      soldier.velocity[0] = 0;
+      applyInfantrySecondaryPose(mesh, soldier);
+      assert.equal(weaponModel.userData.bipodDeployment, 'folded');
+      soldier.state = 'RELOADING';
+      soldier.reloadTimer = 1;
+      applyInfantrySecondaryPose(mesh, soldier);
+      assert.equal(weaponModel.userData.bipodDeployment, 'deployed');
+      soldier.health = 0;
+      soldier.status = 'INCAPACITATED';
+      applyInfantrySecondaryPose(mesh, soldier);
+      assert.equal(weaponModel.userData.bipodDeployment, 'folded');
+
+      rig.traverse(object => object.geometry?.dispose());
+    }
+  } finally {
+    materials.metal.dispose();
+    materials.wood.dispose();
+  }
+});
+
+function createPoseMortarUnit() {
+  const formation =
+    FRANCE_1940_FORMATIONS.FRENCH_BRANDT_MLE1935_60MM_TEAM;
+  const roster = formation.members.map(member => {
+    const weapon = FRANCE_1940_CATALOG_PORTS.weapons.get(member.weaponId);
+    return {
+      ...member,
+      weapon: weapon.name,
+      status: 'OK',
+      health: 100
+    };
+  });
+  return new Unit({
+    id: 'mortar_pose_team',
+    faction: 'french',
+    type: 'infantry_squad',
+    position: new THREE.Vector3(),
+    roster,
+    crewServedWeapon: formation.crewServedWeapon
+  });
+}
+
+function advancePoseMortar(unit, seconds, step = 1 / 30) {
+  for (let elapsed = 0; elapsed < seconds - 1e-12;) {
+    const delta = Math.min(step, seconds - elapsed);
+    unit.update(delta, flatTerrain);
+    elapsed += delta;
+  }
+}
+
+test('real mortar state drives operator setup pack ready aim fire and reload poses', () => {
+  const unit = createPoseMortarUnit();
+  const equipment = unit.mesh.userData.mortarEquipment;
+  const gunnerMesh = unit.mesh.userData.soldiers.find(
+    mesh => mesh.userData.soldierId === 'mortar-gunner'
+  );
+  const assistantMesh = unit.mesh.userData.soldiers.find(
+    mesh => mesh.userData.soldierId === 'mortar-assistant'
+  );
+  const gunnerPose = gunnerMesh.userData.mortarOperatorPose;
+  const assistantPose = assistantMesh.userData.mortarOperatorPose;
+  assert.ok(equipment);
+  assert.equal(unit.mesh.userData.mortarMuzzle, equipment.userData.muzzle);
+  assert.notEqual(gunnerMesh.userData.parts.muzzle, equipment.userData.muzzle);
+  assert.equal(gunnerPose.action, 'packed');
+  assert.equal(gunnerMesh.userData.parts.weaponRig.visible, true);
+  for (const soldier of unit.roster) {
+    assert.equal(Object.hasOwn(soldier, 'mortarTeamState'), false);
+    assert.equal(Object.hasOwn(soldier, 'deploymentState'), false);
+    assert.equal(Object.hasOwn(soldier, 'isDeployed'), false);
+  }
+
+  const contextIdentity = gunnerPose;
+  const equipmentChildren = equipment.children.length;
+  assert.equal(unit.toggleCrewServedDeployment(), 'SETTING_UP');
+  assert.equal(gunnerPose.action, 'setup');
+  assert.equal(gunnerMesh.userData.activePose, 'mortar-setup');
+  assert.equal(gunnerMesh.userData.parts.weaponRig.visible, false);
+  assert.equal(gunnerMesh.userData.parts.weaponRig.userData.activeGripAssignments, null);
+  advancePoseMortar(unit, 5);
+  assert.equal(unit.mortarTeamState.deploymentState, 'READY');
+  assert.equal(gunnerPose.action, 'ready');
+  assert.equal(gunnerMesh.userData.activePose, 'mortar-ready');
+
+  assert.equal(
+    unit.setMortarTargetOrder(new THREE.Vector3(0, 0, 100), 'MORTAR_HE'),
+    true
+  );
+  unit.mortarTargetOrder.firstRoundDelayRemainingSeconds = 0;
+  unit.syncMortarVisuals();
+  unit.soldierAI.syncMeshes();
+  assert.equal(gunnerPose.action, 'aim');
+  assert.equal(gunnerMesh.userData.activePose, 'mortar-aim');
+  const aimSnapshot = unit.captureState();
+  assert.equal(
+    aimSnapshot.roster.some(soldier => 'mortarOperatorPose' in soldier),
+    false
+  );
+
+  assert.equal(unit.updateMortarCombat({
+    terrain: flatTerrain,
+    combat: { fireWeapon: () => true },
+    random: () => 0
+  }), true);
+  unit.soldierAI.syncMeshes();
+  assert.equal(gunnerPose.action, 'fire');
+  assert.equal(gunnerMesh.userData.activePose, 'mortar-fire');
+  assert.ok(unit.mortarTeamState.reloadRemainingSeconds > 0);
+  advancePoseMortar(unit, 0.2);
+  assert.equal(assistantPose.action, 'reload');
+  assert.equal(assistantMesh.userData.activePose, 'mortar-reload');
+
+  unit.applySoldierDamage('mortar-gunner', 200, 0);
+  assert.equal(gunnerMesh.userData.activePose, 'casualty');
+  unit.restoreState(aimSnapshot, new Map([[unit.id, unit]]));
+  assert.equal(gunnerMesh.userData.activePose, 'mortar-aim');
+  assert.equal(gunnerPose.firePulseRemainingSeconds, 0);
+
+  assert.equal(unit.toggleCrewServedDeployment(), 'PACKING');
+  assert.equal(gunnerPose.action, 'pack');
+  assert.equal(gunnerMesh.userData.activePose, 'mortar-pack');
+  advancePoseMortar(unit, 3);
+  assert.equal(unit.mortarTeamState.deploymentState, 'PACKED');
+  assert.equal(gunnerPose.action, 'packed');
+  assert.equal(gunnerMesh.userData.parts.weaponRig.visible, true);
+  assert.equal(gunnerMesh.userData.activePose.startsWith('mortar-'), false);
+
+  for (let index = 0; index < 25; index++) unit.syncMortarVisuals();
+  assert.equal(gunnerMesh.userData.mortarOperatorPose, contextIdentity);
+  assert.equal(equipment.children.length, equipmentChildren);
 });

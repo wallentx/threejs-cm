@@ -69,9 +69,13 @@ function updateSquad(
   squad,
   delta,
   terrain,
-  hasDirectPrecisionObservation = true
+  hasDirectPrecisionObservation = true,
+  options = {}
 ) {
-  squad.update(delta, terrain, { hasDirectPrecisionObservation });
+  squad.update(delta, terrain, {
+    ...options,
+    hasDirectPrecisionObservation
+  });
 }
 
 function roleMap(squad) {
@@ -178,6 +182,101 @@ test('GameApp passes only the current direct precision-observation boolean', () 
     haltMovement: false,
     hasDirectPrecisionObservation: true
   });
+});
+
+test('GameApp contact-halted HUNT advances only the individual mover', () => {
+  const terrain = createTerrain();
+  const squad = prepareSquad('game-app-halted-hunt', { squadSize: 2 });
+  const target = prepareTarget('game-app-halted-hunt-target', 30);
+  activateBounds(squad, target, 35, 'HUNT');
+  squad.holdFire = true;
+
+  const anchorStart = squad.position.clone();
+  const soldierStarts = new Map(squad.soldierAI.agents.map(agent => [
+    agent.id,
+    agent.position.clone()
+  ]));
+  const app = Object.assign(Object.create(GameApp.prototype), {
+    movedUnitIds: new Set(),
+    units: [squad],
+    factionOrder: ['french'],
+    factionRoster: {
+      opposingUnitsFor() {
+        return [target];
+      },
+      unitsFor() {
+        return [squad];
+      }
+    },
+    spotting: {
+      hasContact(observer, observed) {
+        assert.equal(observer, squad);
+        assert.equal(observed, target);
+        return true;
+      },
+      canPrecisionTarget(observer, observed) {
+        assert.equal(observer, squad);
+        assert.equal(observed, target);
+        return true;
+      },
+      advance() {},
+      checkLOS(from, to) {
+        return {
+          clear: true,
+          dist: from.distanceTo(to)
+        };
+      }
+    },
+    spottingStepper: new FixedStepAccumulator(STEP_SECONDS),
+    infantrySeparation: null,
+    buildingInteraction: {
+      advance() {},
+      canFireAt() {
+        return true;
+      }
+    },
+    syncBuildingInteriorPresentation() {},
+    terrain,
+    combat: {
+      update() {}
+    },
+    support: {
+      update() {}
+    },
+    random() {
+      return 0.5;
+    }
+  });
+
+  app.simulateStep(STEP_SECONDS);
+
+  const mover = squad.soldierAI.agents.find(agent =>
+    agent.record.tacticalDecision.boundRole === 'mover');
+  const coverer = squad.soldierAI.agents.find(agent =>
+    agent.record.tacticalDecision.boundRole === 'coverer');
+  assert.ok(mover);
+  assert.ok(coverer);
+  assert.ok(mover.position.distanceTo(soldierStarts.get(mover.id)) > 1e-5);
+  assert.equal(
+    coverer.position.distanceTo(soldierStarts.get(coverer.id)),
+    0
+  );
+  assert.equal(squad.position.distanceTo(anchorStart), 0);
+  assert.equal(app.movedUnitIds.has(squad.id), false);
+
+  const moverAfterFirstStep = mover.position.clone();
+  app.simulateStep(STEP_SECONDS);
+  assert.equal(
+    mover.record.tacticalDecision.boundRole,
+    'mover',
+    'recognized direct-threat memory must not cancel the live HUNT bound'
+  );
+  assert.ok(mover.position.distanceTo(moverAfterFirstStep) > 1e-5);
+  assert.equal(
+    coverer.position.distanceTo(soldierStarts.get(coverer.id)),
+    0
+  );
+  assert.equal(squad.position.distanceTo(anchorStart), 0);
 });
 
 test('GameApp clears same-step observation loss before combat', () => {
@@ -439,11 +538,11 @@ test('direct precision-observation loss clears roles and rejects combat fire', (
     soldier.tacticalDecision.boundRole === null));
 });
 
-test('roles swap at the exact six-metre boundary and ignore roster insertion order', () => {
+test('HUNT roles swap at the exact six-metre boundary and ignore roster insertion order', () => {
   const terrain = createTerrain();
   const target = prepareTarget('buddy-bound-boundary-target', 60);
   const squad = prepareSquad('buddy-bound-boundary', { squadSize: 2 });
-  activateBounds(squad, target, 50);
+  activateBounds(squad, target, 50, 'HUNT');
   updateSquad(squad, 0, terrain);
 
   const initial = squad.infantryBuddyBounds.captureState();
@@ -599,11 +698,11 @@ test('clear and identical reissue cannot retain a prior bound sequence', () => {
   assert.equal(squad.infantryBuddyBounds.captureState().mode, 'inactive');
 });
 
-test('final reform completes the waypoint without retaining bound authority', () => {
+test('HUNT final reform completes the waypoint without retaining bound authority', () => {
   const terrain = createTerrain();
   const squad = prepareSquad('buddy-bound-reform');
   const target = prepareTarget('buddy-bound-reform-target');
-  activateBounds(squad, target, 8);
+  activateBounds(squad, target, 8, 'HUNT');
 
   let sawReform = false;
   for (let step = 0; step < 600 && squad.currentWaypointIndex === 0; step++) {
@@ -622,7 +721,7 @@ test('final reform completes the waypoint without retaining bound authority', ()
     sequence: 0,
     pairs: []
   });
-  assert.equal(squad.areLivingInfantryAtFormation('QUICK'), true);
+  assert.equal(squad.areLivingInfantryAtFormation('HUNT'), true);
 });
 
 test('target, order, transit, queue, and unavailable-member gates are authoritative', () => {
@@ -642,7 +741,7 @@ test('target, order, transit, queue, and unavailable-member gates are authoritat
   assert.equal(wrongOrder.infantryBuddyBounds.captureState().mode, 'inactive');
 
   const transit = prepareSquad('buddy-bound-transit');
-  activateBounds(transit, target);
+  activateBounds(transit, target, 40, 'HUNT');
   transit.soldierAI.agents[0].buildingLocation = {
     phase: 'transit',
     buildingId: 'test-building'
@@ -652,7 +751,7 @@ test('target, order, transit, queue, and unavailable-member gates are authoritat
   assert.equal(transit.infantryBuddyBounds.captureState().mode, 'inactive');
 
   const completed = prepareSquad('buddy-bound-completed');
-  activateBounds(completed, target);
+  activateBounds(completed, target, 40, 'HUNT');
   completed.currentWaypointIndex = completed.waypoints.length;
   updateSquad(completed, STEP_SECONDS, terrain);
   assert.equal(completed.infantryBuddyBounds.captureState().mode, 'inactive');
@@ -670,78 +769,66 @@ test('target, order, transit, queue, and unavailable-member gates are authoritat
   assert.ok(targetLoss.roster.every(soldier =>
     soldier.tacticalDecision.boundRole === null));
 
-  const unavailable = prepareSquad('buddy-bound-unavailable');
-  activateBounds(unavailable, target);
+  const unavailable = prepareSquad('buddy-bound-unavailable', {
+    squadSize: 4
+  });
+  activateBounds(unavailable, target, 40, 'HUNT');
   const agents = unavailable.soldierAI.agents;
   agents[0].applyDamage(120, 0);
-  agents[1].status = 'INCAPACITATED';
-  agents[1].health = 25;
-  agents[1].syncRecord();
-  agents[2].reloadTimer = 1;
-  agents[2].syncRecord();
-  agents[3].suppression = 80;
-  agents[3].syncRecord();
-  const currentLivingCount = unavailable.soldierAI.getLivingAgents().length;
-  for (const agent of agents) {
-    agent.record.knownLivingCount = currentLivingCount;
-    agent.record.casualtyResponseTimer = 0;
-    agent.syncRecord();
-  }
   updateSquad(unavailable, STEP_SECONDS, terrain);
   assert.deepEqual(
     unavailable.infantryBuddyBounds.captureState().pairs.map(pair =>
       pair.memberIds),
-    [[4, 5]]
+    [[1, 2]]
   );
-  for (const id of [0, 1, 2, 3]) {
-    assert.equal(
-      unavailable.soldierAI.agents[id].record.tacticalDecision.boundRole,
-      null
-    );
-  }
-  assert.equal(agents[5].state, 'COVERING');
+  assert.equal(agents[0].record.tacticalDecision.boundRole, null);
+  assert.equal(agents[3].record.tacticalDecision.boundRole, 'unpaired');
+  assert.ok(unavailable.infantryBuddyBounds.captureState().pairs.every(pair =>
+    !pair.memberIds.includes(agents[0].id)));
 
-  agents[4].record.casualtyResponseTimer = 0;
-  agents[4].record.knownLivingCount =
-    unavailable.soldierAI.getLivingAgents().length;
-  agents[5].reloadTimer = 1;
-  agents[5].record.casualtyResponseTimer = 0;
-  agents[5].record.knownLivingCount =
-    unavailable.soldierAI.getLivingAgents().length;
-  agents[4].syncRecord();
-  agents[5].syncRecord();
-  updateSquad(unavailable, STEP_SECONDS, terrain);
+  const readiness = prepareSquad('buddy-bound-readiness', {
+    squadSize: 2
+  });
+  activateBounds(readiness, target, 40, 'HUNT');
+  updateSquad(readiness, STEP_SECONDS, terrain);
+  const readinessAgents = readiness.soldierAI.agents;
+  readinessAgents[1].reloadTimer = 1;
+  readinessAgents[1].syncRecord();
+  updateSquad(readiness, STEP_SECONDS, terrain);
   assert.equal(
-    agents[4].record.tacticalDecision.boundRole,
+    readinessAgents[0].record.tacticalDecision.boundRole,
     'unpaired'
   );
-  assert.notEqual(agents[4].state, 'COVERING');
+  assert.equal(readinessAgents[1].record.tacticalDecision.boundRole, null);
   assert.equal(
-    unavailable.infantryBuddyBounds.captureState().pairs.length,
+    readiness.infantryBuddyBounds.captureState().pairs.length,
     0
   );
 
-  const availableRounds = agents[4].magazineAmmo;
-  agents[4].magazineAmmo = 0;
-  agents[5].reloadTimer = 0;
-  agents[4].syncRecord();
-  agents[5].syncRecord();
-  updateSquad(unavailable, STEP_SECONDS, terrain);
-  assert.equal(agents[4].record.tacticalDecision.boundRole, null);
-  assert.equal(agents[5].record.tacticalDecision.boundRole, 'unpaired');
+  const availableRounds = readinessAgents[0].magazineAmmo;
+  readinessAgents[0].magazineAmmo = 0;
+  readinessAgents[1].reloadTimer = 0;
+  readinessAgents[0].syncRecord();
+  readinessAgents[1].syncRecord();
+  updateSquad(readiness, STEP_SECONDS, terrain);
+  assert.equal(readinessAgents[0].record.tacticalDecision.boundRole, null);
+  assert.equal(readinessAgents[1].record.tacticalDecision.boundRole, 'unpaired');
 
-  agents[4].magazineAmmo = availableRounds;
-  agents[5].threatMemory.record({
+  readinessAgents[0].magazineAmmo = availableRounds;
+  readinessAgents[1].threatMemory.record({
     eventId: 'buddy-bound-recent-threat',
     threatPosition: [0, 0, 30],
     impactPosition: [0, 0, 0],
     intensity: 1
   });
-  agents[4].syncRecord();
-  agents[5].syncRecord();
-  updateSquad(unavailable, STEP_SECONDS, terrain);
-  assert.equal(agents[4].record.tacticalDecision.boundRole, 'unpaired');
-  assert.equal(agents[5].record.tacticalDecision.boundRole, null);
+  readinessAgents[0].syncRecord();
+  readinessAgents[1].syncRecord();
+  updateSquad(readiness, STEP_SECONDS, terrain);
+  assert.deepEqual(
+    readinessAgents.map(agent =>
+      agent.record.tacticalDecision.boundRole).sort(),
+    ['coverer', 'mover']
+  );
 });
 
 test('static collision and post-movement separation remain downstream authority', () => {
@@ -792,9 +879,11 @@ test('mid-bound capture restores deeply and replays byte-identically', () => {
   const terrain = createTerrain();
   const squad = prepareSquad('buddy-bound-replay');
   const target = prepareTarget('buddy-bound-replay-target', 50);
-  activateBounds(squad, target, 45);
+  activateBounds(squad, target, 45, 'HUNT');
   for (let step = 0; step < 45; step++) {
-    updateSquad(squad, STEP_SECONDS, terrain);
+    updateSquad(squad, STEP_SECONDS, terrain, true, {
+      haltMovement: true
+    });
   }
 
   const snapshot = squad.captureState();
@@ -829,7 +918,9 @@ test('mid-bound capture restores deeply and replays byte-identically', () => {
   ]));
 
   for (let step = 0; step < 75; step++) {
-    updateSquad(squad, STEP_SECONDS, terrain);
+    updateSquad(squad, STEP_SECONDS, terrain, true, {
+      haltMovement: true
+    });
   }
   const expected = squad.captureState();
   squad.restoreState(snapshot, new Map([
@@ -837,7 +928,9 @@ test('mid-bound capture restores deeply and replays byte-identically', () => {
     [target.id, target]
   ]));
   for (let step = 0; step < 75; step++) {
-    updateSquad(squad, STEP_SECONDS, terrain);
+    updateSquad(squad, STEP_SECONDS, terrain, true, {
+      haltMovement: true
+    });
   }
   assert.deepEqual(squad.captureState(), expected);
 
@@ -900,7 +993,7 @@ function runFixedFrameStream(frameBudgets, mode = 'wego') {
   const terrain = createTerrain();
   const squad = prepareSquad('buddy-bound-fixed-step');
   const target = prepareTarget('buddy-bound-fixed-target', 50);
-  activateBounds(squad, target, 45);
+  activateBounds(squad, target, 45, 'HUNT');
   const game = {
     units: [squad],
     captureSimulationState() {
@@ -936,7 +1029,7 @@ function runFixedFrameStream(frameBudgets, mode = 'wego') {
   };
 }
 
-test('outer-frame partitions and WEGO/realtime use the same Unit update mechanic', () => {
+test('HUNT outer-frame partitions and WEGO/realtime use the same Unit update mechanic', () => {
   const variable = runFixedFrameStream([
     0.011, 0.022, 0.017, 0.05,
     0.007, 0.013, 0.041, 0.039
@@ -978,20 +1071,150 @@ test('plain coordinator restore rejects forged role and duplicate-member state',
   );
 });
 
-test('HUNT and ASSAULT orders engage staggered fire-and-movement buddy bounds', () => {
-  const squad = prepareSquad('hunt_bounds_squad');
-  squad.waypoints = [
-    { orderType: 'HUNT', position: new THREE.Vector3(0, 0, 20) }
-  ];
-  squad.currentWaypointIndex = 0;
-
+test('public HUNT uses ordinary eligible fire gates and retains ASSAULT precedence', () => {
   const terrain = createTerrain();
-  squad.soldierAI.update(1 / 30, terrain);
+  const makeEngagement = id => {
+    const squad = prepareSquad(`${id}-squad`, { squadSize: 2 });
+    const target = prepareTarget(`${id}-target`);
+    activateBounds(squad, target, 35, 'HUNT');
+    for (let step = 0; step < 30; step++) {
+      updateSquad(squad, STEP_SECONDS, terrain);
+    }
+    const combat = new CombatSystem(
+      new THREE.Scene(),
+      {
+        playGunshot() {},
+        playCannon() {},
+        playExplosion() {}
+      },
+      () => 0.5,
+      {
+        getUnits: () => [squad, target],
+        vfxProvider: TEST_VFX_PROVIDER
+      }
+    );
+    return { squad, target, combat };
+  };
 
-  const roles = squad.soldierAI.agents.map(a => a.record.tacticalDecision.boundRole);
-  assert.ok(roles.includes('mover'), 'HUNT order must assign mover role in buddy bounds');
-  assert.ok(roles.includes('coverer'), 'HUNT order must assign coverer role in buddy bounds');
+  const live = makeEngagement('hunt-public-live');
+  const mover = live.squad.soldierAI.agents.find(agent =>
+    agent.record.tacticalDecision.boundRole === 'mover');
+  const coverer = live.squad.soldierAI.agents.find(agent =>
+    agent.record.tacticalDecision.boundRole === 'coverer');
+  assert.ok(mover);
+  assert.ok(coverer);
+  assert.equal(coverer.state, 'COVERING');
+  assert.equal(coverer.stance, 'KNEELING');
+  assert.equal(coverer.velocity.lengthSq(), 0);
+  assert.ok(['ADVANCING', 'BOUNDING'].includes(mover.state));
+  assert.ok(mover.velocity.lengthSq() > 0);
 
-  const coverers = squad.soldierAI.agents.filter(a => a.record.tacticalDecision.boundRole === 'coverer');
-  assert.ok(coverers.every(c => c.stance === 'KNEELING'), 'Covering elements must assume covering stance (KNEELING)');
+  const liveContext = combatContext(live.combat, live.target);
+  live.squad.updateIndividualCombat(STEP_SECONDS, liveContext);
+  assert.equal(live.combat.projectiles.length, 0);
+  assert.equal(coverer.fireControl.phase, 'AIMING');
+
+  coverer.fireCooldown = 10;
+  for (let step = 0; step < 120; step++) {
+    live.squad.updateIndividualCombat(STEP_SECONDS, liveContext);
+  }
+  assert.equal(coverer.fireControl.phase, 'READY');
+  assert.equal(live.combat.projectiles.length, 0);
+  coverer.fireCooldown = 0;
+  assert.ok(coverer.mesh?.userData.parts?.muzzle);
+  const muzzle = coverer.getMuzzleWorldPosition();
+  const magazineBefore = coverer.magazineAmmo;
+  live.squad.updateIndividualCombat(STEP_SECONDS, liveContext);
+  assert.equal(live.combat.projectiles.length, 1);
+  assert.equal(live.combat.projectiles[0].shooterId, coverer.id);
+  assert.ok(live.combat.projectiles[0].position.distanceTo(muzzle) < 1e-9);
+  assert.equal(coverer.magazineAmmo, magazineBefore - 1);
+  assert.equal(coverer.velocity.lengthSq(), 0);
+
+  const blockedLos = makeEngagement('hunt-public-los');
+  const blockedLosContext = combatContext(
+    blockedLos.combat,
+    blockedLos.target
+  );
+  blockedLosContext.spotting.checkLOS = (from, to) => ({
+    clear: false,
+    dist: from.distanceTo(to)
+  });
+  for (let step = 0; step < 120; step++) {
+    blockedLos.squad.updateIndividualCombat(
+      STEP_SECONDS,
+      blockedLosContext
+    );
+  }
+  assert.equal(blockedLos.combat.projectiles.length, 0);
+
+  const noAmmunition = makeEngagement('hunt-public-ammunition');
+  const dryCoverer = noAmmunition.squad.soldierAI.agents.find(agent =>
+    agent.record.tacticalDecision.boundRole === 'coverer');
+  dryCoverer.magazineAmmo = 0;
+  dryCoverer.reserveAmmo = 0;
+  dryCoverer.syncRecord();
+  for (let step = 0; step < 120; step++) {
+    noAmmunition.squad.updateIndividualCombat(
+      STEP_SECONDS,
+      combatContext(noAmmunition.combat, noAmmunition.target)
+    );
+  }
+  assert.equal(noAmmunition.combat.projectiles.length, 0);
+
+  const suppressed = makeEngagement('hunt-public-suppressed');
+  const suppressedCoverer = suppressed.squad.soldierAI.agents.find(agent =>
+    agent.record.tacticalDecision.boundRole === 'coverer');
+  suppressedCoverer.suppression = 90;
+  suppressedCoverer.moraleTier = 'PINNED';
+  suppressedCoverer.state = 'PINNED';
+  suppressedCoverer.syncRecord();
+  for (let step = 0; step < 120; step++) {
+    suppressed.squad.updateIndividualCombat(
+      STEP_SECONDS,
+      combatContext(suppressed.combat, suppressed.target)
+    );
+  }
+  assert.equal(suppressed.combat.projectiles.length, 0);
+  assert.equal(suppressedCoverer.fireControl.phase, 'SUPPRESSED');
+
+  const noTarget = prepareSquad('hunt-public-no-target', { squadSize: 2 });
+  noTarget.addWaypoint(new THREE.Vector3(0, 0, 35), 'HUNT');
+  updateSquad(noTarget, STEP_SECONDS, terrain);
+  assert.equal(noTarget.infantryBuddyBounds.captureState().mode, 'bounding');
+  const noTargetCombat = new CombatSystem(
+    new THREE.Scene(),
+    { playGunshot() {}, playCannon() {}, playExplosion() {} },
+    () => 0.5,
+    {
+      getUnits: () => [noTarget],
+      vfxProvider: TEST_VFX_PROVIDER
+    }
+  );
+  const noTargetContext = combatContext(noTargetCombat, null);
+  noTargetContext.opposingUnits = [];
+  for (let step = 0; step < 120; step++) {
+    noTarget.updateIndividualCombat(STEP_SECONDS, noTargetContext);
+  }
+  assert.equal(noTargetCombat.projectiles.length, 0);
+
+  const invalidTarget = makeEngagement('hunt-public-invalid-target');
+  for (const targetAgent of invalidTarget.target.soldierAI.agents) {
+    targetAgent.applyDamage(120, 0);
+  }
+  for (let step = 0; step < 120; step++) {
+    invalidTarget.squad.updateIndividualCombat(
+      STEP_SECONDS,
+      combatContext(invalidTarget.combat, invalidTarget.target)
+    );
+  }
+  assert.equal(invalidTarget.combat.projectiles.length, 0);
+
+  const assault = prepareSquad('assault-precedence', { squadSize: 2 });
+  assault.addWaypoint(new THREE.Vector3(0, 0, 20), 'ASSAULT');
+  updateSquad(assault, STEP_SECONDS, terrain, false);
+  assert.deepEqual(
+    [...roleMap(assault).values()].sort(),
+    ['coverer', 'mover']
+  );
 });

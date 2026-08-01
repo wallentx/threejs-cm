@@ -1,7 +1,11 @@
+import { INFANTRY_SEPARATION_MAX_CANDIDATES } from '../simulation/infantry/InfantrySeparationSystem.js';
+
 const SETUP_DATA_QUALITY =
   'battle setup policy is deterministic game configuration; force packages and AI levels are gameplay choices';
 const GRID_SPACING_METERS = 11;
 const DEPLOYMENT_MARGIN_METERS = 6;
+
+export { INFANTRY_SEPARATION_MAX_CANDIDATES };
 
 export const BATTLE_SETUP_AI_LEVELS = Object.freeze({
   recruit: Object.freeze({
@@ -251,6 +255,165 @@ export function resolveBattleForce(catalog, factionId, selection) {
   });
 }
 
+function requireFormationMemberCount(family, option) {
+  const formation = family?.formations?.[option.recordId];
+  if (!formation || !Array.isArray(formation.members)) {
+    throw new Error(
+      `Battle setup option ${option.id} references invalid formation ${option.recordId}`
+    );
+  }
+  return formation.members.length;
+}
+
+function formationContributions(family, side, factionId, force) {
+  return force.entries.flatMap(entry => {
+    if (entry.option.kind !== 'formation') return [];
+    const individualCount = requireFormationMemberCount(family, entry.option);
+    return [{
+      side,
+      factionId,
+      optionId: entry.option.id,
+      formationId: entry.option.recordId,
+      optionName: entry.option.name,
+      selectedCount: entry.count,
+      individualCount,
+      contribution: entry.count * individualCount
+    }];
+  });
+}
+
+function validateResolvedRosterSeparationCapacity({
+  family,
+  playerFactionId,
+  playerForce,
+  enemyFactionId,
+  enemyForce
+}) {
+  const contributions = [
+    ...formationContributions(
+      family,
+      'player',
+      playerFactionId,
+      playerForce
+    ),
+    ...formationContributions(
+      family,
+      'enemy',
+      enemyFactionId,
+      enemyForce
+    )
+  ];
+  let totalInfantry = 0;
+  let playerInfantry = 0;
+  let enemyInfantry = 0;
+  for (const contribution of contributions) {
+    totalInfantry += contribution.contribution;
+    if (contribution.side === 'player') {
+      playerInfantry += contribution.contribution;
+    } else {
+      enemyInfantry += contribution.contribution;
+    }
+    if (totalInfantry > INFANTRY_SEPARATION_MAX_CANDIDATES) {
+      throw new RangeError(
+        `Battle setup ${contribution.side} ${contribution.factionId} option `
+        + `${contribution.optionId} (${contribution.optionName}) contributes `
+        + `${contribution.contribution} living infantry from `
+        + `${contribution.selectedCount} selected formation(s) at `
+        + `${contribution.individualCount} each; cumulative count `
+        + `${totalInfantry} exceeds separation limit `
+        + `${INFANTRY_SEPARATION_MAX_CANDIDATES}`
+      );
+    }
+  }
+  return Object.freeze({
+    playerInfantry,
+    enemyInfantry,
+    totalInfantry,
+    limit: INFANTRY_SEPARATION_MAX_CANDIDATES
+  });
+}
+
+export function countForceLivingInfantry(catalog, family, factionId, selection) {
+  const force = resolveBattleForce(catalog, factionId, selection);
+  return formationContributions(family, 'force', factionId, force)
+    .reduce((total, entry) => total + entry.contribution, 0);
+}
+
+export function validateRosterSeparationCapacity({
+  catalog,
+  family,
+  playerFactionId,
+  playerForceSelection,
+  enemyFactionId,
+  enemyForceSelection
+}) {
+  const playerForce = resolveBattleForce(
+    catalog,
+    playerFactionId,
+    playerForceSelection
+  );
+  const enemyForce = resolveBattleForce(
+    catalog,
+    enemyFactionId,
+    enemyForceSelection
+  );
+  return validateResolvedRosterSeparationCapacity({
+    family,
+    playerFactionId,
+    playerForce,
+    enemyFactionId,
+    enemyForce
+  });
+}
+
+function resolveConfiguredBattleForces({
+  catalog,
+  family,
+  playerFactionId,
+  playerForceSelection,
+  enemyFactionId,
+  enemyForceSelection
+}) {
+  validateBattleSetupCatalog(catalog, family);
+  if (playerFactionId === enemyFactionId) {
+    throw new Error('Player and enemy countries must be different');
+  }
+  if (!catalog.countries[playerFactionId]
+      || !catalog.countries[enemyFactionId]) {
+    throw new Error('Configured battle references an unavailable country');
+  }
+  const playerForce = resolveBattleForce(
+    catalog,
+    playerFactionId,
+    playerForceSelection
+  );
+  const enemyForce = resolveBattleForce(
+    catalog,
+    enemyFactionId,
+    enemyForceSelection
+  );
+  const capacity = validateResolvedRosterSeparationCapacity({
+    family,
+    playerFactionId,
+    playerForce,
+    enemyFactionId,
+    enemyForce
+  });
+  return Object.freeze({ playerForce, enemyForce, capacity });
+}
+
+export function createBattleSetupValidationPort({ catalog, family }) {
+  validateBattleSetupCatalog(catalog, family);
+  return selection => resolveConfiguredBattleForces({
+    catalog,
+    family,
+    playerFactionId: selection?.playerFactionId,
+    playerForceSelection: selection?.playerForceSelection,
+    enemyFactionId: selection?.enemyFactionId,
+    enemyForceSelection: selection?.enemyForceSelection
+  });
+}
+
 function hashString(value) {
   let hash = 2166136261;
   for (const character of value) {
@@ -449,16 +612,16 @@ export function createConfiguredBattleScenario({
   enemyForceSelection,
   enemyAiDifficulty = 'regular'
 }) {
-  validateBattleSetupCatalog(catalog, family);
+  const { playerForce, enemyForce } = resolveConfiguredBattleForces({
+    catalog,
+    family,
+    playerFactionId,
+    playerForceSelection,
+    enemyFactionId,
+    enemyForceSelection
+  });
   if (!mapDescriptor?.id || !mapDescriptor?.deploymentZones) {
     throw new Error('Configured battle requires a map with deployment zones');
-  }
-  if (playerFactionId === enemyFactionId) {
-    throw new Error('Player and enemy countries must be different');
-  }
-  if (!catalog.countries[playerFactionId]
-      || !catalog.countries[enemyFactionId]) {
-    throw new Error('Configured battle references an unavailable country');
   }
   const playerZone = mapDescriptor.deploymentZones[playerFactionId];
   const enemyZone = mapDescriptor.deploymentZones[enemyFactionId];
@@ -469,16 +632,6 @@ export function createConfiguredBattleScenario({
   if (!difficulty) {
     throw new Error(`Unknown enemy AI difficulty ${enemyAiDifficulty}`);
   }
-  const playerForce = resolveBattleForce(
-    catalog,
-    playerFactionId,
-    playerForceSelection
-  );
-  const enemyForce = resolveBattleForce(
-    catalog,
-    enemyFactionId,
-    enemyForceSelection
-  );
   const playerNetId = `${playerFactionId}-configured-player`;
   const enemyNetId = `${enemyFactionId}-configured-enemy`;
   const playerUnits = expandForce({

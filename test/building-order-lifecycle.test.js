@@ -5,10 +5,11 @@ import { BuildingInteractionSystem } from '../src/game/BuildingInteractionSystem
 import { FR_FARMHOUSE_8X6_1F } from '../src/maps/france/FranceFarmhouse8x6_1F.js';
 import { FR_HOUSE_12X9_2F } from '../src/maps/france/FranceHouse12x9_2F.js';
 import { BuildingSystem } from '../src/simulation/buildings/index.js';
+import { createRoomSlotIndex } from '../src/simulation/buildings/BuildingOccupancy.js';
 
-function createThreeSlotFarmhouse() {
+function createSparseAuthoredFarmhouse() {
   const descriptor = structuredClone(FR_FARMHOUSE_8X6_1F);
-  descriptor.id = 'fr_farmhouse_8x6_1f_three_slot_lifecycle_test';
+  descriptor.id = 'fr_farmhouse_8x6_1f_sparse_authored_positions';
   descriptor.rooms[0].slots = descriptor.rooms[0].slots.slice(0, 3);
   return descriptor;
 }
@@ -80,7 +81,7 @@ function createUnit(id = 'squad') {
 }
 
 function createHarness() {
-  const farmhouse = createThreeSlotFarmhouse();
+  const farmhouse = createSparseAuthoredFarmhouse();
   const buildings = new BuildingSystem();
   buildings.registerDescriptor(farmhouse);
   buildings.registerDescriptor(FR_HOUSE_12X9_2F);
@@ -122,9 +123,40 @@ function completeEnter(harness, order, { upper = false } = {}) {
   if (upper) harness.interactions.advance(3.8);
 }
 
-function occupyBothBuildings(harness) {
-  const farmhouseOrder = harness.interactions.issueEnter(
+function issueEnterWithLivingLimit(harness, count, buildingId, floorId) {
+  const available = harness.unit.soldierAI.agents
+    .filter(agent => !agent.buildingLocation)
+    .sort((left, right) => left.id.localeCompare(right.id));
+  const sidelined = available.slice(count).map(agent => ({
+    agent,
+    health: agent.health,
+    status: agent.status,
+    state: agent.state
+  }));
+  for (const saved of sidelined) {
+    saved.agent.health = 0;
+    saved.agent.status = 'KIA';
+    saved.agent.state = 'CASUALTY';
+    saved.agent.syncRecord();
+  }
+  const order = harness.interactions.issueEnter(
     harness.unit,
+    buildingId,
+    floorId
+  );
+  for (const saved of sidelined) {
+    saved.agent.health = saved.health;
+    saved.agent.status = saved.status;
+    saved.agent.state = saved.state;
+    saved.agent.syncRecord();
+  }
+  return order;
+}
+
+function occupyBothBuildings(harness) {
+  const farmhouseOrder = issueEnterWithLivingLimit(
+    harness,
+    3,
     'farmhouse',
     'ground-floor'
   );
@@ -204,6 +236,20 @@ test('overlapping ENTER rejection is atomic and leaves the first order completab
     'upper-floor'
   );
   assert.equal(first.accepted, true);
+  assert.equal(first.assigned.length, 6);
+  const upperSlots = createRoomSlotIndex(FR_HOUSE_12X9_2F);
+  const assignedUpperSlots = assignedAgents(harness.unit, first).map(agent =>
+    upperSlots.get(agent.buildingLocation.targetSlotId));
+  assert.equal(
+    assignedUpperSlots.filter(slot => !slot.isSupport).length,
+    4,
+    'the four authored fire-port positions remain finite and exclusive'
+  );
+  assert.equal(
+    assignedUpperSlots.filter(slot => slot.isGeneratedSupport).length,
+    2,
+    'the remaining living soldiers use physical-policy support positions'
+  );
   harness.unit.waypoints = [{
     orderType: 'QUICK',
     position: [...first.approachPosition]
@@ -305,10 +351,11 @@ test('mixed-building EXIT assignments restore and replay from mid-transit', () =
   assert.deepEqual(original.interactions.captureState().orders, []);
 });
 
-test('orderless lethal casualty releases one slot once and restore keeps it reusable', () => {
+test('orderless lethal casualty releases one slot once and stable entrants reuse it', () => {
   const original = createHarness();
-  const enter = original.interactions.issueEnter(
-    original.unit,
+  const enter = issueEnterWithLivingLimit(
+    original,
+    3,
     'farmhouse',
     'ground-floor'
   );
@@ -353,7 +400,7 @@ test('orderless lethal casualty releases one slot once and restore keeps it reus
     'ground-floor'
   );
   assert.equal(replacement.accepted, true);
-  assert.equal(replacement.assigned.length, 1);
+  assert.equal(replacement.assigned.length, 3);
   const replacementAgent = assignedAgents(restored.unit, replacement)[0];
   assert.equal(replacementAgent.buildingLocation.targetSlotId, releasedSlotId);
   completeEnter(restored, replacement);

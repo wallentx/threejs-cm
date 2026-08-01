@@ -559,6 +559,10 @@ export class GameApp {
     }
   }
 
+  advanceBuildingPresentation(deltaTime) {
+    return this.terrain?.updateBuildingPresentation?.(deltaTime) ?? 0;
+  }
+
   selectUnits(units, primaryUnit = null, { frameCamera = false } = {}) {
     const uniqueUnits = [...new Set((units ?? []).filter(unit =>
       unit
@@ -745,7 +749,9 @@ export class GameApp {
     }
     this.buildingInteraction.restoreState(state.buildingInteractions);
     for (const buildingId of this.buildingSystem.getBuildingIds()) {
-      this.terrain.syncBuildingRuntime(buildingId);
+      this.terrain.syncBuildingRuntime(buildingId, {
+        collapseProjection: 'restore'
+      });
     }
     this.spotting.invalidateBuildingColliders();
     this.spotting.restoreState(state.spotting);
@@ -1219,6 +1225,7 @@ export class GameApp {
       }
 
       this.refreshVisibilityProjection();
+      this.advanceBuildingPresentation(delta);
       this.cameraManager.update(delta);
       const lodCounts = { high: 0, medium: 0, core: 0, low: 0 };
       for (const unit of this.units) {

@@ -64,6 +64,78 @@ function resetArmRigFromGripIk(arm) {
   arm.userData.gripBinding = null;
 }
 
+function resetBipodLeg(leg) {
+  const restPosition = leg?.userData.bipodRestPosition;
+  const restRotation = leg?.userData.bipodRestRotation;
+  if (!restPosition || !restRotation) return false;
+  leg.position.set(restPosition[0], restPosition[1], restPosition[2]);
+  leg.rotation.set(restRotation[0], restRotation[1], restRotation[2]);
+  return true;
+}
+
+function applyLmgBipodPose(parts, soldier, alive, surrendered) {
+  const weaponModel = parts.weaponRig?.userData?.weaponModel;
+  if (weaponModel?.userData?.visualContract?.kind !== 'lmg') return;
+  const bipod = weaponModel.userData.parts?.bipod;
+  if (!resetBipodLeg(bipod?.left) || !resetBipodLeg(bipod?.right)) return;
+
+  const deployed = alive
+    && !surrendered
+    && soldier.stance === 'PRONE'
+    && (
+      soldier.state === 'AIMING'
+      || soldier.state === 'OBSERVING'
+      || soldier.state === 'RELOADING'
+      || (soldier.reloadTimer ?? 0) > 0
+      || (soldier.recoilTime ?? 0) > 0
+    );
+  if (deployed) {
+    bipod.left.rotation.x = 0.22;
+    bipod.left.rotation.z = -0.34;
+    bipod.right.rotation.x = 0.22;
+    bipod.right.rotation.z = 0.34;
+    bipod.left.position.y -= 0.045;
+    bipod.right.position.y -= 0.045;
+  }
+  weaponModel.userData.bipodDeployment = deployed ? 'deployed' : 'folded';
+}
+
+function applyMortarOperatorPose(mesh, parts, context) {
+  resetArmRigFromGripIk(parts.leftArm);
+  resetArmRigFromGripIk(parts.rightArm);
+  parts.weaponRig.userData.activeGripAssignments = null;
+
+  mesh.position.y = (mesh.userData.poseBaseY ?? 0) - 0.34;
+  parts.leftLeg.rotation.set(-1.15, 0, 0);
+  parts.rightLeg.rotation.set(-0.3, 0, 0);
+  parts.torso.rotation.x = context.action === 'setup'
+    || context.action === 'pack'
+    ? -0.24 - context.deployedProgress * 0.05
+    : -0.12;
+
+  if (context.role === 'gunner') {
+    parts.leftArm.rotation.set(-1.18, 0, 0.32);
+    parts.rightArm.rotation.set(-1.02, 0, -0.28);
+    if (context.action === 'aim') {
+      parts.torso.rotation.x = -0.2;
+      parts.leftArm.rotation.x = -1.34;
+    } else if (context.action === 'fire') {
+      parts.torso.rotation.x = -0.17;
+      parts.rightArm.rotation.x = -1.2;
+    }
+  } else {
+    parts.leftArm.rotation.set(-0.96, 0, 0.28);
+    parts.rightArm.rotation.set(-0.88, 0, -0.32);
+    if (context.action === 'reload') {
+      parts.torso.rotation.x = -0.28;
+      parts.leftArm.rotation.set(-1.58, 0, 0.18);
+      parts.rightArm.rotation.set(-1.42, 0, -0.12);
+    } else if (context.action === 'fire') {
+      parts.rightArm.rotation.x = -1.34;
+    }
+  }
+}
+
 const KIA_END_POSES = [
   {
     root: [Math.PI / 2, -0.08, 0.34],
@@ -402,7 +474,11 @@ export function advanceInfantryAnimation(record, deltaSeconds) {
     : nextPoseTime;
 }
 
-export function applyInfantrySecondaryPose(mesh, soldier) {
+export function applyInfantrySecondaryPose(
+  mesh,
+  soldier,
+  mortarOperatorPose = null
+) {
   const parts = mesh.userData.parts;
   if (!parts) return;
 
@@ -473,28 +549,37 @@ export function applyInfantrySecondaryPose(mesh, soldier) {
     applyFirstOrderSneakPose(mesh, parts, soldier.stridePhase);
   }
   if (woundedMoving) applyFirstOrderWoundedMovePose(parts, soldier.stridePhase);
+  const mortarOperating = Boolean(
+    mortarOperatorPose?.operating && alive && !surrendered
+  );
+  if (mortarOperating) {
+    applyMortarOperatorPose(mesh, parts, mortarOperatorPose);
+  }
   if (soldier.status === 'KIA') applyFirstOrderKiaFallPose(mesh, parts, soldier);
   else if (surrendered) applyFirstOrderSurrenderPose(parts);
+  applyLmgBipodPose(parts, soldier, alive, surrendered);
 
   const pose = soldier.status === 'KIA'
     ? 'casualty'
     : surrendered
       ? 'surrender'
-    : soldier.state === 'RELOADING'
-      ? 'reload'
-      : (soldier.recoilTime ?? 0) > 0
-          ? 'fire'
-          : ['AIMING', 'OBSERVING'].includes(soldier.state)
+      : mortarOperating
+        ? `mortar-${mortarOperatorPose.action}`
+        : soldier.state === 'RELOADING'
+          ? 'reload'
+          : (soldier.recoilTime ?? 0) > 0
+            ? 'fire'
+            : ['AIMING', 'OBSERVING'].includes(soldier.state)
               ? 'aim'
               : speed >= IDLE_SPEED_THRESHOLD
-                  ? crawling
-                    ? 'crawl'
-                    : sneaking
-                      ? 'sneak'
-                      : woundedMoving
-                        ? 'wounded-move'
-                        : 'move'
-                  : 'idle';
+                ? crawling
+                  ? 'crawl'
+                  : sneaking
+                    ? 'sneak'
+                    : woundedMoving
+                      ? 'wounded-move'
+                      : 'move'
+                : 'idle';
 
   parts.weaponRig.userData.activePose = pose;
   parts.weaponRig.userData.handBindings = {
@@ -510,11 +595,16 @@ export function bindInfantryHandsToWeapon(mesh, soldier) {
       || soldier.status === 'KIA'
       || soldier.status === 'SURRENDERED'
       || soldier.state === 'SURRENDERED') return false;
-  const reload = soldier.state === 'RELOADING';
+  const reload = soldier.state === 'RELOADING'
+    || (soldier.reloadTimer ?? 0) > 0;
   const internalMagazine = parts.weaponRig.userData.weaponModel
     ?.userData.visualContract?.magazine === 'internal';
-  const rightGrip = reload && internalMagazine ? parts.reloadGrip : parts.triggerGrip;
-  const leftGrip = reload && !internalMagazine ? parts.reloadGrip : parts.supportGrip;
+  const rightGrip = reload && internalMagazine
+    ? parts.reloadGrip
+    : parts.triggerGrip;
+  const leftGrip = reload && !internalMagazine
+    ? parts.reloadGrip
+    : parts.supportGrip;
   const rightBound = solveTwoBoneArm(mesh, parts.rightArm, rightGrip, -1);
   const leftBound = solveTwoBoneArm(mesh, parts.leftArm, leftGrip, 1);
   parts.weaponRig.userData.activeGripAssignments = {

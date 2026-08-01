@@ -219,3 +219,27 @@ test('capture and restore are deep, validated, and replay the same next round ow
     /weaponId/
   );
 });
+
+test('mortar deployment state remains team-owned without per-soldier aliases', () => {
+  const state = createMortarTeamState(CONFIG);
+  assert.equal(state.deploymentState, 'PACKED');
+
+  requestMortarDeployment(state, CONFIG);
+  assert.equal(state.deploymentState, 'SETTING_UP');
+
+  advanceMortarTeamState(state, 5);
+  assert.equal(state.deploymentState, 'READY');
+
+  const beforeRead = captureMortarTeamState(state);
+  const roster = healthyRoster();
+  assert.deepEqual(canFireMortar(state, CONFIG, roster, 100), {
+    ready: true,
+    reason: 'READY'
+  });
+  for (const soldier of roster) {
+    assert.equal(Object.hasOwn(soldier, 'mortarTeamState'), false);
+    assert.equal(Object.hasOwn(soldier, 'deploymentState'), false);
+    assert.equal(Object.hasOwn(soldier, 'isDeployed'), false);
+  }
+  assert.deepEqual(captureMortarTeamState(state), beforeRead);
+});

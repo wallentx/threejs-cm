@@ -1534,15 +1534,17 @@ export class TerrainBuilder {
     };
   }
 
-  syncBuildingRuntime(buildingId) {
+  syncBuildingRuntime(buildingId, { collapseProjection = 'transition' } = {}) {
     if (!this.buildingSystem) return null;
     const building = this.buildings.find(record => record.id === buildingId);
     if (!building) return null;
     const runtime = this.buildingSystem.getBuildingSnapshot(buildingId);
     const descriptor = this.buildingSystem.getDescriptorForBuilding(buildingId);
     building.adapter.applyVisualState(building.object, descriptor, runtime, {
-      interiorPresence: building.interiorPresence ?? 0
+      interiorPresence: building.interiorPresence ?? 0,
+      collapseProjection
     });
+    building.runtimeSnapshot = runtime;
     const footprintCorners = building.object.userData?.foundation?.footprintCorners ?? [];
     const minimumGroundY = footprintCorners.length > 0
       ? Math.min(...footprintCorners.map(([, y]) => y))
@@ -1561,6 +1563,34 @@ export class TerrainBuilder {
   }
 
   /**
+   * Advance renderer-owned building transitions from cached authoritative
+   * snapshots. Simulation state, collision, apertures, and occupants are never
+   * mutated here.
+   */
+  updateBuildingPresentation(deltaTime) {
+    const dt = Math.max(0, Number(deltaTime) || 0);
+    if (dt === 0) return 0;
+    let advanced = 0;
+    for (let index = 0; index < this.buildings.length; index++) {
+      const building = this.buildings[index];
+      if (
+        !building.runtimeSnapshot
+        || !building.adapter.advanceVisualState
+        || !building.adapter.hasActiveVisualTransition?.(building.object)
+      ) {
+        continue;
+      }
+      building.adapter.advanceVisualState(
+        building.object,
+        building.runtimeSnapshot,
+        dt
+      );
+      advanced++;
+    }
+    return advanced;
+  }
+
+  /**
    * Presentation-only occupancy projection. BuildingInteractionSystem owns
    * the individual transit state; this method deliberately does not touch
    * collision, LOS, or authoritative building state.
@@ -1576,10 +1606,12 @@ export class TerrainBuilder {
       changed: false
     };
     building.interiorPresence = nextPresence;
-    const runtime = this.buildingSystem.getBuildingSnapshot(buildingId);
+    const runtime = building.runtimeSnapshot
+      ?? this.buildingSystem.getBuildingSnapshot(buildingId);
     const descriptor = this.buildingSystem.getDescriptorForBuilding(buildingId);
     building.adapter.applyVisualState(building.object, descriptor, runtime, {
-      interiorPresence: nextPresence
+      interiorPresence: nextPresence,
+      collapseProjection: 'preserve'
     });
     return { buildingId, interiorPresence: nextPresence, changed: true };
   }
@@ -1654,6 +1686,7 @@ export class TerrainBuilder {
         adapter,
         object,
         interiorPresence: 0,
+        runtimeSnapshot: runtime,
         runtimeEventVersion: runtime.eventVersion ?? 0,
         runtimeCollisionVersion: runtime.collisionVersion ?? 0
       });

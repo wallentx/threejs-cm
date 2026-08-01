@@ -3,6 +3,12 @@ import {
   worldToLocalPoint
 } from '../simulation/buildings/index.js';
 import {
+  createRoomSlotIndex,
+  getInvalidSupportSlotIds,
+  isBuildingSlotInvalid,
+  isSupportSlot
+} from '../simulation/buildings/BuildingOccupancy.js';
+import {
   OBSERVATION_EQUIPMENT,
   observerHasEquipment
 } from '../simulation/observation/ObservationEquipment.js';
@@ -235,10 +241,18 @@ function roomsOnFloor(descriptor, floorId) {
   return descriptor.rooms.filter(room => rooms.has(room.id));
 }
 
-function slotsOnFloor(descriptor, floorId) {
-  return roomsOnFloor(descriptor, floorId)
-    .flatMap(room => room.slots)
-    .sort((left, right) => compareId(left.id, right.id));
+function slotsOnFloor(descriptor, floorId, index = createRoomSlotIndex(descriptor)) {
+  const slots = [...index.values()].filter(slot => slot.floorId === floorId);
+  return slots.sort((left, right) => {
+    const leftSupport = isSupportSlot(left);
+    const rightSupport = isSupportSlot(right);
+    if (leftSupport !== rightSupport) return Number(leftSupport) - Number(rightSupport);
+    if (Boolean(left.isGeneratedSupport) !== Boolean(right.isGeneratedSupport)) {
+      return Number(Boolean(left.isGeneratedSupport))
+        - Number(Boolean(right.isGeneratedSupport));
+    }
+    return compareId(left.id, right.id);
+  });
 }
 
 function pendingTargetClaims(units, buildingId) {
@@ -264,28 +278,20 @@ function pendingTargetClaims(units, buildingId) {
       || compareId(left.soldierId, right.soldierId));
 }
 
-function claimableSlots(slots, state, claimedTargetSlotIds = new Set()) {
+function claimableSlots(
+  descriptor,
+  slots,
+  state,
+  claimedTargetSlotIds = new Set()
+) {
   const invalid = new Set((state.invalidSlots ?? []).map(String));
   const occupied = new Set(Object.keys(state.occupancy ?? {}));
   const reserved = new Set(Object.keys(state.reservations ?? {}));
   return slots.filter(slot => !invalid.has(String(slot.id))
+    && !isBuildingSlotInvalid(descriptor, state, slot)
     && !occupied.has(String(slot.id))
     && !reserved.has(String(slot.id))
     && !claimedTargetSlotIds.has(String(slot.id)));
-}
-
-function slotIndex(descriptor) {
-  const index = new Map();
-  for (const room of descriptor.rooms) {
-    for (const slot of room.slots) {
-      index.set(slot.id, {
-        ...slot,
-        roomId: room.id,
-        floorId: room.floorId
-      });
-    }
-  }
-  return index;
 }
 
 function firePortTargetCosine(port, target) {
@@ -363,6 +369,8 @@ export class BuildingInteractionSystem {
     this.orderSequence = 0;
     this.orders = new Map();
     this.faceBiases = new Map();
+    this.slotIndexes = new WeakMap();
+    this.supportInvalidationKeys = new Map();
   }
 
   findBuildingAt(worldPosition, paddingMeters = 1.5) {
@@ -452,8 +460,10 @@ export class BuildingInteractionSystem {
       pendingTargetClaims(this.getUnits(), buildingId)
         .map(claim => claim.targetSlotId)
     );
+    const slots = this.#slotIndex(descriptor);
     const finalSlots = claimableSlots(
-      slotsOnFloor(descriptor, resolvedFloorId),
+      descriptor,
+      slotsOnFloor(descriptor, resolvedFloorId, slots),
       state,
       claimedTargetSlotIds
     );
@@ -461,46 +471,127 @@ export class BuildingInteractionSystem {
     const entrySlots = resolvedFloorId === entryFloorId
       ? finalSlots
       : claimableSlots(
-        slotsOnFloor(descriptor, entryFloorId),
+        descriptor,
+        slotsOnFloor(descriptor, entryFloorId, slots),
         state,
         claimedTargetSlotIds
       );
-    const count = Math.min(agents.length, entrySlots.length, finalSlots.length);
-    if (count === 0) {
+    if (finalSlots.length === 0 || entrySlots.length === 0) {
       return { accepted: false, reason: 'no_free_slots', assigned: [] };
     }
-    const entryRoomId = slotIndex(descriptor).get(entrySlots[0].id)?.roomId;
-    const portalCandidates = validEntryPortals(
-      descriptor,
-      entryRoomId,
-      state.invalidPortals
-    ).map(portal => {
-      const approachRoute = this.getEntryApproachRoute(
-        buildingId,
-        unit.position,
-        portal.id
-      );
-      return {
-        portal,
-        approachRoute,
-        approachPosition: this.getEntryApproachPosition(buildingId, portal.id),
-        distance: routeDistanceXZ(unit.position, approachRoute)
-      };
-    }).sort((left, right) => {
-      if (left.distance < right.distance - EPSILON) return -1;
-      if (left.distance > right.distance + EPSILON) return 1;
-      return compareId(left.portal.id, right.portal.id);
-    });
-    const selectedEntry = portalCandidates[0];
-    if (!selectedEntry) {
+    const roomFloorIds = new Map(descriptor.rooms.map(room => [
+      String(room.id),
+      String(room.floorId)
+    ]));
+    const entrySlotIds = new Set(entrySlots.map(slot => String(slot.id)));
+    const usedEntrySlotIds = new Set();
+    const invalidPortalIds = new Set((state.invalidPortals ?? []).map(String));
+    const exteriorEntriesByRoom = new Map();
+    const exteriorEntriesForRoom = roomId => {
+      const key = String(roomId);
+      if (!exteriorEntriesByRoom.has(key)) {
+        const entries = validEntryPortals(
+          descriptor,
+          key,
+          state.invalidPortals
+        ).map(portal => {
+          const approachRoute = this.getEntryApproachRoute(
+            buildingId,
+            unit.position,
+            portal.id
+          );
+          return {
+            entryPortalId: String(portal.id),
+            approachRoute,
+            approachPosition: this.getEntryApproachPosition(
+              buildingId,
+              portal.id
+            ),
+            distance: routeDistanceXZ(unit.position, approachRoute)
+          };
+        }).sort((left, right) => {
+          if (left.distance < right.distance - EPSILON) return -1;
+          if (left.distance > right.distance + EPSILON) return 1;
+          return compareId(left.entryPortalId, right.entryPortalId);
+        });
+        exteriorEntriesByRoom.set(key, entries);
+      }
+      return exteriorEntriesByRoom.get(key);
+    };
+    const entryPlans = [];
+    for (const finalSlot of finalSlots) {
+      const finalRoomId = String(finalSlot.roomId);
+      const roomRoutes = [];
+      if (String(resolvedFloorId) === String(entryFloorId)) {
+        if (entrySlotIds.has(String(finalSlot.id))) {
+          roomRoutes.push({
+            entryRoomId: finalRoomId,
+            entrySlot: finalSlot,
+            stairPortalId: null
+          });
+        }
+      } else {
+        for (const stair of [...descriptor.portals]
+          .filter(portal => portal.kind === 'stair'
+            && !invalidPortalIds.has(String(portal.id)))
+          .sort((left, right) => compareId(left.id, right.id))) {
+          let entryRoomId = null;
+          if (String(stair.from) === finalRoomId) {
+            entryRoomId = String(stair.to);
+          } else if (String(stair.to) === finalRoomId) {
+            entryRoomId = String(stair.from);
+          }
+          if (!entryRoomId
+              || roomFloorIds.get(entryRoomId) !== String(entryFloorId)) {
+            continue;
+          }
+          const entrySlot = entrySlots.find(slot =>
+            String(slot.roomId) === entryRoomId
+              && !usedEntrySlotIds.has(String(slot.id)));
+          if (entrySlot) {
+            roomRoutes.push({
+              entryRoomId,
+              entrySlot,
+              stairPortalId: String(stair.id)
+            });
+          }
+        }
+      }
+
+      const candidates = [];
+      for (const roomRoute of roomRoutes) {
+        if (usedEntrySlotIds.has(String(roomRoute.entrySlot.id))) continue;
+        for (const exteriorEntry of exteriorEntriesForRoom(
+          roomRoute.entryRoomId
+        )) {
+          candidates.push({
+            ...roomRoute,
+            ...exteriorEntry,
+            finalSlot
+          });
+        }
+      }
+      candidates.sort((left, right) => {
+        if (left.distance < right.distance - EPSILON) return -1;
+        if (left.distance > right.distance + EPSILON) return 1;
+        return compareId(left.entryPortalId, right.entryPortalId)
+          || compareId(left.stairPortalId ?? '', right.stairPortalId ?? '')
+          || compareId(left.entrySlot.id, right.entrySlot.id);
+      });
+      const selected = candidates[0];
+      if (!selected) continue;
+      usedEntrySlotIds.add(String(selected.entrySlot.id));
+      entryPlans.push(selected);
+    }
+    const plans = entryPlans.slice(0, agents.length);
+    if (plans.length === 0) {
       return { accepted: false, reason: 'no_valid_entry_portal', assigned: [] };
     }
-    const entryPortalId = String(selectedEntry.portal.id);
     const sequence = ++this.orderSequence;
     const requests = [];
-    for (let index = 0; index < count; index++) {
+    for (let index = 0; index < plans.length; index++) {
       requests.push({
-        nodeId: entrySlots[index].id,
+        nodeId: plans[index].entrySlot.id,
         orderSequence: sequence,
         unitId: unit.id,
         soldierId: agents[index].id,
@@ -510,8 +601,10 @@ export class BuildingInteractionSystem {
     const results = this.buildingSystem.resolveReservations(buildingId, requests);
     const resultByKey = new Map(results.map(result => [result.soldierKey, result]));
     const assigned = [];
-    for (let index = 0; index < count; index++) {
+    const acceptedPlans = [];
+    for (let index = 0; index < plans.length; index++) {
       const agent = agents[index];
+      const plan = plans[index];
       const key = soldierKey(unit.id, agent.id);
       if (!resultByKey.get(key)?.accepted) continue;
       agent.buildingLocation = {
@@ -519,23 +612,29 @@ export class BuildingInteractionSystem {
         phase: 'approaching',
         nodeId: 'outside',
         fromNodeId: null,
-        toNodeId: entrySlots[index].id,
+        toNodeId: plan.entrySlot.id,
         portalId: null,
         transitElapsed: 0,
-        reservedNodeId: entrySlots[index].id,
+        reservedNodeId: plan.entrySlot.id,
         firePortId: null,
         soldierKey: key,
         unitId: String(unit.id),
         soldierId: String(agent.id),
         action: 'ENTER',
         routeStage: 'door',
-        entryPortalId,
+        entryPortalId: plan.entryPortalId,
+        stairPortalId: plan.stairPortalId,
         targetFloorId: resolvedFloorId,
-        targetSlotId: finalSlots[index].id,
-        entrySlotId: entrySlots[index].id
+        targetSlotId: plan.finalSlot.id,
+        entrySlotId: plan.entrySlot.id,
+        approachPosition: [...plan.approachPosition],
+        approachRoute: plan.approachRoute.map(point => [...point]),
+        approachRouteIndex: 0,
+        approachGoal: [...(plan.approachRoute[0] ?? plan.approachPosition)]
       };
       syncAgent(agent);
       assigned.push(key);
+      acceptedPlans.push({ ...plan, soldierKey: key });
     }
     if (assigned.length === 0) {
       return { accepted: false, reason: 'no_free_slots', assigned: [] };
@@ -548,15 +647,63 @@ export class BuildingInteractionSystem {
       sequence,
       assigned: [...assigned]
     });
-    this.#recoverApproachOverlaps(unit, buildingId, assigned, entryPortalId);
+    const pendingEntries = new Map();
+    for (const plan of acceptedPlans) {
+      if (!pendingEntries.has(plan.entryPortalId)) {
+        pendingEntries.set(plan.entryPortalId, plan);
+      }
+    }
+    const orderedEntries = [];
+    let routeStart = unit.position;
+    while (pendingEntries.size > 0) {
+      const candidates = [...pendingEntries.values()].map(plan => {
+        const approachRoute = this.getEntryApproachRoute(
+          buildingId,
+          routeStart,
+          plan.entryPortalId
+        );
+        return {
+          ...plan,
+          approachRoute,
+          distance: routeDistanceXZ(routeStart, approachRoute)
+        };
+      }).sort((left, right) => {
+        if (left.distance < right.distance - EPSILON) return -1;
+        if (left.distance > right.distance + EPSILON) return 1;
+        return compareId(left.entryPortalId, right.entryPortalId);
+      });
+      const selected = candidates[0];
+      orderedEntries.push(selected);
+      pendingEntries.delete(selected.entryPortalId);
+      routeStart = selected.approachPosition;
+    }
+    const approachRoute = orderedEntries.flatMap(entry => entry.approachRoute);
+    const firstEntry = orderedEntries[0];
+    const finalEntry = orderedEntries.at(-1);
+    this.#recoverApproachOverlaps(
+      unit,
+      buildingId,
+      assigned,
+      firstEntry.entryPortalId
+    );
     return {
       accepted: true,
       reason: null,
       assigned,
       unassigned: agents.length - assigned.length,
-      entryPortalId,
-      approachPosition: selectedEntry.approachPosition,
-      approachRoute: selectedEntry.approachRoute,
+      entryPortalId: firstEntry.entryPortalId,
+      entryPortalIds: orderedEntries.map(entry => entry.entryPortalId),
+      approachPosition: finalEntry.approachPosition,
+      approachRoute,
+      approachAssignments: acceptedPlans.map(plan => ({
+        soldierKey: plan.soldierKey,
+        entryPortalId: plan.entryPortalId,
+        stairPortalId: plan.stairPortalId,
+        entrySlotId: plan.entrySlot.id,
+        targetSlotId: plan.finalSlot.id,
+        approachPosition: [...plan.approachPosition],
+        approachRoute: plan.approachRoute.map(point => [...point])
+      })),
       stateVersion: state.eventVersion
     };
   }
@@ -581,7 +728,7 @@ export class BuildingInteractionSystem {
       const buildingId = String(location.buildingId);
       const descriptor = this.buildingSystem.getDescriptorForBuilding(buildingId);
       const groundSlots = slotsOnFloor(descriptor, lowerFloorId(descriptor));
-      const slot = slotIndex(descriptor).get(location.nodeId);
+      const slot = this.#slotIndex(descriptor).get(location.nodeId);
       const slotFloorId = descriptor.rooms
         .find(room => room.id === slot?.roomId)?.floorId ?? null;
       const key = String(location.soldierKey ?? soldierKey(unit.id, agent.id));
@@ -644,6 +791,7 @@ export class BuildingInteractionSystem {
     const delta = Math.max(0, Number(deltaSeconds) || 0);
     const knownUnits = [...(this.getUnits() ?? [])]
       .sort((left, right) => compareId(left.id, right.id));
+    this.#reconcileInvalidSupportLocations(knownUnits);
     this.#cleanupUnavailableOccupants(knownUnits);
     this.#advanceOccupiedFacing(knownUnits);
     const units = new Map(knownUnits.map(unit => [String(unit.id), unit]));
@@ -709,7 +857,7 @@ export class BuildingInteractionSystem {
     }
     const buildingId = [...buildingIds][0];
     const descriptor = this.buildingSystem.getDescriptorForBuilding(buildingId);
-    const slots = slotIndex(descriptor);
+    const slots = this.#slotIndex(descriptor);
     const floorIds = new Set(locations.map(location =>
       slots.get(location.nodeId)?.floorId ?? null));
     if (floorIds.size !== 1 || floorIds.has(null)) {
@@ -723,10 +871,11 @@ export class BuildingInteractionSystem {
     const state = this.buildingSystem.getBuildingSnapshot(buildingId);
     const movingSoldierKeys = new Set(locations.map(location =>
       String(location.soldierKey)));
-    const candidateSlots = slotsOnFloor(descriptor, floorId)
+    const candidateSlots = slotsOnFloor(descriptor, floorId, slots)
       .filter(slot => {
         const slotId = String(slot.id);
-        if (state.invalidSlots.includes(slotId) || state.reservations[slotId]) {
+        if (isBuildingSlotInvalid(descriptor, state, slot)
+            || state.reservations[slotId]) {
           return false;
         }
         const occupant = state.occupancy[slotId];
@@ -951,6 +1100,8 @@ export class BuildingInteractionSystem {
     this.faceBiases = new Map(
       (state?.faceBiases ?? []).map(bias => [String(bias.unitId), clone(bias)])
     );
+    this.slotIndexes = new WeakMap();
+    this.supportInvalidationKeys = new Map();
   }
 
   #advanceOccupiedFacing(units) {
@@ -965,7 +1116,7 @@ export class BuildingInteractionSystem {
       const descriptor = this.buildingSystem.getDescriptorForBuilding(
         bias.buildingId
       );
-      const slots = slotIndex(descriptor);
+      const slots = this.#slotIndex(descriptor);
       const occupants = livingAgents(unit).filter(agent => {
         const location = agent.buildingLocation;
         return location?.phase === 'occupied'
@@ -1020,6 +1171,134 @@ export class BuildingInteractionSystem {
     }
   }
 
+  #reconcileInvalidSupportLocations(units) {
+    const buildingIds = new Set();
+    for (const unit of units) {
+      for (const agent of unit.soldierAI?.agents ?? []) {
+        if (agent.buildingLocation?.buildingId != null) {
+          buildingIds.add(String(agent.buildingLocation.buildingId));
+        }
+      }
+    }
+
+    for (const buildingId of [...buildingIds].sort(compareId)) {
+      const descriptor = this.buildingSystem.getDescriptorForBuilding(buildingId);
+      const state = this.buildingSystem.getBuildingSnapshot(buildingId);
+      const collapsedSectionIds = descriptor.sections
+        .filter(section => state.sections?.[section.id]?.collapsed)
+        .map(section => String(section.id))
+        .sort(compareId);
+      const invalidationKey = JSON.stringify({
+        eventVersion: Math.max(0, Number(state.eventVersion) || 0),
+        collapsedSectionIds,
+        invalidSlots: [...(state.invalidSlots ?? [])].map(String).sort(compareId)
+      });
+      if (this.supportInvalidationKeys.get(buildingId) === invalidationKey) {
+        continue;
+      }
+      const slots = this.#slotIndex(descriptor);
+      const invalidSupportIds = new Set(
+        getInvalidSupportSlotIds(descriptor, state, slots)
+      );
+      if (invalidSupportIds.size === 0) {
+        this.supportInvalidationKeys.set(buildingId, invalidationKey);
+        continue;
+      }
+      const floors = new Map(descriptor.floors.map(floor => [
+        String(floor.id),
+        floor
+      ]));
+      const consequences = [];
+      const invalidOccupants = Object.entries(state.occupancy)
+        .filter(([slotId]) => invalidSupportIds.has(String(slotId)))
+        .sort((left, right) =>
+          compareId(left[1].soldierKey, right[1].soldierKey));
+
+      for (const [sourceId, occupant] of invalidOccupants) {
+        const source = slots.get(sourceId);
+        const sourceElevation = floors.get(String(source?.floorId))?.elevation;
+        this.buildingSystem.releaseSoldier(buildingId, occupant.soldierKey);
+        delete state.occupancy[sourceId];
+        const destination = Number.isFinite(sourceElevation)
+          ? [...slots.values()]
+            .filter(slot => {
+              const destinationElevation = floors.get(String(slot.floorId))?.elevation;
+              return Number.isFinite(destinationElevation)
+                && destinationElevation < sourceElevation - EPSILON
+                && !isBuildingSlotInvalid(descriptor, state, slot)
+                && !state.occupancy[slot.id]
+                && !state.reservations[slot.id];
+            })
+            .sort((left, right) => {
+              const leftDistance = (left.localPosition[0] - source.localPosition[0]) ** 2
+                + (left.localPosition[2] - source.localPosition[2]) ** 2;
+              const rightDistance = (right.localPosition[0] - source.localPosition[0]) ** 2
+                + (right.localPosition[2] - source.localPosition[2]) ** 2;
+              return leftDistance - rightDistance || compareId(left.id, right.id);
+            })[0] ?? null
+          : null;
+        let acceptedDestination = null;
+        if (destination) {
+          const occupied = this.buildingSystem.occupySlot(buildingId, {
+            slotId: destination.id,
+            soldierKey: occupant.soldierKey,
+            unitId: occupant.unitId,
+            soldierId: occupant.soldierId
+          });
+          if (occupied.accepted) {
+            acceptedDestination = destination;
+            state.occupancy[destination.id] = { ...occupant };
+          }
+        }
+        consequences.push({
+          buildingId,
+          soldierKey: occupant.soldierKey,
+          unitId: occupant.unitId,
+          soldierId: occupant.soldierId,
+          fromSlotId: sourceId,
+          toNodeId: acceptedDestination?.id ?? `${buildingId}:exterior-rubble`,
+          phase: acceptedDestination ? 'occupied' : 'outside',
+          damage: acceptedDestination ? 35 : 70,
+          ejected: !acceptedDestination
+        });
+      }
+      if (consequences.length > 0) {
+        this.handleOccupantConsequences(consequences);
+      }
+
+      for (const [nodeId, reservation] of Object.entries(state.reservations)
+        .sort((left, right) => compareId(left[0], right[0]))) {
+        if (!invalidSupportIds.has(String(nodeId))) continue;
+        this.buildingSystem.releaseSoldier(buildingId, reservation.soldierKey);
+      }
+
+      for (const unit of units) {
+        for (const agent of [...(unit.soldierAI?.agents ?? [])]
+          .sort((left, right) => compareId(left.id, right.id))) {
+          const location = agent.buildingLocation;
+          if (String(location?.buildingId) !== buildingId) continue;
+          const referencedIds = location.phase === 'occupied'
+            ? [location.nodeId]
+            : [
+              location.nodeId,
+              location.fromNodeId,
+              location.toNodeId,
+              location.targetSlotId,
+              location.entrySlotId,
+              location.reservedNodeId,
+              ...(location.exitGroundSlots ?? [])
+            ];
+          if (!referencedIds.some(id => invalidSupportIds.has(String(id)))) {
+            continue;
+          }
+          this.#ejectOutside(agent, buildingId, descriptor);
+          unit.soldierAI?.syncMeshes?.();
+        }
+      }
+      this.supportInvalidationKeys.set(buildingId, invalidationKey);
+    }
+  }
+
   #orderAssignments(order) {
     const assignments = Array.isArray(order.assignments)
       ? order.assignments
@@ -1049,6 +1328,20 @@ export class BuildingInteractionSystem {
         buildingId,
         location.entryPortalId
       );
+      const route = Array.isArray(location.approachRoute)
+        && location.approachRoute.length > 0
+        ? location.approachRoute
+        : [approach];
+      let routeIndex = Math.min(
+        route.length - 1,
+        Math.max(0, Number(location.approachRouteIndex) || 0)
+      );
+      while (routeIndex < route.length - 1
+          && distanceXZ(agent, route[routeIndex]) <= APPROACH_DISTANCE_METERS) {
+        routeIndex++;
+      }
+      location.approachRouteIndex = routeIndex;
+      location.approachGoal = [...route[routeIndex]];
       if (distanceXZ(agent, approach) > APPROACH_DISTANCE_METERS) return;
       const started = this.buildingSystem.startTransit(buildingId, {
         unitId: location.unitId,
@@ -1190,7 +1483,11 @@ export class BuildingInteractionSystem {
       soldierId: location.soldierId,
       soldierKey: location.soldierKey
     }])[0];
-    const stair = descriptor.portals.find(portal => portal.kind === 'stair');
+    const stair = location.stairPortalId == null
+      ? descriptor.portals.find(portal => portal.kind === 'stair')
+      : descriptor.portals.find(portal =>
+        String(portal.id) === String(location.stairPortalId)
+          && portal.kind === 'stair');
     if (!reservation?.accepted || !stair) {
       this.#setOccupiedPose(agent);
       return;
@@ -1217,10 +1514,15 @@ export class BuildingInteractionSystem {
 
   #tryStartStairExit(agent, buildingId, descriptor) {
     const location = agent.buildingLocation;
-    const stair = descriptor.portals.find(portal => portal.kind === 'stair');
+    const stair = location.stairPortalId == null
+      ? descriptor.portals.find(portal => portal.kind === 'stair')
+      : descriptor.portals.find(portal =>
+        String(portal.id) === String(location.stairPortalId)
+          && portal.kind === 'stair');
     const state = this.buildingSystem.getBuildingSnapshot(buildingId);
+    const currentSlot = this.#slotIndex(descriptor).get(location.nodeId);
     if (!stair || state.invalidPortals.includes(stair.id)
-        || state.invalidSlots.includes(location.nodeId)) {
+        || isBuildingSlotInvalid(descriptor, state, currentSlot)) {
       this.#ejectOutside(agent, buildingId, descriptor);
       return;
     }
@@ -1373,7 +1675,7 @@ export class BuildingInteractionSystem {
 
   #slotWorldPosition(buildingId, descriptor, nodeId) {
     const state = this.buildingSystem.getBuildingSnapshot(buildingId);
-    const slot = slotIndex(descriptor).get(nodeId);
+    const slot = this.#slotIndex(descriptor).get(nodeId);
     return slot
       ? localToWorldPoint(slot.localPosition, state.transform)
       : [...state.transform.position];
@@ -1386,11 +1688,34 @@ export class BuildingInteractionSystem {
       targetFloorId: location.targetFloorId ?? null,
       targetSlotId: location.targetSlotId ?? null,
       entrySlotId: location.entrySlotId ?? null,
+      stairPortalId: location.stairPortalId ?? null,
+      approachPosition: location.approachPosition
+        ? [...location.approachPosition]
+        : null,
+      approachRoute: location.approachRoute
+        ? location.approachRoute.map(point => [...point])
+        : null,
+      approachRouteIndex: Math.max(
+        0,
+        Number(location.approachRouteIndex) || 0
+      ),
+      approachGoal: location.approachGoal
+        ? [...location.approachGoal]
+        : null,
       exitGroundSlots: location.exitGroundSlots ? [...location.exitGroundSlots] : null
     };
     if (Object.hasOwn(location, 'entryPortalId')) {
       fields.entryPortalId = location.entryPortalId;
     }
     return fields;
+  }
+
+  #slotIndex(descriptor) {
+    let index = this.slotIndexes.get(descriptor);
+    if (!index) {
+      index = createRoomSlotIndex(descriptor);
+      this.slotIndexes.set(descriptor, index);
+    }
+    return index;
   }
 }
