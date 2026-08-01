@@ -504,6 +504,9 @@ test('all 15 vehicles route through Unit, crew, armament, selection, and LOD con
       assert.ok(spec.crew.some(crew => crew.role === driverRole), `${name} driver role must belong to its crew`);
     }
     assert.ok(spec.movementMps.FAST > spec.movementMps.HUNT);
+    assert.ok(['tracked', 'wheeled'].includes(spec.mobility.driveType));
+    assert.ok(spec.mobility.minimumTurnRadiusMeters > 0);
+    assert.match(spec.mobility.dataQuality, /gameplay approximation/);
     assert.equal(Object.keys(spec.armorMm).length, 6);
 
     if (armed) {
@@ -530,6 +533,13 @@ test('all 15 vehicles route through Unit, crew, armament, selection, and LOD con
     assert.equal(unit.roster.length, spec.crew.length);
     assert.ok(unit.mesh.userData.selectionDisc, `${name} needs selectable UI geometry`);
     assert.equal(Boolean(unit.vehicleWeapon), armed);
+    if (spec.mobility.driveType === 'tracked') {
+      assert.equal(unit.mesh.userData.trackMotionBinding?.modelVersion,
+        'track-distance-projection-v1');
+      assert.ok(unit.mesh.userData.trackMotionBinding.pathBindingCount >= 2);
+    } else {
+      assert.equal(unit.mesh.userData.trackMotionBinding, undefined);
+    }
     if (armed) {
       assert.ok(unit.mesh.userData.turret);
       assert.ok(unit.mesh.userData.barrel);
@@ -652,9 +662,9 @@ test('compound crew roles retain their modeled vehicle dependencies', () => {
     type: 'vehicle',
     vehicleId: 'CHAR_B1_BIS'
   });
-  charB1.addWaypoint(new THREE.Vector3(10, 0, 0), 'MOVE');
+  charB1.addWaypoint(new THREE.Vector3(0, 0, 10), 'MOVE');
   charB1.update(1, { getHeightAt: () => 0 });
-  assert.ok(charB1.position.x > 0, 'driver / hull gunner must be able to drive');
+  assert.ok(charB1.position.z > 0, 'driver / hull gunner must be able to drive');
 
   const driver = charB1.roster.find(crew => crew.role === 'DRIVER_HULL_GUNNER');
   driver.health = 0;

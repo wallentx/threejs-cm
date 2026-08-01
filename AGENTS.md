@@ -18,9 +18,16 @@ Do not commit or push unless the user asks.
 
 ## Antigravity and fast-agent quality gate
 
-`HANDOFF.md` is the scope contract for Antigravity. It is not a backlog.
+`HANDOFF.md` is the scope contract for Antigravity. It is not a general backlog.
 
-- Work on one authorized packet only. Stop when that packet is complete.
+- Work on one authorized packet at a time. By default, stop when that packet is
+  complete. If `HANDOFF.md` explicitly declares `SEQUENTIAL QUEUE` mode, every
+  packet marked `AUTHORIZED` is user-authorized: finish, validate, and report
+  one packet, then continue in the order declared by that queue.
+  If a blocker is packet-local, record it without making speculative edits and
+  continue to the next independent authorized packet. Stop the queue only at
+  its end, on dirty-file overlap, on a blocker inherited by later packets, or
+  on failed validation that cannot be corrected within the current packet.
 - Files, behaviors, and TODO items not listed in the packet are out of scope.
 - Do not start the next attractive task, perform a broad cleanup, or "finish"
   adjacent systems without a new packet.

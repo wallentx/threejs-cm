@@ -442,6 +442,7 @@ function freezeVehicle(vehicle) {
     mainGun: vehicle.mainGun ? Object.freeze({ ...vehicle.mainGun }) : null,
     ammunition: Object.freeze({ ap: 0, he: 0, ...vehicle.ammunition }),
     movementMps: Object.freeze({ ...vehicle.movementMps }),
+    mobility: Object.freeze({ ...vehicle.mobility }),
     dimensionsMeters: Object.freeze({ ...vehicle.dimensionsMeters }),
     armorMm: Object.freeze({ ...vehicle.armorMm }),
     explosiveProtection: Object.freeze({
@@ -551,6 +552,19 @@ const armor = (hullFront, hullSide, hullRear, turretFront, turretSide, turretRea
 });
 const SOMUA_S35_ARMOR = armor(40, 40, 35, 40, 40, 40);
 const movement = (move, quick, fast, hunt) => ({ MOVE: move, QUICK: quick, FAST: fast, HUNT: hunt });
+const trackedMobility = (minimumTurnRadiusMeters, pivotTurnRateRadPerSecond, trackGaugeMeters) => ({
+  driveType: 'tracked',
+  minimumTurnRadiusMeters,
+  pivotTurnRateRadPerSecond,
+  trackGaugeMeters,
+  dataQuality: 'vehicle-specific deterministic gameplay approximation pending steering-trial data'
+});
+const wheeledMobility = (minimumTurnRadiusMeters, maximumSteerRateRadPerSecond) => ({
+  driveType: 'wheeled',
+  minimumTurnRadiusMeters,
+  maximumSteerRateRadPerSecond,
+  dataQuality: 'vehicle-specific deterministic gameplay approximation pending steering-lock and wheelbase data'
+});
 const communications = (radioInstalled, operatorRoles, dataQuality) => ({
   radioInstalled,
   operatorRoles,
@@ -693,6 +707,7 @@ export const FRANCE_1940_VEHICLES = Object.freeze({
     mainGun: { ap: 'SA35_AP', he: 'SA35_HE' },
     ammunition: { ap: 70, he: 48 },
     movementMps: movement(2.5, 3.5, 5.2, 2.0),
+    mobility: trackedMobility(4.6, 0.48, 1.72),
     turretTraverseRadPerSecond: 0.18,
     hitRadius: 2.35,
     armorMm: SOMUA_S35_ARMOR,
@@ -733,6 +748,7 @@ export const FRANCE_1940_VEHICLES = Object.freeze({
     mainGun: { ap: 'SA18_AP', he: 'SA18_HE' },
     ammunition: { ap: 42, he: 16 },
     movementMps: movement(2.0, 2.8, 4.0, 1.6),
+    mobility: trackedMobility(3.2, 0.62, 1.48),
     turretTraverseRadPerSecond: 0.16,
     hitRadius: 2.05,
     armorMm: armor(40, 40, 32, 40, 40, 40),
@@ -770,6 +786,7 @@ export const FRANCE_1940_VEHICLES = Object.freeze({
     mainGun: { ap: 'SA35_AP', he: 'SA35_HE' },
     ammunition: { ap: 70, he: 38 },
     movementMps: movement(2.3, 3.4, 5.6, 1.8),
+    mobility: trackedMobility(4.7, 0.42, 1.78),
     turretTraverseRadPerSecond: 0.16,
     hitRadius: 2.55,
     armorMm: armor(40, 40, 40, 40, 40, 40),
@@ -806,6 +823,7 @@ export const FRANCE_1940_VEHICLES = Object.freeze({
     mainGun: { ap: 'SA38_AP', he: 'SA38_HE' },
     ammunition: { ap: 70, he: 30 },
     movementMps: movement(2.8, 3.8, 5.5, 1.9),
+    mobility: trackedMobility(3.5, 0.62, 1.46),
     turretTraverseRadPerSecond: 0.17,
     hitRadius: 2.15,
     armorMm: armor(40, 40, 40, 40, 40, 40),
@@ -843,6 +861,7 @@ export const FRANCE_1940_VEHICLES = Object.freeze({
     mainGun: { ap: 'SA35_AP', he: 'SA35_HE' },
     ammunition: { ap: 70, he: 50 },
     movementMps: movement(3.0, 4.0, 5.8, 2.0),
+    mobility: trackedMobility(3.8, 0.58, 1.78),
     turretTraverseRadPerSecond: 0.2,
     hitRadius: 2.35,
     armorMm: armor(25, 25, 20, 25, 25, 25),
@@ -881,6 +900,7 @@ export const FRANCE_1940_VEHICLES = Object.freeze({
     mainGun: { ap: 'SA35_25_AP' },
     ammunition: { ap: 150, he: 0 },
     movementMps: movement(3.8, 5.4, 7.5, 2.4),
+    mobility: wheeledMobility(6.2, 0.55),
     turretTraverseRadPerSecond: 0.24,
     hitRadius: 2.5,
     armorMm: armor(20, 15, 15, 20, 15, 15),
@@ -917,6 +937,7 @@ export const FRANCE_1940_VEHICLES = Object.freeze({
     mainGun: null,
     ammunition: { ap: 0, he: 0 },
     movementMps: movement(3.4, 4.8, 7.0, 2.2),
+    mobility: wheeledMobility(7.4, 0.42),
     turretTraverseRadPerSecond: 0,
     hitRadius: 2.8,
     armorMm: armor(0, 0, 0, 0, 0, 0),
@@ -961,6 +982,7 @@ export const FRANCE_1940_VEHICLES = Object.freeze({
     mainGun: { ap: 'SA35_AP', he: 'SA35_HE' },
     ammunition: { ap: 30, he: 20 },
     movementMps: movement(2.2, 3.0, 4.3, 1.7),
+    mobility: trackedMobility(5.8, 0.34, 2.08),
     hullAimTraverseRadPerSecond: 0.07,
     hullAimTraverseDataQuality:
       'Naeder engine-driven precision hull traverse is historical; 0.07 rad/s aiming rate is a gameplay approximation because the cited technical synthesis gives no traverse-rate measurement',
@@ -1019,6 +1041,7 @@ export const FRANCE_1940_VEHICLES = Object.freeze({
     mainGun: { ap: 'KWK36_AP', he: 'KWK36_HE' },
     ammunition: { ap: 72, he: 48 },
     movementMps: movement(2.7, 3.8, 5.5, 2.1),
+    mobility: trackedMobility(4.8, 0.58, 2.32),
     turretTraverseRadPerSecond: 0.25,
     hitRadius: 2.55,
     armorMm: armor(30, 14.5, 14.5, 30, 14.5, 14.5),
@@ -1056,6 +1079,7 @@ export const FRANCE_1940_VEHICLES = Object.freeze({
     mainGun: { ap: 'KWK30_AP', he: 'KWK30_HE' },
     ammunition: { ap: 90, he: 90 },
     movementMps: movement(3.0, 4.2, 5.8, 2.2),
+    mobility: trackedMobility(3.8, 0.70, 1.78),
     turretTraverseRadPerSecond: 0.28,
     hitRadius: 2.5,
     armorMm: armor(14.5, 14.5, 14.5, 14.5, 14.5, 14.5),
@@ -1094,6 +1118,7 @@ export const FRANCE_1940_VEHICLES = Object.freeze({
     mainGun: { ap: 'KWK34T_AP', he: 'KWK34T_HE' },
     ammunition: { ap: 48, he: 30 },
     movementMps: movement(2.8, 4.0, 5.5, 2.1),
+    mobility: trackedMobility(4.2, 0.62, 1.72),
     turretTraverseRadPerSecond: 0.22,
     hitRadius: 2.5,
     armorMm: armor(25, 16, 16, 25, 16, 16),
@@ -1132,6 +1157,7 @@ export const FRANCE_1940_VEHICLES = Object.freeze({
     mainGun: { ap: 'KWK38T_AP', he: 'KWK38T_HE' },
     ammunition: { ap: 54, he: 36 },
     movementMps: movement(3.0, 4.3, 6.0, 2.2),
+    mobility: trackedMobility(4.0, 0.66, 1.66),
     turretTraverseRadPerSecond: 0.23,
     hitRadius: 2.45,
     armorMm: armor(25, 15, 15, 25, 15, 15),
@@ -1170,6 +1196,7 @@ export const FRANCE_1940_VEHICLES = Object.freeze({
     mainGun: { ap: 'KWK30_AP', he: 'KWK30_HE' },
     ammunition: { ap: 90, he: 90 },
     movementMps: movement(4.0, 5.8, 8.0, 2.5),
+    mobility: wheeledMobility(7.2, 0.48),
     turretTraverseRadPerSecond: 0.3,
     hitRadius: 2.85,
     armorMm: armor(14.5, 8, 8, 14.5, 8, 8),
@@ -1206,6 +1233,7 @@ export const FRANCE_1940_VEHICLES = Object.freeze({
     mainGun: null,
     ammunition: { ap: 0, he: 0 },
     movementMps: movement(3.2, 4.7, 6.5, 2.0),
+    mobility: wheeledMobility(8.0, 0.40),
     turretTraverseRadPerSecond: 0,
     hitRadius: 3.1,
     armorMm: armor(0, 0, 0, 0, 0, 0),
@@ -1250,6 +1278,7 @@ export const FRANCE_1940_VEHICLES = Object.freeze({
     mainGun: { ap: 'KWK37_AP', he: 'KWK37_HE' },
     ammunition: { ap: 32, he: 48 },
     movementMps: movement(2.8, 4.0, 5.5, 2.0),
+    mobility: trackedMobility(5.0, 0.54, 2.24),
     turretTraverseRadPerSecond: 0.24,
     hitRadius: 3.0,
     armorMm: armor(30, 20, 20, 30, 20, 20),

@@ -1,3 +1,698 @@
+# Current Antigravity Sequential Queue
+
+## Execution mode: SEQUENTIAL QUEUE
+
+User authorizes every packet in the current queue below. Work one packet at a
+time in execution-ledger numerical order. Finish validation and record results before starting the
+next. If one packet has a local blocker, record `BLOCKED` and continue to the
+next independent packet. Stop only for dirty-file overlap, a blocker inherited
+by later packets, an uncorrectable validation failure, or queue completion.
+
+Everything below `Legacy archive - NOT AUTHORIZED` is preserved history only.
+Do not execute, revise, or report those old packets.
+
+For every current packet:
+
+1. Read `AGENTS.md`, `TODO.md`, this file, and `docs/ARCHITECTURE.md`.
+2. Inspect `git status --short --branch` and diffs for every allowed file.
+3. Run focused baseline. Record pre-existing failure; never hide it.
+4. Trace producer, consumer, capture/restore, ownership, disposal, and tests.
+5. Make one cohesive change inside allowed files only.
+6. Add concentrated behavioral coverage that fails before production edits.
+7. Run focused tests, `npm test`, `npm run build`, and `git diff --check` after
+   final edits. Runtime/UI/render packets also require a real browser check at
+   `http://127.0.0.1:5173/` with backend, `data-game-status`, and console.
+8. Update only matching TODO child, ledger row, and current packet run log.
+9. Continue. Never commit, branch, push, edit `AGENTS.md`, change dependencies,
+   run `npm run test:full`, or update reviewed visual baselines.
+
+Shared invariants: deterministic fixed-step simulation; stable IDs; deep
+capture/restore; individual soldier/crew/weapon/ammunition/muzzle/component
+ownership; renderer/UI never authoritative; no magic aggregate fire; no
+preselected hits; no source-string tests; no expected-value churn; no unlabeled
+approximations; no per-frame resource allocation; explicit disposal; r185 TSL
+node materials only; preserve unrelated dirty work.
+
+## Current queue ledger
+
+Change only current row from `AUTHORIZED` to `DONE`, `BLOCKED`, or
+`REVISION NEEDED`, and add exact evidence in Result.
+
+| # | Packet | Status | Result |
+|---:|---|---|---|
+| 01 | INFANTRY-DANGER-LIVE-A | AUTHORIZED | pending |
+| 02 | CONTACT-NEGATIVE-A | AUTHORIZED | pending |
+| 03 | INFANTRY-WITHDRAWAL-A | AUTHORIZED | pending |
+| 04 | INFANTRY-SURRENDER-A | AUTHORIZED | pending |
+| 05 | INFANTRY-CASUALTY-REACTION-A | AUTHORIZED | pending |
+| 06 | INFANTRY-FIRE-MOVEMENT-A | AUTHORIZED | pending |
+| 07 | VEHICLE-THREAT-FACING-A | AUTHORIZED | pending |
+| 08 | VEHICLE-REVERSE-A | AUTHORIZED | pending |
+| 09 | VEHICLE-DAMAGE-AI-A | AUTHORIZED | pending |
+| 10 | VEHICLE-HULL-DOWN-A | AUTHORIZED | pending |
+| 11 | BUILDING-CAPACITY-SUPPORT-A | AUTHORIZED | pending |
+| 12 | BUILDING-HAZARD-LIVE-A | AUTHORIZED | pending |
+| 13 | BUILDING-FIRE-PRESENTATION-A | AUTHORIZED | pending |
+| 14 | BUILDING-PARTIAL-COLLAPSE-A | AUTHORIZED | pending |
+| 15 | SETUP-ROSTER-LIMIT-A | AUTHORIZED | pending |
+| 16 | PREMATCH-ROUTE-A | AUTHORIZED | pending |
+| 17 | INFANTRY-TURN-POSE-A | AUTHORIZED | pending |
+| 18 | INFANTRY-WEAPON-DEPLOY-A | AUTHORIZED | pending |
+| 19 | INFANTRY-STATE-BLEND-A | AUTHORIZED | pending |
+| 20 | INFANTRY-CASUALTY-FALL-B | AUTHORIZED | pending |
+| 21 | TRACK-DAMAGE-MOTION-A | AUTHORIZED | pending |
+| 22 | VEHICLE-WRECK-SETTLE-A | AUTHORIZED | pending |
+| 23 | VEHICLE-FUEL-FIRE-A | AUTHORIZED | pending |
+| 24 | VEHICLE-COOKOFF-A | AUTHORIZED | pending |
+| 25 | TERRAIN-STATIC-BATCH-A | AUTHORIZED | pending |
+| 26 | VEHICLE-SUBMISSION-A | AUTHORIZED | pending |
+| 27 | RELOAD-MEMORY-A | AUTHORIZED | pending |
+| 28 | VISUAL-CAPTURE-DAMAGE-A | AUTHORIZED | pending |
+| 29 | WEBGPU-CANVAS-TARGET-A | AUTHORIZED | pending |
+| 30 | EXTERNAL-MODEL-LIFECYCLE-A | AUTHORIZED | pending |
+| 31 | EXTERNAL-TEXTURE-LIFECYCLE-A | AUTHORIZED | pending |
+| 32 | BLUEPRINT-WIZARD-UPLOAD-A | AUTHORIZED | pending |
+| 33 | BLUEPRINT-WIZARD-DATUMS-A | AUTHORIZED | pending |
+| 34 | BLUEPRINT-WIZARD-SUPPORTS-A | AUTHORIZED | pending |
+| 35 | BLUEPRINT-WIZARD-POLYGONS-A | AUTHORIZED | pending |
+| 36 | H39-TRACK-SUPPORT-DATA-A | AUTHORIZED | pending |
+| 37 | S35-TRACK-SUPPORT-DATA-A | AUTHORIZED | pending |
+| 38 | AMC35-TRACK-SUPPORT-DATA-A | AUTHORIZED | pending |
+| 39 | PANZER-II-TRACK-SUPPORT-DATA-A | AUTHORIZED | pending |
+| 40 | PANZER-III-TRACK-SUPPORT-DATA-A | AUTHORIZED | pending |
+| 41 | PANZER-IV-TRACK-SUPPORT-DATA-A | AUTHORIZED | pending |
+| 42 | PANZER-35T-TRACK-SUPPORT-DATA-A | AUTHORIZED | pending |
+| 43 | PANZER-38T-TRACK-SUPPORT-DATA-A | AUTHORIZED | pending |
+
+## Current packet contracts
+
+<!-- current-queue-packets -->
+
+### 32 BLUEPRINT-WIZARD-UPLOAD-A
+
+Goal: local image upload/source selection plus resumable authoring session
+import/export on a separate Generate page. No LLM/OpenCV/network/geometry claim.
+
+Allowed: `src/calibration/VehicleCalibrationApp.js`, new
+`src/calibration/VehicleAuthoringSession.js`, `calibration.html`,
+`src/styles/calibration.css`, new `test/vehicle-authoring-session.test.js`.
+
+Acceptance: local-only bytes; SHA-256/dimensions/name; object-URL revocation;
+validated lossless JSON; existing calibration unchanged; mobile/browser proof.
+
+Focused: `npm run test:file -- test/vehicle-authoring-session.test.js test/vehicle-calibration.test.js`
+
+### 33 BLUEPRINT-WIZARD-DATUMS-A
+
+Depends: Packet 32 DONE.
+
+Goal: human-reviewed orthographic crop/datum editor: view kind, crop, ground,
+front/rear/center axes, exact dimensions, independent X/Y scale, origin, mirror,
+uncertainty.
+
+Allowed: `src/calibration/VehicleAuthoringSession.js`, new
+`src/calibration/VehicleDatumEditor.js`,
+`src/calibration/VehicleCalibrationApp.js`, `src/styles/calibration.css`, new
+`test/vehicle-datum-editor.test.js`.
+
+Acceptance: proposals remain proposed until accepted; pixel/metre evidence;
+undo/reset; lossless roundtrip; independent views; mouse/touch proof.
+
+Focused: `npm run test:file -- test/vehicle-datum-editor.test.js test/vehicle-authoring-session.test.js test/vehicle-calibration.test.js`
+
+### 34 BLUEPRINT-WIZARD-SUPPORTS-A
+
+Depends: Packet 33 DONE.
+
+Goal: editable stable-ID support circles: sprocket, idler, road wheel, return
+roller, wheel+tire, turning flag, radius, source pixel, metres, uncertainty,
+add/delete, cross-view link.
+
+Allowed: `src/calibration/VehicleAuthoringSession.js`, new
+`src/calibration/VehicleSupportEditor.js`,
+`src/calibration/VehicleCalibrationApp.js`, `src/styles/calibration.css`, new
+`test/vehicle-support-editor.test.js`.
+
+Acceptance: current mesh never source evidence; pixels retained; invalid radius
+rejected; stable lossless schema; mouse/touch; no geometry generation.
+
+Focused: `npm run test:file -- test/vehicle-support-editor.test.js test/vehicle-authoring-session.test.js test/track-path-solver.test.js`
+
+### 35 BLUEPRINT-WIZARD-POLYGONS-A
+
+Depends: Packet 34 DONE.
+
+Goal: editable labeled component polygons and cross-view correspondence for
+hull/turret/mantlet/cupola/hatch/vision/gun/light; move/add/delete/link vertices.
+
+Allowed: `src/calibration/VehicleAuthoringSession.js`, new
+`src/calibration/VehicleComponentEditor.js`,
+`src/calibration/VehicleCalibrationApp.js`, `src/styles/calibration.css`, new
+`test/vehicle-component-editor.test.js`.
+
+Acceptance: stable component/vertex IDs; no proposal presented as fact;
+pixel/metre coordinates; uncertainty/undo/delete; validated roundtrip; no
+runtime model overwrite or baseline update.
+
+Focused: `npm run test:file -- test/vehicle-component-editor.test.js test/vehicle-authoring-session.test.js test/parametric-vehicle-authoring.test.js`
+
+### 36-43 TRACKED SUPPORT DATA PACKETS
+
+Shared goal: output-neutral source-space records for one vehicle's sprocket,
+idler, every road/return wheel, link/cleat thickness, and registered side-view
+transform. Import from owning model without changing geometry. Current oval or
+capsule mesh coordinates are never source evidence. Missing source datum stays
+unavailable or explicitly inferred.
+
+Shared acceptance: exact source identity/URL or local hash, crop, pixels,
+transform, and quality label; data module has no Three.js import; detailed and
+proxy silhouettes/bounds/triangles/materials/hashes remain identical; no
+baseline update; generic bundle evaluator can read record.
+
+Shared focused suffix:
+`test/vehicle-visual-bundles.test.js test/track-path-solver.test.js`.
+
+#### 36 H39-TRACK-SUPPORT-DATA-A
+
+Allowed: `src/content/france1940/vehicleData/HotchkissH39VisualData.js`,
+`src/world/vehicles/HotchkissH39.js` data import only,
+`test/hotchkiss-h39-blueprint.test.js`.
+
+Focused: `npm run test:file -- test/hotchkiss-h39-blueprint.test.js test/vehicle-visual-bundles.test.js test/track-path-solver.test.js`
+
+#### 37 S35-TRACK-SUPPORT-DATA-A
+
+Allowed: `src/content/france1940/vehicleData/SomuaS35Shape.js`,
+`src/world/vehicles/SomuaS35.js` data import only,
+`test/somua-s35-blueprint.test.js`.
+
+Focused: `npm run test:file -- test/somua-s35-blueprint.test.js test/vehicle-visual-bundles.test.js test/track-path-solver.test.js`
+
+#### 38 AMC35-TRACK-SUPPORT-DATA-A
+
+Allowed: new `src/content/france1940/vehicleData/AMC35VisualData.js`,
+`src/world/vehicles/AMC35.js` data import only,
+`test/amc35-blueprint.test.js`.
+
+Focused: `npm run test:file -- test/amc35-blueprint.test.js test/vehicle-visual-bundles.test.js test/track-path-solver.test.js`
+
+#### 39 PANZER-II-TRACK-SUPPORT-DATA-A
+
+Allowed: new `src/content/france1940/vehicleData/PanzerIIVisualData.js`,
+`src/world/vehicles/PanzerII.js` data import only,
+`test/panzer2-blueprint.test.js`.
+
+Focused: `npm run test:file -- test/panzer2-blueprint.test.js test/vehicle-visual-bundles.test.js test/track-path-solver.test.js`
+
+#### 40 PANZER-III-TRACK-SUPPORT-DATA-A
+
+Allowed: new `src/content/france1940/vehicleData/PanzerIIIVisualData.js`,
+`src/world/vehicles/PanzerIII.js` data import only,
+`test/panzer3-blueprint.test.js`.
+
+Focused: `npm run test:file -- test/panzer3-blueprint.test.js test/vehicle-visual-bundles.test.js test/track-path-solver.test.js`
+
+#### 41 PANZER-IV-TRACK-SUPPORT-DATA-A
+
+Allowed: new `src/content/france1940/vehicleData/PanzerIVVisualData.js`,
+`src/world/vehicles/PanzerIV.js` data import only,
+`test/panzer4-blueprint.test.js`.
+
+Focused: `npm run test:file -- test/panzer4-blueprint.test.js test/vehicle-visual-bundles.test.js test/track-path-solver.test.js`
+
+#### 42 PANZER-35T-TRACK-SUPPORT-DATA-A
+
+Allowed: new `src/content/france1940/vehicleData/Panzer35tVisualData.js`,
+`src/world/vehicles/Panzer35t.js` data import only,
+`test/panzer35t-blueprint.test.js`.
+
+Focused: `npm run test:file -- test/panzer35t-blueprint.test.js test/vehicle-visual-bundles.test.js test/track-path-solver.test.js`
+
+#### 43 PANZER-38T-TRACK-SUPPORT-DATA-A
+
+Allowed: new `src/content/france1940/vehicleData/Panzer38tVisualData.js`,
+`src/world/vehicles/Panzer38t.js` data import only,
+`test/panzer38t-blueprint.test.js`.
+
+Focused: `npm run test:file -- test/panzer38t-blueprint.test.js test/vehicle-visual-bundles.test.js test/track-path-solver.test.js`
+
+### 17 INFANTRY-TURN-POSE-A
+
+Goal: turn-in-place pose from authoritative individual yaw delta and movement.
+Feet plant; grips and muzzle ownership remain exact.
+
+Allowed: `src/world/infantry/InfantryPoseAnimator.js`,
+`src/game/SoldierAI.js` presentation arguments only,
+`test/infantry-pose-animator.test.js`.
+
+Acceptance: delta-seconds; reset cleanly; stance/reload/fire/casualty precedence;
+no frame-count phase; restore reprojects identical pose.
+
+Focused: `npm run test:file -- test/infantry-pose-animator.test.js test/infantry-trigger-hand.test.js`
+
+### 18 INFANTRY-WEAPON-DEPLOY-A
+
+Goal: state-driven bipod LMG and mortar setup/pack/ready/aim/fire/reload poses.
+
+Allowed: `src/world/infantry/InfantryPoseAnimator.js`,
+`src/content/france1940/render/France1940InfantryWeaponFactory.js`,
+`test/infantry-pose-animator.test.js`, `test/mortar-team.test.js`.
+
+Acceptance: real grips/muzzles; simulation state drives pose; correct LOD;
+clean reset; no update-time resource creation.
+
+Focused: `npm run test:file -- test/infantry-pose-animator.test.js test/mortar-team.test.js test/infantry-weapon-profile-geometry.test.js`
+
+### 19 INFANTRY-STATE-BLEND-A
+
+Goal: bounded time-based blending between ordinary living presentation states,
+never through casualty, muzzle, or weapon ownership invariants.
+
+Allowed: new `src/world/infantry/InfantryPoseTransition.js`,
+`src/world/infantry/InfantryPoseAnimator.js`,
+`test/infantry-pose-animator.test.js`.
+
+Acceptance: delta-time; interruptible priorities; no simulation input; restore
+reprojection; no cumulative transform drift.
+
+Focused: `npm run test:file -- test/infantry-pose-animator.test.js test/infantry-fidelity.test.js`
+
+### 20 INFANTRY-CASUALTY-FALL-B
+
+Goal: short deterministic visual fall into existing stable KIA end pose.
+Casualty becomes unavailable immediately; animation delays nothing authoritative.
+
+Allowed: new `src/world/infantry/InfantryCasualtyFall.js`,
+`src/world/infantry/InfantryPoseAnimator.js`,
+`test/infantry-casualty-fall.test.js`.
+
+Acceptance: existing stable pose identity; no physics dependency; delta-time;
+ground-safe; rollback phase/end; animation LOD.
+
+Focused: `npm run test:file -- test/infantry-casualty-fall.test.js test/infantry-pose-animator.test.js`
+
+### 21 TRACK-DAMAGE-MOTION-A
+
+Goal: gate per-side track travel on authoritative component state and project a
+broken/shed side. Mobility owner decides speed; renderer never does.
+
+Allowed: `src/simulation/vehicles/VehicleKinematics.js`,
+`src/world/vehicles/TrackedRunningGearAnimation.js`,
+`src/world/VehicleDamageEffects.js`, new
+`test/vehicle-track-damage-motion.test.js`.
+
+Forbidden: `src/game/Unit.js`, catalogs, authored model modules. Stop on overlap
+with unreviewed coordinating vehicle-motion edits.
+
+Acceptance: side-specific; captured travel; LOD-consistent; reset/rollback;
+bounded resources; no visual feedback.
+
+Focused: `npm run test:file -- test/vehicle-track-damage-motion.test.js test/tracked-running-gear.test.js test/vehicle-damage-effects.test.js`
+
+### 22 VEHICLE-WRECK-SETTLE-A
+
+Goal: deterministic bounded wreck settling through existing fixed-step vehicle
+physics. No Rapier. Wreck collision and armor remain.
+
+Allowed: `src/simulation/vehicles/VehiclePhysics.js`,
+`src/world/VehicleDamageEffects.js`, `test/vehicle-physics.test.js`.
+
+Acceptance: labeled gravity/support/friction; bounded substeps; settlement;
+deep capture/restore and partition; mesh pose only.
+
+Focused: `npm run test:file -- test/vehicle-physics.test.js test/vehicle-damage-effects.test.js test/realism.test.js`
+
+### 23 VEHICLE-FUEL-FIRE-A
+
+Goal: progressive fuel fire from accepted fuel-module damage, with authoritative
+heat/fuel/stages and component-local bounded VFX/audio.
+
+Allowed: new `src/simulation/vehicles/VehicleFuelFire.js`,
+`src/game/VehicleSystems.js`, `src/world/VehicleDamageEffects.js`, new
+`test/vehicle-fuel-fire.test.js`.
+
+Acceptance: stable ignition event; fuel depletion; crew/module intents;
+injected RNG only; deep replay; provider ownership/disposal.
+
+Focused: `npm run test:file -- test/vehicle-fuel-fire.test.js test/vehicle-damage-effects.test.js test/vehicle-systems.test.js`
+
+### 24 VEHICLE-COOKOFF-A
+
+Goal: staged ammunition cookoff: heating, typed round events, escalating risk,
+depletion, final state. Replace one-step presentation, not conserved ownership.
+
+Allowed: new `src/simulation/vehicles/VehicleAmmunitionCookoff.js`,
+`src/game/VehicleSystems.js`, `src/world/VehicleDamageEffects.js`, new
+`test/vehicle-ammunition-cookoff.test.js`.
+
+Acceptance: conserved typed ammunition; stable events; accepted crew/module
+effects; deep rollback/partition; bounded VFX/audio.
+
+Focused: `npm run test:file -- test/vehicle-ammunition-cookoff.test.js test/vehicle-explosive-effects.test.js test/vehicle-systems.test.js`
+
+### 25 TERRAIN-STATIC-BATCH-A
+
+Goal: batch one measured compatible non-destructible static terrain class by
+material/LOD. Keep collision/navigation IDs and destructible ownership separate.
+
+Allowed: new `src/world/StaticTerrainBatch.js`, `src/world/TerrainBuilder.js`,
+new `test/static-terrain-batch.test.js`, `test/terrain-fidelity.test.js`.
+
+Acceptance: exact placement/bounds/material/LOD; exclude destructible/selectable;
+disposal owner; measured submission reduction and browser visual proof.
+
+Focused: `npm run test:file -- test/static-terrain-batch.test.js test/terrain-fidelity.test.js test/map-descriptor.test.js`
+
+### 26 VEHICLE-SUBMISSION-A
+
+Goal: instance one measured repeated non-articulated high-tier vehicle detail
+class within each vehicle. Never merge across vehicles or alter calibrated
+hull/turret/running gear.
+
+Allowed: new `src/world/vehicles/VehicleDetailInstances.js`,
+`src/world/vehicles/VehicleModelEnhancer.js` binding only, new
+`test/vehicle-detail-instancing.test.js`, narrow counts in `test/vehicles.test.js`.
+
+Acceptance: exact baseline counts first; articulation/damage/selection/raycast/
+materials/shadows/LOD unchanged; per-vehicle disposal; measured draw reduction.
+
+Focused: `npm run test:file -- test/vehicle-detail-instancing.test.js test/vehicles.test.js test/vehicle-damage-effects.test.js`
+
+### 27 RELOAD-MEMORY-A
+
+Goal: determine whether five textures after repeated setup -> battle -> setup
+are leaks or DevTools false positives. Build lifecycle harness before fixes.
+
+Allowed: new `test/battle-reload-resource-lifecycle.test.js`;
+`src/app/GameApp.js` or `src/engine/Renderer.js` disposal only after proof; one
+exact provider under `src/assets/` only after Result names owner.
+
+Acceptance: five cycles; bounded resources/listeners; exact owner/dispose path;
+no blanket cache clearing; DevTools memory/dispose evidence; block if ambiguous.
+
+Focused: `npm run test:file -- test/battle-reload-resource-lifecycle.test.js test/asset-manifest.test.js test/sound-engine.test.js`
+
+### 28 VISUAL-CAPTURE-DAMAGE-A
+
+Goal: deterministic browser capture cases for armor spark, penetration, HE,
+engine fire, gun/track damage, and catastrophic wreck. Evidence, not authority.
+
+Allowed: new `src/debug/VehicleDamageCaptureCases.js`, new
+`scripts/capture-vehicle-damage.mjs`, new
+`test/vehicle-damage-capture-cases.test.js`, `package.json` one script only.
+
+Acceptance: authoritative case state/events; fixed seed/camera/viewport/backend
+metadata; no auto baseline update; missing browser fails; no binary commit.
+
+Focused: `npm run test:file -- test/vehicle-damage-capture-cases.test.js test/vehicle-damage-effects.test.js`
+
+### 29 WEBGPU-CANVAS-TARGET-A
+
+Goal: reproduce and remove Chrome 152/AMD RDNA2 native-WebGPU startup
+`null.getCanvasTarget` without weakening fallback, ready state, or device loss.
+
+Allowed: `src/engine/Renderer.js`, `test/renderer-backend.test.js`.
+
+Acceptance: failing-before behavioral init proof; one ordered async init owner;
+native clean console on reproducing hardware; direct WebGL2 fallback retained;
+block rather than guess without exact native reproduction.
+
+Focused: `npm run test:file -- test/renderer-backend.test.js test/vfx-three-singleton.test.js`
+
+### 30 EXTERNAL-MODEL-LIFECYCLE-A
+
+Goal: validated external model loading, cache, clone/resource ownership,
+replacement pack, fallback, abort/error, and disposal. No model migration.
+
+Allowed: `src/assets/ExternalModelAssetService.js`,
+`src/assets/AssetManifest.js`, new
+`test/external-model-asset-service.test.js`, ownership paragraph only in
+`docs/ARCHITECTURE.md`.
+
+Acceptance: injected loader; in-flight dedupe; explicit clone policy;
+idempotent dispose; no test network; deterministic logical/pack IDs.
+
+Focused: `npm run test:file -- test/external-model-asset-service.test.js test/asset-manifest.test.js`
+
+### 31 EXTERNAL-TEXTURE-LIFECYCLE-A
+
+Goal: external texture lifecycle with color-space/sampler metadata,
+cache/replacement ownership, fallback, and disposal. No skin migration.
+
+Allowed: `src/assets/ExternalTextureAssetService.js`,
+`src/assets/AssetManifest.js`, new
+`test/external-texture-asset-service.test.js`, ownership paragraph only in
+`docs/ARCHITECTURE.md`.
+
+Acceptance: injected loader; exact metadata; dedupe; pack replacement;
+idempotent disposal; no cross-pack leak/network.
+
+Focused: `npm run test:file -- test/external-texture-asset-service.test.js test/asset-manifest.test.js`
+
+<!-- current-queue-packets -->
+
+### 01 INFANTRY-DANGER-LIVE-A
+
+Goal: feed existing rollback-owned danger maps from real observed threats,
+incoming impacts, and casualties; use bounded route score as an explainable
+movement input without overriding explicit orders, buddy bounds, or buildings.
+
+Allowed: `src/simulation/infantry/InfantryDangerMap.js`,
+`src/game/SoldierAI.js`, `test/infantry-danger-map.test.js`,
+`test/soldier-ai.test.js`.
+
+Acceptance: stable deduplicated event IDs; unavailable soldiers excluded;
+inspectable factor scores; reordered-input, frame-partition, and restore parity.
+
+Focused: `npm run test:file -- test/infantry-danger-map.test.js test/soldier-ai.test.js test/infantry-threat-memory.test.js`
+
+### 02 CONTACT-NEGATIVE-A
+
+Goal: clear LOS over a stale contact's frozen uncertainty region may downgrade
+or revoke it; lack of complete coverage continues normal decay.
+
+Allowed: `src/simulation/observation/ContactState.js`,
+`src/game/SpottingSystem.js`, `test/spotting-system.test.js`,
+`test/last-known-contact-marker-system.test.js`.
+
+Acceptance: no hidden live-position leakage; stable observer order/boundaries;
+relayed/sound contacts gain no precision; deep restore and partition parity.
+
+Focused: `npm run test:file -- test/spotting-system.test.js test/last-known-contact-marker-system.test.js test/observation-identification.test.js`
+
+### 03 INFANTRY-WITHDRAWAL-A
+
+Goal: deterministic withdrawal for living mobile soldiers under explicit
+morale/threat conditions, using cover, collision, threat memory, and danger.
+
+Allowed: new `src/simulation/infantry/InfantryWithdrawal.js`,
+`src/game/SoldierAI.js`, new `test/infantry-withdrawal.test.js`,
+`test/infantry-threat-memory.test.js`.
+
+Acceptance: inspectable reason/goal/threat ID; no random wandering; static
+collision; unavailable-member precedence; exact replay and partitions.
+
+Focused: `npm run test:file -- test/infantry-withdrawal.test.js test/infantry-threat-memory.test.js test/soldier-ai.test.js`
+
+### 04 INFANTRY-SURRENDER-A
+
+Goal: conservative surrender only for isolated broken non-escaping living
+soldiers facing a nearby recognized threat. Stop fire/move/observe; retain
+individual identity. Do not invent prisoner handling.
+
+Allowed: new `src/simulation/infantry/InfantrySurrender.js`,
+`src/game/SoldierAI.js`, `src/world/infantry/InfantryPoseAnimator.js`, new
+`test/infantry-surrender.test.js`.
+
+Acceptance: suppression alone insufficient; stable trigger reason; transit,
+casualty, routed precedence; rollback-owned state; distinct non-firing pose.
+
+Focused: `npm run test:file -- test/infantry-surrender.test.js test/infantry-suppression.test.js test/infantry-pose-animator.test.js`
+
+### 05 INFANTRY-CASUALTY-REACTION-A
+
+Goal: nearby eligible teammates react once to an observed casualty with bounded
+shock, spacing/cover reevaluation, and leader-sensitive recovery. No unit-wide
+magic suppression.
+
+Allowed: new `src/simulation/infantry/InfantryCasualtyReaction.js`,
+`src/game/SoldierAI.js`, new `test/infantry-casualty-reaction.test.js`,
+`test/infantry-suppression.test.js`.
+
+Acceptance: stable casualty event; range/LOS eligibility; individual effects;
+no duplicates; unavailable observers excluded; restore exact.
+
+Focused: `npm run test:file -- test/infantry-casualty-reaction.test.js test/infantry-suppression.test.js test/soldier-ai.test.js`
+
+### 06 INFANTRY-FIRE-MOVEMENT-A
+
+Goal: extend current ASSAULT/buddy behavior into inspectable stable bounds: one
+bound moves while another owns real eligible covering fire, then roles swap.
+
+Allowed: new `src/simulation/infantry/InfantryFireMovement.js`,
+`src/simulation/infantry/InfantryBuddyBounds.js`, `src/game/SoldierAI.js`,
+`test/infantry-buddy-bounds.test.js`.
+
+Acceptance: real stationary shooters; normal LOS/ammunition/cadence; casualty
+reconciliation; final reform; no target means no magic fire; deep replay.
+
+Focused: `npm run test:file -- test/infantry-buddy-bounds.test.js test/infantry-crawl-assault-order.test.js test/realism.test.js`
+
+### 07 VEHICLE-THREAT-FACING-A
+
+Goal: renderer-neutral threat-facing intent. A stopped operational vehicle with
+no conflicting move/hull-gun order gradually presents preferred armor arc to
+highest-priority direct threat.
+
+Allowed: new `src/simulation/vehicles/VehicleThreatFacing.js`, new
+`src/game/VehicleAI.js`, new `test/vehicle-threat-facing.test.js`.
+
+Acceptance: stable ranking; bounded yaw; driver/component/order gates; no
+teleport or mesh input; captured intent.
+
+Focused: `npm run test:file -- test/vehicle-threat-facing.test.js test/vehicle-systems.test.js test/vehicle-physics.test.js`
+
+### 08 VEHICLE-REVERSE-A
+
+Goal: deterministic reverse plan when reversing is shorter/safer than turning,
+with rearward resolved displacement and signed track travel.
+
+Allowed: new `src/simulation/vehicles/VehicleReverseManeuver.js`,
+`src/simulation/vehicles/VehicleKinematics.js`, `src/game/VehicleAI.js`, new
+`test/vehicle-reverse-maneuver.test.js`.
+
+Forbidden: `src/game/Unit.js`, track animator, catalogs, UI. Block with exact
+requested integration seam if `Unit.js` proves necessary.
+
+Acceptance: no snap; current hull collision; stable plan; driver/damage gates;
+capture/restore and fixed-step parity.
+
+Focused: `npm run test:file -- test/vehicle-reverse-maneuver.test.js test/static-collision.test.js`
+
+### 09 VEHICLE-DAMAGE-AI-A
+
+Goal: explainable damage behavior: immobilized stops moving but keeps working
+mounts; gun-disabled may withdraw; burning abandons combat intent. Never equate
+one failed component with destruction.
+
+Allowed: `src/game/VehicleAI.js`, new
+`src/simulation/vehicles/VehicleDamageBehavior.js`, new
+`test/vehicle-damage-ai.test.js`.
+
+Acceptance: authoritative crew/component input; functional mounts continue;
+stable reason; no visual state; deep replay.
+
+Focused: `npm run test:file -- test/vehicle-damage-ai.test.js test/vehicle-systems.test.js test/vehicles.test.js`
+
+### 10 VEHICLE-HULL-DOWN-A
+
+Goal: bounded hull-down candidate evaluator from terrain samples, dimensions,
+threat direction, and authored muzzle/optic height. Select/report candidates;
+do not invent full navigation.
+
+Allowed: new `src/simulation/vehicles/VehicleHullDown.js`,
+`src/game/VehicleAI.js`, new `test/vehicle-hull-down.test.js`.
+
+Acceptance: conservative hull masking/turret exposure; stable order; no GPU
+raycast; renderer neutral; explicit first-order label.
+
+Focused: `npm run test:file -- test/vehicle-hull-down.test.js test/vehicle-physics.test.js test/observer-capabilities.test.js`
+
+### 11 BUILDING-CAPACITY-SUPPORT-A
+
+Goal: authored firing slots stop being floor capacity. Windows remain finite
+and exclusive; overflow occupants get deterministic interior support positions
+with visible floor height, exit/casualty cleanup, and replay.
+
+Allowed: `src/simulation/buildings/BuildingOccupancy.js`,
+`src/game/BuildingInteractionSystem.js`, `test/building-full-squad-capacity.test.js`,
+`test/building-interaction.test.js`.
+
+Acceptance: every living ordered member fits policy; no window movement;
+stable reservations/support IDs; transit/restore exact.
+
+Focused: `npm run test:file -- test/building-full-squad-capacity.test.js test/building-interaction.test.js test/building-order-lifecycle.test.js`
+
+### 12 BUILDING-HAZARD-LIVE-A
+
+Goal: connect existing `BuildingHazardSystem` to accepted section damage and
+real occupants. Heat/fire/smoke emit bounded individual occupant intents.
+
+Allowed: `src/simulation/buildings/BuildingHazardSystem.js`,
+`src/simulation/buildings/BuildingSystem.js`,
+`src/game/BuildingInteractionSystem.js`, `test/building-hazard-system.test.js`.
+
+Acceptance: stable section/event IDs; once-only intents; bounded history; no
+renderer authority; deep partition/replay.
+
+Focused: `npm run test:file -- test/building-hazard-system.test.js test/building-combat.test.js test/building-interaction.test.js`
+
+### 13 BUILDING-FIRE-PRESENTATION-A
+
+Goal: project authoritative section fire/smoke into pooled provider-owned TSL
+sprites with section-local placement, LOD policy, and disposal.
+
+Allowed: new `src/world/buildings/BuildingHazardEffects.js`,
+`src/content/france1940/render/vfxBinding.js`, `src/app/GameApp.js`, new
+`test/building-hazard-effects.test.js`.
+
+Acceptance: state-driven only; no ShaderMaterial; bounded resources; rollback
+clears future effects; native/fallback runtime console evidence.
+
+Focused: `npm run test:file -- test/building-hazard-effects.test.js test/vfx-asset-provider.test.js test/vfx-three-singleton.test.js`
+
+### 14 BUILDING-PARTIAL-COLLAPSE-A
+
+Goal: state-driven partial-floor collapse animation from authoritative
+section/support state. Simulation retains collision/aperture/occupant ownership.
+
+Allowed: new `src/world/buildings/BuildingCollapseAnimator.js`,
+`src/world/buildings/FrenchHouse.js`, `test/structure-damage.test.js`, new
+`test/building-collapse-animation.test.js`.
+
+Acceptance: LOD-consistent; deterministic end; rollback restores transforms;
+no mesh feedback or per-frame allocations.
+
+Focused: `npm run test:file -- test/structure-damage.test.js test/building-collapse-animation.test.js test/building-visuals.test.js`
+
+### 15 SETUP-ROSTER-LIMIT-A
+
+Goal: reject setup before launch when resolved living infantry exceeds current
+deterministic separation capacity. Explain exact limit and side/formation.
+
+Allowed: `src/scenario/BattleSetup.js`, `src/ui/BattleSetupScreen.js`,
+`test/battle-setup.test.js`, `test/ui-manager.test.js`.
+
+Acceptance: count individuals, both sides, presets/custom; exact boundary
+accepted; no silent truncation or delayed realtime failure.
+
+Focused: `npm run test:file -- test/battle-setup.test.js test/ui-manager.test.js test/infantry-separation.test.js`
+
+### 16 PREMATCH-ROUTE-A
+
+Goal: in-zone setup destinations immediately reposition complete unit;
+out-of-zone destinations queue visible round-start orders. Preserve appended
+FAST/SNEAK/ASSAULT/building/floor stages through start.
+
+Allowed: `src/game/CommandSystem.js`, `src/scenario/BattleSetup.js`,
+`src/ui/UIManager.js`, new `test/prematch-route-planning.test.js`.
+
+Acceptance: full footprint zone validation; immediate only in-zone; stable
+order/floor/portal intent; WEGO/realtime start parity.
+
+Focused: `npm run test:file -- test/prematch-route-planning.test.js test/command-navigation.test.js test/wego-manager.test.js`
+
+<!-- current-queue-packets -->
+
+## Current queue run log
+
+Append one entry per attempt: scope completed/incomplete; files by layer;
+authority change; failing-before proof; exact focused/core/build/diff results;
+browser URL/backend/status/console or blocker; remaining risk/review points.
+Never erase earlier entries.
+
+## Legacy archive - NOT AUTHORIZED
+
 # Agent Work Packets
 
 Packet owner: coordinating Codex agent.

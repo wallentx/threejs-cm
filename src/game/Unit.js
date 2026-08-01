@@ -69,6 +69,12 @@ import {
   VEHICLE_PHYSICS_MODEL
 } from '../simulation/vehicles/VehiclePhysics.js';
 import {
+  captureVehicleKinematicsState,
+  createVehicleKinematicsState,
+  planVehicleKinematicStep,
+  recordResolvedVehicleTravel
+} from '../simulation/vehicles/VehicleKinematics.js';
+import {
   getUnbuttonedCommander,
   getUnbuttonedCommanderWorldPosition
 } from '../simulation/vehicles/VehicleCrewExposure.js';
@@ -325,6 +331,9 @@ export class Unit {
     this.vehiclePhysics = this.vehicleSpec
       ? createVehiclePhysicsState(config.vehiclePhysics)
       : null;
+    this.vehicleKinematics = this.vehicleSpec
+      ? createVehicleKinematicsState(config.vehicleKinematics)
+      : null;
     if (!config.vehicleComponents && config.vehicleDamage) {
       this.applyLegacyVehicleDamage(config.vehicleDamage);
     }
@@ -469,6 +478,11 @@ export class Unit {
       return;
     }
     this.mesh.rotation.set(0, this.rotation, 0);
+  }
+
+  syncVehicleTrackPresentation() {
+    if (!this.vehicleKinematics) return;
+    this.mesh?.userData?.setTrackMotion?.(this.vehicleKinematics);
   }
 
   updateVehiclePhysics(delta, terrain) {
@@ -2293,6 +2307,7 @@ export class Unit {
     this.currentLOD = level;
     if (typeof this.mesh.userData.updateLOD === 'function') {
       this.mesh.userData.updateLOD(cameraPosition, level);
+      this.syncVehicleTrackPresentation();
       return level;
     }
     this.mesh.traverse(object => {
@@ -2305,6 +2320,7 @@ export class Unit {
       else if (level === 'medium') object.visible = band !== 'high';
       else object.visible = true;
     });
+    this.syncVehicleTrackPresentation();
     return level;
   }
 
@@ -2351,6 +2367,9 @@ export class Unit {
       vehicleDamageState: createVehicleDamageState(this.vehicleDamageState),
       vehiclePhysics: this.vehiclePhysics
         ? captureVehiclePhysicsState(this.vehiclePhysics)
+        : null,
+      vehicleKinematics: this.vehicleKinematics
+        ? captureVehicleKinematicsState(this.vehicleKinematics)
         : null,
       vehicleCrewTasks: captureVehicleCrewTaskState(this.vehicleCrewTasks),
       vehicleMainGunnerCombatSeconds: this.vehicleMainGunnerCombatSeconds,
@@ -2438,6 +2457,9 @@ export class Unit {
     this.vehiclePhysics = this.vehicleSpec
       ? createVehiclePhysicsState(state.vehiclePhysics)
       : null;
+    this.vehicleKinematics = this.vehicleSpec
+      ? createVehicleKinematicsState(state.vehicleKinematics)
+      : null;
     this.vehicleCrewTasks = restoreVehicleCrewTaskState(
       this.vehicleSpec?.crewTaskPolicy,
       state.vehicleCrewTasks
@@ -2457,6 +2479,7 @@ export class Unit {
     if (this.soldierAI) this.soldierAI.restoreRoster(state.roster);
     else this.roster = state.roster.map(soldier => ({ ...soldier }));
     this.syncTransformPresentation();
+    this.syncVehicleTrackPresentation();
     this.updateStanceVisuals();
     this.syncLegacyVehicleDamage();
     this.syncStructureVisuals();
@@ -2677,19 +2700,32 @@ export class Unit {
           }
         } else {
           dir.normalize();
-          const intendedDistance = Math.min(dist, speed * Math.max(0, delta));
-          const displacement = {
+          const desiredRotation = Math.atan2(dir.x, dir.z);
+          const previousRotation = this.rotation;
+          const vehicleMotion = this.vehicleSpec
+            ? planVehicleKinematicStep({
+                vehicleSpec: this.vehicleSpec,
+                currentYaw: this.rotation,
+                desiredYaw: desiredRotation,
+                speedMetersPerSecond: speed,
+                targetDistanceMeters: dist,
+                deltaSeconds: delta
+              })
+            : null;
+          const movementRotation = vehicleMotion?.yaw ?? desiredRotation;
+          const intendedDistance = vehicleMotion?.intendedDistanceMeters
+            ?? Math.min(dist, speed * Math.max(0, delta));
+          const displacement = vehicleMotion?.displacement ?? {
             x: dir.x * intendedDistance,
             z: dir.z * intendedDistance
           };
-          const desiredRotation = Math.atan2(dir.x, dir.z);
           let resolved;
           if (this.collisionWorld && this.vehicleSpec) {
             const collisionOptions = {
               moverType: 'vehicle',
               radius: this.collisionRadius,
               offsets: this.collisionOffsets,
-              rotation: desiredRotation,
+              rotation: movementRotation,
               transientColliders: dynamicVehicleColliders
             };
             const impactSpeed = intendedDistance / Math.max(delta, 1e-9);
@@ -2745,7 +2781,18 @@ export class Unit {
           // Soldiers must continue resolving their individual routes instead
           // of freezing because the invisible squad center touched a wall.
           anchorMoving = this.soldierAI ? true : anchorDisplaced;
-          if (anchorDisplaced) this.rotation = desiredRotation;
+          if (this.vehicleSpec) {
+            this.rotation = movementRotation;
+            recordResolvedVehicleTravel(this.vehicleKinematics, {
+              vehicleSpec: this.vehicleSpec,
+              previousYaw: previousRotation,
+              nextYaw: this.rotation,
+              movedX: resolved.movedX,
+              movedZ: resolved.movedZ
+            });
+          } else if (anchorDisplaced) {
+            this.rotation = desiredRotation;
+          }
 
           this.position.y = terrain.getMovementHeightAt
             ? terrain.getMovementHeightAt(this.position.x, this.position.z)
@@ -2753,6 +2800,7 @@ export class Unit {
 
           this.mesh.position.copy(this.position);
           this.mesh.rotation.y = this.rotation;
+          this.syncVehicleTrackPresentation();
         }
       }
     }

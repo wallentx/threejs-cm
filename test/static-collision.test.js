@@ -844,7 +844,41 @@ test('collision continuation is identical after unit capture and restore', () =>
 
   assert.deepEqual(replayed.position, expected.position);
   assert.equal(replayed.rotation, expected.rotation);
+  assert.deepEqual(replayed.vehicleKinematics, expected.vehicleKinematics);
   assert.equal(replayed.currentWaypointIndex, expected.currentWaypointIndex);
+});
+
+test('vehicle corners use bounded steering and resolved travel drives differential tracks', () => {
+  const terrain = createTerrain();
+  const unit = new Unit({
+    id: 'bounded_corner_vehicle',
+    faction: 'french',
+    type: 'tank',
+    position: new THREE.Vector3(0, 0, 0),
+    rotation: 0
+  });
+  terrain.registerUnitColliders([unit]);
+  unit.addWaypoint(new THREE.Vector3(12, 0, 0), 'QUICK');
+
+  unit.update(0.1, terrain);
+
+  assert.ok(unit.rotation > 0);
+  assert.ok(unit.rotation < Math.PI / 2, 'hull must not snap to the waypoint bearing');
+  assert.equal(unit.position.z, 0, 'tracked vehicle may pivot before translating across its hull');
+  assert.equal(unit.position.x, 0);
+  assert.ok(unit.vehicleKinematics.leftTrackMeters > unit.vehicleKinematics.rightTrackMeters);
+
+  for (let step = 0; step < 50; step++) unit.update(0.05, terrain);
+  assert.ok(unit.position.z > 0, 'vehicle must enter the corner along its bounded hull heading');
+  assert.ok(unit.position.x > 0);
+
+  const snapshot = unit.captureState();
+  for (let step = 0; step < 20; step++) unit.update(0.05, terrain);
+  const expected = unit.captureState();
+  unit.restoreState(snapshot, new Map([[unit.id, unit]]));
+  for (let step = 0; step < 20; step++) unit.update(0.05, terrain);
+  assert.deepEqual(unit.captureState().vehicleKinematics, expected.vehicleKinematics);
+  assert.equal(unit.rotation, expected.rotation);
 });
 
 test('destroyed bunker rubble admits infantry but continues to block vehicles', () => {

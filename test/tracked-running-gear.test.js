@@ -2,11 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {
+  createSomuaS35Mesh,
   createRenaultR35Mesh,
+  createRenaultD2Mesh,
   createHotchkissH39Mesh,
   createAMC35Mesh,
   createCharB1BisMesh,
   createPanzerIIMesh,
+  createPanzerIIIMesh,
   createPanzer35tMesh,
   createPanzer38tMesh,
   createPanzerIVMesh
@@ -15,13 +18,19 @@ import {
   createTrackedRunningGear,
   createTrackedRunningGearProxy
 } from '../src/world/vehicles/TrackedRunningGear.js';
+import {
+  bindTrackedRunningGearAnimation
+} from '../src/world/vehicles/TrackedRunningGearAnimation.js';
 
 const trackedVehicles = [
+  ['SOMUA S35', createSomuaS35Mesh, 9],
   ['Renault R35', createRenaultR35Mesh, 5],
+  ['Renault D2', createRenaultD2Mesh, 15],
   ['Hotchkiss H39', createHotchkissH39Mesh, 6],
   ['AMC 35', createAMC35Mesh, 5],
   ['Char B1 bis', createCharB1BisMesh, 16],
   ['Panzer II', createPanzerIIMesh, 5],
+  ['Panzer III', createPanzerIIIMesh, 8],
   ['Panzer 35(t)', createPanzer35tMesh, 8],
   ['Panzer 38(t)', createPanzer38tMesh, 4],
   ['Panzer IV', createPanzerIVMesh, 8]
@@ -118,11 +127,59 @@ test('far track proxy keeps an open running-gear silhouette instead of an opaque
   assert.ok(throughTopBand.length > 0);
 });
 
+test('resolved per-side travel advances links and rotates wheels without simulation feedback', () => {
+  const material = new THREE.MeshStandardMaterial();
+  const root = new THREE.Group();
+  const gear = createTrackedRunningGear({
+    trackMaterial: material,
+    wheelMaterial: material,
+    trackCenterX: 1,
+    trackWidth: 0.32,
+    beltLength: 4,
+    beltHeight: 0.7,
+    centerY: 0.6,
+    roadWheelRadius: 0.24,
+    roadWheelCount: 5,
+    roadWheelZStart: -1.3,
+    roadWheelSpacing: 0.65
+  });
+  root.add(gear);
+  const binding = bindTrackedRunningGearAnimation(root);
+  const leftTrack = gear.getObjectByName('LeftTrackLinks');
+  const rightTrack = gear.getObjectByName('RightTrackLinks');
+  const leftWheel = gear.getObjectByName('LeftRoadWheel_1');
+  const rightWheel = gear.getObjectByName('RightRoadWheel_1');
+  const beforeLeftTrack = new THREE.Matrix4();
+  const beforeRightTrack = new THREE.Matrix4();
+  leftTrack.getMatrixAt(0, beforeLeftTrack);
+  rightTrack.getMatrixAt(0, beforeRightTrack);
+  const beforeLeftWheel = leftWheel.quaternion.clone();
+  const beforeRightWheel = rightWheel.quaternion.clone();
+
+  binding.apply({ leftTrackMeters: 1.2, rightTrackMeters: 0.45 });
+
+  const afterLeftTrack = new THREE.Matrix4();
+  const afterRightTrack = new THREE.Matrix4();
+  leftTrack.getMatrixAt(0, afterLeftTrack);
+  rightTrack.getMatrixAt(0, afterRightTrack);
+  assert.notDeepEqual(afterLeftTrack.elements, beforeLeftTrack.elements);
+  assert.notDeepEqual(afterRightTrack.elements, beforeRightTrack.elements);
+  assert.notDeepEqual(leftWheel.quaternion.toArray(), beforeLeftWheel.toArray());
+  assert.notDeepEqual(rightWheel.quaternion.toArray(), beforeRightWheel.toArray());
+  assert.notDeepEqual(leftWheel.quaternion.toArray(), rightWheel.quaternion.toArray());
+  assert.equal(root.userData.trackMotionBinding.modelVersion, 'track-distance-projection-v1');
+});
+
 test('each tracked factory exposes named, vehicle-configured running gear', () => {
   for (const [name, create, wheelsPerSide] of trackedVehicles) {
     const vehicle = create();
+    const motionBinding = bindTrackedRunningGearAnimation(vehicle);
     const gear = vehicle.userData.runningGear;
     assert.ok(gear, `${name} must expose running gear`);
+    assert.ok(motionBinding, `${name} must expose track-motion presentation`);
+    assert.ok(motionBinding.pathBindingCount >= 2);
+    assert.ok(motionBinding.wheelBindingCount >= 6);
+    motionBinding.apply({ leftTrackMeters: 0.35, rightTrackMeters: 0.2 });
     assert.equal(gear.userData.articulated, true);
     assert.equal(gear.userData.trackParts.roadWheels.length, wheelsPerSide * 2);
     assert.equal(gear.userData.trackParts.sprockets.length, 2);

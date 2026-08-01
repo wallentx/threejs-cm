@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import {
+  bindTrackedRunningGearAnimation
+} from './vehicles/TrackedRunningGearAnimation.js';
 
 function requireFactory(registry, id, label) {
   if (!registry || typeof registry !== 'object') {
@@ -51,6 +54,7 @@ export class UnitFactory {
       modelId,
       'vehicle'
     )();
+    bindTrackedRunningGearAnimation(vehicle);
     return attachVehicleSelectionDisc(vehicle, selectionColor);
   }
 

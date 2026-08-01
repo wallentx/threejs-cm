@@ -96,7 +96,8 @@ function addBeltLinks(group, config, side) {
     trackPart: 'links',
     side,
     semanticSide: semanticSide.toLowerCase(),
-    count
+    count,
+    pitchMeters: pitch
   };
   const cleats = new THREE.InstancedMesh(cleatGeometry, trackMaterial, count);
   cleats.name = `${semanticSide}TrackCleats`;
@@ -107,7 +108,8 @@ function addBeltLinks(group, config, side) {
     trackPart: 'cleats',
     side,
     semanticSide: semanticSide.toLowerCase(),
-    count
+    count,
+    pitchMeters: pitch
   };
   const rearZ = -straight / 2;
   const frontZ = straight / 2;
@@ -220,7 +222,8 @@ function addSupportedBeltLinks(
     trackPathMode: solvedPath.model,
     side,
     semanticSide: semanticSide.toLowerCase(),
-    count: sampled.count
+    count: sampled.count,
+    pitchMeters: sampled.pitchMeters
   };
 
   const cleatGeometry = proxy || cleatHeight === 0
@@ -247,7 +250,8 @@ function addSupportedBeltLinks(
       trackPathMode: solvedPath.model,
       side,
       semanticSide: semanticSide.toLowerCase(),
-      count: sampled.count
+      count: sampled.count,
+      pitchMeters: sampled.pitchMeters
     };
   }
 
