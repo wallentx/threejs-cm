@@ -2392,6 +2392,8 @@ export class Unit {
       currentLOD: this.currentLOD,
       infantryBuddyBounds:
         this.infantryBuddyBounds?.captureState() ?? null,
+      dangerMap:
+        this.soldierAI?.dangerMap.captureState() ?? null,
       roster: this.soldierAI
         ? this.soldierAI.captureRoster()
         : this.roster.map(soldier => ({ ...soldier }))
@@ -2476,8 +2478,16 @@ export class Unit {
     if (this.vehicleWeapon) this.vehicleMounts.main = this.vehicleWeapon;
     if (this.vehicleDamageState.secondaryExplosion) this.destroyVehicleAmmunitionStores();
     this.currentLOD = null;
-    if (this.soldierAI) this.soldierAI.restoreRoster(state.roster);
-    else this.roster = state.roster.map(soldier => ({ ...soldier }));
+    if (this.soldierAI) {
+      // Read-only migration compatibility for legacy snapshots storing dangerMapState on roster[0]
+      const dangerState = state.dangerMap ?? state.roster?.[0]?.dangerMapState ?? null;
+      this.soldierAI.restoreState({
+        dangerMap: dangerState,
+        roster: state.roster
+      });
+    } else {
+      this.roster = state.roster.map(soldier => ({ ...soldier }));
+    }
     this.syncTransformPresentation();
     this.syncVehicleTrackPresentation();
     this.updateStanceVisuals();

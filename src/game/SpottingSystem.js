@@ -1,9 +1,13 @@
+import * as THREE from 'three';
 import {
   CONTACT_CHANNEL,
+  NEGATIVE_OBSERVATION_APPROXIMATION,
   cloneContact,
   clonePosition,
   createContact,
   decayContact,
+  evaluateNegativeObservation,
+  getContactUncertaintyRegionSamples,
   preferContact,
   publicContact
 } from '../simulation/observation/ContactState.js';
@@ -39,6 +43,8 @@ import {
 import {
   isBuildingOccupantExposed
 } from '../simulation/buildings/BuildingExposure.js';
+
+let _negSampleVec = null;
 import {
   validateTerrainSightOccluderSnapshot
 } from '../simulation/terrain/TerrainSightOccluderSnapshot.js';
@@ -945,6 +951,27 @@ function sortedPeople(unit) {
   );
 }
 
+function canPerformDirectVisualObservation(unit, person) {
+  return Boolean(
+    unit?.morale !== 'Broken'
+    && isLivingObserver(person)
+    && String(person?.status ?? '').toUpperCase() !== 'SURRENDERED'
+    && String(person?.state ?? '').toUpperCase() !== 'SURRENDERED'
+  );
+}
+
+const NEGATIVE_OBSERVATION_TARGET_UNIT = Object.freeze({
+  type: 'infantry_squad',
+  isHiding: true,
+  stance: 'PRONE',
+  moveSpeed: 0
+});
+
+const NEGATIVE_OBSERVATION_TARGET_PERSON = Object.freeze({
+  stance: 'PRONE',
+  velocity: Object.freeze([0, 0, 0])
+});
+
 function createBuildingColliderRuns(colliders) {
   const runs = [];
   let index = 0;
@@ -1467,7 +1494,8 @@ export class SpottingSystem {
     observer,
     targetUnit,
     deltaNanoseconds,
-    intervalStartClock
+    intervalStartClock,
+    capabilityInput = null
   ) {
     const key = observerKey(observerUnit.id, observer.id);
     let targetMap = this.observations.get(key);
@@ -1503,11 +1531,13 @@ export class SpottingSystem {
       existing.visibilityGraceRemainingNanoseconds > 0;
     let acquisitionEvent = null;
     const profile = unitProfile(observerUnit, this.unitProfiles);
-    const capabilities = resolveObserverCapabilities(
-      observerUnit,
-      observer,
-      profile
-    );
+    const capabilities = Array.isArray(capabilityInput)
+      ? capabilityInput
+      : resolveObserverCapabilities(
+          observerUnit,
+          observer,
+          profile
+        );
     const evaluation = this.evaluateObservation(
       observerUnit,
       observer,
@@ -1904,6 +1934,7 @@ export class SpottingSystem {
     const unitIds = new Set(units.map(unit => unit.id));
     const liveObserverKeys = new Set();
     const updatedTargetsByObserver = new Map();
+    const evaluatedObserversByUnitTarget = new Map();
     const acquisitionEvents = [];
     const attentionTick = canonicalAttentionTick(
       intervalStartClock,
@@ -1931,6 +1962,15 @@ export class SpottingSystem {
     for (const observerUnit of units) {
       if (observerUnit.morale === 'Broken') continue;
       for (const observer of sortedPeople(observerUnit)) {
+        if (!canPerformDirectVisualObservation(observerUnit, observer)) {
+          continue;
+        }
+        const profile = unitProfile(observerUnit, this.unitProfiles);
+        const capabilities = resolveObserverCapabilities(
+          observerUnit,
+          observer,
+          profile
+        );
         const key = observerKey(observerUnit.id, observer.id);
         liveObserverKeys.add(key);
         for (const targetUnit of units) {
@@ -1961,13 +2001,29 @@ export class SpottingSystem {
             this.attentionDiagnostics.coldEvaluatedCandidates++;
           }
           this.attentionDiagnostics.totalEvaluations++;
+          if (capabilities.length > 0) {
+            let targetMap = evaluatedObserversByUnitTarget.get(
+              observerUnit.id
+            );
+            if (!targetMap) {
+              targetMap = new Map();
+              evaluatedObserversByUnitTarget.set(observerUnit.id, targetMap);
+            }
+            let evaluatedObservers = targetMap.get(targetUnit.id);
+            if (!evaluatedObservers) {
+              evaluatedObservers = [];
+              targetMap.set(targetUnit.id, evaluatedObservers);
+            }
+            evaluatedObservers.push({ observer, capabilities });
+          }
           if (existing) existing.visibleNow = false;
           const update = this.updateObservation(
             observerUnit,
             observer,
             targetUnit,
             deltaNanoseconds,
-            intervalStartClock
+            intervalStartClock,
+            capabilities
           );
           if (!updatedTargetsByObserver.has(key)) {
             updatedTargetsByObserver.set(key, new Set());
@@ -1997,26 +2053,6 @@ export class SpottingSystem {
       }
     }
 
-    const nextContacts = new Map();
-    for (const unit of units) {
-      const contacts = new Map();
-      if (livingPeople(unit).length > 0) {
-        for (const [targetId, previous] of this.unitContacts.get(unit.id) ?? []) {
-          const soundContact = previous.channel === CONTACT_CHANNEL.SOUND;
-          const decayed = decayContact(previous, this.time, {
-            lifetimeSeconds: soundContact
-              ? this.settings.soundContactLifetimeSeconds
-              : this.settings.contactLifetimeSeconds,
-            uncertaintyGrowthMps: soundContact
-              ? this.settings.soundUncertaintyGrowthMps
-              : this.settings.uncertaintyGrowthMps
-          });
-          if (decayed.confidence > 1e-6) contacts.set(targetId, decayed);
-        }
-      }
-      nextContacts.set(unit.id, contacts);
-    }
-
     // Direct sources and their acquisition snapshots are complete before any
     // queued recipient delivery, so a relayed contact cannot chain onward.
     const directBySource = this.buildDirectContacts(units);
@@ -2025,6 +2061,40 @@ export class SpottingSystem {
       acquisitionEvents,
       unitIds
     );
+
+    const nextContacts = new Map();
+    for (const unit of units) {
+      const contacts = new Map();
+      if (livingPeople(unit).length > 0) {
+        for (const [targetId, previous] of this.unitContacts.get(unit.id) ?? []) {
+          const soundContact = previous.channel === CONTACT_CHANNEL.SOUND;
+          let decayed = decayContact(previous, this.time, {
+            lifetimeSeconds: soundContact
+              ? this.settings.soundContactLifetimeSeconds
+              : this.settings.contactLifetimeSeconds,
+            uncertaintyGrowthMps: soundContact
+              ? this.settings.soundUncertaintyGrowthMps
+              : this.settings.uncertaintyGrowthMps
+          });
+          const hasDirectObservation = Boolean(
+            directBySource.get(unit.id)?.get(targetId)
+          );
+          if (!hasDirectObservation && decayed.confidence > 1e-6) {
+            decayed = this.evaluateNegativeObservationForUnit(
+              unit,
+              decayed,
+              evaluatedObserversByUnitTarget
+                .get(unit.id)
+                ?.get(targetId)
+                ?? []
+            );
+          }
+          if (decayed.confidence > 1e-6) contacts.set(targetId, decayed);
+        }
+      }
+      nextContacts.set(unit.id, contacts);
+    }
+
     for (const sender of units) {
       const directContacts = directBySource.get(sender.id);
       if (!directContacts?.size) continue;
@@ -2042,6 +2112,95 @@ export class SpottingSystem {
     this.spottingMap = this.unitContacts;
     this.rebuildDirectObservationIndexFromContacts(directBySource);
     return this;
+  }
+
+  evaluateNegativeObservationForUnit(unit, contact, evaluatedObservers = []) {
+    if (!unit || !contact || contact.confidence <= 1e-6) {
+      return cloneContact(contact);
+    }
+    if (contact.channel !== CONTACT_CHANNEL.DIRECT
+        || !Array.isArray(evaluatedObservers)
+        || evaluatedObservers.length === 0) {
+      return cloneContact(contact);
+    }
+
+    const coveragePlan = getContactUncertaintyRegionSamples(contact);
+    const samples = coveragePlan.samples;
+    if (samples.length === 0) return cloneContact(contact);
+
+    let clearCount = 0;
+    const sampleVec = _negSampleVec ?? (_negSampleVec = new THREE.Vector3());
+
+    for (const sample of samples) {
+      const samplePosY = Number.isFinite(sample[1]) && sample[1] !== 0
+        ? sample[1]
+        : (this.terrain?.getHeightAt?.(sample[0], sample[2]) ?? 0);
+      sampleVec.set(sample[0], samplePosY, sample[2]);
+      let sampleCovered = false;
+
+      for (const evidence of evaluatedObservers) {
+        const observer = evidence.observer;
+        if (!canPerformDirectVisualObservation(unit, observer)) continue;
+        const observerPosition = personPosition(unit, observer);
+        const observerStance = stanceName(observer, unit);
+        for (const capability of evidence.capabilities) {
+          const facingYaw = observerCapabilityFacingYaw(
+            unit,
+            observer,
+            capability
+          );
+          if (!pointInsideObserverFov(
+            observerPosition,
+            sampleVec,
+            facingYaw,
+            capability.horizontalFovDegrees
+          )) {
+            continue;
+          }
+          const maximumRange = this.maximumObservationRange(
+            unit,
+            NEGATIVE_OBSERVATION_TARGET_UNIT,
+            NEGATIVE_OBSERVATION_TARGET_PERSON,
+            capability
+          );
+          const losOptions = {
+            observerStance,
+            targetStance: 'PRONE',
+            fromEyeHeight: capability.eyeHeightOffsetMeters
+              ?? eyeHeight(observerStance),
+            toAimHeight: eyeHeight('PRONE')
+          };
+          const { dist } = liftedObservationEndpoints(
+            observerPosition,
+            sampleVec,
+            losOptions
+          );
+          if (dist > maximumRange) continue;
+          const los = this.checkLOS(
+            observerPosition,
+            sampleVec,
+            losOptions
+          );
+          if (los.clear && los.dist <= maximumRange) {
+            sampleCovered = true;
+            break;
+          }
+        }
+        if (sampleCovered) break;
+      }
+      if (sampleCovered) clearCount++;
+    }
+
+    const clearCoverageRatio = clearCount / samples.length;
+    if (clearCoverageRatio <= 0) return cloneContact(contact);
+    return evaluateNegativeObservation(contact, {
+      clearCoverageRatio,
+      completeCoverage:
+        coveragePlan.exactPoint
+        && coveragePlan.boundedRegion
+        && clearCount === samples.length,
+      approximationLabel: NEGATIVE_OBSERVATION_APPROXIMATION
+    });
   }
 
   invalidateBuildingColliders() {

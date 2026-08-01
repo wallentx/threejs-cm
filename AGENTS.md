@@ -19,6 +19,8 @@ Do not commit or push unless the user asks.
 ## Antigravity and fast-agent quality gate
 
 `HANDOFF.md` is the scope contract for Antigravity. It is not a general backlog.
+`AGY.md` records project-specific failure patterns and required steering. Read
+it before dispatching or executing Antigravity work.
 
 - Work on one authorized packet at a time. By default, stop when that packet is
   complete. If `HANDOFF.md` explicitly declares `SEQUENTIAL QUEUE` mode, every

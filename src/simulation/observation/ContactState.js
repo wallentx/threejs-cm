@@ -19,6 +19,18 @@ const CHANNEL_PRIORITY = Object.freeze({
   [CONTACT_CHANNEL.SOUND]: 1
 });
 
+export const NEGATIVE_OBSERVATION_APPROXIMATION =
+  'first-order conservative stale-contact area sampling; uncertain regions may downgrade confidence but never prove complete continuous coverage';
+
+export const NEGATIVE_OBSERVATION_POLICY = Object.freeze({
+  approximationLabel: NEGATIVE_OBSERVATION_APPROXIMATION,
+  exactPointRadiusMeters: 0.5,
+  sampleSpacingMeters: 2,
+  maximumSampleRadiusMeters: 20,
+  maximumSamples: 192,
+  downgradeFactor: 0.5
+});
+
 export function clonePosition(position) {
   if (!position) return null;
   if (Array.isArray(position)) return [
@@ -160,5 +172,100 @@ export function publicContact(contact) {
   return {
     ...publicFields,
     ...identificationProjection(publicFields.identificationProgress ?? 0)
+  };
+}
+
+export function getContactUncertaintyRegionSamples(
+  contact,
+  policy = NEGATIVE_OBSERVATION_POLICY
+) {
+  if (!contact || !contact.position) {
+    return {
+      approximationLabel: policy.approximationLabel,
+      samples: [],
+      exactPoint: false,
+      boundedRegion: false
+    };
+  }
+  const [cx, cy, cz] = clonePosition(contact.position);
+  const sourceRadius = Math.max(0, contact.uncertaintyM ?? 0);
+  const radius = Math.min(
+    sourceRadius,
+    policy.maximumSampleRadiusMeters
+  );
+  if (radius < policy.exactPointRadiusMeters) {
+    return {
+      approximationLabel: policy.approximationLabel,
+      samples: [[cx, cy, cz]],
+      exactPoint: true,
+      boundedRegion: true
+    };
+  }
+
+  const samples = [[cx, cy, cz]];
+  const ringCount = Math.max(
+    1,
+    Math.ceil(radius / policy.sampleSpacingMeters)
+  );
+  let boundedRegion = sourceRadius <= policy.maximumSampleRadiusMeters;
+  for (let ringIndex = 1; ringIndex <= ringCount; ringIndex++) {
+    const ringRadius = radius * ringIndex / ringCount;
+    const requestedPoints = Math.max(
+      4,
+      Math.ceil(
+        2 * Math.PI * ringRadius / policy.sampleSpacingMeters
+      )
+    );
+    const available = policy.maximumSamples - samples.length;
+    const pointCount = Math.min(requestedPoints, available);
+    if (pointCount < requestedPoints) boundedRegion = false;
+    for (let pointIndex = 0; pointIndex < pointCount; pointIndex++) {
+      const angle = 2 * Math.PI * pointIndex / requestedPoints;
+      samples.push([
+        cx + Math.sin(angle) * ringRadius,
+        cy,
+        cz + Math.cos(angle) * ringRadius
+      ]);
+    }
+    if (samples.length >= policy.maximumSamples) break;
+  }
+  return {
+    approximationLabel: policy.approximationLabel,
+    samples,
+    exactPoint: false,
+    boundedRegion
+  };
+}
+
+export function evaluateNegativeObservation(contact, {
+  clearCoverageRatio = 0,
+  completeCoverage = false,
+  approximationLabel = NEGATIVE_OBSERVATION_APPROXIMATION,
+  downgradeFactor = NEGATIVE_OBSERVATION_POLICY.downgradeFactor
+} = {}) {
+  if (!contact || clearCoverageRatio <= 0) {
+    return cloneContact(contact);
+  }
+  if (approximationLabel !== NEGATIVE_OBSERVATION_APPROXIMATION) {
+    throw new TypeError(
+      'negative observation must retain its approximation label'
+    );
+  }
+  const boundedRatio = Math.max(0, Math.min(1, clearCoverageRatio));
+  if (completeCoverage && boundedRatio >= 1) {
+    return {
+      ...cloneContact(contact),
+      confidence: 0,
+      revokedByNegativeObservation: true,
+      negativeObservationApproximation: approximationLabel
+    };
+  }
+  const baseConfidence = contact.confidence;
+  const newConfidence = Math.max(0, baseConfidence * (1 - boundedRatio * downgradeFactor));
+  return {
+    ...cloneContact(contact),
+    confidence: newConfidence,
+    downgradedByNegativeObservation: true,
+    negativeObservationApproximation: approximationLabel
   };
 }

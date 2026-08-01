@@ -6,7 +6,9 @@ export const OBSERVATION_EQUIPMENT = Object.freeze({
 export function isLivingObserver(person) {
   if (!person) return false;
   if ((person.health ?? 100) <= 0) return false;
-  return !['KIA', 'INCAPACITATED', 'DEAD'].includes(person.status);
+  return !['KIA', 'INCAPACITATED', 'DEAD', 'SURRENDERED']
+    .includes(String(person.status ?? '').toUpperCase())
+    && String(person.state ?? '').toUpperCase() !== 'SURRENDERED';
 }
 
 function addEquipment(target, values) {

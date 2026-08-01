@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agy Packet Runner"
+  short_description: "Run and resume bounded Agy packet work"
+  default_prompt: "Use $agy-packet-runner to dispatch the next eligible HANDOFF.md packet or required revision to Agy, review its diff, and send corrections."

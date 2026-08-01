@@ -269,6 +269,22 @@ export class SoldierAgent {
     const movementProfile =
       getInfantryMovementOrderProfile(context.orderType);
 
+    if (this.status === 'SURRENDERED' || this.state === 'SURRENDERED') {
+      this.fenceVault = null;
+      this.state = 'SURRENDERED';
+      this.status = 'SURRENDERED';
+      this.stance = 'KNEELING';
+      this.moraleTier = 'SURRENDERED';
+      this.reloadTimer = 0;
+      this.burstRemaining = 0;
+      this.targetUnitId = null;
+      this.targetSoldierId = null;
+      this.velocity.set(0, 0, 0);
+      resetFireControlState(this.fireControl, 'SURRENDERED');
+      this.syncRecord();
+      return;
+    }
+
     this.recoilTime = Math.max(0, this.recoilTime - elapsed);
     if (this.reloadTimer > 0) {
       this.reloadTimer = Math.max(0, this.reloadTimer - elapsed);
@@ -522,7 +538,11 @@ export class SoldierAgent {
 
   startReload() {
     const weapon = this.weaponLookup(this.weaponId);
-    if (!weapon || this.reloadTimer > 0 || this.reserveAmmo <= 0) return false;
+    if (!weapon
+        || this.status === 'SURRENDERED'
+        || this.state === 'SURRENDERED'
+        || this.reloadTimer > 0
+        || this.reserveAmmo <= 0) return false;
     this.reloadTimer = weapon.reloadSeconds;
     this.burstRemaining = 0;
     this.state = 'RELOADING';
@@ -532,7 +552,11 @@ export class SoldierAgent {
 
   completeReload() {
     const weapon = this.weaponLookup(this.weaponId);
-    if (!weapon || this.magazineAmmo >= weapon.magazineSize || this.reserveAmmo <= 0) return false;
+    if (!weapon
+        || this.status === 'SURRENDERED'
+        || this.state === 'SURRENDERED'
+        || this.magazineAmmo >= weapon.magazineSize
+        || this.reserveAmmo <= 0) return false;
     const rounds = Math.min(weapon.magazineSize - this.magazineAmmo, this.reserveAmmo);
     this.magazineAmmo += rounds;
     this.reserveAmmo -= rounds;
@@ -545,8 +569,21 @@ export class SoldierAgent {
     const elapsed = Math.max(delta, 0);
     const weapon = this.weaponLookup(this.weaponId);
     if (!weapon || !this.isAlive
-        || ['INCAPACITATED', 'DEAD'].includes(this.status)) {
-      resetFireControlState(this.fireControl);
+        || ['INCAPACITATED', 'DEAD', 'SURRENDERED'].includes(this.status)
+        || this.state === 'SURRENDERED') {
+      const surrendered = this.status === 'SURRENDERED'
+        || this.state === 'SURRENDERED';
+      resetFireControlState(
+        this.fireControl,
+        surrendered ? 'SURRENDERED' : null
+      );
+      if (surrendered) {
+        this.reloadTimer = 0;
+        this.burstRemaining = 0;
+        this.targetUnitId = null;
+        this.targetSoldierId = null;
+        this.syncRecord();
+      }
       return false;
     }
 

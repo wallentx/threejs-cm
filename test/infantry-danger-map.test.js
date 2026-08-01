@@ -355,4 +355,69 @@ test('invalid inputs and corrupt restore are rejected atomically', () => {
     /must match observedTick/
   );
   assert.deepEqual(map.captureState(), before);
+
+  const corruptClock = structuredClone(before);
+  corruptClock.clockPicoseconds++;
+  assert.throws(
+    () => map.restoreState(corruptClock),
+    /elapsedSeconds must match canonical clock components/
+  );
+  assert.deepEqual(map.captureState(), before);
+});
+
+test('canonical elapsed simulation time advances danger map ticks and partitions identically', () => {
+  const mapA = new InfantryDangerMap({ tickDurationSeconds: 1 / 30 });
+  const mapB = new InfantryDangerMap({ tickDurationSeconds: 1 / 30 });
+  const mapC = new InfantryDangerMap({ tickDurationSeconds: 1 / 30 });
+  const mapD = new InfantryDangerMap({ tickDurationSeconds: 1 / 30 });
+  const mapE = new InfantryDangerMap({ tickDurationSeconds: 1 / 30 });
+
+  for (const map of [mapA, mapB, mapC, mapD, mapE]) {
+    map.recordSource(source({ sourceId: 'src-1', lifetimeTicks: 60 }));
+  }
+
+  // mapA: 1 step of 1.0s
+  mapA.advanceSeconds(1.0);
+
+  // mapB: 50 steps of 0.02s (1.0s total)
+  for (let i = 0; i < 50; i++) {
+    mapB.advanceSeconds(0.02);
+  }
+
+  // mapC: 7 steps of 0.1s + 3 steps of 0.1s (1.0s total)
+  for (let i = 0; i < 10; i++) {
+    mapC.advanceSeconds(0.1);
+  }
+
+  // mapD: 13 steps of 0.07s + 1 step of 0.09s (1.0s total)
+  for (let i = 0; i < 13; i++) {
+    mapD.advanceSeconds(0.07);
+  }
+  mapD.advanceSeconds(0.09);
+
+  // mapE: sixty common realtime render steps (1.0s total)
+  for (let i = 0; i < 60; i++) {
+    mapE.advanceSeconds(1 / 60);
+  }
+
+  for (const map of [mapA, mapB, mapC, mapD, mapE]) {
+    assert.equal(map.clockTick, 30);
+    assert.equal(map.elapsedSeconds, 1.0);
+  }
+
+  assert.deepEqual(mapB.captureState(), mapA.captureState());
+  assert.deepEqual(mapC.captureState(), mapA.captureState());
+  assert.deepEqual(mapD.captureState(), mapA.captureState());
+  assert.deepEqual(mapE.captureState(), mapA.captureState());
+
+  const uninterrupted = new InfantryDangerMap({ tickDurationSeconds: 1 / 30 });
+  uninterrupted.recordSource(source({ sourceId: 'checkpoint', lifetimeTicks: 60 }));
+  uninterrupted.advanceSeconds(0.41);
+  const restored = restoreInfantryDangerMap(uninterrupted.captureState());
+  uninterrupted.advanceSeconds(0.59);
+  for (let i = 0; i < 59; i++) restored.advanceSeconds(0.01);
+  assert.deepEqual(restored.captureState(), uninterrupted.captureState());
+
+  assert.throws(() => mapA.advanceSeconds(-0.1), /deltaSeconds must be finite and non-negative/);
+  assert.throws(() => mapA.advanceSeconds(NaN), /deltaSeconds must be finite and non-negative/);
 });

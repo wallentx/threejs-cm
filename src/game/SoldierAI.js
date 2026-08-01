@@ -17,6 +17,22 @@ import {
   getInfantryMovementFormationOffset,
   isInfantryOrderMovingFireProhibited
 } from '../simulation/infantry/InfantryMovementOrders.js';
+import {
+  InfantryDangerMap
+} from '../simulation/infantry/InfantryDangerMap.js';
+import {
+  evaluateInfantryWithdrawal,
+  INFANTRY_WITHDRAWAL_POLICY
+} from '../simulation/infantry/InfantryWithdrawal.js';
+import {
+  INFANTRY_COLLISION_RADIUS
+} from '../simulation/infantry/InfantrySeparationSystem.js';
+import {
+  evaluateInfantrySurrender
+} from '../simulation/infantry/InfantrySurrender.js';
+import {
+  classifyIndividualMorale
+} from '../simulation/infantry/InfantrySuppression.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const scratchGoal = new THREE.Vector3();
@@ -59,7 +75,24 @@ function copySoldier(soldier) {
           threatMemoryPosition: soldier.tacticalDecision.threatMemoryPosition
             ? [...soldier.tacticalDecision.threatMemoryPosition]
             : null,
-          goal: soldier.tacticalDecision.goal ? [...soldier.tacticalDecision.goal] : null
+          goal: soldier.tacticalDecision.goal ? [...soldier.tacticalDecision.goal] : null,
+          dangerFactors: soldier.tacticalDecision.dangerFactors
+            ? { ...soldier.tacticalDecision.dangerFactors }
+            : null,
+          dangerSources: soldier.tacticalDecision.dangerSources
+            ? [...soldier.tacticalDecision.dangerSources]
+            : null,
+          withdrawalActive: soldier.tacticalDecision.withdrawalActive ?? false,
+          facingEnemy: soldier.tacticalDecision.facingEnemy ?? false,
+          withdrawalVector: soldier.tacticalDecision.withdrawalVector
+            ? [...soldier.tacticalDecision.withdrawalVector]
+            : null,
+          withdrawalGoal: soldier.tacticalDecision.withdrawalGoal
+            ? [...soldier.tacticalDecision.withdrawalGoal]
+            : null,
+          surrendered: soldier.tacticalDecision.surrendered ?? false,
+          casualtyProximityResponse: soldier.tacticalDecision.casualtyProximityResponse ?? false,
+          casualtyDistanceMeters: soldier.tacticalDecision.casualtyDistanceMeters ?? null
         }
       : null,
     supportAmmunitionTransfer:
@@ -71,6 +104,7 @@ function copySoldier(soldier) {
   if (!copy.supportAmmunitionTransfer) {
     delete copy.supportAmmunitionTransfer;
   }
+  delete copy.dangerMapState;
   return copy;
 }
 
@@ -94,10 +128,42 @@ function isStableIncomingFireEventId(value) {
     || (typeof value === 'number' && Number.isFinite(value));
 }
 
+function normalizeObservedThreatEvidenceId(value) {
+  if (!isStableIncomingFireEventId(value)) {
+    throw new TypeError(
+      'observed threat requires a non-empty stable observation, target, or source ID'
+    );
+  }
+  return Object.is(value, -0) ? 0 : value;
+}
+
+function normalizeObservedThreatPosition(value) {
+  let x;
+  let z;
+  if (Array.isArray(value)) {
+    if (value.length === 2) {
+      [x, z] = value;
+    } else if (value.length === 3) {
+      x = value[0];
+      z = value[2];
+    }
+  } else {
+    x = value?.x;
+    z = value?.z;
+  }
+  if (!Number.isFinite(x) || !Number.isFinite(z)) {
+    throw new TypeError(
+      'observed threat position must contain finite X and Z components'
+    );
+  }
+  return [Object.is(x, -0) ? 0 : x, Object.is(z, -0) ? 0 : z];
+}
+
 function canReactToThreat(agent) {
   return Boolean(
     agent.isAlive
-    && !['INCAPACITATED', 'DEAD'].includes(agent.status)
+    && !['INCAPACITATED', 'DEAD', 'SURRENDERED'].includes(agent.status)
+    && agent.state !== 'SURRENDERED'
   );
 }
 
@@ -181,7 +247,7 @@ function coverCandidates(bounds, clearance, agentPosition) {
   ];
 }
 
-export function selectNearbyCover(agent, terrain, threatPosition, neighbors = [], maximumDistance = 9) {
+export function selectNearbyCover(agent, terrain, threatPosition, neighbors = [], maximumDistance = 9, dangerMap = null, preferRearVector = null) {
   const obstacles = terrain?.bocageObstacles ?? [];
   let best = null;
   for (let obstacleIndex = 0; obstacleIndex < obstacles.length; obstacleIndex++) {
@@ -204,7 +270,19 @@ export function selectNearbyCover(agent, terrain, threatPosition, neighbors = []
       }
       const crowdPenalty = nearestNeighbor < 1.1 ? (1.1 - nearestNeighbor) * 1.8 : 0;
       const protection = obstacle.type === 'building' ? 1.35 : obstacle.type === 'stonewall' ? 1.0 : 0.7;
-      const score = protection * (shielded ? 5 : 1.7) - travelDistance * 0.32 - crowdPenalty;
+      let score = protection * (shielded ? 5 : 1.7) - travelDistance * 0.32 - crowdPenalty;
+      if (preferRearVector) {
+        const dx = candidate.x - agent.position.x;
+        const dz = candidate.z - agent.position.z;
+        const dot = dx * preferRearVector.x + dz * preferRearVector.z;
+        if (dot > 0) score += dot * 1.5;
+      }
+      if (dangerMap?.size > 0) {
+        const dangerRes = dangerMap.queryPoint([candidate.x, candidate.z]);
+        if (dangerRes.known && dangerRes.danger > 0) {
+          score -= dangerRes.danger * 3.5;
+        }
+      }
       const key = `${obstacleId}:${candidate.side}`;
       if (!best || score > best.score + 1e-9 || (Math.abs(score - best.score) <= 1e-9 && key < best.key)) {
         best = {
@@ -225,6 +303,42 @@ export function selectNearbyCover(agent, terrain, threatPosition, neighbors = []
     }
   }
   return best;
+}
+
+function createWithdrawalRouteCandidate({
+  collisionWorld,
+  terrain,
+  agent,
+  destination,
+  id,
+  kind,
+  score
+}) {
+  if (typeof collisionWorld?.getNavigationPath !== 'function') return null;
+  const path = collisionWorld.getNavigationPath(
+    agent.position,
+    destination,
+    INFANTRY_COLLISION_RADIUS,
+    'infantry',
+    { clearance: 0.05, waypointClearance: 0.05 }
+  );
+  const next = path?.[0];
+  const final = path?.[path.length - 1];
+  if (!Number.isFinite(next?.x)
+      || !Number.isFinite(next?.z)
+      || !Number.isFinite(final?.x)
+      || !Number.isFinite(final?.z)) {
+    return null;
+  }
+  return {
+    id,
+    kind,
+    score,
+    navigable: true,
+    goal: [next.x, next.z],
+    destination: [final.x, final.z],
+    height: terrain.getHeightAt(next.x, next.z)
+  };
 }
 
 function spacingCorrection(agent, neighbors, desiredSpacing = 1.05, result = scratchSpacing) {
@@ -253,6 +367,7 @@ export class SoldierAI {
   constructor(unit) {
     this.unit = unit;
     this.debugLines = null;
+    this.dangerMap = new InfantryDangerMap();
     this.initialize();
   }
 
@@ -419,6 +534,7 @@ export class SoldierAI {
   update(delta, terrain, context = {}) {
     const { anchorMoving = false, orderType = 'QUICK' } = context;
     const dt = Math.max(0, Number.isFinite(delta) ? delta : 0);
+    this.dangerMap.advanceSeconds(dt);
     const livingCount = this.getLivingAgents().length;
     const fallbackThreatPosition = context.threatPosition
       ?? this.unit.targetUnit?.position
@@ -457,20 +573,26 @@ export class SoldierAI {
         activeWaypoint.position.z - this.unit.position.z
       ) < 0.8
     );
+    const currentOrderType = activeWaypoint?.orderType ?? orderType;
     const explicitAssault = Boolean(
       activeWaypoint
       && activeWaypoint.orderType === 'ASSAULT'
-      && orderType === 'ASSAULT'
+      && (orderType === 'ASSAULT' || currentOrderType === 'ASSAULT')
+    );
+    const explicitHunt = Boolean(
+      activeWaypoint
+      && activeWaypoint.orderType === 'HUNT'
+      && (orderType === 'HUNT' || currentOrderType === 'HUNT')
     );
     const knownTargetQuick = Boolean(
       activeWaypoint
       && activeWaypoint.orderType === 'QUICK'
-      && orderType === 'QUICK'
+      && (orderType === 'QUICK' || currentOrderType === 'QUICK')
       && hasValidRetainedDirectTarget(this.unit)
       && context.hasDirectPrecisionObservation === true
     );
     const coordinatorActive = Boolean(
-      (explicitAssault || knownTargetQuick)
+      (explicitAssault || explicitHunt || knownTargetQuick)
       && !isBuildingTransitActive(this.agents)
     );
     const waypointKey = activeWaypoint
@@ -505,6 +627,16 @@ export class SoldierAI {
       members: boundMembers
     }) ?? new Map();
 
+    if (hasValidRetainedDirectTarget(this.unit) && context.hasDirectPrecisionObservation === true) {
+      const target = this.unit.targetUnit;
+      this.registerObservedThreat(target.position, {
+        targetId: target.id,
+        intensity: 0.8,
+        confidence: 0.9,
+        lifetimeTicks: 15
+      });
+    }
+
     for (let index = 0; index < this.agents.length; index++) {
       const agent = this.agents[index];
       const soldier = agent.record;
@@ -515,13 +647,36 @@ export class SoldierAI {
         : null;
       const rememberedThreat = canReact ? currentMemory : null;
 
+      const dangerResult = canReact
+        ? this.dangerMap.queryPoint([agent.position.x, agent.position.z])
+        : null;
+
       soldier.incomingFireTimer = Math.max(0, (soldier.incomingFireTimer ?? 0) - dt);
       if (soldier.incomingFireTimer === 0) soldier.incomingFireIntensity = 0;
       soldier.casualtyResponseTimer = Math.max(0, (soldier.casualtyResponseTimer ?? 0) - dt);
       const suppressionIncrease = agent.suppression - (soldier.lastSuppression ?? agent.suppression);
       if (suppressionIncrease >= 4) soldier.incomingFireTimer = Math.max(soldier.incomingFireTimer, 2.4);
-      if (livingCount < (soldier.knownLivingCount ?? livingCount)) {
-        soldier.casualtyResponseTimer = Math.max(soldier.casualtyResponseTimer, 3.2);
+
+      let casualtyProximityResponse = false;
+      let minCasualtyDist = Infinity;
+      const casualtyOccurred = livingCount < (soldier.knownLivingCount ?? livingCount);
+      if (casualtyOccurred || soldier.casualtyResponseTimer > 0) {
+        const casualties = this.agents.filter(a =>
+          !a.isAlive
+          || ['WOUNDED', 'KIA', 'INCAPACITATED'].includes(a.status)
+        );
+        for (const c of casualties) {
+          const dist = agent.position.distanceTo(c.position);
+          if (dist < minCasualtyDist) minCasualtyDist = dist;
+        }
+        if (casualtyOccurred) {
+          soldier.casualtyResponseTimer = Math.max(soldier.casualtyResponseTimer, 4.5);
+          if (minCasualtyDist <= 18) {
+            casualtyProximityResponse = true;
+            agent.suppression = Math.min(100, agent.suppression + Math.max(12, 28 - minCasualtyDist));
+            this.unit.applySuppression?.(15);
+          }
+        }
       }
 
       const goal = scratchGoal
@@ -545,16 +700,43 @@ export class SoldierAI {
         goal.y = terrain.getHeightAt(goal.x, goal.z);
       }
 
-      const reactionReason = soldier.incomingFireTimer > 0
-        ? 'incoming-fire'
-        : soldier.casualtyResponseTimer > 0
-          ? 'casualty-response'
-          : rememberedThreat
-            ? 'threat-memory'
-            : agent.suppression >= 35
-              ? 'suppression-reaction'
-              : null;
-      const threatPosition = reactionReason === 'threat-memory'
+      const hasLeader = this.agents.some(other =>
+        other !== agent && other.isAlive
+        && (other.role === 'LEADER' || other.index === 0)
+        && agent.position.distanceTo(other.position) <= 25
+      );
+      const casualtyRatio = 1 - livingCount / Math.max(1, this.unit.roster.length);
+      const alreadySurrendered =
+        agent.status === 'SURRENDERED'
+        || agent.state === 'SURRENDERED';
+
+      const isHighSuppression =
+        agent.suppression >= INFANTRY_WITHDRAWAL_POLICY.suppressionThreshold;
+      const isHeavyCasualtyWithdrawal =
+        casualtyRatio >= INFANTRY_WITHDRAWAL_POLICY.casualtyRatioThreshold
+        && soldier.casualtyResponseTimer > 0;
+      const hasWithdrawalPressure =
+        isHighSuppression || isHeavyCasualtyWithdrawal;
+
+      let reactionReason = null;
+      if (alreadySurrendered) {
+        reactionReason = 'surrender';
+      } else if (hasWithdrawalPressure && rememberedThreat) {
+        reactionReason = 'withdrawal';
+      } else if (soldier.incomingFireTimer > 0) {
+        reactionReason = 'incoming-fire';
+      } else if (soldier.casualtyResponseTimer > 0) {
+        reactionReason = 'casualty-response';
+      } else if (rememberedThreat) {
+        reactionReason = 'threat-memory';
+      } else if (agent.suppression >= 35) {
+        reactionReason = 'suppression-reaction';
+      }
+
+      const threatPosition = (
+        reactionReason === 'threat-memory'
+        || reactionReason === 'withdrawal'
+      )
         ? (
             readPosition(rememberedThreat.threatPosition, scratchThreat)
             ?? fallbackThreatPosition
@@ -565,22 +747,178 @@ export class SoldierAI {
               ?? fallbackThreatPosition
             )
           : fallbackThreatPosition;
+
+      let backwardVector = null;
+      if (hasWithdrawalPressure && rememberedThreat && threatPosition) {
+        const dx = agent.position.x - threatPosition.x;
+        const dz = agent.position.z - threatPosition.z;
+        const len = Math.hypot(dx, dz);
+        backwardVector = len > 0.01
+          ? { x: dx / len, z: dz / len }
+          : null;
+      }
+
       const cover = reactionReason && canReact
-        ? selectNearbyCover(agent, terrain, threatPosition, this.agents)
+        ? selectNearbyCover(agent, terrain, threatPosition, this.agents, 12, this.dangerMap, backwardVector)
         : null;
-      if (cover && !hasBoundRole) goal.copy(cover.position);
+
+      const withdrawalCandidates = [];
+      if (hasWithdrawalPressure && rememberedThreat && backwardVector) {
+        if (cover) {
+          const coverCandidate = createWithdrawalRouteCandidate({
+            collisionWorld: terrain.collisionWorld,
+            terrain,
+            agent,
+            destination: cover.position,
+            id: `cover:${cover.key}`,
+            kind: 'cover',
+            score: cover.score
+          });
+          if (coverCandidate) withdrawalCandidates.push(coverCandidate);
+        }
+        const fallbackDestination = {
+          x: agent.position.x
+            + backwardVector.x
+              * INFANTRY_WITHDRAWAL_POLICY.fallbackDistanceMeters,
+          z: agent.position.z
+            + backwardVector.z
+              * INFANTRY_WITHDRAWAL_POLICY.fallbackDistanceMeters
+        };
+        const fallbackCandidate = createWithdrawalRouteCandidate({
+          collisionWorld: terrain.collisionWorld,
+          terrain,
+          agent,
+          destination: fallbackDestination,
+          id: `fallback:${typeof rememberedThreat.eventId}:${String(rememberedThreat.eventId)}:${agent.id}`,
+          kind: 'fallback',
+          score: 0
+        });
+        if (fallbackCandidate) withdrawalCandidates.push(fallbackCandidate);
+      }
+      const buildingPhase = agent.buildingLocation?.phase ?? null;
+      const withdrawal = evaluateInfantryWithdrawal({
+        soldierId: agent.id,
+        available: canReact,
+        casualty: !agent.isAlive
+          || ['INCAPACITATED', 'DEAD'].includes(agent.status),
+        surrendered: alreadySurrendered,
+        buildingTransit: Boolean(
+          buildingPhase
+          && !['outside', 'approaching'].includes(buildingPhase)
+        ),
+        explicitOrder: Boolean(activeWaypoint),
+        buddyBound: hasBoundRole,
+        suppression: agent.suppression,
+        casualtyRatio,
+        casualtyResponseActive: soldier.casualtyResponseTimer > 0,
+        position: [agent.position.x, agent.position.z],
+        threat: rememberedThreat
+          ? {
+              id: rememberedThreat.eventId,
+              position: [
+                rememberedThreat.threatPosition[0],
+                rememberedThreat.threatPosition[2]
+              ]
+            }
+          : null,
+        candidates: withdrawalCandidates
+      });
+      const surrender = evaluateInfantrySurrender({
+        soldierId: agent.id,
+        alreadySurrendered,
+        retainedThreatId: soldier.tacticalDecision?.surrenderThreatId,
+        living: agent.isAlive
+          && !['INCAPACITATED', 'DEAD'].includes(agent.status),
+        routed: classifyIndividualMorale(agent.suppression) === 'ROUTED'
+          || agent.state === 'FLEEING',
+        buildingTransit: Boolean(
+          buildingPhase
+          && !['outside', 'approaching'].includes(buildingPhase)
+        ),
+        escaping: Boolean(activeWaypoint || hasBoundRole),
+        suppression: agent.suppression,
+        casualtyRatio,
+        leaderNearby: hasLeader,
+        position: [agent.position.x, agent.position.z],
+        threat: rememberedThreat
+          ? {
+              id: rememberedThreat.eventId,
+              position: [
+                rememberedThreat.threatPosition[0],
+                rememberedThreat.threatPosition[2]
+              ]
+            }
+          : null,
+        escapeAssessmentKnown:
+          typeof terrain.collisionWorld?.getNavigationPath === 'function',
+        escapeAvailable: withdrawalCandidates.length > 0
+      });
+      const surrenderActive = surrender.active;
+      if (surrenderActive && !alreadySurrendered) {
+        agent.status = 'SURRENDERED';
+        agent.state = 'SURRENDERED';
+        agent.moraleTier = 'SURRENDERED';
+        agent.stance = 'KNEELING';
+        agent.velocity.set(0, 0, 0);
+        agent.syncRecord();
+        reactionReason = 'surrender';
+      }
+      const withdrawalActive = withdrawal.active && !surrenderActive;
+      if (withdrawalActive) {
+        goal.set(
+          withdrawal.goal[0],
+          terrain.getHeightAt(withdrawal.goal[0], withdrawal.goal[1]),
+          withdrawal.goal[1]
+        );
+        if (threatPosition) {
+          soldier.facing = Math.atan2(threatPosition.x - agent.position.x, threatPosition.z - agent.position.z);
+        }
+      } else if (reactionReason !== 'withdrawal' && cover && !hasBoundRole) {
+        goal.copy(cover.position);
+      }
+
       const spacingReaction = !hasBoundRole && spacing.nearest < 1.05;
       const reactingToEnvironment = Boolean(
-        (cover || spacingReaction) && agent.position.distanceToSquared(goal) > 0.18 * 0.18
+        ((reactionReason !== 'withdrawal' && cover) || spacingReaction || withdrawalActive)
+        && agent.position.distanceToSquared(goal) > 0.18 * 0.18
       );
       const decision = soldier.tacticalDecision ?? {};
-      decision.reason = cover
-        ? `${reactionReason}-cover`
-        : spacingReaction
-          ? 'spacing-clearance'
-          : reactionReason
-            ? `${reactionReason}-hold`
-            : 'formation';
+      decision.reason = surrenderActive
+        ? 'surrender'
+        : withdrawalActive
+          ? withdrawal.reason
+          : reactionReason === 'withdrawal'
+            ? `withdrawal-${withdrawal.reason}`
+          : cover
+            ? `${reactionReason}-cover`
+            : spacingReaction
+              ? 'spacing-clearance'
+              : reactionReason
+                ? `${reactionReason}-hold`
+                : 'formation';
+      decision.surrendered = surrenderActive;
+      decision.surrenderReason = surrender.reason;
+      decision.surrenderThreatId = surrender.threatId;
+      decision.surrenderThreatDistanceMeters = surrender.threatDistanceMeters;
+      decision.surrenderApproximation = surrender.approximationLabel;
+      decision.withdrawalActive = withdrawalActive;
+      decision.withdrawalReason = withdrawal.reason;
+      decision.withdrawalTrigger = withdrawal.trigger;
+      decision.withdrawalThreatId = withdrawal.threatId;
+      decision.withdrawalGoalId = withdrawal.goalId;
+      decision.withdrawalGoalKind = withdrawal.goalKind;
+      decision.withdrawalApproximation = withdrawal.approximationLabel;
+      decision.facingEnemy = Boolean(withdrawalActive && threatPosition);
+      decision.casualtyProximityResponse = casualtyProximityResponse;
+      decision.casualtyDistanceMeters = Number.isFinite(minCasualtyDist)
+        ? Number(minCasualtyDist.toFixed(4))
+        : null;
+      decision.withdrawalVector = withdrawal.backwardVector
+        ? Object.freeze(withdrawal.backwardVector.map(value => Number(value.toFixed(4))))
+        : null;
+      decision.withdrawalGoal = withdrawalActive
+        ? Object.freeze([Number(goal.x.toFixed(4)), Number(goal.y.toFixed(4)), Number(goal.z.toFixed(4))])
+        : null;
       decision.coverId = cover?.obstacleId ?? null;
       decision.coverType = cover?.obstacleType ?? null;
       decision.coverSide = cover?.side ?? null;
@@ -604,6 +942,20 @@ export class SoldierAI {
       decision.threatMemoryScore = rememberedThreat
         ? Number(rememberedThreat.score.toFixed(9))
         : null;
+      decision.danger = dangerResult
+        ? Number(dangerResult.danger.toFixed(4))
+        : 0;
+      decision.dangerFactors = (dangerResult && dangerResult.known)
+        ? Object.freeze({
+            exposure: Number(dangerResult.factors.exposure.toFixed(4)),
+            recency: Number(dangerResult.factors.recency.toFixed(4)),
+            intensity: Number(dangerResult.factors.intensity.toFixed(4)),
+            confidence: Number(dangerResult.factors.confidence.toFixed(4))
+          })
+        : null;
+      decision.dangerSources = dangerResult
+        ? Object.freeze(dangerResult.contributions.map(c => String(c.sourceId)))
+        : Object.freeze([]);
       if (rememberedThreat) {
         const memoryPosition = decision.threatMemoryPosition ?? [0, 0, 0];
         memoryPosition[0] = rememberedThreat.threatPosition[0];
@@ -664,9 +1016,13 @@ export class SoldierAI {
         isShielded: cover?.shielded ?? false,
         hasLeaderNearby,
         coveringHold: boundDirective?.holdMovement ?? false,
-        coveringStance: explicitAssault ? 'KNEELING' : null,
+        coveringStance: (explicitAssault || explicitHunt) ? 'KNEELING' : null,
         buddyBoundMover: boundDirective?.blockFire ?? false
       });
+      if (withdrawalActive && threatPosition) {
+        agent.facing = Math.atan2(threatPosition.x - agent.position.x, threatPosition.z - agent.position.z);
+        agent.syncRecord();
+      }
       soldier.lastSuppression = agent.suppression;
       soldier.knownLivingCount = livingCount;
     }
@@ -758,7 +1114,39 @@ export class SoldierAI {
       agent.syncRecord();
       reacting++;
     }
+
+    if (reacting > 0) {
+      const sourceId = options.projectileId
+        ? `impact:${options.projectileId}`
+        : `incoming-impact:${this.unit.id}:${impact.x.toFixed(2)}:${impact.z.toFixed(2)}`;
+      this.dangerMap.recordIncomingImpact({
+        sourceId,
+        impactPosition: [impact.x, impact.z],
+        radiusMeters: radius,
+        intensity: THREE.MathUtils.clamp(intensity, 0, 1),
+        confidence: 1.0,
+        lifetimeTicks: 15
+      });
+    }
     return reacting;
+  }
+
+  registerObservedThreat(threatPosition, options = {}) {
+    const position = normalizeObservedThreatPosition(threatPosition);
+    const evidenceId = normalizeObservedThreatEvidenceId(
+      options.observationId ?? options.targetId ?? options.sourceId
+    );
+    const sourceId = options.sourceId === undefined
+      ? `observed-threat:${this.unit.id}:${typeof evidenceId}:${String(evidenceId)}`
+      : normalizeObservedThreatEvidenceId(options.sourceId);
+    return this.dangerMap.recordObservedThreat({
+      sourceId,
+      threatPosition: position,
+      radiusMeters: options.radiusMeters ?? 12,
+      intensity: THREE.MathUtils.clamp(options.intensity ?? 0.8, 0, 1),
+      confidence: THREE.MathUtils.clamp(options.confidence ?? 0.8, 0, 1),
+      lifetimeTicks: options.lifetimeTicks ?? 15
+    });
   }
 
   updateCombat(delta, context) {
@@ -984,13 +1372,25 @@ export class SoldierAI {
       parts.weapon.position.set(0.35, 0.08, 0.2);
       parts.weapon.rotation.set(0, 0, Math.PI / 2);
     }
+    if (soldier.status === 'SURRENDERED' || soldier.state === 'SURRENDERED') {
+      parts.leftArm.rotation.set(2.6, 0, -0.2);
+      parts.rightArm.rotation.set(2.6, 0, 0.2);
+      parts.weapon.position.set(0.35, 0.05, 0.2);
+      parts.weapon.rotation.set(0, 0, Math.PI / 2);
+      applyInfantrySecondaryPose(mesh, soldier);
+      return;
+    }
     applyInfantrySecondaryPose(mesh, soldier);
     bindInfantryHandsToWeapon(mesh, soldier);
   }
 
   applySquadStance() {
     for (const agent of this.agents) {
-      if (agent.isAlive && agent.suppression < 58) {
+      if (
+        (this.unit.isHiding || this.unit.isDeployed)
+        && agent.isAlive
+        && agent.suppression < 58
+      ) {
         agent.stance = this.unit.stance;
         agent.syncRecord();
       }
@@ -1019,7 +1419,8 @@ export class SoldierAI {
 
   getReadyShooters() {
     return this.getLivingAgents().filter(agent =>
-      !['INCAPACITATED', 'DEAD'].includes(agent.status)
+      !['INCAPACITATED', 'DEAD', 'SURRENDERED'].includes(agent.status)
+      && agent.state !== 'SURRENDERED'
       && agent.fireCooldown <= 0
       && agent.suppression < 58
       && agent.state !== 'MOVING'
@@ -1045,6 +1446,16 @@ export class SoldierAI {
     if (!agent) return null;
     const damage = random() < lethality ? 120 : 45;
     agent.applyDamage(damage, 42);
+    if (!agent.isAlive || agent.status === 'KIA' || agent.status === 'INCAPACITATED') {
+      this.dangerMap.recordCasualty({
+        sourceId: `casualty:${this.unit.id}:${agent.id}`,
+        casualtyPosition: [agent.position.x, agent.position.z],
+        radiusMeters: 10,
+        intensity: 0.8,
+        confidence: 1.0,
+        lifetimeTicks: 20
+      });
+    }
     const casualtyRatio = 1 - this.getLivingAgents().length / Math.max(1, this.unit.roster.length);
     this.unit.applySuppression(10 + casualtyRatio * 28);
     this.syncMeshes();
@@ -1056,6 +1467,16 @@ export class SoldierAI {
     const agent = living.find(candidate => candidate.id === soldierId) ?? living[0];
     if (!agent) return null;
     agent.applyDamage(damage, suppression);
+    if (!agent.isAlive || agent.status === 'KIA' || agent.status === 'INCAPACITATED') {
+      this.dangerMap.recordCasualty({
+        sourceId: `casualty:${this.unit.id}:${agent.id}`,
+        casualtyPosition: [agent.position.x, agent.position.z],
+        radiusMeters: 10,
+        intensity: 0.8,
+        confidence: 1.0,
+        lifetimeTicks: 20
+      });
+    }
     const casualtyRatio = 1 - this.getLivingAgents().length / Math.max(1, this.agents.length);
     this.unit.applySuppression(8 + casualtyRatio * 24);
     this.syncMeshes();
@@ -1081,5 +1502,22 @@ export class SoldierAI {
     }
     this.unit.roster = this.agents.map(agent => agent.record);
     this.syncMeshes();
+  }
+
+  captureState() {
+    return {
+      roster: this.captureRoster(),
+      dangerMap: this.dangerMap.captureState()
+    };
+  }
+
+  restoreState(state) {
+    if (!state) return;
+    if (state.dangerMap) {
+      this.dangerMap.restoreState(state.dangerMap);
+    }
+    if (state.roster) {
+      this.restoreRoster(state.roster);
+    }
   }
 }

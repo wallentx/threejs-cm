@@ -41,6 +41,21 @@ function applyFirstOrderSneakPose(mesh, parts, stridePhase) {
   parts.torso.rotation.z = stride * 0.02;
 }
 
+function applyFirstOrderSurrenderPose(parts) {
+  // First-order non-combative presentation. Accepted surrender state comes
+  // from simulation; this projection owns no trigger or gameplay authority.
+  resetArmRigFromGripIk(parts.leftArm);
+  resetArmRigFromGripIk(parts.rightArm);
+  parts.weaponRig.userData.activeGripAssignments = null;
+  parts.torso.rotation.x = -0.04;
+  parts.leftLeg.rotation.x = -1.05;
+  parts.rightLeg.rotation.x = -1.05;
+  parts.leftArm.rotation.set(2.35, 0, 0.5);
+  parts.rightArm.rotation.set(2.35, 0, -0.5);
+  parts.weapon.position.set(0.42, 0.08, 0.18);
+  parts.weapon.rotation.set(-Math.PI / 2, 0, 1.35);
+}
+
 function resetArmRigFromGripIk(arm) {
   const rig = arm?.userData.armRig;
   if (!rig) return;
@@ -404,7 +419,11 @@ export function applyInfantrySecondaryPose(mesh, soldier) {
     || soldier.status === 'INCAPACITATED'
     || soldier.status === 'DEAD';
   const alive = !unavailable && (soldier.health ?? 100) > 0;
-  const idle = alive && speed < IDLE_SPEED_THRESHOLD
+  const surrendered = alive && (
+    soldier.status === 'SURRENDERED'
+    || soldier.state === 'SURRENDERED'
+  );
+  const idle = alive && !surrendered && speed < IDLE_SPEED_THRESHOLD
     && ![
       'RELOADING',
       'CASUALTY',
@@ -455,9 +474,12 @@ export function applyInfantrySecondaryPose(mesh, soldier) {
   }
   if (woundedMoving) applyFirstOrderWoundedMovePose(parts, soldier.stridePhase);
   if (soldier.status === 'KIA') applyFirstOrderKiaFallPose(mesh, parts, soldier);
+  else if (surrendered) applyFirstOrderSurrenderPose(parts);
 
   const pose = soldier.status === 'KIA'
     ? 'casualty'
+    : surrendered
+      ? 'surrender'
     : soldier.state === 'RELOADING'
       ? 'reload'
       : (soldier.recoilTime ?? 0) > 0
@@ -484,7 +506,10 @@ export function applyInfantrySecondaryPose(mesh, soldier) {
 
 export function bindInfantryHandsToWeapon(mesh, soldier) {
   const parts = mesh.userData.parts;
-  if (!parts || soldier.status === 'KIA') return false;
+  if (!parts
+      || soldier.status === 'KIA'
+      || soldier.status === 'SURRENDERED'
+      || soldier.state === 'SURRENDERED') return false;
   const reload = soldier.state === 'RELOADING';
   const internalMagazine = parts.weaponRig.userData.weaponModel
     ?.userData.visualContract?.magazine === 'internal';

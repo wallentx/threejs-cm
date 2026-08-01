@@ -355,3 +355,348 @@ test('morale tiers grant distinct postures and automated reactions', () => {
   assert.equal(agent.moraleTier, 'ROUTED');
   assert.equal(agent.state, 'FLEEING');
 });
+
+test('infantry danger map feeds from impacts, threats, casualties with inspectable factors and restore parity', () => {
+  const squad = new Unit({
+    id: 'danger_squad',
+    faction: 'french',
+    type: 'infantry_squad',
+    position: new THREE.Vector3(0, 0, 0)
+  });
+
+  // 1. Register incoming fire impact
+  squad.soldierAI.registerIncomingFire(
+    new THREE.Vector3(0, 0, 20),
+    new THREE.Vector3(0, 0, 2),
+    { projectileId: 'shell_99', radius: 10, intensity: 0.9 }
+  );
+
+  assert.ok(squad.soldierAI.dangerMap.size > 0);
+
+  // Update step
+  squad.soldierAI.update(1 / 30, flatTerrain);
+  const decision = squad.roster[0].tacticalDecision;
+  assert.ok(decision.danger > 0);
+  assert.ok(decision.dangerFactors);
+  assert.ok(Number.isFinite(decision.dangerFactors.exposure));
+  assert.ok(Number.isFinite(decision.dangerFactors.recency));
+  assert.ok(Number.isFinite(decision.dangerFactors.intensity));
+  assert.ok(Number.isFinite(decision.dangerFactors.confidence));
+  assert.ok(decision.dangerSources.includes('impact:shell_99'));
+
+  // 2. Kill a soldier and verify casualty source is recorded and dead soldier is excluded
+  const victim = squad.roster[1];
+  squad.soldierAI.applyDamage(victim.id, 120);
+  assert.equal(victim.status, 'KIA');
+  assert.ok(
+    squad.soldierAI.dangerMap.captureState().sources.some(s => s.kind === 'casualty')
+  );
+
+  // Dead soldier has no danger factors or active responses in tactical decision
+  squad.soldierAI.update(1 / 30, flatTerrain);
+  const deadDecision = victim.tacticalDecision;
+  assert.equal(deadDecision.danger, 0);
+  assert.equal(deadDecision.dangerFactors, null);
+
+  // 3. Restore parity
+  const captured = squad.soldierAI.captureState();
+  const restoredMap = squad.soldierAI.dangerMap.captureState();
+
+  const freshSquad = new Unit({
+    id: 'danger_squad',
+    faction: 'french',
+    type: 'infantry_squad',
+    position: new THREE.Vector3(0, 0, 0)
+  });
+  freshSquad.soldierAI.restoreState(captured);
+  assert.deepEqual(freshSquad.soldierAI.dangerMap.captureState(), restoredMap);
+
+  // 4. Unit level aggregate capture/restore & no dangerMapState attached to roster[0]
+  const unitState = squad.captureState();
+  assert.ok(unitState.dangerMap, 'Unit captureState must expose aggregate dangerMap');
+  assert.equal(unitState.roster[0].dangerMapState, undefined, 'roster[0] must not attach dangerMapState');
+
+  const unitRestoredSquad = new Unit({
+    id: 'danger_squad',
+    faction: 'french',
+    type: 'infantry_squad',
+    position: new THREE.Vector3(0, 0, 0)
+  });
+  unitRestoredSquad.restoreState(unitState, new Map());
+  assert.deepEqual(unitRestoredSquad.soldierAI.dangerMap.captureState(), unitState.dangerMap);
+
+  // 5. Read-only legacy migration compatibility test
+  const legacyUnitState = structuredClone(unitState);
+  legacyUnitState.roster[0].dangerMapState = legacyUnitState.dangerMap;
+  delete legacyUnitState.dangerMap;
+
+  const legacyRestoredSquad = new Unit({
+    id: 'danger_squad',
+    faction: 'french',
+    type: 'infantry_squad',
+    position: new THREE.Vector3(0, 0, 0)
+  });
+  legacyRestoredSquad.restoreState(legacyUnitState, new Map());
+  assert.deepEqual(legacyRestoredSquad.soldierAI.dangerMap.captureState(), unitState.dangerMap);
+
+  const freshCaptured = legacyRestoredSquad.captureState();
+  assert.ok(freshCaptured.dangerMap, 'Re-captured unitState must place dangerMap at top level');
+  assert.equal(freshCaptured.roster[0].dangerMapState, undefined, 'Re-captured unitState must not write to roster[0]');
+});
+
+test('evidence provenance: unobserved incoming fire creates impact danger only, while explicit contact creates observed threat', () => {
+  const squad = new Unit({
+    id: 'provenance_squad',
+    faction: 'french',
+    type: 'infantry_squad',
+    position: new THREE.Vector3(0, 0, 0)
+  });
+
+  // 1. Unobserved incoming fire from a hidden shooter
+  squad.soldierAI.registerIncomingFire(
+    new THREE.Vector3(0, 0, 25), // hidden shooter position
+    new THREE.Vector3(0, 0, 3),  // impact position
+    { projectileId: 'hidden_shot_1', radius: 10, intensity: 0.8 }
+  );
+
+  squad.soldierAI.update(1 / 30, flatTerrain);
+
+  const sourcesAfterFire = squad.soldierAI.dangerMap.captureState().sources;
+  assert.ok(
+    sourcesAfterFire.some(s => s.kind === 'incoming-impact'),
+    'Incoming fire must record an incoming-impact danger source'
+  );
+  assert.equal(
+    sourcesAfterFire.some(s => s.kind === 'observed-threat'),
+    false,
+    'Unobserved incoming fire must NOT create an observed-threat danger source'
+  );
+
+  const beforeInvalidObservation = squad.soldierAI.dangerMap.captureState();
+  assert.throws(
+    () => squad.soldierAI.registerObservedThreat(
+      new THREE.Vector3(0, 0, 25)
+    ),
+    /requires a non-empty stable observation, target, or source ID/
+  );
+  assert.throws(
+    () => squad.soldierAI.registerObservedThreat(
+      { x: Number.NaN, z: 25 },
+      { observationId: 'visual-contact-1' }
+    ),
+    /position must contain finite X and Z components/
+  );
+  assert.deepEqual(
+    squad.soldierAI.dangerMap.captureState(),
+    beforeInvalidObservation,
+    'Rejected observation evidence must not mutate aggregate danger state'
+  );
+
+  // 2. Explicit observation event of a confirmed contact
+  squad.soldierAI.registerObservedThreat(
+    new THREE.Vector3(0, 0, 25),
+    {
+      observationId: 'visual-contact-1',
+      confidence: 0.9,
+      intensity: 0.8
+    }
+  );
+
+  squad.soldierAI.update(1 / 30, flatTerrain);
+
+  const sourcesAfterObservation = squad.soldierAI.dangerMap.captureState().sources;
+  assert.ok(
+    sourcesAfterObservation.some(source =>
+      source.kind === 'observed-threat'
+      && source.sourceId === 'observed-threat:provenance_squad:string:visual-contact-1'),
+    'Explicit observation event must record an observed-threat danger source'
+  );
+});
+
+test('danger map frame partition parity preserves byte-identical state and decisions', () => {
+  const squad1 = new Unit({
+    id: 'partition_squad',
+    faction: 'french',
+    type: 'infantry_squad',
+    position: new THREE.Vector3(0, 0, 0)
+  });
+  const squad2 = new Unit({
+    id: 'partition_squad',
+    faction: 'french',
+    type: 'infantry_squad',
+    position: new THREE.Vector3(0, 0, 0)
+  });
+  const squad3 = new Unit({
+    id: 'partition_squad',
+    faction: 'french',
+    type: 'infantry_squad',
+    position: new THREE.Vector3(0, 0, 0)
+  });
+
+  const impactPos = new THREE.Vector3(0, 0, 2);
+  const threatPos = new THREE.Vector3(0, 0, 20);
+
+  squad1.soldierAI.registerIncomingFire(threatPos, impactPos, { projectileId: 'p1', radius: 10, intensity: 0.9 });
+  squad2.soldierAI.registerIncomingFire(threatPos, impactPos, { projectileId: 'p1', radius: 10, intensity: 0.9 });
+  squad3.soldierAI.registerIncomingFire(threatPos, impactPos, { projectileId: 'p1', radius: 10, intensity: 0.9 });
+
+  squad1.soldierAI.registerObservedThreat(threatPos, { targetId: 't1', confidence: 0.8 });
+  squad2.soldierAI.registerObservedThreat(threatPos, { targetId: 't1', confidence: 0.8 });
+  squad3.soldierAI.registerObservedThreat(threatPos, { targetId: 't1', confidence: 0.8 });
+
+  // squad1: 1 step of 1.0s
+  squad1.soldierAI.update(1.0, flatTerrain);
+
+  // squad2: 50 steps of 0.02s
+  for (let i = 0; i < 50; i++) {
+    squad2.soldierAI.update(0.02, flatTerrain);
+  }
+
+  // squad3: common 60 Hz render partition
+  for (let i = 0; i < 60; i++) {
+    squad3.soldierAI.update(1 / 60, flatTerrain);
+  }
+
+  assert.deepEqual(
+    squad2.soldierAI.dangerMap.captureState(),
+    squad1.soldierAI.dangerMap.captureState(),
+    'Danger map state must be byte-identical after 1x 1.0s vs 50x 0.02s updates'
+  );
+  assert.deepEqual(
+    squad2.roster[0].tacticalDecision,
+    squad1.roster[0].tacticalDecision,
+    'Tactical decision must be byte-identical after 1x 1.0s vs 50x 0.02s updates'
+  );
+  assert.deepEqual(
+    squad3.soldierAI.dangerMap.captureState(),
+    squad1.soldierAI.dangerMap.captureState(),
+    'Danger map state must be byte-identical after 1x 1.0s vs 60x 1/60s updates'
+  );
+  assert.deepEqual(
+    squad3.roster[0].tacticalDecision,
+    squad1.roster[0].tacticalDecision,
+    'Tactical decision must be byte-identical after 1x 1.0s vs 60x 1/60s updates'
+  );
+});
+
+test('high suppression cannot invent withdrawal from an unrecognized positional hint', () => {
+  const squad = new Unit({
+    id: 'withdraw_squad',
+    faction: 'french',
+    type: 'infantry_squad',
+    position: new THREE.Vector3(0, 0, 0)
+  });
+
+  const threatPos = new THREE.Vector3(0, 0, 30);
+  const agent = squad.soldierAI.agents[0];
+
+  // A bare position has no stable observation/projectile ID and is not
+  // recognized threat evidence.
+  agent.suppression = 78;
+  agent.record.incomingThreatPosition = threatPos.toArray();
+  squad.soldierAI.update(1 / 30, flatTerrain, { threatPosition: threatPos });
+
+  const decision = agent.record.tacticalDecision;
+  assert.equal(decision.withdrawalActive, false);
+  assert.equal(decision.withdrawalReason, 'no-recognized-threat');
+  assert.equal(decision.withdrawalThreatId, null);
+  assert.equal(decision.withdrawalVector, null);
+  assert.equal(decision.withdrawalGoal, null);
+  assert.equal(decision.facingEnemy, false);
+
+  // Rollback preserves the rejected decision as well as accepted decisions.
+  const captured = squad.soldierAI.captureState();
+  const freshSquad = new Unit({
+    id: 'withdraw_squad',
+    faction: 'french',
+    type: 'infantry_squad',
+    position: new THREE.Vector3(0, 0, 0)
+  });
+  freshSquad.soldierAI.restoreState(captured);
+  assert.deepEqual(
+    freshSquad.soldierAI.agents[0].record.tacticalDecision,
+    decision
+  );
+});
+
+test('suppression and casualty percentage alone cannot trigger surrender', () => {
+  const squad = new Unit({
+    id: 'surrender_squad',
+    faction: 'french',
+    type: 'infantry_squad',
+    position: new THREE.Vector3(0, 0, 0)
+  });
+
+  const agent = squad.soldierAI.agents[0];
+
+  // No recognized threat or escape assessment exists in this legacy harness.
+  for (let i = 1; i < squad.soldierAI.agents.length; i++) {
+    squad.soldierAI.agents[i].health = 0;
+    squad.soldierAI.agents[i].status = 'KIA';
+  }
+  agent.suppression = 85;
+  agent.record.knownLivingCount = 1;
+  squad.soldierAI.update(1 / 30, flatTerrain);
+
+  assert.equal(agent.status, 'OK');
+  assert.notEqual(agent.state, 'SURRENDERED');
+  assert.equal(agent.record.tacticalDecision.surrenderReason, 'no-recognized-threat');
+  assert.equal(agent.record.tacticalDecision.surrendered, false);
+
+  // 2. Rollback & snapshot parity
+  const captured = squad.soldierAI.captureState();
+  const freshSquad = new Unit({
+    id: 'surrender_squad',
+    faction: 'french',
+    type: 'infantry_squad',
+    position: new THREE.Vector3(0, 0, 0)
+  });
+  freshSquad.soldierAI.restoreState(captured);
+
+  const restoredAgent = freshSquad.soldierAI.agents[0];
+  assert.equal(restoredAgent.status, 'OK');
+  assert.notEqual(restoredAgent.state, 'SURRENDERED');
+  assert.deepEqual(restoredAgent.record.tacticalDecision, agent.record.tacticalDecision);
+});
+
+test('taking a casualty triggers immediate squad proximity reaction, suppression shock, and rollback parity', () => {
+  const squad = new Unit({
+    id: 'casualty_reaction_squad',
+    faction: 'french',
+    type: 'infantry_squad',
+    position: new THREE.Vector3(0, 0, 0)
+  });
+
+  const survivor = squad.soldierAI.agents[0];
+  const casualty = squad.soldierAI.agents[1];
+  const initialSuppression = survivor.suppression;
+
+  // Initial update to establish knownLivingCount
+  squad.soldierAI.update(1 / 30, flatTerrain);
+
+  // Mark soldier 1 as KIA (casualty occurs)
+  casualty.health = 0;
+  casualty.status = 'KIA';
+
+  squad.soldierAI.update(1 / 30, flatTerrain);
+
+  const decision = survivor.record.tacticalDecision;
+  assert.ok(survivor.suppression > initialSuppression, 'Survivor must take immediate suppression shock');
+  assert.equal(decision.casualtyProximityResponse, true);
+  assert.ok(typeof decision.casualtyDistanceMeters === 'number');
+  assert.ok(survivor.record.casualtyResponseTimer > 0);
+  assert.ok(decision.reason.includes('casualty-response'));
+
+  // Rollback parity
+  const captured = squad.soldierAI.captureState();
+  const freshSquad = new Unit({
+    id: 'casualty_reaction_squad',
+    faction: 'french',
+    type: 'infantry_squad',
+    position: new THREE.Vector3(0, 0, 0)
+  });
+  freshSquad.soldierAI.restoreState(captured);
+
+  const restoredSurvivor = freshSquad.soldierAI.agents[0];
+  assert.deepEqual(restoredSurvivor.record.tacticalDecision, decision);
+});

@@ -977,3 +977,21 @@ test('plain coordinator restore rejects forged role and duplicate-member state',
     /repeats a member|invalid pair ID/
   );
 });
+
+test('HUNT and ASSAULT orders engage staggered fire-and-movement buddy bounds', () => {
+  const squad = prepareSquad('hunt_bounds_squad');
+  squad.waypoints = [
+    { orderType: 'HUNT', position: new THREE.Vector3(0, 0, 20) }
+  ];
+  squad.currentWaypointIndex = 0;
+
+  const terrain = createTerrain();
+  squad.soldierAI.update(1 / 30, terrain);
+
+  const roles = squad.soldierAI.agents.map(a => a.record.tacticalDecision.boundRole);
+  assert.ok(roles.includes('mover'), 'HUNT order must assign mover role in buddy bounds');
+  assert.ok(roles.includes('coverer'), 'HUNT order must assign coverer role in buddy bounds');
+
+  const coverers = squad.soldierAI.agents.filter(a => a.record.tacticalDecision.boundRole === 'coverer');
+  assert.ok(coverers.every(c => c.stance === 'KNEELING'), 'Covering elements must assume covering stance (KNEELING)');
+});

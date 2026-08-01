@@ -1,8 +1,15 @@
-const STATE_VERSION = 1;
+const STATE_VERSION = 2;
+const LEGACY_STATE_VERSION = 1;
+const RESULT_VERSION = 1;
 const MAX_CAPACITY = 256;
 const MAX_ROUTE_SEGMENTS = 256;
 const MAX_SAMPLES_PER_SEGMENT = 257;
 const MAX_BATCH_SOURCES = 512;
+const CLOCK_PRECISION_SECONDS = 1e-12;
+const CLOCK_PICOSECONDS_PER_SECOND = 1 / CLOCK_PRECISION_SECONDS;
+const CLOCK_HALF_PICOSECOND_SECONDS = CLOCK_PRECISION_SECONDS / 2;
+const CLOCK_SUB_PICOSECOND_DRIFT_SECONDS = 1e-14;
+const CLOCK_BOUNDARY_ULPS = 8;
 
 export const INFANTRY_DANGER_MAP_APPROXIMATION =
   'first-order radial infantry terrain danger-map gameplay approximation v1';
@@ -16,10 +23,10 @@ export const INFANTRY_DANGER_SOURCE_KINDS = Object.freeze({
 const SOURCE_KINDS = new Set(Object.values(INFANTRY_DANGER_SOURCE_KINDS));
 
 export const INFANTRY_DANGER_MAP_MODEL = Object.freeze({
-  version: STATE_VERSION,
+  version: RESULT_VERSION,
   approximationLabel: INFANTRY_DANGER_MAP_APPROXIMATION,
   coordinateSpace: 'world X/Z metres',
-  timeModel: 'caller-owned canonical integer simulation ticks',
+  timeModel: 'map-owned canonical elapsed time projected to integer simulation ticks',
   spatialExposure: 'linear-to-zero inside each source radius',
   temporalRecency: 'linear-to-zero over each source lifetime',
   contribution:
@@ -128,6 +135,145 @@ function safeTickSum(left, right, label) {
     throw new RangeError(`${label} must remain a non-negative safe integer`);
   }
   return result;
+}
+
+function normalizeClockResidual(value) {
+  if (Math.abs(value) <= CLOCK_SUB_PICOSECOND_DRIFT_SECONDS) return 0;
+  return normalizeNegativeZero(value);
+}
+
+function normalizeClockParts({
+  wholeSeconds,
+  picoseconds,
+  compensationSeconds
+}) {
+  if (!Number.isSafeInteger(wholeSeconds)
+      || !Number.isSafeInteger(picoseconds)
+      || !Number.isFinite(compensationSeconds)) {
+    throw new RangeError(
+      'infantry danger-map clock must remain finite and representable'
+    );
+  }
+
+  if (compensationSeconds >= CLOCK_HALF_PICOSECOND_SECONDS) {
+    picoseconds++;
+    compensationSeconds -= CLOCK_PRECISION_SECONDS;
+  } else if (compensationSeconds < -CLOCK_HALF_PICOSECOND_SECONDS) {
+    picoseconds--;
+    compensationSeconds += CLOCK_PRECISION_SECONDS;
+  }
+  compensationSeconds = normalizeClockResidual(compensationSeconds);
+
+  const wholeCarry = Math.floor(
+    picoseconds / CLOCK_PICOSECONDS_PER_SECOND
+  );
+  wholeSeconds += wholeCarry;
+  picoseconds -= wholeCarry * CLOCK_PICOSECONDS_PER_SECOND;
+
+  if (!Number.isSafeInteger(wholeSeconds)
+      || wholeSeconds < 0
+      || !Number.isSafeInteger(picoseconds)
+      || picoseconds < 0
+      || picoseconds >= CLOCK_PICOSECONDS_PER_SECOND
+      || compensationSeconds < -CLOCK_HALF_PICOSECOND_SECONDS
+      || compensationSeconds >= CLOCK_HALF_PICOSECOND_SECONDS) {
+    throw new RangeError(
+      'infantry danger-map clock must remain finite and representable'
+    );
+  }
+  return { wholeSeconds, picoseconds, compensationSeconds };
+}
+
+function composeClockSeconds(clock) {
+  const elapsedSeconds = clock.wholeSeconds
+    + clock.picoseconds * CLOCK_PRECISION_SECONDS
+    + clock.compensationSeconds;
+  if (!Number.isFinite(elapsedSeconds) || elapsedSeconds < 0) {
+    throw new RangeError(
+      'infantry danger-map clock must remain finite and representable'
+    );
+  }
+  return normalizeNegativeZero(elapsedSeconds);
+}
+
+function splitClockDelta(deltaSeconds) {
+  if (!Number.isFinite(deltaSeconds) || deltaSeconds < 0) {
+    throw new RangeError(
+      'infantry danger-map deltaSeconds must be finite and non-negative'
+    );
+  }
+  const wholeSeconds = Math.trunc(deltaSeconds);
+  if (!Number.isSafeInteger(wholeSeconds)) {
+    throw new RangeError(
+      'infantry danger-map clock must remain finite and representable'
+    );
+  }
+  const fractionalSeconds = deltaSeconds - wholeSeconds;
+  const roundedPicoseconds = Math.round(
+    fractionalSeconds * CLOCK_PICOSECONDS_PER_SECOND
+  );
+  return normalizeClockParts({
+    wholeSeconds,
+    picoseconds: normalizeNegativeZero(roundedPicoseconds),
+    compensationSeconds:
+      fractionalSeconds
+      - roundedPicoseconds * CLOCK_PRECISION_SECONDS
+  });
+}
+
+function addClock(clock, deltaSeconds) {
+  const delta = splitClockDelta(deltaSeconds);
+  return normalizeClockParts({
+    wholeSeconds: clock.wholeSeconds + delta.wholeSeconds,
+    picoseconds: clock.picoseconds + delta.picoseconds,
+    compensationSeconds:
+      clock.compensationSeconds + delta.compensationSeconds
+  });
+}
+
+function clockFromSeconds(elapsedSeconds) {
+  return addClock({
+    wholeSeconds: 0,
+    picoseconds: 0,
+    compensationSeconds: 0
+  }, elapsedSeconds);
+}
+
+function tickAtClock(clock, tickDurationSeconds) {
+  const rawTick = composeClockSeconds(clock) / tickDurationSeconds;
+  const nearestTick = Math.round(rawTick);
+  const boundaryTolerance = Number.EPSILON
+    * Math.max(1, Math.abs(rawTick))
+    * CLOCK_BOUNDARY_ULPS;
+  const normalizedTick = Math.abs(rawTick - nearestTick) <= boundaryTolerance
+    ? nearestTick
+    : rawTick;
+  return safeNonNegativeInteger(
+    Math.floor(normalizedTick),
+    'infantry danger-map derived clockTick'
+  );
+}
+
+function validateCanonicalClock(savedState) {
+  const clock = normalizeClockParts({
+    wholeSeconds: savedState.clockWholeSeconds,
+    picoseconds: savedState.clockPicoseconds,
+    compensationSeconds: savedState.clockCompensationSeconds
+  });
+  if (clock.wholeSeconds !== savedState.clockWholeSeconds
+      || clock.picoseconds !== savedState.clockPicoseconds
+      || clock.compensationSeconds !== savedState.clockCompensationSeconds) {
+    throw new TypeError(
+      'infantry danger-map canonical clock components are not normalized'
+    );
+  }
+  const elapsedSeconds = composeClockSeconds(clock);
+  if (!Object.is(savedState.elapsedSeconds, elapsedSeconds)) {
+    throw new TypeError(
+      'infantry danger-map elapsedSeconds must match canonical clock components'
+    );
+  }
+  return clock;
 }
 
 function normalizePolicy(policyInput = {}) {
@@ -373,14 +519,15 @@ function frozenFactors({
 /**
  * Renderer-neutral, bounded evidence field for infantry route evaluation.
  *
- * The caller owns conversion from its fixed simulation step to integer ticks.
- * This class evaluates points and already-authored route segments; it never
- * creates, selects, or renders a route.
+ * Evaluates evidence points and route segments using canonical elapsed simulation
+ * time and integer clock ticks.
  */
 export class InfantryDangerMap {
   constructor(policy = DEFAULT_INFANTRY_DANGER_MAP_POLICY) {
     this.policy = normalizePolicy(policy);
     this.clockTick = 0;
+    this.clock = clockFromSeconds(0);
+    this.elapsedSeconds = 0;
     this.sourcesByKey = new Map();
   }
 
@@ -396,7 +543,33 @@ export class InfantryDangerMap {
         tickCount,
         'infantry danger-map clockTick'
       );
+      this.clock = clockFromSeconds(
+        this.clockTick * this.policy.tickDurationSeconds
+      );
+      this.elapsedSeconds = composeClockSeconds(this.clock);
     }
+    this.pruneExpired();
+    return this.clockTick;
+  }
+
+  advanceSeconds(deltaSeconds) {
+    const nextClock = addClock(this.clock, deltaSeconds);
+    if (deltaSeconds > 0) {
+      const targetTick = tickAtClock(
+        nextClock,
+        this.policy.tickDurationSeconds
+      );
+      const ticksToAdvance = targetTick - this.clockTick;
+      if (ticksToAdvance > 0) {
+        this.clockTick = safeTickSum(
+          this.clockTick,
+          ticksToAdvance,
+          'infantry danger-map clockTick'
+        );
+      }
+    }
+    this.clock = nextClock;
+    this.elapsedSeconds = composeClockSeconds(nextClock);
     this.pruneExpired();
     return this.clockTick;
   }
@@ -617,6 +790,10 @@ export class InfantryDangerMap {
       maxSamplesPerSegment: this.policy.maxSamplesPerSegment,
       maxRouteSegments: this.policy.maxRouteSegments,
       clockTick: this.clockTick,
+      clockWholeSeconds: this.clock.wholeSeconds,
+      clockPicoseconds: this.clock.picoseconds,
+      clockCompensationSeconds: this.clock.compensationSeconds,
+      elapsedSeconds: this.elapsedSeconds,
       sources: [...this.sourcesByKey.values()]
         .sort(compareSourceIds)
         .map(cloneSource)
@@ -627,7 +804,7 @@ export class InfantryDangerMap {
     if (!savedState || typeof savedState !== 'object') {
       throw new TypeError('infantry danger-map restore requires a state object');
     }
-    if (savedState.version !== STATE_VERSION) {
+    if (![LEGACY_STATE_VERSION, STATE_VERSION].includes(savedState.version)) {
       throw new TypeError(
         `unsupported infantry danger-map version ${savedState.version}`
       );
@@ -644,6 +821,25 @@ export class InfantryDangerMap {
       savedState.clockTick,
       'infantry danger-map clockTick'
     );
+    let clock;
+    if (savedState.version === STATE_VERSION) {
+      clock = validateCanonicalClock(savedState);
+    } else {
+      const legacyElapsedSeconds = savedState.elapsedSeconds
+        ?? (clockTick * policy.tickDurationSeconds);
+      if (!Number.isFinite(legacyElapsedSeconds)
+          || legacyElapsedSeconds < 0) {
+        throw new TypeError(
+          'legacy infantry danger-map elapsedSeconds must be finite and non-negative'
+        );
+      }
+      clock = clockFromSeconds(legacyElapsedSeconds);
+    }
+    if (tickAtClock(clock, policy.tickDurationSeconds) !== clockTick) {
+      throw new TypeError(
+        'infantry danger-map clockTick must match canonical elapsed time'
+      );
+    }
     if (!Array.isArray(savedState.sources)
         || savedState.sources.length > policy.capacity) {
       throw new TypeError(
@@ -669,6 +865,8 @@ export class InfantryDangerMap {
 
     this.policy = policy;
     this.clockTick = clockTick;
+    this.clock = clock;
+    this.elapsedSeconds = composeClockSeconds(clock);
     this.sourcesByKey = new Map(
       [...sourcesByKey.entries()].sort(([left], [right]) =>
         compareText(left, right))
@@ -727,7 +925,7 @@ export class InfantryDangerMap {
       ? Math.max(0, Math.min(1, 1 - remainingSafety))
       : 0;
     return Object.freeze({
-      version: STATE_VERSION,
+      version: RESULT_VERSION,
       approximationLabel: INFANTRY_DANGER_MAP_APPROXIMATION,
       clockTick: this.clockTick,
       position: Object.freeze([...position]),

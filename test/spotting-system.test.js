@@ -5,7 +5,10 @@ import { SpottingSystem } from '../src/game/SpottingSystem.js';
 import { Unit } from './helpers/France1940TestUnit.js';
 import { VEHICLES } from '../src/game/VehicleCatalog.js';
 import { createVehicleComponents } from '../src/game/VehicleSystems.js';
-import { CONTACT_CHANNEL } from '../src/simulation/observation/ContactState.js';
+import {
+  CONTACT_CHANNEL,
+  NEGATIVE_OBSERVATION_APPROXIMATION
+} from '../src/simulation/observation/ContactState.js';
 import {
   OBSERVATION_EQUIPMENT,
   observerHasEquipment
@@ -31,6 +34,7 @@ function makeUnit({
   z,
   role = 'RIFLEMAN',
   status = 'OK',
+  state = undefined,
   health = 100,
   type = 'infantry_squad',
   experience = 'Regular',
@@ -47,7 +51,7 @@ function makeUnit({
     isHiding: false,
     moveSpeed: 0,
     position: new THREE.Vector3(x, 0, z),
-    roster: [{ id: 0, role, status, health, velocity: [0, 0, 0] }]
+    roster: [{ id: 0, role, status, state, health, velocity: [0, 0, 0] }]
   };
   if (vehicleRadio !== null) {
     unit.vehicleSpec = {
@@ -201,25 +205,50 @@ test('alpha-card fence collision does not become an opaque sight blocker', () =>
   assert.equal(blocked.clear, false);
 });
 
-test('KIA observers cannot acquire, relay, or retain observation state', () => {
-  const observer = makeUnit({
-    id: 'observer',
-    faction: 'blue',
-    x: 0,
-    z: 0,
-    status: 'KIA',
-    health: 0
-  });
-  const target = makeUnit({ id: 'target', faction: 'red', x: 0, z: 30 });
-  const spotting = makeSpotting();
+test('KIA and surrendered observers cannot acquire, relay, or retain observation state', () => {
+  for (const unavailable of [
+    { suffix: 'kia', status: 'KIA', state: 'CASUALTY', health: 0 },
+    {
+      suffix: 'surrendered',
+      status: 'SURRENDERED',
+      state: 'SURRENDERED',
+      health: 100
+    }
+  ]) {
+    const observer = makeUnit({
+      id: `observer-${unavailable.suffix}`,
+      faction: 'blue',
+      x: 0,
+      z: 0,
+      ...unavailable
+    });
+    const target = makeUnit({
+      id: `target-${unavailable.suffix}`,
+      faction: 'red',
+      x: 0,
+      z: 30
+    });
+    const spotting = makeSpotting();
 
-  acquire(spotting, [observer, target], 20);
+    acquire(spotting, [observer, target], 20);
 
-  assert.equal(spotting.getObservation('observer', 0, 'target'), null);
-  assert.equal(spotting.getContactForUnit(observer, target), null);
-  assert.deepEqual(spotting.getVisibilityProjection('blue', [observer, target]).visibleUnitIds, [
-    'observer'
-  ]);
+    assert.equal(
+      spotting.getObservation(observer.id, 0, target.id),
+      null
+    );
+    assert.equal(spotting.getContactForUnit(observer, target), null);
+    assert.equal(
+      spotting.captureState().relayQueue.pendingReports.length,
+      0
+    );
+    assert.deepEqual(
+      spotting.getVisibilityProjection(
+        'blue',
+        [observer, target]
+      ).visibleUnitIds,
+      [observer.id]
+    );
+  }
 });
 
 test('occupied infantry remain concealed until attacking through a fire port', () => {
@@ -2324,4 +2353,384 @@ test('30 Hz mid-delay rollback preserves the authoritative fractional clock', ()
     restored.getContactForUnit(receiver, target).updatedAt,
     Math.round((acquiredAt + 2) * 1e9) / 1e9
   );
+});
+
+test('negative observation revokes or downgrades stale contacts with clear LOS and no target leakage', () => {
+  const terrain = makeTerrain();
+  const observer = makeUnit({ id: 'observer', faction: 'blue', x: 0, z: 0 });
+  const target = makeUnit({ id: 'target', faction: 'red', x: 0, z: 40 });
+  const spotting = makeSpotting(terrain);
+
+  // 1. Acquire direct contact
+  acquire(spotting, [observer, target]);
+  const initialContact = spotting.getContactForUnit(observer, target);
+  assert.ok(initialContact);
+  assert.equal(initialContact.confidence, 1);
+
+  // 2. Block direct sight to target's NEW position, but keep sight line clear to OLD position (0, 0, 40)
+  target.position.set(50, 0, 40); // Target moves far away behind a wall
+  terrain.bocageObstacles.push({
+    minX: 45,
+    maxX: 55,
+    minZ: 35,
+    maxZ: 45,
+    height: 4,
+    type: 'wall'
+  }); // Wall blocks sight to new target position (50, 0, 40)
+
+  // Observer at (0, 0, 0) looks at old contact position (0, 0, 40).
+  // There is NO wall between (0, 0, 0) and (0, 0, 40).
+  // Negative observation runs LOS check against old contact position (0, 0, 40) and sees it CLEAR.
+  spotting.advance([observer, target], 0.1);
+  const updatedContact = spotting.getContactForUnit(observer, target);
+
+  // The stale contact at (0, 0, 40) should be revoked because observer verified (0, 0, 40) is empty!
+  assert.equal(updatedContact, null, 'Stale contact with clear sight line over uncertainty region must be revoked');
+
+  // 3. Occlusion over old position prevents negative observation revocation
+  const terrain2 = makeTerrain();
+  const observer2 = makeUnit({ id: 'observer2', faction: 'blue', x: 0, z: 0 });
+  const target2 = makeUnit({ id: 'target2', faction: 'red', x: 0, z: 40 });
+  const spotting2 = makeSpotting(terrain2);
+
+  acquire(spotting2, [observer2, target2]);
+  target2.position.set(50, 0, 40);
+  // Add wall blocking sight to OLD contact position (0, 0, 40)
+  terrain2.bocageObstacles.push({
+    minX: -5,
+    maxX: 5,
+    minZ: 15,
+    maxZ: 25,
+    height: 4,
+    type: 'wall'
+  });
+
+  spotting2.advance([observer2, target2], 0.1);
+  const staleContact2 = spotting2.getContactForUnit(observer2, target2);
+
+  // Sight to old position is blocked by wall at z=20, so negative observation DOES NOT revoke contact
+  assert.ok(staleContact2, 'Contact behind occluder must NOT be revoked by negative observation');
+  assert.ok(staleContact2.confidence > 0);
+
+  // Broken people cannot turn an observation failure into evidence that a
+  // still-occupied contact position is empty. Accepted surrender instead
+  // removes the person's observation/contact ownership entirely.
+  for (const unavailable of ['Broken', 'SURRENDERED']) {
+    const unavailableObserver = makeUnit({
+      id: `unavailable-${unavailable}`,
+      faction: 'blue',
+      x: 0,
+      z: 0
+    });
+    const stationaryTarget = makeUnit({
+      id: `stationary-${unavailable}`,
+      faction: 'red',
+      x: 0,
+      z: 40
+    });
+    const unavailableSpotting = makeSpotting();
+    acquire(unavailableSpotting, [unavailableObserver, stationaryTarget]);
+    if (unavailable === 'Broken') {
+      unavailableObserver.morale = 'Broken';
+    } else {
+      unavailableObserver.roster[0].status = 'SURRENDERED';
+      unavailableObserver.roster[0].state = 'SURRENDERED';
+    }
+    unavailableSpotting.advance(
+      [stationaryTarget, unavailableObserver],
+      0.1
+    );
+    const unavailableContact = unavailableSpotting.getContactForUnit(
+      unavailableObserver,
+      stationaryTarget
+    );
+    if (unavailable === 'Broken') {
+      assert.ok(
+        unavailableContact,
+        'Broken observer must not revoke a stationary contact'
+      );
+    } else {
+      assert.equal(
+        unavailableContact,
+        null,
+        'Surrendered observer must retain no observation contact'
+      );
+    }
+  }
+
+  // SOUND and relayed channels decay by their own policy. Clear sight over a
+  // reported position must not convert them into direct negative evidence.
+  for (const channel of [
+    CONTACT_CHANNEL.SOUND,
+    CONTACT_CHANNEL.VOICE,
+    CONTACT_CHANNEL.RADIO
+  ]) {
+    const channelTerrain = makeTerrain();
+    const channelObserver = makeUnit({
+      id: `channel-observer-${channel}`,
+      faction: 'blue',
+      x: 0,
+      z: 0
+    });
+    const channelTarget = makeUnit({
+      id: `channel-target-${channel}`,
+      faction: 'red',
+      x: 0,
+      z: 40
+    });
+    const directSpotting = makeSpotting(channelTerrain);
+    acquire(directSpotting, [channelObserver, channelTarget]);
+    const channelState = directSpotting.captureState();
+    const savedContact = channelState.contacts.find(saved =>
+      saved.unitId === channelObserver.id
+      && saved.contact.targetUnitId === channelTarget.id
+    );
+    savedContact.contact.channel = channel;
+    const savedIdentification = savedContact.contact.identificationProgress;
+    const savedUncertainty = savedContact.contact.uncertaintyM;
+    const channelSpotting = makeSpotting(channelTerrain);
+    channelSpotting.restoreState(channelState);
+    channelTarget.position.set(50, 0, 40);
+    channelTerrain.bocageObstacles.push({
+      minX: 45,
+      maxX: 55,
+      minZ: 35,
+      maxZ: 45,
+      height: 4,
+      type: 'wall'
+    });
+    channelSpotting.advance([channelTarget, channelObserver], 0.1);
+    const retained = channelSpotting.getContactForUnit(
+      channelObserver,
+      channelTarget
+    );
+    assert.ok(retained, `${channel} contact must not be negatively revoked`);
+    assert.equal(retained.channel, channel);
+    assert.equal(retained.revokedByNegativeObservation, undefined);
+    assert.equal(retained.downgradedByNegativeObservation, undefined);
+    assert.ok(retained.identificationProgress <= savedIdentification);
+    assert.ok(retained.uncertaintyM >= savedUncertainty);
+  }
+
+  // A pair skipped by the canonical cold-attention cadence has no evidence
+  // for the old area, even though an unrestricted LOS query would be clear.
+  const deferredTerrain = makeTerrain();
+  const deferredObserver = makeUnit({
+    id: 'observer',
+    faction: 'blue',
+    x: 0,
+    z: 0
+  });
+  const deferredTarget = makeUnit({
+    id: 'target',
+    faction: 'red',
+    x: 0,
+    z: 100
+  });
+  const deferredSource = makeSpotting(deferredTerrain);
+  acquire(deferredSource, [deferredObserver, deferredTarget]);
+  const deferredState = deferredSource.captureState();
+  for (const observation of deferredState.observations) {
+    if (observation.observerUnitId !== deferredObserver.id
+        || observation.targetUnitId !== deferredTarget.id) continue;
+    observation.acquisition = 0;
+    observation.acquisitionWorkTicks = 0;
+    observation.acquisitionWorkRemainder = 0;
+    observation.acquisitionRequiredNanoseconds = null;
+    observation.visibleNow = false;
+    observation.visibilityGraceRemainingNanoseconds = 0;
+    observation.directEpisodeActive = false;
+  }
+  for (const episode of deferredState.directObservationEpisodes) {
+    if (episode.senderUnitId === deferredObserver.id
+        && episode.targetUnitId === deferredTarget.id) {
+      episode.active = false;
+    }
+  }
+  const deferredSpotting = makeSpotting(deferredTerrain);
+  deferredSpotting.restoreState(deferredState);
+  deferredTarget.position.set(50, 0, 100);
+  deferredTerrain.bocageObstacles.push({
+    minX: 45,
+    maxX: 55,
+    minZ: 95,
+    maxZ: 105,
+    height: 4,
+    type: 'wall'
+  });
+  const deferredBefore = deferredSpotting.getAttentionDiagnostics();
+  deferredSpotting.advance([deferredTarget, deferredObserver], 0.1);
+  const deferredAfter = deferredSpotting.getAttentionDiagnostics();
+  assert.ok(
+    deferredAfter.deferredCandidates > deferredBefore.deferredCandidates,
+    'fixture must exercise a deferred attention pair'
+  );
+  assert.ok(
+    deferredSpotting.getContactForUnit(deferredObserver, deferredTarget),
+    'deferred attention must not become negative observation evidence'
+  );
+
+  // Empty-area verification uses the ordinary range policy with conservative
+  // hidden/prone target assumptions instead of a global negative-LOS range.
+  const rangeTerrain = makeTerrain();
+  const rangeObserver = makeUnit({
+    id: 'range-observer',
+    faction: 'blue',
+    x: 0,
+    z: 0
+  });
+  const rangeTarget = makeUnit({
+    id: 'range-target',
+    faction: 'red',
+    x: 0,
+    z: 100
+  });
+  const rangeSpotting = makeSpotting(rangeTerrain);
+  acquire(rangeSpotting, [rangeObserver, rangeTarget]);
+  rangeTarget.position.set(50, 0, 100);
+  rangeTerrain.bocageObstacles.push({
+    minX: 45,
+    maxX: 55,
+    minZ: 95,
+    maxZ: 105,
+    height: 4,
+    type: 'wall'
+  });
+  rangeSpotting.advance([rangeTarget, rangeObserver], 0.1);
+  assert.ok(
+    rangeSpotting.getContactForUnit(rangeObserver, rangeTarget),
+    'area beyond conservative hidden/prone range must not be cleared'
+  );
+
+  // A narrow capability looking away from the old position cannot verify it.
+  const fovTerrain = makeTerrain();
+  const fovObserver = makeUnit({
+    id: 'fov-observer',
+    faction: 'blue',
+    x: 0,
+    z: 0,
+    role: 'COMMANDER'
+  });
+  fovObserver.rotation = 0;
+  fovObserver.position.y = 1.5;
+  fovObserver.vehicleSpec = {
+    observationEquipment: {
+      stations: [{
+        id: 'narrow-sight',
+        kind: 'OPTIC',
+        roles: ['COMMANDER'],
+        rangeMultiplier: 1,
+        acquisitionTimeMultiplier: 1,
+        horizontalFovDegrees: 30,
+        facingFrame: 'hull',
+        directionOffsetRadians: 0,
+        dataQuality: 'test narrow optic'
+      }]
+    }
+  };
+  const fovTarget = makeUnit({
+    id: 'fov-target',
+    faction: 'red',
+    x: 0,
+    z: 40
+  });
+  const fovSpotting = makeSpotting(fovTerrain);
+  acquire(fovSpotting, [fovObserver, fovTarget]);
+  fovObserver.rotation = Math.PI;
+  fovTarget.position.set(50, 0, 40);
+  fovTerrain.bocageObstacles.push({
+    minX: 45,
+    maxX: 55,
+    minZ: 35,
+    maxZ: 45,
+    height: 4,
+    type: 'wall'
+  });
+  fovSpotting.advance([fovObserver, fovTarget], 0.1);
+  assert.ok(
+    fovSpotting.getContactForUnit(fovObserver, fovTarget),
+    'out-of-FOV old position must not be negative evidence'
+  );
+  fovObserver.rotation = 0;
+  fovObserver.roster[0].role = 'DRIVER';
+  fovSpotting.advance([fovTarget, fovObserver], 0.1);
+  assert.ok(
+    fovSpotting.getContactForUnit(fovObserver, fovTarget),
+    'observer without a matching capability must not supply negative evidence'
+  );
+
+  // Bounded samples may conservatively downgrade an uncertain region, but
+  // cannot claim complete continuous coverage or revoke it.
+  const uncertainTerrain = makeTerrain();
+  const uncertainObserver = makeUnit({
+    id: 'uncertain-observer',
+    faction: 'blue',
+    x: 0,
+    z: 0
+  });
+  uncertainObserver.roster.push({
+    ...uncertainObserver.roster[0],
+    id: 'wingman'
+  });
+  const uncertainTarget = makeUnit({
+    id: 'uncertain-target',
+    faction: 'red',
+    x: 0,
+    z: 40
+  });
+  const uncertainSource = makeSpotting(uncertainTerrain);
+  acquire(uncertainSource, [uncertainObserver, uncertainTarget]);
+  const uncertainState = uncertainSource.captureState();
+  const uncertainSavedContact = uncertainState.contacts.find(saved =>
+    saved.unitId === uncertainObserver.id
+    && saved.contact.targetUnitId === uncertainTarget.id
+  ).contact;
+  uncertainSavedContact.uncertaintyM = 8;
+  uncertainSavedContact.baseUncertaintyM = 8;
+  uncertainTarget.position.set(50, 0, 40);
+  uncertainTerrain.bocageObstacles.push({
+    minX: 45,
+    maxX: 55,
+    minZ: 35,
+    maxZ: 45,
+    height: 4,
+    type: 'wall'
+  });
+  const wholeUncertain = makeSpotting(uncertainTerrain);
+  wholeUncertain.restoreState(uncertainState);
+  const partitionedUncertain = makeSpotting(uncertainTerrain);
+  partitionedUncertain.restoreState(uncertainState);
+  assert.deepEqual(
+    partitionedUncertain.captureState(),
+    uncertainState,
+    'negative-observation input must restore deeply before continuation'
+  );
+  wholeUncertain.advance([uncertainObserver, uncertainTarget], 0.1);
+  uncertainObserver.roster.reverse();
+  partitionedUncertain.advance([uncertainTarget, uncertainObserver], 0.04);
+  partitionedUncertain.advance([uncertainObserver, uncertainTarget], 0.06);
+  assert.deepEqual(
+    partitionedUncertain.captureState(),
+    wholeUncertain.captureState(),
+    'negative observation must ignore unit/observer order and frame partition'
+  );
+  const uncertainContact = wholeUncertain.getContactForUnit(
+    uncertainObserver,
+    uncertainTarget
+  );
+  assert.ok(uncertainContact);
+  assert.equal(uncertainContact.revokedByNegativeObservation, undefined);
+  assert.equal(uncertainContact.downgradedByNegativeObservation, true);
+  assert.equal(
+    uncertainContact.negativeObservationApproximation,
+    NEGATIVE_OBSERVATION_APPROXIMATION
+  );
+  assert.ok(uncertainContact.confidence > 0);
+  assert.ok(uncertainContact.confidence < 1);
+
+  // 4. Parity and Deep Copy verification
+  const stateSnapshot = spotting2.captureState();
+  const restoredSpotting = makeSpotting(terrain2);
+  restoredSpotting.restoreState(stateSnapshot);
+  assert.deepEqual(restoredSpotting.captureState(), stateSnapshot);
 });
