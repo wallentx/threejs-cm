@@ -538,6 +538,30 @@ test('multi-selection applies face orders to every unit and closes the tool', ()
   assert.equal(commands.activeUnit, first);
 });
 
+test('face orders let the building interaction own occupied soldier direction', () => {
+  const unit = createUnit();
+  unit.rotation = 0;
+  unit.mesh = { rotation: { y: 0 } };
+  let request = null;
+  const commands = new CommandSystem(new THREE.Scene(), {
+    buildingInteraction: {
+      issueFace(selected, point) {
+        request = [selected, point.clone()];
+        return { handled: true, accepted: true };
+      }
+    }
+  });
+  commands.setActiveUnit(unit);
+  commands.setCommandMode('FACE');
+  const point = new THREE.Vector3(12, 3, 20);
+
+  assert.equal(commands.handleMapClick(point), true);
+  assert.equal(request[0], unit);
+  assert.deepEqual(request[1].toArray(), point.toArray());
+  assert.equal(unit.rotation, 0, 'building-owned face must not rotate the squad root');
+  assert.equal(commands.activeMode, null);
+});
+
 test('completed queues start from the live position and unsupported movers retain direct waypoints', () => {
   const calls = [];
   const completed = createUnit({

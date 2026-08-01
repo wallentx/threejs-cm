@@ -36,6 +36,10 @@ export function createUIRuntimePort({
   getBocageObstacles,
   getImpacts,
   getBuildingFloorIds,
+  getDebugDiagnostics,
+  getDebugOverlayState,
+  getHoveredUnitId,
+  setDebugOverlayEnabled,
   selectUnit,
   inspectUnit,
   deselectUnit,
@@ -68,6 +72,10 @@ export function createUIRuntimePort({
     getBocageObstacles,
     getImpacts,
     getBuildingFloorIds,
+    getDebugDiagnostics,
+    getDebugOverlayState,
+    getHoveredUnitId,
+    setDebugOverlayEnabled,
     selectUnit,
     inspectUnit,
     deselectUnit,
@@ -117,6 +125,27 @@ export function createUIRuntimePort({
     getVisibilityProjection,
     getBocageObstacles,
     getImpacts,
+    getDebugDiagnostics() {
+      const diagnostics = getDebugDiagnostics();
+      return diagnostics && typeof diagnostics === 'object'
+        ? {
+            frame: { ...(diagnostics.frame ?? {}) },
+            renderer: { ...(diagnostics.renderer ?? {}) },
+            overlays: { ...(diagnostics.overlays ?? {}) },
+            lod: { ...(diagnostics.lod ?? {}) }
+          }
+        : null;
+    },
+    getDebugOverlayState() {
+      return { ...getDebugOverlayState() };
+    },
+    get hoveredUnitId() {
+      const unitId = getHoveredUnitId();
+      return unitId == null ? null : String(unitId);
+    },
+    setDebugOverlayEnabled(name, enabled) {
+      return setDebugOverlayEnabled(String(name), Boolean(enabled));
+    },
     getBuildingFloorIds(buildingId) {
       const floorIds = getBuildingFloorIds(buildingId);
       return Array.isArray(floorIds)
@@ -249,6 +278,10 @@ export function createMapEditorPort({ terrain, scene, notify }) {
   requireRecord(terrain, 'Map editor terrain dependency');
   requireRecord(scene, 'Map editor scene dependency');
   requireFunction(terrain.getHeightAt, 'Map editor terrain.getHeightAt');
+  requireFunction(
+    terrain.addBocageObstacle,
+    'Map editor terrain.addBocageObstacle'
+  );
   requireFunction(scene.add, 'Map editor scene.add');
   requireFunction(notify, 'Map editor notify');
   if (!Array.isArray(terrain.bocageObstacles)) {
@@ -260,7 +293,7 @@ export function createMapEditorPort({ terrain, scene, notify }) {
       return terrain.getHeightAt(x, z);
     },
     addBocageObstacle(record) {
-      terrain.bocageObstacles.push(record);
+      return terrain.addBocageObstacle(record);
     },
     addSceneObject(object) {
       scene.add(object);

@@ -8,6 +8,9 @@ import {
   createFrance1940InfantryLodGeometry,
   createInfantryLodMesh
 } from './France1940InfantryLodGeometry.js';
+import {
+  createFrance1940InfantryProxyInstances
+} from './France1940InfantryProxyInstances.js';
 
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
@@ -444,6 +447,12 @@ function createBrandtMle1935MortarEquipment(metalMaterial, webbingMaterial) {
     muzzle,
     coreSilhouette: [baseplate, tube],
     proxySilhouette: [proxyBase, proxyTube],
+    selectionFootprint: {
+      id: 'brandt-mle1935-60mm-mortar',
+      shape: 'circle',
+      radiusMeters: 0.48,
+      dataQuality: 'renderer footprint approximation'
+    },
     visualContract: {
       units: 'metres',
       identity: 'Brandt Mle 1935 60 mm mortar',
@@ -572,8 +581,41 @@ export class France1940UnitMeshFactory {
       germanPouch: new THREE.BoxGeometry(0.24, 0.18, 0.10),
       pack: new THREE.BoxGeometry(0.44, 0.44, 0.18),
       belt: new THREE.BoxGeometry(0.56, 0.1, 0.34),
+      kneeJoint: new THREE.SphereGeometry(0.102, 10, 8),
+      shoulderCap: new THREE.SphereGeometry(0.098, 12, 10),
+      elbowJoint: new THREE.SphereGeometry(0.088, 10, 8),
+      cuff: new THREE.CylinderGeometry(0.082, 0.088, 0.08, 8),
+      hair: new THREE.CylinderGeometry(0.162, 0.165, 0.10, 10),
+      frenchHelmetEmblem: new THREE.BoxGeometry(0.045, 0.045, 0.025),
+      frenchCoatTail: new THREE.BoxGeometry(0.12, 0.32, 0.22),
+      germanHelmetSkirt: new THREE.CylinderGeometry(0.25, 0.31, 0.09, 10),
+      germanHelmetVent: new THREE.CylinderGeometry(0.015, 0.015, 0.04, 6),
+      germanTunicPocket: new THREE.BoxGeometry(0.13, 0.14, 0.05),
+      epaulette: new THREE.BoxGeometry(0.12, 0.03, 0.16),
+      harness: new THREE.BoxGeometry(0.06, 0.54, 0.02),
+      harnessRing: new THREE.TorusGeometry(0.022, 0.005, 5, 8),
+      buckle: new THREE.BoxGeometry(0.08, 0.08, 0.04),
+      germanGasMaskCanister: new THREE.CylinderGeometry(0.08, 0.08, 0.38, 12),
+      frenchGasMaskBag: new THREE.BoxGeometry(0.22, 0.24, 0.12),
+      canteen: new THREE.CylinderGeometry(0.075, 0.075, 0.20, 10),
+      messTin: new THREE.CylinderGeometry(0.10, 0.10, 0.14, 10),
+      blanketRoll: new THREE.CylinderGeometry(0.07, 0.07, 0.52, 10),
+      bayonetSheath: new THREE.CylinderGeometry(0.02, 0.015, 0.38, 6),
+      blanketRollStrap: new THREE.TorusGeometry(0.074, 0.008, 5, 8),
+      germanJackboot: new THREE.CylinderGeometry(0.10, 0.088, 0.38, 8),
+      proxyBody: new THREE.CylinderGeometry(0.22, 0.28, 1.25, 5),
+      proxyHead: new THREE.SphereGeometry(0.2, 6, 4),
+      frenchProxyBrim: new THREE.CylinderGeometry(0.23, 0.23, 0.025, 8),
+      frenchProxyCrest: new THREE.BoxGeometry(0.04, 0.07, 0.3),
+      germanProxySkirt: new THREE.CylinderGeometry(0.23, 0.27, 0.08, 6),
+      proxyWeapon: new THREE.CylinderGeometry(0.03, 0.03, 0.8, 4),
       lod: createFrance1940InfantryLodGeometry(isFrench)
     };
+    geometry.shoulderCap.scale(1.04, 1.04, 0.95);
+    geometry.germanHelmetVent.rotateZ(Math.PI / 2);
+    geometry.canteen.scale(1.0, 1.0, 0.65);
+    geometry.messTin.scale(1.2, 1.0, 0.7);
+    geometry.blanketRoll.rotateZ(Math.PI / 2);
 
     const createPivotedLimb = (material, length, radiusScale = 1) => {
       const pivot = new THREE.Group();
@@ -585,7 +627,7 @@ export class France1940UnitMeshFactory {
       pivot.add(limb);
 
       // Smooth spherical knee joint
-      const kneeJoint = new THREE.Mesh(new THREE.SphereGeometry(0.102, 10, 8), material);
+      const kneeJoint = new THREE.Mesh(geometry.kneeJoint, material);
       kneeJoint.name = 'KneeJoint';
       kneeJoint.position.set(0, -length * 0.5, 0);
       kneeJoint.castShadow = true;
@@ -628,9 +670,7 @@ export class France1940UnitMeshFactory {
       const shoulder = new THREE.Group();
 
       // Smooth Deltoid Shoulder Cap (Blends upper torso into upper arm seamlessly)
-      const deltoidGeo = new THREE.SphereGeometry(0.098, 12, 10);
-      deltoidGeo.scale(1.04, 1.04, 0.95);
-      const shoulderCap = new THREE.Mesh(deltoidGeo, material);
+      const shoulderCap = new THREE.Mesh(geometry.shoulderCap, material);
       shoulderCap.name = 'ShoulderCap';
       shoulderCap.position.set(0, -0.02, 0);
       shoulderCap.castShadow = true;
@@ -653,7 +693,7 @@ export class France1940UnitMeshFactory {
       shoulder.add(elbow);
 
       // Smooth spherical elbow joint connecting upper arm and forearm seamlessly
-      const elbowJoint = new THREE.Mesh(new THREE.SphereGeometry(0.088, 10, 8), material);
+      const elbowJoint = new THREE.Mesh(geometry.elbowJoint, material);
       elbowJoint.name = 'ElbowJoint';
       elbowJoint.position.set(0, 0, 0);
       elbowJoint.castShadow = true;
@@ -714,7 +754,7 @@ export class France1940UnitMeshFactory {
       }
 
       // Sleeve Cuff
-      const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.082, 0.088, 0.08, 8), material);
+      const cuff = new THREE.Mesh(geometry.cuff, material);
       cuff.position.y = -lowerLength + 0.04;
       elbow.add(cuff);
 
@@ -849,8 +889,7 @@ export class France1940UnitMeshFactory {
       }
 
       // Hair Cap under Helmet
-      const hairGeo = new THREE.CylinderGeometry(0.162, 0.165, 0.10, 10);
-      const hair = new THREE.Mesh(hairGeo, hairMat);
+      const hair = new THREE.Mesh(geometry.hair, hairMat);
       hair.position.set(0, 0.04, -0.02);
       hair.userData.lodBand = 'high';
       headGroup.add(hair);
@@ -901,8 +940,7 @@ export class France1940UnitMeshFactory {
         headgear.push(crest);
 
         // Front Infantry Emblem Badge
-        const emblemGeo = new THREE.BoxGeometry(0.045, 0.045, 0.025);
-        const emblem = new THREE.Mesh(emblemGeo, helmetMat);
+        const emblem = new THREE.Mesh(geometry.frenchHelmetEmblem, helmetMat);
         emblem.name = 'FrenchM1926_HelmetEmblem';
         emblem.position.set(0, 1.96, 0.245);
         emblem.rotation.x = -0.25;
@@ -910,8 +948,7 @@ export class France1940UnitMeshFactory {
         soldierGroup.add(emblem);
 
         // French M1935 Capote (Greatcoat) folded coat tails (pans de capote)
-        const tailGeo = new THREE.BoxGeometry(0.12, 0.32, 0.22);
-        const leftTail = new THREE.Mesh(tailGeo, uniformMat);
+        const leftTail = new THREE.Mesh(geometry.frenchCoatTail, uniformMat);
         leftTail.position.set(-0.24, 0.85, 0.02);
         leftTail.rotation.z = -0.15;
         leftTail.castShadow = true;
@@ -947,7 +984,7 @@ export class France1940UnitMeshFactory {
         soldierGroup.add(helmet);
         headgear = [helmet];
 
-        const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.31, 0.09, 10), helmetMat);
+        const skirt = new THREE.Mesh(geometry.germanHelmetSkirt, helmetMat);
         skirt.name = 'GermanM35_HelmetSkirt';
         skirt.scale.z = 1.12;
         skirt.position.set(0, 1.87, 0);
@@ -959,9 +996,7 @@ export class France1940UnitMeshFactory {
         headgear.push(skirt);
 
         // German Helmet Lugs / Vents
-        const ventGeo = new THREE.CylinderGeometry(0.015, 0.015, 0.04, 6);
-        ventGeo.rotateZ(Math.PI / 2);
-        const leftVent = new THREE.Mesh(ventGeo, helmetMat);
+        const leftVent = new THREE.Mesh(geometry.germanHelmetVent, helmetMat);
         leftVent.position.set(-0.25, 1.93, 0.04);
         leftVent.userData.lodBand = 'high';
         soldierGroup.add(leftVent);
@@ -971,8 +1006,7 @@ export class France1940UnitMeshFactory {
         soldierGroup.add(rightVent);
 
         // German Tunic Cargo Pockets
-        const pocketGeo = new THREE.BoxGeometry(0.13, 0.14, 0.05);
-        const pTopLeft = new THREE.Mesh(pocketGeo, uniformMat);
+        const pTopLeft = new THREE.Mesh(geometry.germanTunicPocket, uniformMat);
         pTopLeft.position.set(-0.14, 1.35, 0.16);
         pTopLeft.userData.lodBand = 'high';
         soldierGroup.add(pTopLeft);
@@ -981,7 +1015,7 @@ export class France1940UnitMeshFactory {
         pTopRight.userData.lodBand = 'high';
         soldierGroup.add(pTopRight);
 
-        const pBotLeft = new THREE.Mesh(pocketGeo, uniformMat);
+        const pBotLeft = new THREE.Mesh(geometry.germanTunicPocket, uniformMat);
         pBotLeft.position.set(-0.14, 1.08, 0.16);
         pBotLeft.userData.lodBand = 'high';
         soldierGroup.add(pBotLeft);
@@ -1001,8 +1035,7 @@ export class France1940UnitMeshFactory {
       }
 
       // Epaulettes / Shoulder Straps
-      const epauletteGeo = new THREE.BoxGeometry(0.12, 0.03, 0.16);
-      const leftEpaulette = new THREE.Mesh(epauletteGeo, isFrench ? uniformMat : germanCollarMat);
+      const leftEpaulette = new THREE.Mesh(geometry.epaulette, isFrench ? uniformMat : germanCollarMat);
       leftEpaulette.position.set(-0.22, 1.55, 0);
       leftEpaulette.rotation.z = 0.1;
       soldierGroup.add(leftEpaulette);
@@ -1012,8 +1045,7 @@ export class France1940UnitMeshFactory {
       soldierGroup.add(rightEpaulette);
 
       // Leather Y-Straps / Harness
-      const harnessGeo = new THREE.BoxGeometry(0.06, 0.54, 0.02);
-      const leftHarness = new THREE.Mesh(harnessGeo, isFrench ? leatherMat : blackLeatherMat);
+      const leftHarness = new THREE.Mesh(geometry.harness, isFrench ? leatherMat : blackLeatherMat);
       leftHarness.position.set(-0.12, 1.25, 0.02);
       leftHarness.rotation.z = -0.12;
       soldierGroup.add(leftHarness);
@@ -1024,8 +1056,7 @@ export class France1940UnitMeshFactory {
       soldierGroup.add(rightHarness);
 
       // Y-Strap Metal D-Rings on Chest
-      const dRingGeo = new THREE.TorusGeometry(0.022, 0.005, 5, 8);
-      const leftDRing = new THREE.Mesh(dRingGeo, buckleMat);
+      const leftDRing = new THREE.Mesh(geometry.harnessRing, buckleMat);
       leftDRing.position.set(-0.12, 1.38, 0.14);
       leftDRing.userData.lodBand = 'high';
       soldierGroup.add(leftDRing);
@@ -1034,7 +1065,7 @@ export class France1940UnitMeshFactory {
       rightDRing.userData.lodBand = 'high';
       soldierGroup.add(rightDRing);
 
-      const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.04), buckleMat);
+      const buckle = new THREE.Mesh(geometry.buckle, buckleMat);
       buckle.position.set(0, 1.0, 0.20);
       buckle.userData.lodBand = 'high';
       soldierGroup.add(buckle);
@@ -1042,8 +1073,7 @@ export class France1940UnitMeshFactory {
       // Faction Field Equipment
       if (!isFrench) {
         // German Gas Mask Canister (Gasmaskenbüchse M30/M38)
-        const canGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.38, 12);
-        const canister = new THREE.Mesh(canGeo, metalGearMat);
+        const canister = new THREE.Mesh(geometry.germanGasMaskCanister, metalGearMat);
         canister.name = 'GermanGasMaskCanister';
         canister.position.set(-0.18, 1.08, -0.22);
         canister.rotation.set(0.3, 0, -0.45);
@@ -1052,8 +1082,7 @@ export class France1940UnitMeshFactory {
         soldierGroup.add(canister);
       } else {
         // French ANP 31 Gas Mask Bag
-        const gasBagGeo = new THREE.BoxGeometry(0.22, 0.24, 0.12);
-        const gasBag = new THREE.Mesh(gasBagGeo, webbingMat);
+        const gasBag = new THREE.Mesh(geometry.frenchGasMaskBag, webbingMat);
         gasBag.name = 'FrenchANP31_GasMaskBag';
         gasBag.position.set(0.24, 0.96, 0.06);
         gasBag.rotation.z = -0.15;
@@ -1063,9 +1092,7 @@ export class France1940UnitMeshFactory {
       }
 
       // Canteen (French Bidon / German Feldflasche)
-      const canteenGeo = new THREE.CylinderGeometry(0.075, 0.075, 0.20, 10);
-      canteenGeo.scale(1.0, 1.0, 0.65);
-      const canteen = new THREE.Mesh(canteenGeo, canteenCoverMat);
+      const canteen = new THREE.Mesh(geometry.canteen, canteenCoverMat);
       canteen.name = isFrench ? 'FrenchBidon2L' : 'GermanFeldflasche';
       canteen.position.set(isFrench ? -0.25 : 0.22, 0.98, -0.12);
       canteen.castShadow = true;
@@ -1073,17 +1100,13 @@ export class France1940UnitMeshFactory {
       soldierGroup.add(canteen);
 
       // Mess Tin & Rolled Blanket on Pack
-      const messTinGeo = new THREE.CylinderGeometry(0.10, 0.10, 0.14, 10);
-      messTinGeo.scale(1.2, 1.0, 0.7);
-      const messTin = new THREE.Mesh(messTinGeo, metalGearMat);
+      const messTin = new THREE.Mesh(geometry.messTin, metalGearMat);
       messTin.name = 'MessTin';
       messTin.position.set(0, 1.28, -0.37);
       messTin.userData.lodBand = 'high';
       soldierGroup.add(messTin);
 
-      const rollGeo = new THREE.CylinderGeometry(0.07, 0.07, 0.52, 10);
-      rollGeo.rotateZ(Math.PI / 2);
-      const blanketRoll = new THREE.Mesh(rollGeo, blanketRollMat);
+      const blanketRoll = new THREE.Mesh(geometry.blanketRoll, blanketRollMat);
       blanketRoll.name = 'BlanketRoll';
       blanketRoll.position.set(0, 1.54, -0.27);
       blanketRoll.castShadow = true;
@@ -1091,17 +1114,15 @@ export class France1940UnitMeshFactory {
       soldierGroup.add(blanketRoll);
 
       // Bayonet Scabbard
-      const sheathGeo = new THREE.CylinderGeometry(0.02, 0.015, 0.38, 6);
-      const sheath = new THREE.Mesh(sheathGeo, metalGearMat);
+      const sheath = new THREE.Mesh(geometry.bayonetSheath, metalGearMat);
       sheath.position.set(-0.27, 0.88, -0.04);
       sheath.rotation.z = 0.2;
       sheath.userData.lodBand = 'high';
       soldierGroup.add(sheath);
 
       // Blanket Roll Leather Securing Straps
-      const rollStrapGeo = new THREE.TorusGeometry(0.074, 0.008, 5, 8);
       for (const strapX of [-0.16, 0.16]) {
-        const rStrap = new THREE.Mesh(rollStrapGeo, leatherMat);
+        const rStrap = new THREE.Mesh(geometry.blanketRollStrap, leatherMat);
         rStrap.position.set(strapX, 0, 0);
         rStrap.rotation.y = Math.PI / 2;
         blanketRoll.add(rStrap);
@@ -1121,7 +1142,7 @@ export class France1940UnitMeshFactory {
         leftBoot.position.set(0, -0.73, 0.06);
         leftHip.add(leftBoot);
       } else {
-        const leftJackboot = new THREE.Mesh(new THREE.CylinderGeometry(0.10, 0.088, 0.38, 8), blackLeatherMat);
+        const leftJackboot = new THREE.Mesh(geometry.germanJackboot, blackLeatherMat);
         leftJackboot.position.set(0, -0.40, 0);
         leftHip.add(leftJackboot);
 
@@ -1150,7 +1171,7 @@ export class France1940UnitMeshFactory {
         rightBoot.position.set(0, -0.73, 0.06);
         rightHip.add(rightBoot);
       } else {
-        const rightJackboot = new THREE.Mesh(new THREE.CylinderGeometry(0.10, 0.088, 0.38, 8), blackLeatherMat);
+        const rightJackboot = new THREE.Mesh(geometry.germanJackboot, blackLeatherMat);
         rightJackboot.position.set(0, -0.40, 0);
         rightHip.add(rightJackboot);
 
@@ -1288,48 +1309,54 @@ export class France1940UnitMeshFactory {
       lowProxy.name = 'LowDetailProxy';
 
       const proxyBody = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.22, 0.28, 1.25, 5),
+        geometry.proxyBody,
         proxyUniformMat
       );
       proxyBody.position.y = 0.82;
       proxyBody.userData.lodBand = 'proxy';
+      proxyBody.userData.proxyComponentKey = 'body';
 
-      const proxyHead = new THREE.Mesh(new THREE.SphereGeometry(0.2, 6, 4), helmetMat);
+      const proxyHead = new THREE.Mesh(geometry.proxyHead, helmetMat);
       proxyHead.name = isFrench ? 'FrenchProxyHelmetDome' : 'GermanProxyHelmetDome';
       proxyHead.position.y = 1.55;
       proxyHead.userData.lodBand = 'proxy';
+      proxyHead.userData.proxyComponentKey = 'head';
       proxyHead.userData.surfaceRole = 'helmet-proxy';
 
       if (isFrench) {
         const proxyBrim = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.23, 0.23, 0.025, 8),
+          geometry.frenchProxyBrim,
           helmetMat
         );
         proxyBrim.name = 'FrenchProxyHelmetBrim';
         proxyBrim.scale.z = 1.15;
         proxyBrim.position.set(0, 1.53, 0);
         proxyBrim.userData.lodBand = 'proxy';
+        proxyBrim.userData.proxyComponentKey = 'helmet-brim';
         proxyBrim.userData.surfaceRole = 'helmet-proxy';
         lowProxy.add(proxyBrim);
-        const proxyCrest = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.07, 0.3), helmetMat);
+        const proxyCrest = new THREE.Mesh(geometry.frenchProxyCrest, helmetMat);
         proxyCrest.name = 'FrenchProxyHelmetCrest';
         proxyCrest.position.set(0, 1.76, 0);
         proxyCrest.userData.lodBand = 'proxy';
+        proxyCrest.userData.proxyComponentKey = 'helmet-crest';
         proxyCrest.userData.surfaceRole = 'helmet-proxy';
         lowProxy.add(proxyCrest);
       } else {
-        const proxySkirt = new THREE.Mesh(new THREE.CylinderGeometry(0.23, 0.27, 0.08, 6), helmetMat);
+        const proxySkirt = new THREE.Mesh(geometry.germanProxySkirt, helmetMat);
         proxySkirt.name = 'GermanProxyHelmetSkirt';
         proxySkirt.position.set(0, 1.52, 0);
         proxySkirt.userData.lodBand = 'proxy';
+        proxySkirt.userData.proxyComponentKey = 'helmet-skirt';
         proxySkirt.userData.surfaceRole = 'helmet-proxy';
         lowProxy.add(proxySkirt);
       }
 
-      const proxyWeapon = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.8, 4), weaponMat);
+      const proxyWeapon = new THREE.Mesh(geometry.proxyWeapon, weaponMat);
       proxyWeapon.rotation.x = Math.PI / 2;
       proxyWeapon.position.set(0.15, 1.2, 0.25);
       proxyWeapon.userData.lodBand = 'proxy';
+      proxyWeapon.userData.proxyComponentKey = 'weapon';
       lowProxy.add(proxyWeapon);
 
       lowProxy.add(proxyBody, proxyHead);
@@ -1340,7 +1367,6 @@ export class France1940UnitMeshFactory {
 
       soldierGroup.traverse(object => {
         if (object.isMesh) {
-          object.material = object.material.clone();
           if (!object.userData.lodBand) {
             object.userData.lodBand = 'high';
           }
@@ -1421,14 +1447,24 @@ export class France1940UnitMeshFactory {
       squadGroup.userData.mortarEquipment = mortarEquipment;
       squadGroup.userData.mortarMuzzle =
         mortarEquipment.userData.muzzle;
+      squadGroup.userData.selectionEquipment = [mortarEquipment];
     }
 
     squadGroup.userData.soldiers = squadGroup.children.filter(c => c.name.startsWith('Soldier_'));
+    squadGroup.userData.infantryProxyInstances =
+      createFrance1940InfantryProxyInstances(
+        squadGroup,
+        squadGroup.userData.soldiers
+      );
 
     squadGroup.userData.updateLOD = (_cameraPosition, targetLOD = 'high') => {
       const band = targetLOD === 'low' ? 'proxy' : targetLOD;
       squadGroup.traverse(object => {
         if (!object.isMesh || !object.userData.lodBand) return;
+        if (object.userData.proxyInstanceSource === true) {
+          object.visible = false;
+          return;
+        }
         const role = object.userData.lodBand;
         if (role === 'ui') return;
         const replacementTier = object.userData.infantryLodTier;

@@ -19,6 +19,9 @@ import {
 import {
   HOTCHKISS_H39_VISUAL_DATA
 } from '../src/content/france1940/vehicleData/HotchkissH39VisualData.js';
+import {
+  CHAR_B1_BIS_VISUAL_DATA
+} from '../src/content/france1940/vehicleData/CharB1BisVisualData.js';
 
 const contractChecks = DEFAULT_VEHICLE_VISUAL_CHECKS.filter(check => (
   ['identity', 'assets', 'mesh-contract'].includes(check.id)
@@ -81,6 +84,54 @@ test('H39 bundle injects the exact family-owned visual data without source-mecha
     'assets',
     'mesh-contract'
   ]);
+});
+
+test('Char B1 bis bundle retains exact local-only registration data and supported tracks', () => {
+  const bundle = FRANCE_1940_VEHICLE_VISUAL_BUNDLES.fr_char_b1bis;
+  assert.equal(bundle.visualData, CHAR_B1_BIS_VISUAL_DATA);
+  assert.deepEqual(bundle.validation, CHAR_B1_BIS_VISUAL_DATA.validation);
+  assert.deepEqual(bundle.validation.requiredLodBands, ['high', 'medium', 'core', 'proxy']);
+  assert.ok(bundle.validation.requiredParts.length >= 20);
+  assert.ok(bundle.validation.closedParts.length >= 10);
+  assert.equal(bundle.validation.sourceMechanics.track.minimumSupportCount, 22);
+  assert.equal(bundle.validation.requiredBlueprintViews, undefined);
+  assert.match(
+    bundle.validation.inapplicableChecks.blueprintRegistration,
+    /local-only/
+  );
+  assert.match(bundle.visualData.evidenceStatus, /local-only side\/front\/top drawing registration/);
+  assert.equal(
+    bundle.visualData.blueprint.sha256,
+    'e4e52bad67f44066138824554c5df58952443479ed833dce67a24dd1631f7f61'
+  );
+  assert.equal(bundle.visualData.blueprint.localUploadRequired, true);
+  assert.equal(Object.hasOwn(bundle.visualData.blueprint, 'imageUrl'), false);
+  assert.deepEqual(
+    Object.keys(bundle.visualData.blueprint.views).sort(),
+    ['front', 'side', 'top']
+  );
+
+  const model = bundle.createMesh();
+  const detail = model.userData.runningGear;
+  const proxy = model.getObjectByName('CharB1BisAuthoredRunningGearProxy');
+  assert.equal(detail.userData.trackPath.model, 'wheel-supported-quasi-static-v1');
+  assert.equal(proxy.userData.trackPath.model, 'wheel-supported-quasi-static-v1');
+  assert.deepEqual(detail.userData.trackPath.bounds, proxy.userData.trackPath.bounds);
+
+  const report = evaluateVehicleVisualBundle(bundle);
+  assert.equal(
+    report.pass,
+    true,
+    report.failures.map(item => `${item.checkId}: ${item.message}`).join('\n')
+  );
+  assert.deepEqual(report.executedChecks, DEFAULT_VEHICLE_VISUAL_CHECKS.map(check => check.id));
+  assert.equal(report.metrics.sourceMechanics.hullStationCount, 11);
+  assert.equal(report.metrics.sourceMechanics.track.detail.supportCount, 22);
+  assert.deepEqual(
+    report.metrics.sourceMechanics.track.detail,
+    report.metrics.sourceMechanics.track.proxy
+  );
+  assert.deepEqual(report.metrics.blueprintViews, {});
 });
 
 test('R35 bundle passes source registration, rigid envelope, topology, and mount checks', () => {

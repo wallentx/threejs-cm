@@ -19,6 +19,16 @@ test('frame visibility projection is reused until authoritative spotting changes
   game.visibilityProjection = null;
   game.visibilityProjectionDirty = true;
   game.visibleUnitIdSet = new Set();
+  const markerSyncs = [];
+  game.lastKnownContactMarkers = {
+    sync(projection) {
+      markerSyncs.push({
+        projection,
+        friendlyVisible: friendly.mesh.visible,
+        enemyVisible: enemy.mesh.visible
+      });
+    }
+  };
   game.spotting = {
     getVisibilityProjection() {
       projectionCalls++;
@@ -36,6 +46,11 @@ test('frame visibility projection is reused until authoritative spotting changes
   const cached = game.refreshVisibilityProjection();
   assert.equal(first, cached);
   assert.equal(projectionCalls, 1);
+  assert.deepEqual(markerSyncs, [{
+    projection: first,
+    friendlyVisible: true,
+    enemyVisible: false
+  }]);
   assert.equal(friendly.mesh.visible, true);
   assert.equal(enemy.mesh.visible, false);
 
@@ -43,6 +58,18 @@ test('frame visibility projection is reused until authoritative spotting changes
   const refreshed = game.refreshVisibilityProjection();
   assert.notEqual(refreshed, first);
   assert.equal(projectionCalls, 2);
+  assert.deepEqual(markerSyncs, [
+    {
+      projection: first,
+      friendlyVisible: true,
+      enemyVisible: false
+    },
+    {
+      projection: refreshed,
+      friendlyVisible: false,
+      enemyVisible: true
+    }
+  ]);
   assert.equal(friendly.mesh.visible, false);
   assert.equal(enemy.mesh.visible, true);
 });

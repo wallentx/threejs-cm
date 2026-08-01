@@ -235,7 +235,7 @@ function openingIsOpen(descriptor, runtime, openingId) {
   return opening.open || opening.breached || opening.enabled === false;
 }
 
-function addOpeningDetail(group, aperture, normal, kind) {
+function addOpeningDetail(group, aperture, normal, kind, sectionId) {
   const [x, y, z] = aperture.center;
   const [width, height] = aperture.size;
   const alongX = Math.abs(normal?.[0] ?? 0) > Math.abs(normal?.[2] ?? 0);
@@ -251,7 +251,10 @@ function addOpeningDetail(group, aperture, normal, kind) {
       '#4a3220'
     );
     doorLeaf.position.set(x, y, z);
-    doorLeaf.userData = { semantic: 'opening', openingId: aperture.id, kind };
+    doorLeaf.userData = {
+      semantic: 'opening', openingId: aperture.id, kind,
+      openingSectionId: sectionId
+    };
     group.add(doorLeaf);
   }
 
@@ -277,7 +280,10 @@ function addOpeningDetail(group, aperture, normal, kind) {
       rail('OpeningFrameSill', width + 0.2, 0.08, depth * 2.8, 0, -height * 0.5, 0);
     }
   }
-  frame.userData = { semantic: 'opening-frame', openingId: aperture.id, kind };
+  frame.userData = {
+    semantic: 'opening-frame', openingId: aperture.id, kind,
+    openingSectionId: sectionId
+  };
   group.add(frame);
 }
 
@@ -317,9 +323,25 @@ function buildDetailedShell(descriptor, runtime) {
   }
 
   for (const portal of descriptor.portals) {
-    if (portal.aperture) addOpeningDetail(group, portal.aperture, portal.localNormal, portal.kind);
+    if (portal.aperture) {
+      addOpeningDetail(
+        group,
+        portal.aperture,
+        portal.localNormal,
+        portal.kind,
+        portal.sectionId ?? null
+      );
+    }
   }
-  for (const firePort of descriptor.firePorts) addOpeningDetail(group, firePort.aperture, firePort.localNormal, 'window');
+  for (const firePort of descriptor.firePorts) {
+    addOpeningDetail(
+      group,
+      firePort.aperture,
+      firePort.localNormal,
+      'window',
+      firePort.sectionId ?? null
+    );
+  }
 
   const roofProfile = houseRoofProfile(descriptor);
   const roof = new THREE.Mesh(
@@ -401,7 +423,7 @@ function buildCheapShell(descriptor, level, runtime) {
     group.add(sectionGroup);
     sections.set(section.id, sectionGroup);
   }
-  const addCheapOpening = (aperture, normal, kind) => {
+  const addCheapOpening = (aperture, normal, kind, sectionId) => {
     const [x, y, z] = aperture.center;
     const [width, height] = aperture.size;
     const alongX = Math.abs(normal?.[0] ?? 0) > Math.abs(normal?.[2] ?? 0);
@@ -421,6 +443,7 @@ function buildCheapShell(descriptor, level, runtime) {
       semantic: 'opening',
       openingId: aperture.id,
       kind,
+      openingSectionId: sectionId,
       lod: level
     };
     if (kind === 'door') {
@@ -430,10 +453,22 @@ function buildCheapShell(descriptor, level, runtime) {
   };
 
   for (const portal of descriptor.portals) {
-    if (portal.aperture) addCheapOpening(portal.aperture, portal.localNormal, portal.kind);
+    if (portal.aperture) {
+      addCheapOpening(
+        portal.aperture,
+        portal.localNormal,
+        portal.kind,
+        portal.sectionId ?? null
+      );
+    }
   }
   for (const firePort of descriptor.firePorts) {
-    addCheapOpening(firePort.aperture, firePort.localNormal, 'window');
+    addCheapOpening(
+      firePort.aperture,
+      firePort.localNormal,
+      'window',
+      firePort.sectionId ?? null
+    );
   }
 
   const roofProfile = houseRoofProfile(descriptor);
@@ -560,7 +595,7 @@ export function createFrenchHouseVisual({ descriptor, runtime, centerX, centerZ,
   return root;
 }
 
-export function applyFrenchHouseVisualState(root, descriptor, runtime, { interiorPresence = null } = {}) {
+export function applyFrenchHouseVisualState(root, descriptor, runtime, { interiorPresence = 0 } = {}) {
   if (!root || !descriptor || !runtime) return;
   for (const tier of root.userData?.lodTiers ?? []) {
     for (const section of descriptor.sections) {
@@ -596,17 +631,23 @@ export function applyFrenchHouseVisualState(root, descriptor, runtime, { interio
   for (const [openingId, opening] of Object.entries(runtime.openings ?? {})) {
     const detail = root.getObjectByName(`HouseOpening:${openingId}`);
     const frame = root.getObjectByName(`HouseFrame:${openingId}`);
+    const sectionCollapsed = opening.sectionId != null
+      && runtime.sections?.[opening.sectionId]?.collapsed === true;
+    const enabled = opening.enabled !== false && !sectionCollapsed;
     const open = opening.open || opening.breached || opening.enabled === false;
-    if (detail) detail.visible = opening.enabled !== false && !open;
-    if (frame) frame.visible = !opening.breached && opening.enabled !== false;
+    if (detail) detail.visible = enabled && !open;
+    if (frame) frame.visible = enabled && !opening.breached;
     root.traverse(object => {
       if (object.userData?.openingId === openingId
-          && object.userData.semantic === 'opening'
-          && object.userData.kind === 'door') {
-        object.visible = opening.enabled !== false && !open;
+          && object.userData.semantic === 'opening') {
+        object.visible = object.userData.kind === 'door'
+          ? enabled && !open
+          : enabled && !opening.breached;
       }
       if (object.userData?.openingId === openingId
-          && object.userData.semantic === 'building-section-part') object.visible = !open;
+          && object.userData.semantic === 'building-section-part') {
+        object.visible = !sectionCollapsed && !open;
+      }
     });
   }
   root.traverse(object => {
@@ -620,9 +661,7 @@ export function applyFrenchHouseVisualState(root, descriptor, runtime, { interio
     stairs.visible = !(runtime.invalidPortals ?? []).includes(stairPortal.id);
   }
   if (root.userData?.rubble) root.userData.rubble.visible = Boolean(runtime.rubbleActive);
-  const resolvedPresence = interiorPresence == null
-    ? Object.keys(runtime.occupancy ?? {}).length
-    : Math.max(0, Number(interiorPresence) || 0);
+  const resolvedPresence = Math.max(0, Number(interiorPresence) || 0);
   const interiorActive = resolvedPresence > 0 && !runtime.rubbleActive;
   root.traverse(object => {
     if (!object.isMesh) return;

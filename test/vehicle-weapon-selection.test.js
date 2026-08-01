@@ -115,14 +115,22 @@ test('Unit wiring aims vehicle weapons at a stable living soldier and honors MG-
   });
   attacker.targetMode = VEHICLE_TARGET_MODES.MACHINE_GUNS;
   const shots = [];
+  const emittedCombat = new CombatSystem(new THREE.Scene(), {}, () => 0.5, {
+    vfxProvider: TEST_VFX_PROVIDER
+  });
   for (let step = 0; step < 120 && shots.length === 0; step++) {
     attacker.updateVehicleSystems(1 / 30);
     attacker.updateVehicleCombat(1 / 30, {
       target,
       combat: {
-        fireWeapon(_attacker, _target, _position, options) {
+        fireWeapon(realAttacker, realTarget, position, options) {
           shots.push(options);
-          return true;
+          return emittedCombat.fireWeapon(
+            realAttacker,
+            realTarget,
+            position,
+            options
+          );
         }
       }
     });
@@ -132,6 +140,7 @@ test('Unit wiring aims vehicle weapons at a stable living soldier and honors MG-
   assert.ok(shots.every(shot => ['coax', 'hull_mg'].includes(shot.mountId)));
   assert.ok(shots.every(shot => shot.targetSoldier?.id === 0));
   assert.equal(attacker.vehicleWeapon.roundsFired, 0);
+  assert.ok(attacker.recentFireActivitySeconds > 0);
 
   const snapshot = attacker.captureState();
   const restored = new Unit({

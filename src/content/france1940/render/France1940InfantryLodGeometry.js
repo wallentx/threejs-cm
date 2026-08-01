@@ -1,5 +1,11 @@
 import * as THREE from 'three';
 
+const INFANTRY_DISTANCE_SHADOW_COMPONENTS = new Set([
+  'pelvis',
+  'torso',
+  'upper-leg'
+]);
+
 function scaleGeometry(geometry, x, y, z) {
   geometry.scale(x, y, z);
   geometry.computeVertexNormals();
@@ -150,7 +156,11 @@ export function createInfantryLodMesh(
 ) {
   const mesh = new THREE.Mesh(geometry, material);
   mesh.name = name;
-  mesh.castShadow = true;
+  // Distance tiers keep only the existing body-mass and separated-leg
+  // silhouette in the shadow pass. The authored helmet and primary weapon
+  // remain separate core meshes, so head and weapon identity are retained
+  // without submitting every limb joint and equipment detail as a caster.
+  mesh.castShadow = INFANTRY_DISTANCE_SHADOW_COMPONENTS.has(component);
   mesh.visible = false;
   mesh.userData.lodBand = band;
   mesh.userData.infantryLodTier = band;

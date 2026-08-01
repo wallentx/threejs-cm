@@ -155,6 +155,25 @@ export function getInfantryAimPoint({
   };
 }
 
+export function getInfantryHitVolumeRecords({
+  position,
+  stance = 'STANDING',
+  facing = 0
+} = {}) {
+  if (!position) return [];
+  const normalizedFacing = Number(facing) || 0;
+  const normalized = normalizeStance(stance);
+  return PROFILES[normalized].volumes.map(volume => ({
+    id: volume.id,
+    stance: normalized,
+    center: worldCenter(position, volume.center, normalizedFacing),
+    halfExtents: [...volume.halfExtents],
+    rotation: normalizedFacing,
+    modelVersion: INFANTRY_HIT_VOLUME_MODEL_VERSION,
+    dataQuality: DATA_QUALITY
+  }));
+}
+
 export function intersectInfantryHitVolumes(
   start,
   end,

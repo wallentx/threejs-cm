@@ -781,6 +781,9 @@ export class SoldierAI {
     for (let index = this.unit.roster.length; index < meshes.length; index++) {
       meshes[index].visible = false;
     }
+    this.unit.mesh?.userData.infantryProxyInstances?.sync(
+      this.unit.roster.length
+    );
     this.updateDebug();
   }
 

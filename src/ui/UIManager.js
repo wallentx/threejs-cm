@@ -16,6 +16,7 @@ const INFANTRY_ONLY_MOVE_COMMANDS = new Set([
 ]);
 const ICON_UPDATE_INTERVAL_MS = 1000 / 30;
 const MINIMAP_UPDATE_INTERVAL_MS = 100;
+const DEBUG_METRICS_UPDATE_INTERVAL_MS = 250;
 export const UNIT_BADGE_SCREEN_CLEARANCE_PIXELS = 48;
 
 export function projectUnitBadgeAnchor(
@@ -143,6 +144,19 @@ export class UIManager {
     this.lastImpactKey = null;
     this.lastCrewServedCommandKey = null;
     this.iconPool = new Map();
+    this.debugPanelVisible = false;
+    this.debugToggles = {
+      fps: true,
+      fieldOfView: false,
+      hitboxes: false,
+      vehicleComponents: false,
+      vehicleCrew: false,
+      formationAI: false,
+      logs: false,
+      shots: false,
+      ...this.runtime.getDebugOverlayState()
+    };
+    this.lastDebugMetricsUpdate = Number.NEGATIVE_INFINITY;
 
     this.initDOM();
     this.initHotkeys();
@@ -199,6 +213,32 @@ export class UIManager {
     });
     this.bindClick('btn-map-toggle', (event) =>
       this.toggleMinimap(event.currentTarget));
+    this.bindClick('btn-debug-toggle', event =>
+      this.toggleDebugPanel(event.currentTarget));
+
+    const debugToggleBindings = {
+      'debug-toggle-fps': 'fps',
+      'debug-toggle-fov': 'fieldOfView',
+      'debug-toggle-hitboxes': 'hitboxes',
+      'debug-toggle-components': 'vehicleComponents',
+      'debug-toggle-crew': 'vehicleCrew',
+      'debug-toggle-formation': 'formationAI',
+      'debug-toggle-logs': 'logs',
+      'debug-toggle-shots': 'shots'
+    };
+    for (const [elementId, toggleName] of Object.entries(debugToggleBindings)) {
+      const toggleButton = document.getElementById(elementId);
+      toggleButton?.classList.toggle('active', this.debugToggles[toggleName]);
+      toggleButton?.setAttribute(
+        'aria-pressed',
+        String(this.debugToggles[toggleName])
+      );
+      this.bindClick(elementId, event => this.setDebugToggle(
+        toggleName,
+        !this.debugToggles[toggleName],
+        event.currentTarget
+      ));
+    }
 
     this.bindClick('btn-cancel-cmd', () => this.cancelOrDeselect(false));
     this.bindClick('btn-deselect-unit', () => this.runtime.deselectUnit());
@@ -240,6 +280,100 @@ export class UIManager {
     }
 
     this.renderCommandGrid();
+  }
+
+  toggleDebugPanel(button = document.getElementById('btn-debug-toggle')) {
+    this.debugPanelVisible = !this.debugPanelVisible;
+    document.getElementById('debug-log')?.classList.toggle(
+      'hidden',
+      !this.debugPanelVisible
+    );
+    button?.classList.toggle('active', this.debugPanelVisible);
+    button?.setAttribute('aria-expanded', String(this.debugPanelVisible));
+    if (this.debugPanelVisible) {
+      this.lastDebugMetricsUpdate = Number.NEGATIVE_INFINITY;
+      this.renderDebugMetrics(this.runtime.getDebugDiagnostics(), 0);
+    }
+    return this.debugPanelVisible;
+  }
+
+  setDebugToggle(name, enabled, button = null) {
+    if (!(name in this.debugToggles)) {
+      throw new Error(`Unknown debug toggle ${name}`);
+    }
+    const active = Boolean(enabled);
+    this.debugToggles[name] = active;
+    button?.classList.toggle('active', active);
+    button?.setAttribute('aria-pressed', String(active));
+
+    if (name === 'fps') {
+      document.getElementById('debug-performance')?.classList.toggle(
+        'hidden',
+        !active
+      );
+      document.getElementById('debug-renderer-detail')?.classList.toggle(
+        'hidden',
+        !active
+      );
+    } else if (name === 'logs' || name === 'shots') {
+      const sectionId = name === 'logs'
+        ? 'debug-console-section'
+        : 'shot-inspector';
+      document.getElementById(sectionId)?.classList.toggle('hidden', !active);
+    } else {
+      this.runtime.setDebugOverlayEnabled(name, active);
+    }
+    return active;
+  }
+
+  renderDebugMetrics(diagnostics, timestamp) {
+    if (
+      !this.debugPanelVisible
+      || !this.debugToggles.fps
+      || !diagnostics
+      || timestamp - this.lastDebugMetricsUpdate
+        < DEBUG_METRICS_UPDATE_INTERVAL_MS
+    ) {
+      return false;
+    }
+    this.lastDebugMetricsUpdate = timestamp;
+    const setText = (id, value) => {
+      const element = document.getElementById(id);
+      if (element) element.textContent = value;
+    };
+    const compact = value => Number.isFinite(value)
+      ? new Intl.NumberFormat(undefined, {
+          notation: 'compact',
+          maximumFractionDigits: 1
+        }).format(value)
+      : '--';
+    const frame = diagnostics.frame ?? {};
+    const renderer = diagnostics.renderer ?? {};
+    const lod = diagnostics.lod ?? {};
+    setText('debug-fps', Number.isFinite(frame.fps) ? frame.fps.toFixed(0) : '--');
+    setText(
+      'debug-frame-average',
+      Number.isFinite(frame.averageFrameMs)
+        ? `${frame.averageFrameMs.toFixed(1)} ms`
+        : '-- ms'
+    );
+    setText(
+      'debug-frame-p95',
+      Number.isFinite(frame.p95FrameMs)
+        ? `${frame.p95FrameMs.toFixed(1)} ms`
+        : '-- ms'
+    );
+    setText('debug-draw-calls', compact(renderer.drawCalls));
+    setText('debug-triangles', compact(renderer.triangles));
+    setText(
+      'debug-lod-counts',
+      `${lod.high ?? 0}/${lod.medium ?? 0}/${lod.core ?? 0}/${lod.low ?? 0}`
+    );
+    setText(
+      'debug-renderer-detail',
+      `${renderer.backend ?? renderer.backendName ?? 'unknown'} · ${renderer.qualityTier ?? 'unknown'} @ ${renderer.pixelRatio ?? '?'}x · ${renderer.geometries ?? 0} geometries · ${renderer.textures ?? 0} textures`
+    );
+    return true;
   }
 
   toggleMinimap(button = document.getElementById('btn-map-toggle')) {
@@ -1077,19 +1211,6 @@ export class UIManager {
       if (!iconDiv) {
         iconDiv = document.createElement('div');
         iconDiv.className = 'unit-floating-icon';
-        iconDiv.addEventListener('click', (e) => {
-          const friendlyBadge = e.target.closest('.icon-badge.friendly');
-          const hostileBadge = e.target.closest('.icon-badge.hostile');
-          if (!friendlyBadge && !hostileBadge) return;
-          e.stopPropagation();
-          if (friendlyBadge) {
-            this.runtime.selectUnit(u, {
-              additive: e.shiftKey || e.ctrlKey || e.metaKey
-            });
-          } else {
-            this.runtime.inspectUnit(u);
-          }
-        });
         this.iconPool.set(u.id, iconDiv);
         overlay.appendChild(iconDiv);
       }
@@ -1109,6 +1230,7 @@ export class UIManager {
       const displayedUnit =
         this.runtime.displayedUnit ?? this.runtime.selectedUnit;
       const isSelected = displayedUnit?.id === u.id;
+      const isHovered = this.runtime.hoveredUnitId === u.id;
       const isPlayer = this.runtime.isPlayerFaction(u.faction);
       const presentation = this.runtime.getFactionPresentation(u.faction);
       const vehicleStatus = isSelected ? buildVehicleStatusView(u) : null;
@@ -1117,15 +1239,15 @@ export class UIManager {
         .map(component => `${component.label}:${component.status}`)
         .join(' · ');
 
-      const contentKey = `${u.faction}:${presentation?.selectionColor}:${isPlayer}:${isSelected}:${u.name}:${vehicleStatus?.destroyed ?? false}:${vehicleStatus?.burning ?? false}:${damagedLabels || ''}`;
+      const contentKey = `${u.faction}:${presentation?.selectionColor}:${isPlayer}:${isSelected}:${isHovered}:${u.name}:${vehicleStatus?.destroyed ?? false}:${vehicleStatus?.burning ?? false}:${damagedLabels || ''}`;
       if (iconDiv.dataset.contentKey !== contentKey) {
         iconDiv.dataset.contentKey = contentKey;
         iconDiv.innerHTML = `
           ${isPlayer
-            ? `<button type="button" class="icon-badge faction friendly ${isSelected ? 'selected' : ''}" title="Select ${u.name}; Shift/Ctrl-click to add or remove">
+            ? `<button type="button" class="icon-badge faction friendly ${isSelected ? 'selected' : ''} ${isHovered ? 'hovered' : ''}" aria-label="Select ${u.name}">
                 ${u.vehicleSpec ? '🛡️' : '⚔️'}
               </button>`
-            : `<button type="button" class="icon-badge faction hostile ${isSelected ? 'selected' : ''}" title="Inspect ${u.name}">
+            : `<button type="button" class="icon-badge faction hostile ${isSelected ? 'selected' : ''} ${isHovered ? 'hovered' : ''}" aria-label="Inspect ${u.name}">
                 ${u.vehicleSpec ? '🛡️' : '⚔️'}
               </button>`}
           <div class="icon-details">
@@ -1140,11 +1262,27 @@ export class UIManager {
             ` : ''}
           </div>
         `;
-        iconDiv.querySelector('.icon-badge')?.style.setProperty(
+        const badge = iconDiv.querySelector('.icon-badge');
+        badge?.style.setProperty(
           '--faction-color',
           presentation?.selectionColor ?? '#64748b'
         );
+        badge?.addEventListener?.('click', event => {
+          event.preventDefault();
+          event.stopPropagation();
+          const options = {
+            additive: event.shiftKey || event.ctrlKey || event.metaKey,
+            frameCamera: (event.detail ?? 1) >= 2
+          };
+          if (this.runtime.isPlayerFaction(u.faction)) {
+            this.runtime.selectUnit(u, options);
+          } else {
+            this.runtime.inspectUnit(u, { frameCamera: options.frameCamera });
+          }
+        });
       }
+      const badge = iconDiv.querySelector('.icon-badge');
+      if (badge) badge.style.pointerEvents = this.runtime.commandMode ? 'none' : 'auto';
     });
 
     this.iconPool.forEach((el, id) => {

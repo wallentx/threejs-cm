@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {
   getInfantryAimPoint,
+  getInfantryHitVolumeRecords,
   INFANTRY_HIT_VOLUME_MODEL_VERSION,
   intersectInfantryHitVolumes
 } from '../src/simulation/infantry/InfantryHitVolumes.js';
@@ -62,6 +63,22 @@ test('prone collision and aim rotate with authoritative stance and facing', () =
   assert.ok(Math.abs(aim.point[0] - 11.18) < 1e-9);
   assert.ok(Math.abs(aim.point[1] - 2.36) < 1e-9);
   assert.ok(Math.abs(aim.point[2] - 20) < 1e-9);
+});
+
+test('debug records expose the same stance and facing volumes used for collision', () => {
+  const records = getInfantryHitVolumeRecords({
+    position: [10, 2, 20],
+    stance: 'PRONE',
+    facing: Math.PI / 2
+  });
+  const torso = records.find(record => record.id === 'torso');
+  assert.deepEqual(torso.center.map(value => Math.round(value * 100) / 100), [
+    11.18,
+    2.36,
+    20
+  ]);
+  assert.equal(torso.rotation, Math.PI / 2);
+  assert.equal(torso.modelVersion, INFANTRY_HIT_VOLUME_MODEL_VERSION);
 });
 
 test('ballistics reports the named stance-aware infantry volume it actually swept', () => {

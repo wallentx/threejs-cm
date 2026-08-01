@@ -63,6 +63,7 @@ export class CameraManager {
     this.homeTarget = this.controls.target.clone();
 
     this.followUnit = null;
+    this.interactionLocked = false;
     this.pressedPanKeys = new Set();
     this.keyboardTarget = keyboardTarget;
     this.onKeyDown = event => {
@@ -145,7 +146,15 @@ export class CameraManager {
     this.controls.update();
   }
 
+  setInteractionLocked(locked) {
+    this.interactionLocked = Boolean(locked);
+    this.controls.enabled = !this.interactionLocked;
+    if (this.interactionLocked) this.pressedPanKeys.clear();
+    return this.interactionLocked;
+  }
+
   update(delta) {
+    if (this.interactionLocked) return;
     if (this.followUnit && this.followUnit.mesh) {
       this.controls.target.lerp(this.followUnit.mesh.position, 0.08);
     }

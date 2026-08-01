@@ -252,3 +252,31 @@ test('setup markup exposes Bridge, both selection modes, current AI, and launch'
   assert.match(forceMarkup, /A la carte/);
   assert.match(forceMarkup, /Country/);
 });
+
+test('initial setup header stays neutral and omits the numbered step bubbles', () => {
+  const markup = renderBattleSetupMarkup({
+    maps: [{
+      id: STONNE_1940_MAP.id,
+      title: STONNE_1940_MAP.title
+    }],
+    catalog,
+    aiLevels: BATTLE_SETUP_AI_LEVELS,
+    state: {
+      step: 0,
+      mapId: STONNE_1940_MAP.id,
+      playerFactionId: 'french',
+      enemyFactionId: 'german',
+      enemyAiDifficulty: 'regular',
+      playerForce: packageSelection('french'),
+      enemyForce: packageSelection('german')
+    }
+  });
+
+  assert.match(
+    markup,
+    /Choose a battlefield, configure both forces, and review the mission\./
+  );
+  assert.doesNotMatch(markup, /class="setup-matchup"/);
+  assert.doesNotMatch(markup, /class="setup-steps"/);
+  assert.doesNotMatch(markup, /🇫🇷 French\s*<\/span>\s*<b>VS<\/b>/);
+});

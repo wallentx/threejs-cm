@@ -100,6 +100,10 @@ function createHarness() {
     getVisibilityProjection: () => null,
     getBocageObstacles: () => [],
     getImpacts: () => [],
+    getDebugDiagnostics: () => null,
+    getDebugOverlayState: () => ({}),
+    getHoveredUnitId: () => null,
+    setDebugOverlayEnabled: () => false,
     getBuildingFloorIds: () => ['ground-floor', 'upper-floor'],
     selectUnit: unitToSelect => { selectedUnit = unitToSelect; },
     inspectUnit: unitToInspect => { selectedUnit = unitToInspect; },
@@ -169,6 +173,12 @@ test('runtime markup exposes restored playback controls and shot inspector', asy
     'btn-cancel-cmd',
     'btn-deselect-unit',
     'btn-map-toggle',
+    'btn-debug-toggle',
+    'debug-fps',
+    'debug-toggle-fov',
+    'debug-toggle-hitboxes',
+    'debug-toggle-components',
+    'debug-toggle-crew',
     'vcr-back',
     'vcr-speed',
     'timeline-slider',
@@ -193,6 +203,65 @@ test('runtime markup exposes restored playback controls and shot inspector', asy
     css,
     /\.icon-details\s*\{[^}]*position:\s*absolute;[^}]*left:\s*50%;[^}]*transform:\s*translateX\(-50%\)/s
   );
+});
+
+test('debug panel controls real overlays and renders bounded profiler metrics', () => {
+  const previousDocument = globalThis.document;
+  const elements = new Map();
+  const element = id => {
+    if (!elements.has(id)) {
+      const classes = new Map();
+      elements.set(id, {
+        id,
+        textContent: '',
+        classList: {
+          toggle(name, enabled) { classes.set(name, enabled); }
+        },
+        setAttribute(name, value) { this[name] = value; },
+        classes
+      });
+    }
+    return elements.get(id);
+  };
+  globalThis.document = { getElementById: element };
+
+  try {
+    const overlayCalls = [];
+    const ui = Object.create(UIManager.prototype);
+    ui.runtime = {
+      getDebugDiagnostics: () => ({
+        frame: { fps: 59.6, averageFrameMs: 16.8, p95FrameMs: 23.1 },
+        renderer: {
+          backend: 'webgl2',
+          qualityTier: 'high',
+          pixelRatio: 1.5,
+          drawCalls: 123,
+          triangles: 12345,
+          geometries: 42,
+          textures: 7
+        },
+        lod: { high: 2, medium: 3, core: 1, low: 4 }
+      }),
+      setDebugOverlayEnabled: (...args) => overlayCalls.push(args)
+    };
+    ui.debugPanelVisible = false;
+    ui.debugToggles = { fps: true, hitboxes: false };
+    ui.lastDebugMetricsUpdate = Number.NEGATIVE_INFINITY;
+
+    assert.equal(ui.toggleDebugPanel(element('btn-debug-toggle')), true);
+    assert.equal(element('debug-log').classes.get('hidden'), false);
+    assert.equal(element('debug-fps').textContent, '60');
+    assert.equal(element('debug-frame-average').textContent, '16.8 ms');
+    assert.equal(element('debug-lod-counts').textContent, '2/3/1/4');
+    assert.match(element('debug-renderer-detail').textContent, /webgl2/);
+
+    ui.setDebugToggle('hitboxes', true, element('debug-toggle-hitboxes'));
+    assert.deepEqual(overlayCalls, [['hitboxes', true]]);
+    assert.equal(element('debug-toggle-hitboxes')['aria-pressed'], 'true');
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  }
 });
 
 test('vehicle crew cards promote the role and omit the redundant roster name', () => {
@@ -264,19 +333,22 @@ test('tactical-map toggle updates layout state and accessibility state', () => {
   }
 });
 
-test('friendly badges select while hostile badges inspect damage without granting command', () => {
+test('floating badges select or inspect units and preserve intentional focus', () => {
   const previousDocument = globalThis.document;
   const previousWindow = globalThis.window;
   let clickListener = null;
+  const badge = {
+    style: { setProperty() {} },
+    addEventListener(type, listener) {
+      if (type === 'click') clickListener = listener;
+    }
+  };
   const icon = {
     dataset: {},
     style: {},
     innerHTML: '',
-    addEventListener(type, listener) {
-      if (type === 'click') clickListener = listener;
-    },
     querySelector() {
-      return { style: { setProperty() {} } };
+      return badge;
     }
   };
   globalThis.document = {
@@ -288,8 +360,6 @@ test('friendly badges select while hostile badges inspect damage without grantin
   globalThis.window = { innerWidth: 1280, innerHeight: 720 };
 
   try {
-    const selected = [];
-    const inspected = [];
     const camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.1, 100);
     camera.position.set(0, 0, 10);
     camera.lookAt(0, 0, 0);
@@ -319,44 +389,35 @@ test('friendly badges select while hostile badges inspect damage without grantin
     ui.runtime = {
       selectedUnit: null,
       selectedUnits: [],
+      commandMode: null,
+      hoveredUnitId: 'friendly-1',
       isPlayerFaction: faction => faction === 'blue',
       getFactionPresentation: () => ({ selectionColor: '#3366ff' }),
-      selectUnit: (...args) => selected.push(args),
-      inspectUnit: unitToInspect => inspected.push(unitToInspect)
+      selectUnit: (...args) => selections.push(args),
+      inspectUnit: (...args) => inspections.push(args)
     };
+    const selections = [];
+    const inspections = [];
 
     ui.updateFloatingIcons([unit], { camera });
     assert.ok(
       Number.parseFloat(icon.style.top) < 30,
       'badge anchor remains well above the unit origin'
     );
-    let stopped = 0;
-    clickListener({
-      target: { closest: () => null },
-      shiftKey: true,
-      ctrlKey: false,
-      metaKey: false,
-      stopPropagation() { stopped++; }
-    });
-    assert.deepEqual(selected, []);
-    assert.equal(stopped, 0);
-
-    clickListener({
-      target: {
-        closest(selector) {
-          return selector === '.icon-badge.friendly' ? {} : null;
-        }
-      },
-      shiftKey: true,
-      ctrlKey: false,
-      metaKey: false,
-      stopPropagation() { stopped++; }
-    });
-    assert.deepEqual(selected, [[unit, { additive: true }]]);
-    assert.equal(stopped, 1);
-    assert.match(icon.innerHTML, /<button[^>]+icon-badge faction friendly/);
+    assert.equal(typeof clickListener, 'function');
+    assert.match(icon.innerHTML, /<button[^>]+icon-badge faction friendly[^>]+hovered/);
     assert.doesNotMatch(icon.innerHTML, /vehicle-floating-health/);
     assert.doesNotMatch(icon.innerHTML, />100%?</);
+    clickListener({
+      detail: 2,
+      shiftKey: false,
+      ctrlKey: false,
+      metaKey: false,
+      preventDefault() {},
+      stopPropagation() {}
+    });
+    assert.equal(selections[0][0], unit);
+    assert.equal(selections[0][1].frameCamera, true);
 
     const enemy = {
       ...unit,
@@ -364,22 +425,20 @@ test('friendly badges select while hostile badges inspect damage without grantin
       name: 'Hostile Unit',
       faction: 'red'
     };
+    ui.runtime.hoveredUnitId = null;
     ui.updateFloatingIcons([enemy], { camera });
+    assert.match(icon.innerHTML, /<button[^>]+icon-badge faction hostile/);
+    assert.doesNotMatch(icon.innerHTML, /hovered/);
     clickListener({
-      target: {
-        closest(selector) {
-          return selector === '.icon-badge.hostile' ? {} : null;
-        }
-      },
+      detail: 1,
       shiftKey: false,
       ctrlKey: false,
       metaKey: false,
-      stopPropagation() { stopped++; }
+      preventDefault() {},
+      stopPropagation() {}
     });
-    assert.deepEqual(inspected, [enemy]);
-    assert.deepEqual(selected, [[unit, { additive: true }]]);
-    assert.equal(stopped, 2);
-    assert.match(icon.innerHTML, /<button[^>]+icon-badge faction hostile/);
+    assert.equal(inspections[0][0], enemy);
+    assert.equal(inspections[0][1].frameCamera, false);
   } finally {
     if (previousDocument === undefined) delete globalThis.document;
     else globalThis.document = previousDocument;

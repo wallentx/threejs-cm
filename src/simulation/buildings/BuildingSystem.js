@@ -250,6 +250,79 @@ export class BuildingSystem {
     return { accepted: true, slotId, soldierKey: key };
   }
 
+  reassignOccupiedSlots(id, assignments) {
+    const state = this.#state(id);
+    const slots = createRoomSlotIndex(this.#descriptor(state));
+    const invalidSlots = new Set(state.invalidSlots);
+    const normalized = (assignments ?? []).map(assignment => ({
+      soldierKey: buildingSoldierKey(assignment),
+      fromSlotId: String(assignment.fromSlotId),
+      toSlotId: String(assignment.toSlotId)
+    }));
+    if (normalized.length === 0) {
+      return { accepted: false, reason: 'no_assignments', assignments: [] };
+    }
+
+    const movingSoldiers = new Set(normalized.map(record => record.soldierKey));
+    if (movingSoldiers.size !== normalized.length) {
+      return { accepted: false, reason: 'duplicate_soldier', assignments: [] };
+    }
+    const sourceSlots = new Set();
+    const targetSlots = new Set();
+    for (const assignment of normalized) {
+      if (sourceSlots.has(assignment.fromSlotId)) {
+        return { accepted: false, reason: 'duplicate_source', assignments: [] };
+      }
+      if (targetSlots.has(assignment.toSlotId)) {
+        return { accepted: false, reason: 'duplicate_target', assignments: [] };
+      }
+      sourceSlots.add(assignment.fromSlotId);
+      targetSlots.add(assignment.toSlotId);
+      if (!slots.has(assignment.fromSlotId) || !slots.has(assignment.toSlotId)) {
+        return { accepted: false, reason: 'unknown_slot', assignments: [] };
+      }
+      if (slots.get(assignment.fromSlotId).floorId
+          !== slots.get(assignment.toSlotId).floorId) {
+        return { accepted: false, reason: 'floor_mismatch', assignments: [] };
+      }
+      if (invalidSlots.has(assignment.toSlotId)) {
+        return { accepted: false, reason: 'invalid_slot', assignments: [] };
+      }
+      if (state.occupancy[assignment.fromSlotId]?.soldierKey
+          !== assignment.soldierKey) {
+        return { accepted: false, reason: 'source_not_occupied', assignments: [] };
+      }
+      const targetOccupant = state.occupancy[assignment.toSlotId];
+      if (targetOccupant && !movingSoldiers.has(targetOccupant.soldierKey)) {
+        return { accepted: false, reason: 'occupied', assignments: [] };
+      }
+      const reservation = state.reservations[assignment.toSlotId];
+      if (reservation && reservation.soldierKey !== assignment.soldierKey) {
+        return { accepted: false, reason: 'reserved', assignments: [] };
+      }
+    }
+
+    const occupants = new Map(normalized.map(assignment => [
+      assignment.soldierKey,
+      { ...state.occupancy[assignment.fromSlotId] }
+    ]));
+    for (const assignment of normalized) {
+      delete state.occupancy[assignment.fromSlotId];
+    }
+    for (const assignment of normalized) {
+      state.occupancy[assignment.toSlotId] = occupants.get(assignment.soldierKey);
+      if (state.reservations[assignment.toSlotId]?.soldierKey
+          === assignment.soldierKey) {
+        delete state.reservations[assignment.toSlotId];
+      }
+    }
+    return {
+      accepted: true,
+      reason: null,
+      assignments: normalized.map(record => ({ ...record }))
+    };
+  }
+
   startTransit(id, request) {
     const state = this.#state(id);
     const descriptor = this.#descriptor(state);

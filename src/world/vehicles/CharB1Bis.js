@@ -5,161 +5,27 @@ import {
   createTrackedRunningGear,
   createTrackedRunningGearProxy
 } from './TrackedRunningGear.js';
+import { CHAR_B1_BIS_VISUAL_DATA } from '../../content/france1940/vehicleData/CharB1BisVisualData.js';
 
-// All dimensions use scene metres. Published overall length excludes weapon
-// projection; track cleats own exact width and the cupola hatch owns height.
-const B1 = Object.freeze({
-  length: 6.37,
-  width: 2.46,
-  height: 2.79,
-  hullRearZ: -3.185,
-  hullFrontZ: 3.185,
-  trackWidth: 0.45,
-  // 0.996 + (0.45 * 1.04 / 2) = 1.230 m exact cleat envelope.
-  trackCenterX: 0.996,
-  trackLength: 6.18,
-  trackHeight: 1.45,
-  trackCenterY: 0.80,
-  roadWheelRadius: 0.155,
-  roadWheelCentersZ: Object.freeze(Array.from(
-    { length: 16 },
-    (_, index) => -2.25 + index * 0.30
-  )),
-  turretRingY: 1.88,
-  turretCenterZ: 0.95,
-  turretGunAxisLocalY: 0.34,
-  turretGunMuzzleLocalZ: 1.68,
-  hullGunAxis: Object.freeze([lateralX('right', 0.47), 1.31, 2.88]),
-  hullGunMuzzleZ: 3.16,
-  driverHoodCenterX: lateralX('left', 0.43)
-});
-
-// Side outline and cross-section widths registered to the Ken Musgrave
-// orthographic plate, with exact endpoints supplied by the official envelope.
-const HULL_STATIONS = Object.freeze([
-  // z, half width, underside, shoulder, crown, crown half-width
-  { z: -3.185, halfWidth: 0.77, bottomY: 0.50, shoulderY: 1.00, topY: 1.08, topHalfWidth: 0.58 },
-  { z: -3.04, halfWidth: 1.05, bottomY: 0.25, shoulderY: 1.30, topY: 1.40, topHalfWidth: 0.80 },
-  { z: -2.68, halfWidth: 1.10, bottomY: 0.18, shoulderY: 1.44, topY: 1.53, topHalfWidth: 0.86 },
-  { z: -1.75, halfWidth: 1.10, bottomY: 0.15, shoulderY: 1.46, topY: 1.55, topHalfWidth: 0.87 },
-  { z: -0.70, halfWidth: 1.10, bottomY: 0.15, shoulderY: 1.46, topY: 1.55, topHalfWidth: 0.87 },
-  { z: 0.25, halfWidth: 1.10, bottomY: 0.15, shoulderY: 1.46, topY: 1.55, topHalfWidth: 0.87 },
-  { z: 1.20, halfWidth: 1.10, bottomY: 0.15, shoulderY: 1.46, topY: 1.55, topHalfWidth: 0.87 },
-  { z: 2.05, halfWidth: 1.10, bottomY: 0.17, shoulderY: 1.43, topY: 1.52, topHalfWidth: 0.85 },
-  { z: 2.56, halfWidth: 1.08, bottomY: 0.23, shoulderY: 1.31, topY: 1.42, topHalfWidth: 0.75 },
-  { z: 2.95, halfWidth: 1.00, bottomY: 0.36, shoulderY: 1.12, topY: 1.22, topHalfWidth: 0.60 },
-  { z: 3.185, halfWidth: 0.73, bottomY: 0.58, shoulderY: 0.94, topY: 1.01, topHalfWidth: 0.45 }
-]);
-
-const UPPER_HULL_STATIONS = Object.freeze([
-  { z: -2.70, halfWidth: 0.76, bottomY: 1.28, shoulderY: 1.52, topY: 1.62, topHalfWidth: 0.61 },
-  { z: -2.42, halfWidth: 0.82, bottomY: 1.30, shoulderY: 1.59, topY: 1.68, topHalfWidth: 0.67 },
-  { z: -1.55, halfWidth: 0.83, bottomY: 1.30, shoulderY: 1.61, topY: 1.70, topHalfWidth: 0.68 },
-  { z: -0.55, halfWidth: 0.84, bottomY: 1.30, shoulderY: 1.65, topY: 1.74, topHalfWidth: 0.69 },
-  { z: 0.65, halfWidth: 0.84, bottomY: 1.30, shoulderY: 1.81, topY: 1.91, topHalfWidth: 0.69 },
-  { z: 1.55, halfWidth: 0.83, bottomY: 1.29, shoulderY: 1.80, topY: 1.90, topHalfWidth: 0.68 },
-  { z: 2.22, halfWidth: 0.79, bottomY: 1.25, shoulderY: 1.70, topY: 1.81, topHalfWidth: 0.63 },
-  { z: 2.68, halfWidth: 0.66, bottomY: 1.17, shoulderY: 1.48, topY: 1.59, topHalfWidth: 0.49 }
-]);
-
-const ENGINE_COVER_STATIONS = Object.freeze([
-  { z: -3.00, halfWidth: 0.70, bottomY: 1.56, shoulderY: 1.64, topY: 1.71, topHalfWidth: 0.61 },
-  { z: -2.78, halfWidth: 0.75, bottomY: 1.57, shoulderY: 1.73, topY: 1.82, topHalfWidth: 0.66 },
-  { z: -1.92, halfWidth: 0.76, bottomY: 1.59, shoulderY: 1.93, topY: 2.03, topHalfWidth: 0.67 },
-  { z: -1.72, halfWidth: 0.70, bottomY: 1.59, shoulderY: 1.87, topY: 1.96, topHalfWidth: 0.60 }
-]);
-
-const TURRET_RINGS = Object.freeze([
-  // APX4 casting: broad lower race, rounded shoulder, slightly pulled-in rear.
-  { y: 0.00, radiusX: 0.68, radiusZ: 0.95, centerZ: 0.00 },
-  { y: 0.08, radiusX: 0.72, radiusZ: 1.00, centerZ: 0.01 },
-  { y: 0.35, radiusX: 0.67, radiusZ: 0.92, centerZ: -0.01 },
-  { y: 0.52, radiusX: 0.55, radiusZ: 0.80, centerZ: -0.05 },
-  { y: 0.60, radiusX: 0.37, radiusZ: 0.58, centerZ: -0.09 }
-]);
+const B1 = CHAR_B1_BIS_VISUAL_DATA;
+const HULL_STATIONS = B1.geometry.hullStations;
+const UPPER_HULL_STATIONS = B1.geometry.upperHullStations;
+const ENGINE_COVER_STATIONS = B1.geometry.engineCoverStations;
+const TURRET_RINGS = B1.geometry.turret.rings;
+const TURRET = B1.geometry.turret;
+const RUNNING_GEAR = B1.geometry.runningGear;
+const DIMENSIONS = B1.dimensionsMeters;
 
 export const CHAR_B1_BIS_BLUEPRINT_CALIBRATION = Object.freeze({
-  coordinateFrame: '+Y up, +Z forward, -X vehicle right',
-  rigidEnvelopeMeters: Object.freeze({
-    length: B1.length,
-    width: B1.width,
-    height: B1.height
-  }),
-  sources: Object.freeze([
-    Object.freeze({
-      title: 'Le char B1 bis',
-      publisher: 'Chemins de memoire / Ministere des Armees',
-      url: 'https://www.cheminsdememoire.gouv.fr/sites/default/files/2019-06/char%20B1%20bis.pdf',
-      use: 'official 6.37 x 2.46 x 2.79 m envelope, armament, crew, and mass',
-      quality: 'official museum collection sheet; dimensions treated as historical facts'
-    }),
-    Object.freeze({
-      title: 'Char B1-bis four-view scale drawing',
-      author: 'Ken Musgrave',
-      publisher: 'OnWar',
-      url: 'https://onwar.com/wwii/tanks/france/fr001b1bisp.html',
-      imageUrl: 'https://onwar.com/wwii/tanks/france/fr001b1bis.jpg',
-      use: 'side, front, rear, and top outline registration',
-      quality: 'secondary orthographic drawing; proportions checked against official envelope'
-    }),
-    Object.freeze({
-      title: 'Char B1 bis no. 738 factory photograph',
-      publisher: 'ECPAD ImagesDefense',
-      url: 'https://imagesdefense.gouv.fr/fr/plan-general-de-trois-quarts-avant-du-char-b1-bis-numero-738-qui-sort-de-l-usine-fcm-de-toulon.html',
-      use: 'front asymmetry, driver hood, hull-gun mantlet, APX4 casting, and track envelope',
-      quality: 'official 1940 photograph; perspective reference'
-    }),
-    Object.freeze({
-      title: '1930 Char B1 technical description',
-      publisher: 'Chars francais',
-      url: 'https://www.chars-francais.net/index.php/engins-blindes/chars?catid=13&id=1789%3A1930-char-b1&view=article',
-      use: 'shared B-series suspension architecture and right-side hull armament layout',
-      quality: 'secondary transcription; suspension statement cross-checked against period photographs'
-    })
-  ]),
-  datums: Object.freeze({
-    groundLineY: Object.freeze({ value: 0, quality: 'exact model contract' }),
-    hullRearZ: Object.freeze({ value: B1.hullRearZ, quality: 'exact official envelope endpoint' }),
-    hullFrontZ: Object.freeze({ value: B1.hullFrontZ, quality: 'exact official envelope endpoint' }),
-    trackCenterX: Object.freeze({
-      value: B1.trackCenterX,
-      quality: 'geometry-derived from exact 2.46 m width and documented 0.45 m track'
-    }),
-    roadWheelCentersZ: Object.freeze({
-      value: B1.roadWheelCentersZ,
-      quality: 'orthographic registration approximation preserving sixteen-wheel identity'
-    }),
-    turretRing: Object.freeze({
-      value: Object.freeze([0, B1.turretRingY, B1.turretCenterZ]),
-      quality: 'multi-view registration approximation'
-    }),
-    turretGunAxis: Object.freeze({
-      value: Object.freeze([
-        0,
-        B1.turretRingY + B1.turretGunAxisLocalY,
-        B1.turretCenterZ
-      ]),
-      quality: 'multi-view registration approximation'
-    }),
-    hullGunAxis: Object.freeze({
-      value: B1.hullGunAxis,
-      quality: 'right-side placement historical; precise center inferred from front elevation'
-    })
-  }),
-  outlineLandmarks: Object.freeze([
-    'full-height wraparound track run surrounding sixteen small road wheels',
-    'near-vertical side armor with sloping short bow and rounded rear return',
-    'driver hood on vehicle left and 75 mm mantlet on vehicle right',
-    'right-side crew door and left-side armored radiator louvres',
-    'compact rounded APX4 turret forward of hull center with rear-offset cupola'
-  ])
+  ...B1.calibration,
+  sources: B1.sources
 });
 
 const scratchA = new THREE.Vector3();
 const scratchB = new THREE.Vector3();
 const scratchC = new THREE.Vector3();
 
-function orientGeometryOutward(geometry) {
+function finalizeClosedGeometry(geometry) {
   const positions = geometry.attributes.position;
   const indices = geometry.index;
   let signedVolume = 0;
@@ -169,19 +35,11 @@ function orientGeometryOutward(geometry) {
     scratchC.fromBufferAttribute(positions, indices.getX(offset + 2));
     signedVolume += scratchA.dot(scratchB.clone().cross(scratchC)) / 6;
   }
-  if (signedVolume < 0) {
-    for (let offset = 0; offset < indices.count; offset += 3) {
-      const second = indices.getX(offset + 1);
-      indices.setX(offset + 1, indices.getX(offset + 2));
-      indices.setX(offset + 2, second);
-    }
-    indices.needsUpdate = true;
-  }
   geometry.computeVertexNormals();
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
   geometry.userData.outwardWindingAudited = true;
-  geometry.userData.signedVolume = Math.abs(signedVolume);
+  geometry.userData.signedVolume = signedVolume;
   return geometry;
 }
 
@@ -236,8 +94,8 @@ function createStationLoft(stations, ringBuilder, name) {
   const frontStart = (stations.length - 1) * ringSize;
   for (let ring = 0; ring < ringSize; ring++) {
     const following = (ring + 1) % ringSize;
-    indices.push(rearCenter, following, ring);
-    indices.push(frontCenter, frontStart + ring, frontStart + following);
+    indices.push(rearCenter, ring, following);
+    indices.push(frontCenter, frontStart + following, frontStart + ring);
   }
 
   const geometry = new THREE.BufferGeometry();
@@ -246,7 +104,11 @@ function createStationLoft(stations, ringBuilder, name) {
   geometry.setIndex(indices);
   geometry.name = name;
   geometry.userData.stationCount = stations.length;
-  return orientGeometryOutward(geometry);
+  geometry.userData.capNormals = Object.freeze({
+    rear: Object.freeze([0, 0, -1]),
+    front: Object.freeze([0, 0, 1])
+  });
+  return finalizeClosedGeometry(geometry);
 }
 
 function createTurretGeometry(rings, segments = 8) {
@@ -271,8 +133,8 @@ function createTurretGeometry(rings, segments = 8) {
     for (let segment = 0; segment < segments; segment++) {
       const following = (segment + 1) % segments;
       indices.push(
-        start + segment, next + segment, next + following,
-        start + segment, next + following, start + following
+        start + segment, next + following, next + segment,
+        start + segment, start + following, next + following
       );
     }
   }
@@ -295,7 +157,54 @@ function createTurretGeometry(rings, segments = 8) {
   geometry.setIndex(indices);
   geometry.name = 'CharB1BisAPX4TurretLoft';
   geometry.userData.ringCount = rings.length;
-  return orientGeometryOutward(geometry);
+  geometry.userData.capNormals = Object.freeze({
+    bottom: Object.freeze([0, -1, 0]),
+    top: Object.freeze([0, 1, 0])
+  });
+  return finalizeClosedGeometry(geometry);
+}
+
+function createOutlineExtrusionGeometry(outline, depth, name) {
+  const positions = [];
+  const uvs = [];
+  const indices = [];
+  const halfDepth = depth * 0.5;
+  for (const z of [-halfDepth, halfDepth]) {
+    outline.forEach(([x, y]) => {
+      positions.push(x, y, z);
+      uvs.push(x + 0.5, y + 0.5);
+    });
+  }
+  const ringSize = outline.length;
+  for (let index = 0; index < ringSize; index++) {
+    const following = (index + 1) % ringSize;
+    indices.push(
+      index, ringSize + index, ringSize + following,
+      index, ringSize + following, following
+    );
+  }
+  const rearCenter = positions.length / 3;
+  positions.push(0, 0, -halfDepth);
+  uvs.push(0.5, 0.5);
+  const frontCenter = positions.length / 3;
+  positions.push(0, 0, halfDepth);
+  uvs.push(0.5, 0.5);
+  for (let index = 0; index < ringSize; index++) {
+    const following = (index + 1) % ringSize;
+    indices.push(rearCenter, index, following);
+    indices.push(frontCenter, ringSize + following, ringSize + index);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.name = name;
+  geometry.userData.sourceOutline = outline;
+  geometry.userData.capNormals = Object.freeze({
+    rear: Object.freeze([0, 0, -1]),
+    front: Object.freeze([0, 0, 1])
+  });
+  return finalizeClosedGeometry(geometry);
 }
 
 function makeMesh(name, geometry, material, lodBand, parent) {
@@ -399,54 +308,63 @@ function addSideDetails(tankGroup, bodyMat, metalMat) {
 }
 
 function addDriverAndHullArmament(tankGroup, bodyMat, metalMat) {
-  const hoodStations = [
-    { z: 1.55, halfWidth: 0.36, bottomY: 1.66, shoulderY: 1.91, topY: 2.03, topHalfWidth: 0.27 },
-    { z: 2.00, halfWidth: 0.38, bottomY: 1.55, shoulderY: 1.94, topY: 2.11, topHalfWidth: 0.29 },
-    { z: 2.15, halfWidth: 0.30, bottomY: 1.44, shoulderY: 1.82, topY: 1.95, topHalfWidth: 0.20 }
-  ];
+  const driver = B1.geometry.driver;
   const driverHood = makeMesh(
     'CharB1Bis_LeftDriverHood',
-    createStationLoft(hoodStations, hullRing, 'CharB1BisDriverHoodLoft'),
+    createStationLoft(driver.hoodStations, hullRing, 'CharB1BisDriverHoodLoft'),
     bodyMat,
     'core',
     tankGroup
   );
-  driverHood.position.x = B1.driverHoodCenterX;
+  driverHood.position.x = driver.centerX;
   driverHood.userData.semanticSide = 'left';
   driverHood.userData.surfaceRole = 'driver-hood';
 
   const visor = makeMesh(
     'CharB1Bis_DriverVisor',
-    new THREE.BoxGeometry(0.43, 0.20, 0.09),
+    createOutlineExtrusionGeometry(
+      driver.visor.outline,
+      driver.visor.depth,
+      'CharB1BisDriverVisorPlate'
+    ),
     metalMat,
     'medium',
     tankGroup
   );
-  visor.position.set(B1.driverHoodCenterX, 1.90, 2.16);
+  visor.position.fromArray(driver.visor.center);
+  visor.rotation.x = -0.12;
   visor.userData.semanticSide = 'left';
+  visor.userData.surfaceRole = 'seated-driver-visor';
+  visor.userData.evidenceQuality = driver.visor.evidenceQuality;
 
+  const hullGun = B1.geometry.hullGun;
   const mantlet = makeMesh(
     'CharB1Bis_75mmMantlet',
-    new THREE.CylinderGeometry(0.29, 0.32, 0.22, 14),
+    createOutlineExtrusionGeometry(
+      hullGun.collarOutline,
+      hullGun.collarDepth,
+      'CharB1Bis75mmIrregularCollar'
+    ),
     bodyMat,
     'core',
     tankGroup
   );
-  mantlet.rotation.x = Math.PI / 2;
-  mantlet.position.set(B1.hullGunAxis[0], B1.hullGunAxis[1], 3.02);
+  mantlet.position.set(hullGun.axis[0], hullGun.axis[1], hullGun.collarCenterZ);
   mantlet.userData.mountSide = 'right';
   mantlet.userData.surfaceRole = 'hull-gun-mantlet';
+  mantlet.userData.evidenceQuality = hullGun.evidenceQuality;
+  mantlet.userData.outlineKind = 'irregular-photo-constrained';
 
-  const hullGunRearZ = 2.92;
-  const hullGunLength = B1.hullGunMuzzleZ - hullGunRearZ;
+  const hullGunRearZ = 2.96;
+  const hullGunLength = hullGun.muzzleZ - hullGunRearZ;
   const hullGunBarrel = addCylinderBarrel({
     name: 'CharB1_75mm_HullGun',
     radiusFront: 0.075,
     radiusRear: 0.105,
     length: hullGunLength,
     center: new THREE.Vector3(
-      B1.hullGunAxis[0],
-      B1.hullGunAxis[1],
+      hullGun.axis[0],
+      hullGun.axis[1],
       hullGunRearZ + hullGunLength / 2
     ),
     material: metalMat,
@@ -458,7 +376,7 @@ function addDriverAndHullArmament(tankGroup, bodyMat, metalMat) {
 
   const hullMuzzle = new THREE.Object3D();
   hullMuzzle.name = 'CharB1_75mm_Muzzle';
-  hullMuzzle.position.set(B1.hullGunAxis[0], B1.hullGunAxis[1], B1.hullGunMuzzleZ);
+  hullMuzzle.position.set(hullGun.axis[0], hullGun.axis[1], hullGun.muzzleZ);
   hullMuzzle.userData.weaponMountId = 'hull_main';
   hullMuzzle.userData.mountSide = 'right';
   tankGroup.add(hullMuzzle);
@@ -512,15 +430,49 @@ function addProxySilhouette(tankGroup, bodyMat, turretMat, trackMat, metalMat) {
     id: 'CharB1BisAuthoredRunningGearProxy',
     trackMaterial: trackMat,
     wheelMaterial: turretMat,
-    trackCenterX: B1.trackCenterX,
-    trackWidth: B1.trackWidth,
-    beltLength: B1.trackLength,
-    beltHeight: B1.trackHeight,
-    centerY: B1.trackCenterY,
-    roadWheelRadius: 0.16,
-    roadWheelCount: 16
+    trackCenterX: RUNNING_GEAR.trackCenterX,
+    trackWidth: RUNNING_GEAR.trackWidth,
+    beltLength: RUNNING_GEAR.fallbackEnvelope.beltLength,
+    beltHeight: RUNNING_GEAR.fallbackEnvelope.beltHeight,
+    centerY: RUNNING_GEAR.fallbackEnvelope.centerY,
+    roadWheelRadius: 0.15,
+    roadWheelCount: RUNNING_GEAR.trackPath.roadWheels.length,
+    linkPitch: RUNNING_GEAR.linkPitch * 1.9,
+    trackPath: RUNNING_GEAR.trackPath
   });
+  tracks.position.y = RUNNING_GEAR.assemblyGroundOffset.y;
+  tracks.userData.supportIds = Object.freeze([
+    RUNNING_GEAR.trackPath.driveSprocket.id,
+    RUNNING_GEAR.trackPath.idlerWheel.id,
+    ...RUNNING_GEAR.trackPath.roadWheels.map(wheel => wheel.id),
+    ...RUNNING_GEAR.trackPath.returnRollers.map(wheel => wheel.id)
+  ]);
   proxy.add(tracks);
+
+  for (const support of [
+    RUNNING_GEAR.trackPath.driveSprocket,
+    RUNNING_GEAR.trackPath.idlerWheel
+  ]) {
+    for (const side of [-1, 1]) {
+      const wheel = makeMesh(
+        support.kind === 'driveSprocket'
+          ? `CharB1Bis_Proxy${side < 0 ? 'Right' : 'Left'}RearDriveSprocket`
+          : `CharB1Bis_Proxy${side < 0 ? 'Right' : 'Left'}FrontIdlerWheel`,
+        new THREE.CylinderGeometry(support.radius, support.radius, RUNNING_GEAR.trackWidth * 0.68, 8),
+        turretMat,
+        'proxy',
+        proxy
+      );
+      wheel.rotation.z = Math.PI / 2;
+      wheel.position.set(
+        side * RUNNING_GEAR.trackCenterX,
+        support.centerY + RUNNING_GEAR.assemblyGroundOffset.y,
+        support.centerZ
+      );
+      wheel.userData.supportId = support.id;
+      wheel.visible = false;
+    }
+  }
 
   const turret = makeMesh(
     'CharB1Bis_ProxyAPX4Turret',
@@ -529,7 +481,7 @@ function addProxySilhouette(tankGroup, bodyMat, turretMat, trackMat, metalMat) {
     'proxy',
     proxy
   );
-  turret.position.set(0, B1.turretRingY, B1.turretCenterZ);
+  turret.position.set(0, TURRET.ringY, TURRET.centerZ);
   turret.visible = false;
 
   const cupola = makeMesh(
@@ -539,7 +491,7 @@ function addProxySilhouette(tankGroup, bodyMat, turretMat, trackMat, metalMat) {
     'proxy',
     proxy
   );
-  cupola.position.set(0, B1.turretRingY + 0.755, B1.turretCenterZ - 0.12);
+  cupola.position.set(0, TURRET.ringY + 0.755, TURRET.centerZ - 0.12);
   cupola.visible = false;
   const hatch = makeMesh(
     'CharB1Bis_ProxyCupolaHatch',
@@ -548,10 +500,10 @@ function addProxySilhouette(tankGroup, bodyMat, turretMat, trackMat, metalMat) {
     'proxy',
     proxy
   );
-  hatch.position.set(0, B1.turretRingY + 0.895, B1.turretCenterZ - 0.12);
+  hatch.position.set(0, TURRET.ringY + 0.895, TURRET.centerZ - 0.12);
   hatch.visible = false;
 
-  const barrelLength = B1.turretGunMuzzleLocalZ - 0.70;
+  const barrelLength = TURRET.gunMuzzleLocalZ - 0.70;
   const barrel = addCylinderBarrel({
     name: 'CharB1Bis_Proxy47mmBarrel',
     radiusFront: 0.045,
@@ -559,14 +511,57 @@ function addProxySilhouette(tankGroup, bodyMat, turretMat, trackMat, metalMat) {
     length: barrelLength,
     center: new THREE.Vector3(
       0,
-      B1.turretRingY + B1.turretGunAxisLocalY,
-      B1.turretCenterZ + 0.70 + barrelLength / 2
+      TURRET.ringY + TURRET.gunAxisLocalY,
+      TURRET.centerZ + 0.70 + barrelLength / 2
     ),
     material: metalMat,
     lodBand: 'proxy',
     parent: proxy
   });
   barrel.visible = false;
+
+  const proxyDriver = makeMesh(
+    'CharB1Bis_ProxyDriverProjection',
+    createStationLoft(B1.geometry.driver.hoodStations, hullRing, 'CharB1BisProxyDriverLoft'),
+    bodyMat,
+    'proxy',
+    proxy
+  );
+  proxyDriver.position.x = B1.geometry.driver.centerX;
+  proxyDriver.visible = false;
+  const proxyHullGun = makeMesh(
+    'CharB1Bis_Proxy75mmCollar',
+    createOutlineExtrusionGeometry(
+      B1.geometry.hullGun.collarOutline,
+      B1.geometry.hullGun.collarDepth,
+      'CharB1BisProxy75mmIrregularCollar'
+    ),
+    bodyMat,
+    'proxy',
+    proxy
+  );
+  proxyHullGun.position.set(
+    B1.geometry.hullGun.axis[0],
+    B1.geometry.hullGun.axis[1],
+    B1.geometry.hullGun.collarCenterZ
+  );
+  proxyHullGun.visible = false;
+  const proxyHullBarrelLength = B1.geometry.hullGun.muzzleZ - 2.96;
+  const proxyHullBarrel = addCylinderBarrel({
+    name: 'CharB1Bis_Proxy75mmBarrel',
+    radiusFront: 0.075,
+    radiusRear: 0.105,
+    length: proxyHullBarrelLength,
+    center: new THREE.Vector3(
+      B1.geometry.hullGun.axis[0],
+      B1.geometry.hullGun.axis[1],
+      2.96 + proxyHullBarrelLength * 0.5
+    ),
+    material: metalMat,
+    lodBand: 'proxy',
+    parent: proxy
+  });
+  proxyHullBarrel.visible = false;
   tankGroup.add(proxy);
   tankGroup.userData.authoredProxy = proxy;
 }
@@ -607,7 +602,7 @@ export function createCharB1BisMesh() {
   hull.userData.authoredHull = true;
   hull.userData.surfaceRole = 'primary-hull';
   hull.userData.profileStationCount = HULL_STATIONS.length;
-  hull.userData.profileSource = CHAR_B1_BIS_BLUEPRINT_CALIBRATION.sources[1].title;
+  hull.userData.profileSource = B1.evidenceStatus;
 
   const upperHull = makeMesh(
     'CharB1Bis_UpperHull',
@@ -619,7 +614,7 @@ export function createCharB1BisMesh() {
   upperHull.userData.authoredHull = true;
   upperHull.userData.surfaceRole = 'raised-central-hull';
   upperHull.userData.profileStationCount = UPPER_HULL_STATIONS.length;
-  upperHull.userData.profileSource = CHAR_B1_BIS_BLUEPRINT_CALIBRATION.sources[1].title;
+  upperHull.userData.profileSource = B1.evidenceStatus;
 
   const engineCover = makeMesh(
     'CharB1Bis_RaisedEngineCover',
@@ -630,35 +625,51 @@ export function createCharB1BisMesh() {
   );
   engineCover.userData.surfaceRole = 'sloped-rear-engine-cover';
   engineCover.userData.profileStationCount = ENGINE_COVER_STATIONS.length;
-  engineCover.userData.profileSource = CHAR_B1_BIS_BLUEPRINT_CALIBRATION.sources[1].title;
+  engineCover.userData.profileSource = B1.evidenceStatus;
 
   const runningGear = createTrackedRunningGear({
     id: 'CharB1BisRunningGear',
     trackMaterial: trackMat,
     wheelMaterial: turretMat,
-    trackCenterX: B1.trackCenterX,
-    trackWidth: B1.trackWidth,
-    beltLength: B1.trackLength,
-    beltHeight: B1.trackHeight,
-    centerY: B1.trackCenterY,
-    roadWheelRadius: B1.roadWheelRadius,
-    roadWheelCount: B1.roadWheelCentersZ.length,
-    roadWheelY: 0.40,
-    roadWheelZStart: B1.roadWheelCentersZ[0],
-    roadWheelSpacing: 0.30,
-    sprocketRadius: 0.49,
-    idlerRadius: 0.45,
-    linkPitch: 0.20
+    trackCenterX: RUNNING_GEAR.trackCenterX,
+    trackWidth: RUNNING_GEAR.trackWidth,
+    beltLength: RUNNING_GEAR.fallbackEnvelope.beltLength,
+    beltHeight: RUNNING_GEAR.fallbackEnvelope.beltHeight,
+    centerY: RUNNING_GEAR.fallbackEnvelope.centerY,
+    roadWheelRadius: 0.15,
+    roadWheelCount: RUNNING_GEAR.trackPath.roadWheels.length,
+    roadWheelY: 0.37,
+    roadWheelZStart: RUNNING_GEAR.trackPath.roadWheels[0].centerZ,
+    roadWheelSpacing: 0.23,
+    sprocketRadius: RUNNING_GEAR.trackPath.driveSprocket.radius,
+    idlerRadius: RUNNING_GEAR.trackPath.idlerWheel.radius,
+    linkPitch: RUNNING_GEAR.linkPitch,
+    trackPath: RUNNING_GEAR.trackPath
   });
-  // Shared gear defaults to a front drive sprocket; B-series drive is at rear.
-  for (const sprocket of runningGear.userData.trackParts.sprockets) {
-    sprocket.position.z = -2.15;
-  }
-  for (const idler of runningGear.userData.trackParts.idlers) {
-    idler.position.z = 2.17;
-  }
+  runningGear.position.y = RUNNING_GEAR.assemblyGroundOffset.y;
   runningGear.userData.driveLocation = 'rear';
-  runningGear.userData.wheelLayout = 'three four-wheel bogies plus four auxiliary rollers per side';
+  runningGear.userData.wheelLayout = 'three four-wheel bogies (compound) plus three forward independent wheels and one rear tension wheel per side';
+  runningGear.userData.supportIds = Object.freeze([
+    RUNNING_GEAR.trackPath.driveSprocket.id,
+    RUNNING_GEAR.trackPath.idlerWheel.id,
+    ...RUNNING_GEAR.trackPath.roadWheels.map(wheel => wheel.id),
+    ...RUNNING_GEAR.trackPath.returnRollers.map(wheel => wheel.id)
+  ]);
+  runningGear.userData.trackParts.roadWheels.forEach((wheel, index) => {
+    const support = RUNNING_GEAR.trackPath.roadWheels[
+      index % RUNNING_GEAR.trackPath.roadWheels.length
+    ];
+    wheel.userData.supportId = support.id;
+    wheel.userData.suspensionGroup = support.group;
+    wheel.userData.supportKind = support.kind;
+    wheel.userData.evidenceQuality = support.evidenceQuality;
+  });
+  runningGear.userData.trackParts.sprockets.forEach(wheel => {
+    wheel.userData.supportId = RUNNING_GEAR.trackPath.driveSprocket.id;
+  });
+  runningGear.userData.trackParts.idlers.forEach(wheel => {
+    wheel.userData.supportId = RUNNING_GEAR.trackPath.idlerWheel.id;
+  });
   tankGroup.add(runningGear);
   tankGroup.userData.runningGear = runningGear;
 
@@ -667,7 +678,7 @@ export function createCharB1BisMesh() {
 
   const turretGroup = new THREE.Group();
   turretGroup.name = 'Turret';
-  turretGroup.position.set(0, B1.turretRingY, B1.turretCenterZ);
+  turretGroup.position.set(0, TURRET.ringY, TURRET.centerZ);
   tankGroup.add(turretGroup);
 
   const turret = makeMesh(
@@ -681,9 +692,9 @@ export function createCharB1BisMesh() {
 
   const cupola = makeMesh(
     'CharB1Bis_APX4Cupola',
-    new THREE.CylinderGeometry(0.275, 0.31, 0.24, 12),
+    new THREE.CylinderGeometry(0.275, 0.31, 0.24, 8),
     turretMat,
-    'medium',
+    'core',
     turretGroup
   );
   cupola.position.set(0, 0.755, -0.12);
@@ -706,9 +717,9 @@ export function createCharB1BisMesh() {
     turretGroup
   );
   mantlet.rotation.x = Math.PI / 2;
-  mantlet.position.set(0, B1.turretGunAxisLocalY, 0.70);
+  mantlet.position.set(0, TURRET.gunAxisLocalY, 0.70);
 
-  const barrelLength = B1.turretGunMuzzleLocalZ - 0.70;
+  const barrelLength = TURRET.gunMuzzleLocalZ - 0.70;
   const barrel = addCylinderBarrel({
     name: 'CharB1Bis_47mm_SA35',
     radiusFront: 0.045,
@@ -716,7 +727,7 @@ export function createCharB1BisMesh() {
     length: barrelLength,
     center: new THREE.Vector3(
       0,
-      B1.turretGunAxisLocalY,
+      TURRET.gunAxisLocalY,
       0.70 + barrelLength / 2
     ),
     material: metalMat,
@@ -739,10 +750,18 @@ export function createCharB1BisMesh() {
   coax.userData.mountSide = 'right';
   coax.userData.placementQuality = 'historical front-arrangement evidence';
 
+  const coaxMuzzle = new THREE.Object3D();
+  coaxMuzzle.name = 'CharB1_Coax_Muzzle';
+  coaxMuzzle.position.set(lateralX('right', 0.18), 0.34, 1.30);
+  coaxMuzzle.userData.weaponMountId = 'coax';
+  coaxMuzzle.userData.mountSide = 'right';
+  turretGroup.add(coaxMuzzle);
+
   const muzzle = new THREE.Object3D();
   muzzle.name = 'CharB1_47mm_Muzzle';
-  muzzle.position.set(0, B1.turretGunAxisLocalY, B1.turretGunMuzzleLocalZ);
+  muzzle.position.set(0, TURRET.gunAxisLocalY, TURRET.gunMuzzleLocalZ);
   muzzle.userData.weaponMountId = 'main';
+  muzzle.userData.mountSide = 'center';
   turretGroup.add(muzzle);
 
   turretGroup.userData.deckContact = {
@@ -752,17 +771,22 @@ export function createCharB1BisMesh() {
   tankGroup.userData.turret = turretGroup;
   tankGroup.userData.barrel = barrel;
   tankGroup.userData.muzzle = muzzle;
+  tankGroup.userData.weaponMuzzles = Object.freeze({
+    coax: coaxMuzzle,
+    hull: tankGroup.userData.hullMuzzle
+  });
 
   addProxySilhouette(tankGroup, bodyMat, turretMat, trackMat, metalMat);
 
   tankGroup.userData.modelMetadata = {
     designation: 'Char B1 bis',
     dimensionsMeters: {
-      length: B1.length,
-      width: B1.width,
-      height: B1.height
+      length: DIMENSIONS.length,
+      width: DIMENSIONS.width,
+      height: DIMENSIONS.height
     },
     calibration: CHAR_B1_BIS_BLUEPRINT_CALIBRATION,
+    visualData: B1,
     features: [
       '75 mm ABS SA 35 right-side hull howitzer',
       '47 mm SA 35 in compact APX4 turret',

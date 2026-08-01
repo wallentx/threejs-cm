@@ -236,16 +236,16 @@
       "designation": "Char B1 bis",
       "view": "front",
       "lod": "core",
-      "triangleCount": 2456,
+      "triangleCount": 2704,
       "projectedBoundsMeters": {
         "minU": -1.221,
         "maxU": 1.221,
-        "minV": 0.0391,
-        "maxV": 2.48,
+        "minV": 0.025,
+        "maxV": 2.755,
         "width": 2.442,
-        "height": 2.4409
+        "height": 2.73
       },
-      "svgHash": "18e2479ec649d771511a14f54e7c7de56e0249466a671c285e6644ee4e4aa4e2"
+      "svgHash": "8291d6684ad088c0c3b31e4c47271e9f4a7e8d8c0b5b50718ba878c2dff0e4e3"
     },
     "fr_char_b1bis:front:high": {
       "key": "fr_char_b1bis:front:high",
@@ -253,16 +253,16 @@
       "designation": "Char B1 bis",
       "view": "front",
       "lod": "high",
-      "triangleCount": 6484,
+      "triangleCount": 7284,
       "projectedBoundsMeters": {
         "minU": -1.23,
         "maxU": 1.23,
-        "minV": -0.0007,
+        "minV": 0,
         "maxV": 2.79,
         "width": 2.46,
-        "height": 2.7907
+        "height": 2.79
       },
-      "svgHash": "ec36bbe5fe0e1ae888e6101516557267dbff37b233750edc60ff89fb07f3ad14"
+      "svgHash": "6ffddb6b3c4bf8cb013f9b5558f8f6119d21590ecc62e3325f8e5f6983cea8bd"
     },
     "fr_char_b1bis:front:medium": {
       "key": "fr_char_b1bis:front:medium",
@@ -270,16 +270,16 @@
       "designation": "Char B1 bis",
       "view": "front",
       "lod": "medium",
-      "triangleCount": 4316,
+      "triangleCount": 4904,
       "projectedBoundsMeters": {
         "minU": -1.221,
         "maxU": 1.221,
-        "minV": 0.0391,
+        "minV": 0.025,
         "maxV": 2.755,
         "width": 2.442,
-        "height": 2.7159
+        "height": 2.73
       },
-      "svgHash": "1be080d20aa222b2a84417bca384a01a44c093bf15584b9aaf3a95d58d2e655b"
+      "svgHash": "fb44b551d43986a485375c155699543dfc819ce8abd91d82f9fe33bcee06543d"
     },
     "fr_char_b1bis:front:proxy": {
       "key": "fr_char_b1bis:front:proxy",
@@ -287,16 +287,16 @@
       "designation": "Char B1 bis",
       "view": "front",
       "lod": "proxy",
-      "triangleCount": 1700,
+      "triangleCount": 2776,
       "projectedBoundsMeters": {
-        "minU": -1.221,
-        "maxU": 1.221,
-        "minV": 0.075,
+        "minU": -1.23,
+        "maxU": 1.23,
+        "minV": 0.0035,
         "maxV": 2.79,
-        "width": 2.442,
-        "height": 2.715
+        "width": 2.46,
+        "height": 2.7865
       },
-      "svgHash": "ee7f43f2f33f6e2977a6ba1ae5f138c8b8785cf32689559b95ac8176419a5dac"
+      "svgHash": "19863d184d56f3420e762796e5d5223bf5b9fe38b82633488a804af0c10c8530"
     },
     "fr_char_b1bis:side:core": {
       "key": "fr_char_b1bis:side:core",
@@ -304,16 +304,16 @@
       "designation": "Char B1 bis",
       "view": "side",
       "lod": "core",
-      "triangleCount": 2456,
+      "triangleCount": 2704,
       "projectedBoundsMeters": {
         "minU": -3.185,
         "maxU": 3.185,
-        "minV": 0.0391,
-        "maxV": 2.48,
+        "minV": 0.025,
+        "maxV": 2.755,
         "width": 6.37,
-        "height": 2.4409
+        "height": 2.73
       },
-      "svgHash": "c815b938b50119bf6278e713ba10189b3f456ac200cb3ee9f89159c21ef50e46"
+      "svgHash": "ae1b570099e24e22dc39d1bebb3e4d7bdb4c435b00f6b4640d00b3da9096dd04"
     },
     "fr_char_b1bis:side:high": {
       "key": "fr_char_b1bis:side:high",
@@ -321,16 +321,16 @@
       "designation": "Char B1 bis",
       "view": "side",
       "lod": "high",
-      "triangleCount": 6484,
+      "triangleCount": 7284,
       "projectedBoundsMeters": {
         "minU": -3.185,
         "maxU": 3.185,
-        "minV": -0.0007,
+        "minV": 0,
         "maxV": 2.79,
         "width": 6.37,
-        "height": 2.7907
+        "height": 2.79
       },
-      "svgHash": "ab0549bb9bbae587760562f3c03b918e655d6423973c70ab04c3929f9d1f9dcc"
+      "svgHash": "b1d28cd706e3abb9ea1cf720850583e52c2a206e0da54660cf550eb1cd74253a"
     },
     "fr_char_b1bis:side:medium": {
       "key": "fr_char_b1bis:side:medium",
@@ -338,16 +338,16 @@
       "designation": "Char B1 bis",
       "view": "side",
       "lod": "medium",
-      "triangleCount": 4316,
+      "triangleCount": 4904,
       "projectedBoundsMeters": {
         "minU": -3.185,
         "maxU": 3.185,
-        "minV": 0.0391,
+        "minV": 0.025,
         "maxV": 2.755,
         "width": 6.37,
-        "height": 2.7159
+        "height": 2.73
       },
-      "svgHash": "975134afacd98362987b37ff8fbca22cda217acbdd8fa95a5e2eb5777399cdbf"
+      "svgHash": "d8b5745667faadf1b2162ed27466b9ecf161344c53d53b97f53c596db7f1ce76"
     },
     "fr_char_b1bis:side:proxy": {
       "key": "fr_char_b1bis:side:proxy",
@@ -355,16 +355,16 @@
       "designation": "Char B1 bis",
       "view": "side",
       "lod": "proxy",
-      "triangleCount": 1700,
+      "triangleCount": 2776,
       "projectedBoundsMeters": {
         "minU": -3.185,
         "maxU": 3.185,
-        "minV": 0.075,
+        "minV": 0.0035,
         "maxV": 2.79,
         "width": 6.37,
-        "height": 2.715
+        "height": 2.7865
       },
-      "svgHash": "482089d96f581f60f3e9c06026c5b9131729504c43acadf00708d5c11b494eeb"
+      "svgHash": "5c4ab92fd8f2d91e8ff568a3f628b9930fd81c77b5bb798437030fc90c46f1f5"
     },
     "fr_char_b1bis:top:core": {
       "key": "fr_char_b1bis:top:core",
@@ -372,7 +372,7 @@
       "designation": "Char B1 bis",
       "view": "top",
       "lod": "core",
-      "triangleCount": 2456,
+      "triangleCount": 2704,
       "projectedBoundsMeters": {
         "minU": -1.221,
         "maxU": 1.221,
@@ -381,7 +381,7 @@
         "width": 2.442,
         "height": 6.37
       },
-      "svgHash": "a3ee371bb798cddf0e5ba78f5b5bc52451583f13964d6f9180f9b12f9f21b9a2"
+      "svgHash": "7238e55a67550f228b2eaa22f097ff66015f79582fb317ad0a1da2186bcd0229"
     },
     "fr_char_b1bis:top:high": {
       "key": "fr_char_b1bis:top:high",
@@ -389,7 +389,7 @@
       "designation": "Char B1 bis",
       "view": "top",
       "lod": "high",
-      "triangleCount": 6484,
+      "triangleCount": 7284,
       "projectedBoundsMeters": {
         "minU": -1.23,
         "maxU": 1.23,
@@ -398,7 +398,7 @@
         "width": 2.46,
         "height": 6.37
       },
-      "svgHash": "66c05f85928dc9c60b2721baa50fa225854678bb5efdd43d569cb54aeb6340a7"
+      "svgHash": "d1124b7404254a24177d4ffb4e5e1e297769bce1556eab3d9bc8d132f52fc307"
     },
     "fr_char_b1bis:top:medium": {
       "key": "fr_char_b1bis:top:medium",
@@ -406,7 +406,7 @@
       "designation": "Char B1 bis",
       "view": "top",
       "lod": "medium",
-      "triangleCount": 4316,
+      "triangleCount": 4904,
       "projectedBoundsMeters": {
         "minU": -1.221,
         "maxU": 1.221,
@@ -415,7 +415,7 @@
         "width": 2.442,
         "height": 6.37
       },
-      "svgHash": "35a8e9e9a084752b2abb00b7378e12eb74663dbfd287a3b5e0c47ba49dd162e1"
+      "svgHash": "b6aa6d5590168c171ab2faf577fca65680c505655a020d8384da427dd9fdbe2a"
     },
     "fr_char_b1bis:top:proxy": {
       "key": "fr_char_b1bis:top:proxy",
@@ -423,16 +423,16 @@
       "designation": "Char B1 bis",
       "view": "top",
       "lod": "proxy",
-      "triangleCount": 1700,
+      "triangleCount": 2776,
       "projectedBoundsMeters": {
-        "minU": -1.221,
-        "maxU": 1.221,
+        "minU": -1.23,
+        "maxU": 1.23,
         "minV": -3.185,
         "maxV": 3.185,
-        "width": 2.442,
+        "width": 2.46,
         "height": 6.37
       },
-      "svgHash": "962551c0c351216539b871acf5fdab8aaa6ac8c624393be02b5eb5768db93710"
+      "svgHash": "60b4bcfc429f8e20d936347c64b855f7e5d471ac26ce311a750be7bd9174bd48"
     },
     "fr_hotchkiss_h39:front:core": {
       "key": "fr_hotchkiss_h39:front:core",

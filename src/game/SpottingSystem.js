@@ -31,10 +31,17 @@ import {
   progressIdentificationNanoseconds,
   validateIdentificationProjection
 } from '../simulation/observation/IdentificationQuality.js';
-import { intersectSegmentOrientedBox3D } from '../simulation/geometry/OrientedBox.js';
+import {
+  deriveOrientedBoxWorldAabb3D,
+  intersectSegmentOrientedBox3D,
+  segmentIntersectsWorldAabb3D
+} from '../simulation/geometry/OrientedBox.js';
 import {
   isBuildingOccupantExposed
 } from '../simulation/buildings/BuildingExposure.js';
+import {
+  validateTerrainSightOccluderSnapshot
+} from '../simulation/terrain/TerrainSightOccluderSnapshot.js';
 import {
   observerCapabilityFacingYaw,
   pointInsideObserverFov,
@@ -74,7 +81,18 @@ const CLOCK_SUB_NANOSECOND_DRIFT_SECONDS = 1e-15;
 const ACQUISITION_PROGRESS_TICKS = BigInt(PROGRESS_PRECISION);
 // First-order presentation smoothing only. Direct observation, direct-contact
 // generation, identification, relay, and precision targeting use visibleNow.
-const DIRECT_RENDER_VISIBILITY_GRACE_NANOSECONDS = 150_000_000;
+// Half a second spans several 10 Hz observation samples; a previously acquired
+// target also retains this bridge while its current sight path is valid so
+// precision reacquisition cannot blink an otherwise visible mesh.
+const DIRECT_RENDER_VISIBILITY_GRACE_NANOSECONDS = 500_000_000;
+const CANONICAL_SPOTTING_STEP_NANOSECONDS = 100_000_000n;
+const CANONICAL_SPOTTING_STEP_SECONDS = 0.1;
+const ATTENTION_COLD_CADENCE_TICKS = 5;
+// First-order gameplay approximation. Pairs inside this range are kept on the
+// full observation path so short-range movement cannot wait on a cold phase.
+const ATTENTION_CLOSE_RANGE_METERS = 80;
+const ATTENTION_CLOSE_RANGE_APPROXIMATION =
+  'gameplay approximation: unit bounds within 80 metres remain urgent';
 
 function finite(value, fallback = 0) {
   return Number.isFinite(value) ? value : fallback;
@@ -590,11 +608,15 @@ function decayAcquisitionWork(
   observation.acquisition = acquisitionProjection(observation);
 }
 
-function updateVisibilityGrace(observation, deltaNanoseconds) {
+function updateVisibilityGrace(
+  observation,
+  deltaNanoseconds,
+  { retainWhileSighted = false } = {}
+) {
   if (typeof deltaNanoseconds !== 'bigint' || deltaNanoseconds < 0n) {
     throw new TypeError('spotting visibility grace delta must be non-negative');
   }
-  if (observation.visibleNow) {
+  if (observation.visibleNow || retainWhileSighted) {
     observation.visibilityGraceRemainingNanoseconds =
       DIRECT_RENDER_VISIBILITY_GRACE_NANOSECONDS;
     return;
@@ -647,6 +669,28 @@ function distance3d(left, right) {
   );
 }
 
+function liftedObservationEndpoints(
+  fromPosition,
+  toPosition,
+  options = {}
+) {
+  const origin = addHeight(
+    fromPosition,
+    options.fromEyeHeight
+      ?? eyeHeight(options.observerStance ?? 'STANDING')
+  );
+  const target = addHeight(
+    toPosition,
+    options.toAimHeight
+      ?? eyeHeight(options.targetStance ?? 'STANDING') * 0.82
+  );
+  return {
+    origin,
+    target,
+    dist: distance3d(origin, target)
+  };
+}
+
 function stanceName(person, unit) {
   return String(person?.stance ?? unit?.stance ?? 'STANDING').toUpperCase();
 }
@@ -676,6 +720,80 @@ function velocityMagnitude(person, unit) {
     return Math.hypot(finite(velocity.x), finite(velocity.y), finite(velocity.z));
   }
   return Math.abs(finite(unit?.moveSpeed));
+}
+
+function stableAttentionIdToken(value) {
+  const text = String(value);
+  return `${typeof value}:${text.length}:${text}`;
+}
+
+function attentionPhase(observerUnitId, observerPersonId, targetUnitId) {
+  const source = [observerUnitId, observerPersonId, targetUnitId]
+    .map(stableAttentionIdToken)
+    .join('|');
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < source.length; index++) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0) % ATTENTION_COLD_CADENCE_TICKS;
+}
+
+function canonicalAttentionTick(
+  intervalStartClock,
+  intervalEndClock,
+  requestedDelta,
+  deltaNanoseconds
+) {
+  const stepNanoseconds = Number(CANONICAL_SPOTTING_STEP_NANOSECONDS);
+  if (requestedDelta !== CANONICAL_SPOTTING_STEP_SECONDS
+      || deltaNanoseconds !== CANONICAL_SPOTTING_STEP_NANOSECONDS
+      || intervalStartClock.timeCompensationSeconds !== 0
+      || intervalEndClock.timeCompensationSeconds !== 0
+      || intervalStartClock.timeNanoseconds % stepNanoseconds !== 0
+      || intervalEndClock.timeNanoseconds % stepNanoseconds !== 0) {
+    return null;
+  }
+  const tick = BigInt(intervalStartClock.timeWholeSeconds)
+    * BigInt(TIME_PRECISION / Number(CANONICAL_SPOTTING_STEP_NANOSECONDS))
+    + BigInt(intervalStartClock.timeNanoseconds / stepNanoseconds);
+  return Number(tick % BigInt(ATTENTION_COLD_CADENCE_TICKS));
+}
+
+function unitAttentionFacts(unit) {
+  const people = livingPeople(unit);
+  const origin = positionObject(unit?.position);
+  let extentMeters = 0;
+  let moving = Math.abs(finite(unit?.moveSpeed)) > 0.2;
+  const firing = finite(unit?.recentFireActivitySeconds) > 0;
+  for (const person of people) {
+    moving ||= velocityMagnitude(person, unit) > 0.2;
+    const position = personPosition(unit, person);
+    extentMeters = Math.max(
+      extentMeters,
+      Math.hypot(position.x - origin.x, position.z - origin.z)
+    );
+  }
+  return { position: origin, extentMeters, moving, firing };
+}
+
+function withinAttentionCloseRange(observerFacts, targetFacts) {
+  const distance = Math.hypot(
+    observerFacts.position.x - targetFacts.position.x,
+    observerFacts.position.z - targetFacts.position.z
+  );
+  return distance <= ATTENTION_CLOSE_RANGE_METERS
+    + observerFacts.extentMeters
+    + targetFacts.extentMeters;
+}
+
+function observationNeedsUrgentAttention(observation) {
+  if (!observation) return false;
+  return observation.directEpisodeActive === true
+    || observation.visibleNow === true
+    || (observation.visibilityGraceRemainingNanoseconds ?? 0) > 0
+    || (observation.acquisitionWorkTicks ?? 0) > 0
+    || (observation.acquisitionWorkRemainder ?? 0) > 0;
 }
 
 function observerKey(unitId, soldierId) {
@@ -827,6 +945,90 @@ function sortedPeople(unit) {
   );
 }
 
+function createBuildingColliderRuns(colliders) {
+  const runs = [];
+  let index = 0;
+  while (index < colliders.length) {
+    const startIndex = index;
+    const buildingId = colliders[index].buildingId;
+    let bounds = null;
+    let boundsValid = true;
+    while (index < colliders.length
+        && colliders[index].buildingId === buildingId) {
+      const colliderBounds = deriveOrientedBoxWorldAabb3D(colliders[index]);
+      if (!colliderBounds) {
+        boundsValid = false;
+      } else if (boundsValid && bounds === null) {
+        bounds = colliderBounds;
+      } else if (boundsValid) {
+        bounds.minX = Math.min(bounds.minX, colliderBounds.minX);
+        bounds.maxX = Math.max(bounds.maxX, colliderBounds.maxX);
+        bounds.minY = Math.min(bounds.minY, colliderBounds.minY);
+        bounds.maxY = Math.max(bounds.maxY, colliderBounds.maxY);
+        bounds.minZ = Math.min(bounds.minZ, colliderBounds.minZ);
+        bounds.maxZ = Math.max(bounds.maxZ, colliderBounds.maxZ);
+      }
+      index++;
+    }
+    runs.push({
+      startIndex,
+      endIndex: index,
+      bounds: boundsValid ? bounds : null
+    });
+  }
+  return runs;
+}
+
+function terrainRecordBounds(record) {
+  if (!Number.isFinite(record?.minX)
+      || !Number.isFinite(record?.maxX)
+      || !Number.isFinite(record?.minZ)
+      || !Number.isFinite(record?.maxZ)) {
+    return null;
+  }
+  return {
+    minX: Math.min(record.minX, record.maxX),
+    maxX: Math.max(record.minX, record.maxX),
+    minY: -Number.MAX_VALUE,
+    maxY: Number.MAX_VALUE,
+    minZ: Math.min(record.minZ, record.maxZ),
+    maxZ: Math.max(record.minZ, record.maxZ)
+  };
+}
+
+function createTerrainOccluderRuns(records) {
+  const runs = [];
+  let index = 0;
+  while (index < records.length) {
+    const startIndex = index;
+    const runId = records[index].sightRunId ?? null;
+    let bounds = null;
+    let boundsValid = true;
+    do {
+      const recordBounds = terrainRecordBounds(records[index]);
+      if (!recordBounds) {
+        boundsValid = false;
+      } else if (boundsValid && bounds === null) {
+        bounds = recordBounds;
+      } else if (boundsValid) {
+        bounds.minX = Math.min(bounds.minX, recordBounds.minX);
+        bounds.maxX = Math.max(bounds.maxX, recordBounds.maxX);
+        bounds.minZ = Math.min(bounds.minZ, recordBounds.minZ);
+        bounds.maxZ = Math.max(bounds.maxZ, recordBounds.maxZ);
+      }
+      index++;
+    } while (runId !== null
+      && index < records.length
+      && records[index].sightRunId === runId);
+    runs.push({
+      startIndex,
+      endIndex: index,
+      bounds: boundsValid ? bounds : null
+    });
+  }
+  return runs;
+}
+
 export class SpottingSystem {
   constructor(scene, terrainBuilder, options = {}) {
     // `scene` is retained only to preserve the original construction signature.
@@ -835,7 +1037,27 @@ export class SpottingSystem {
     this.terrain = terrainBuilder ?? null;
     this.buildingSystem = options.buildingSystem ?? null;
     this.buildingColliders = [];
+    this.buildingColliderRuns = [];
     this.buildingCollidersDirty = true;
+    this.terrainSightSnapshot = null;
+    this.terrainSightOccluders = [];
+    this.terrainSightRuns = [];
+    this.losDiagnostics = {
+      buildingBroadphaseTests: 0,
+      buildingBroadphaseRejects: 0,
+      buildingExactObbTests: 0
+    };
+    this.terrainLosDiagnostics = {
+      terrainSnapshotRefreshes: 0,
+      terrainBroadphaseTests: 0,
+      terrainBroadphaseRejects: 0,
+      terrainExactBoxTests: 0,
+      terrainExactBoxTestsAvoided: 0,
+      terrainLegacyQueries: 0,
+      terrainSnapshotRevision: null,
+      terrainOccluderCount: 0,
+      terrainRunCount: 0
+    };
     this.settings = { ...DEFAULT_SETTINGS, ...(options.settings ?? {}) };
     if (!Number.isFinite(this.settings.voiceRelayDelaySeconds)
         || this.settings.voiceRelayDelaySeconds <= 0) {
@@ -874,6 +1096,28 @@ export class SpottingSystem {
     this.time = 0;
     this.timeAccumulator = 0;
     this.observations = new Map();
+    this.directObservationTargetsByUnit = new Map();
+    this.precisionIndexedPairCount = 0;
+    this.precisionDiagnostics = {
+      queries: 0,
+      hits: 0,
+      observerLookups: 0,
+      targetMembershipLookups: 0,
+      rebuilds: 0,
+      advanceRebuilds: 0,
+      restoreRebuilds: 0,
+      restoreObservationRowsVisited: 0
+    };
+    this.attentionDiagnostics = {
+      eligibleCandidates: 0,
+      urgentCandidates: 0,
+      deferredCandidates: 0,
+      coldEvaluatedCandidates: 0,
+      totalEvaluations: 0,
+      failOpenEvaluations: 0,
+      canonicalSteps: 0,
+      failOpenSteps: 0
+    };
     this.directObservationEpisodes = new Map();
     this.relayQueue = new CommunicationRelayQueue();
     this.unitContacts = new Map();
@@ -948,33 +1192,76 @@ export class SpottingSystem {
   }
 
   checkLOS(fromPosition, toPosition, options = {}) {
-    const origin = addHeight(
+    const { origin, target, dist } = liftedObservationEndpoints(
       fromPosition,
-      options.fromEyeHeight ?? eyeHeight(options.observerStance ?? 'STANDING')
-    );
-    const target = addHeight(
       toPosition,
-      options.toAimHeight ?? eyeHeight(options.targetStance ?? 'STANDING') * 0.82
+      options
     );
-    const dist = distance3d(origin, target);
 
     if (this.buildingCollidersDirty) this.refreshBuildingColliders();
-    for (const collider of this.buildingColliders) {
-      if (!intersectSegmentOrientedBox3D(origin, target, collider)) continue;
-      return {
-        clear: false,
-        coverType: collider.sectionId === 'rubble' ? 'Building rubble' : 'Building',
-        buildingId: collider.buildingId,
-        sectionId: collider.sectionId,
-        dist
-      };
+    for (const run of this.buildingColliderRuns) {
+      this.losDiagnostics.buildingBroadphaseTests++;
+      if (run.bounds
+          && !segmentIntersectsWorldAabb3D(origin, target, run.bounds)) {
+        this.losDiagnostics.buildingBroadphaseRejects++;
+        continue;
+      }
+      for (let index = run.startIndex; index < run.endIndex; index++) {
+        const collider = this.buildingColliders[index];
+        this.losDiagnostics.buildingExactObbTests++;
+        if (!intersectSegmentOrientedBox3D(origin, target, collider)) continue;
+        return {
+          clear: false,
+          coverType: collider.sectionId === 'rubble' ? 'Building rubble' : 'Building',
+          buildingId: collider.buildingId,
+          sectionId: collider.sectionId,
+          dist
+        };
+      }
     }
 
-    for (const obstacle of this.terrain?.bocageObstacles ?? []) {
-      if (obstacle.buildingId) continue;
-      if (obstacle.occludesSight === false) continue;
-      if (this.segmentIntersectsBox(origin, target, obstacle)) {
-        return { clear: false, coverType: obstacle.type ?? 'Obstacle', dist };
+    const snapshotProvider = this.terrain?.getSightOccluderSnapshot;
+    if (typeof snapshotProvider === 'function') {
+      const snapshot = validateTerrainSightOccluderSnapshot(
+        snapshotProvider.call(this.terrain)
+      );
+      if (snapshot !== this.terrainSightSnapshot
+          || snapshot.revision !== this.terrainSightSnapshot?.revision) {
+        const runs = createTerrainOccluderRuns(snapshot.records);
+        this.terrainSightSnapshot = snapshot;
+        this.terrainSightOccluders = snapshot.records;
+        this.terrainSightRuns = runs;
+        this.terrainLosDiagnostics.terrainSnapshotRefreshes++;
+        this.terrainLosDiagnostics.terrainSnapshotRevision = snapshot.revision;
+        this.terrainLosDiagnostics.terrainOccluderCount = snapshot.records.length;
+        this.terrainLosDiagnostics.terrainRunCount = runs.length;
+      }
+      for (const run of this.terrainSightRuns) {
+        this.terrainLosDiagnostics.terrainBroadphaseTests++;
+        if (run.bounds
+            && !this.segmentIntersectsBox(origin, target, run.bounds)) {
+          this.terrainLosDiagnostics.terrainBroadphaseRejects++;
+          this.terrainLosDiagnostics.terrainExactBoxTestsAvoided +=
+            run.endIndex - run.startIndex;
+          continue;
+        }
+        for (let index = run.startIndex; index < run.endIndex; index++) {
+          const obstacle = this.terrainSightOccluders[index];
+          this.terrainLosDiagnostics.terrainExactBoxTests++;
+          if (this.segmentIntersectsBox(origin, target, obstacle)) {
+            return { clear: false, coverType: obstacle.type ?? 'Obstacle', dist };
+          }
+        }
+      }
+    } else {
+      this.terrainLosDiagnostics.terrainLegacyQueries++;
+      for (const obstacle of this.terrain?.bocageObstacles ?? []) {
+        if (obstacle.buildingId) continue;
+        if (obstacle.occludesSight === false) continue;
+        this.terrainLosDiagnostics.terrainExactBoxTests++;
+        if (this.segmentIntersectsBox(origin, target, obstacle)) {
+          return { clear: false, coverType: obstacle.type ?? 'Obstacle', dist };
+        }
       }
     }
 
@@ -995,6 +1282,14 @@ export class SpottingSystem {
     return { clear: true, coverType: 'Open Ground', dist };
   }
 
+  getLosDiagnostics() {
+    return { ...this.losDiagnostics };
+  }
+
+  getTerrainLosDiagnostics() {
+    return { ...this.terrainLosDiagnostics };
+  }
+
   maximumObservationRange(
     observerUnit,
     targetUnit,
@@ -1009,6 +1304,53 @@ export class SpottingSystem {
     else if (targetStance === 'KNEELING' || targetStance === 'CROUCHED') range *= 0.88;
     if (velocityMagnitude(targetPerson, targetUnit) > 0.2) range *= 1.08;
     return range;
+  }
+
+  getObserverDebugRecords(allUnits) {
+    const records = [];
+    for (const observerUnit of sortedUnits(allUnits ?? [])) {
+      if (observerUnit.morale === 'Broken') continue;
+      const profile = unitProfile(observerUnit, this.unitProfiles);
+      for (const observer of sortedPeople(observerUnit)) {
+        const basePosition = personPosition(observerUnit, observer);
+        const observerStance = stanceName(observer, observerUnit);
+        const capabilities = resolveObserverCapabilities(
+          observerUnit,
+          observer,
+          profile
+        );
+        for (const capability of capabilities) {
+          const observerHeight = observerUnit.vehicleSpec
+            ? (capability.eyeHeightOffsetMeters ?? 0)
+            : (capability.eyeHeightOffsetMeters ?? eyeHeight(observerStance));
+          records.push({
+            id: `${observerUnit.id}:${observer.id}:${capability.id}`,
+            observerUnitId: String(observerUnit.id),
+            observerPersonId: String(observer.id),
+            factionId: observerUnit.faction,
+            capabilityId: capability.id,
+            capabilityKind: capability.kind,
+            position: [
+              basePosition.x,
+              basePosition.y + observerHeight,
+              basePosition.z
+            ],
+            facingYaw: observerCapabilityFacingYaw(
+              observerUnit,
+              observer,
+              capability
+            ),
+            horizontalFovDegrees: capability.horizontalFovDegrees,
+            nominalRangeMeters:
+              (EXPERIENCE_RANGE_M[observerUnit.experience]
+                ?? EXPERIENCE_RANGE_M.Regular)
+              * capability.rangeMultiplier,
+            dataQuality: capability.dataQuality
+          });
+        }
+      }
+    }
+    return records;
   }
 
   acquisitionSeconds(
@@ -1079,13 +1421,24 @@ export class SpottingSystem {
           target.person,
           capability
         );
-        const los = this.checkLOS(observerPosition, target.position, {
+        const losOptions = {
           observerStance,
           targetStance,
           fromEyeHeight: capability.eyeHeightOffsetMeters
             ?? eyeHeight(observerStance),
           toAimHeight: targetAimHeight(targetUnit, target.person)
-        });
+        };
+        const { dist } = liftedObservationEndpoints(
+          observerPosition,
+          target.position,
+          losOptions
+        );
+        if (dist > maximumRange) continue;
+        const los = this.checkLOS(
+          observerPosition,
+          target.position,
+          losOptions
+        );
         if (!los.clear || los.dist > maximumRange) continue;
         const acquisitionSeconds = this.acquisitionSeconds(
           observerUnit,
@@ -1146,6 +1499,8 @@ export class SpottingSystem {
       existing.identificationProgress ?? 0
     );
     const wasEpisodeActive = existing.directEpisodeActive === true;
+    const hadRenderVisibility =
+      existing.visibilityGraceRemainingNanoseconds > 0;
     let acquisitionEvent = null;
     const profile = unitProfile(observerUnit, this.unitProfiles);
     const capabilities = resolveObserverCapabilities(
@@ -1249,7 +1604,9 @@ export class SpottingSystem {
       existing.directEpisodeActive = false;
     }
 
-    updateVisibilityGrace(existing, deltaNanoseconds);
+    updateVisibilityGrace(existing, deltaNanoseconds, {
+      retainWhileSighted: Boolean(evaluation && hadRenderVisibility)
+    });
     if (!existing.visibleNow && existing.lastSeenAt !== null) {
       const age = Math.max(0, this.time - existing.lastSeenAt);
       existing.confidence = Math.max(0, 1 - age / this.settings.observationMemorySeconds);
@@ -1289,6 +1646,46 @@ export class SpottingSystem {
       directBySource.set(unit.id, contacts);
     }
     return directBySource;
+  }
+
+  rebuildDirectObservationIndexFromContacts(directBySource) {
+    const nextIndex = new Map();
+    let pairCount = 0;
+    for (const [observerUnitId, contacts] of directBySource) {
+      if (contacts.size === 0) continue;
+      const targetUnitIds = new Set(contacts.keys());
+      nextIndex.set(observerUnitId, targetUnitIds);
+      pairCount += targetUnitIds.size;
+    }
+    this.directObservationTargetsByUnit = nextIndex;
+    this.precisionIndexedPairCount = pairCount;
+    this.precisionDiagnostics.rebuilds++;
+    this.precisionDiagnostics.advanceRebuilds++;
+  }
+
+  rebuildDirectObservationIndexFromObservations() {
+    const nextIndex = new Map();
+    let pairCount = 0;
+    let rowsVisited = 0;
+    for (const targetMap of this.observations.values()) {
+      for (const observation of targetMap.values()) {
+        rowsVisited++;
+        if (observation.visibleNow !== true) continue;
+        let targetUnitIds = nextIndex.get(observation.observerUnitId);
+        if (!targetUnitIds) {
+          targetUnitIds = new Set();
+          nextIndex.set(observation.observerUnitId, targetUnitIds);
+        }
+        const previousSize = targetUnitIds.size;
+        targetUnitIds.add(observation.targetUnitId);
+        if (targetUnitIds.size !== previousSize) pairCount++;
+      }
+    }
+    this.directObservationTargetsByUnit = nextIndex;
+    this.precisionIndexedPairCount = pairCount;
+    this.precisionDiagnostics.rebuilds++;
+    this.precisionDiagnostics.restoreRebuilds++;
+    this.precisionDiagnostics.restoreObservationRowsVisited += rowsVisited;
   }
 
   updateDirectObservationEpisodes(
@@ -1508,9 +1905,19 @@ export class SpottingSystem {
     const liveObserverKeys = new Set();
     const updatedTargetsByObserver = new Map();
     const acquisitionEvents = [];
+    const attentionTick = canonicalAttentionTick(
+      intervalStartClock,
+      nextClock,
+      requestedDelta,
+      deltaNanoseconds
+    );
+    if (attentionTick === null) this.attentionDiagnostics.failOpenSteps++;
+    else this.attentionDiagnostics.canonicalSteps++;
+    const unitAttention = new Map(
+      units.map(unit => [unit, unitAttentionFacts(unit)])
+    );
     for (const targetMap of this.observations.values()) {
       for (const observation of targetMap.values()) {
-        observation.visibleNow = false;
         if (observation.lastSeenAt !== null) {
           const age = Math.max(0, this.time - observation.lastSeenAt);
           observation.confidence = Math.max(
@@ -1528,6 +1935,33 @@ export class SpottingSystem {
         liveObserverKeys.add(key);
         for (const targetUnit of units) {
           if (targetUnit.faction === observerUnit.faction || !unitCanBeObserved(targetUnit)) continue;
+          this.attentionDiagnostics.eligibleCandidates++;
+          const existing = this.observations.get(key)?.get(targetUnit.id);
+          const urgent = attentionTick !== null && (
+            unitAttention.get(observerUnit).moving
+            || unitAttention.get(observerUnit).firing
+            || unitAttention.get(targetUnit).moving
+            || unitAttention.get(targetUnit).firing
+            || withinAttentionCloseRange(
+              unitAttention.get(observerUnit),
+              unitAttention.get(targetUnit)
+            )
+            || observationNeedsUrgentAttention(existing)
+          );
+          if (attentionTick !== null && !urgent
+              && attentionPhase(observerUnit.id, observer.id, targetUnit.id) !== attentionTick) {
+            this.attentionDiagnostics.deferredCandidates++;
+            continue;
+          }
+          if (attentionTick === null) {
+            this.attentionDiagnostics.failOpenEvaluations++;
+          } else if (urgent) {
+            this.attentionDiagnostics.urgentCandidates++;
+          } else {
+            this.attentionDiagnostics.coldEvaluatedCandidates++;
+          }
+          this.attentionDiagnostics.totalEvaluations++;
+          if (existing) existing.visibleNow = false;
           const update = this.updateObservation(
             observerUnit,
             observer,
@@ -1551,6 +1985,7 @@ export class SpottingSystem {
     for (const [key, targetMap] of this.observations) {
       for (const observation of targetMap.values()) {
         if (!updatedTargetsByObserver.get(key)?.has(observation.targetUnitId)) {
+          observation.visibleNow = false;
           observation.identificationProgress =
             decayIdentificationNanoseconds(
             observation.identificationProgress ?? 0,
@@ -1605,6 +2040,7 @@ export class SpottingSystem {
     this.deliverRelayReports(units, nextContacts);
     this.unitContacts = nextContacts;
     this.spottingMap = this.unitContacts;
+    this.rebuildDirectObservationIndexFromContacts(directBySource);
     return this;
   }
 
@@ -1616,6 +2052,7 @@ export class SpottingSystem {
     if (!this.buildingCollidersDirty) return this.buildingColliders;
     if (!this.buildingSystem) {
       this.buildingColliders = [];
+      this.buildingColliderRuns = [];
       this.buildingCollidersDirty = false;
       return this.buildingColliders;
     }
@@ -1623,10 +2060,13 @@ export class SpottingSystem {
       ?? (this.buildingSystem.captureState?.().buildings ?? [])
         .map(building => String(building.id))
         .sort();
-    this.buildingColliders = buildingIds
+    const colliders = buildingIds
       .flatMap(buildingId => this.buildingSystem.getCollisionSnapshot(buildingId).records)
       .filter(record => record.blocks?.includes('projectile'))
       .sort((left, right) => String(left.id).localeCompare(String(right.id)));
+    const runs = createBuildingColliderRuns(colliders);
+    this.buildingColliders = colliders;
+    this.buildingColliderRuns = runs;
     this.buildingCollidersDirty = false;
     return this.buildingColliders;
   }
@@ -1656,15 +2096,43 @@ export class SpottingSystem {
   hasDirectObservation(observerUnitOrId, targetUnitOrId) {
     const observerUnitId = observerUnitOrId?.id ?? observerUnitOrId;
     const targetUnitId = targetUnitOrId?.id ?? targetUnitOrId;
-    for (const targetMap of this.observations.values()) {
-      const observation = targetMap.get(targetUnitId);
-      if (observation?.observerUnitId === observerUnitId && observation.visibleNow) return true;
-    }
-    return false;
+    this.precisionDiagnostics.queries++;
+    this.precisionDiagnostics.observerLookups++;
+    const targetUnitIds = this.directObservationTargetsByUnit.get(observerUnitId);
+    if (!targetUnitIds) return false;
+    this.precisionDiagnostics.targetMembershipLookups++;
+    const directlyObserved = targetUnitIds.has(targetUnitId);
+    if (directlyObserved) this.precisionDiagnostics.hits++;
+    return directlyObserved;
   }
 
   canPrecisionTarget(observerUnitOrId, targetUnitOrId) {
     return this.hasDirectObservation(observerUnitOrId, targetUnitOrId);
+  }
+
+  getPrecisionDiagnostics() {
+    return {
+      ...this.precisionDiagnostics,
+      indexedObserverUnitCount: this.directObservationTargetsByUnit.size,
+      indexedPairCount: this.precisionIndexedPairCount
+    };
+  }
+
+  getAttentionDiagnostics() {
+    return {
+      ...this.attentionDiagnostics,
+      coldCadenceTicks: ATTENTION_COLD_CADENCE_TICKS,
+      coldCadenceSeconds:
+        ATTENTION_COLD_CADENCE_TICKS
+        * Number(CANONICAL_SPOTTING_STEP_NANOSECONDS)
+        / TIME_PRECISION,
+      maximumInitialLatencySeconds:
+        (ATTENTION_COLD_CADENCE_TICKS - 1)
+        * Number(CANONICAL_SPOTTING_STEP_NANOSECONDS)
+        / TIME_PRECISION,
+      closeRangeMeters: ATTENTION_CLOSE_RANGE_METERS,
+      closeRangeApproximation: ATTENTION_CLOSE_RANGE_APPROXIMATION
+    };
   }
 
   getContactForUnit(unitOrId, targetUnitOrId) {
@@ -2023,5 +2491,6 @@ export class SpottingSystem {
       );
     }
     this.spottingMap = this.unitContacts;
+    this.rebuildDirectObservationIndexFromObservations();
   }
 }

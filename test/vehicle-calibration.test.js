@@ -268,6 +268,55 @@ test('R35 jig defaults load the registered multiview raster without source-page 
   assert.equal(views.top.rotationDegrees, -90);
 });
 
+test('local-only Char B1 transforms seed the jig without claiming raster availability', () => {
+  const model = createVehicleMesh('fr_char_b1bis');
+  const views = createVehicleOwnedRegistrations(
+    model,
+    BLUEPRINT_CALIBRATION_RECORDS.fr_char_b1bis
+  );
+  for (const viewName of ['side', 'front', 'top']) {
+    const view = views[viewName];
+    assert.equal(view.imageUrl, null);
+    assert.equal(view.autoFit, true);
+    assert.equal(view.rotationDegrees, 0);
+    assert.equal(view.mirrorX, false);
+    assert.ok(Object.keys(view.landmarks).length >= 4);
+  }
+  assert.ok(Math.abs(views.side.crop.left - 100 / 1200) < 1e-12);
+  assert.ok(Math.abs(views.side.crop.top - 50 / 1500) < 1e-12);
+  assert.ok(Math.abs(views.side.crop.bottom - 980 / 1500) < 1e-12);
+  assert.deepEqual(views.side.landmarks['rigid-front'], {
+    x: 122 / 1200,
+    y: 503 / 1500
+  });
+  assert.deepEqual(views.side.landmarks['vehicle-top'], {
+    x: 490 / 1200,
+    y: 84 / 1500
+  });
+  assert.ok(Math.abs(views.front.crop.top - 1010 / 1500) < 1e-12);
+  assert.ok(Math.abs(views.front.crop.bottom - 15 / 1500) < 1e-12);
+  assert.deepEqual(views.front.landmarks['vehicle-top'], {
+    x: 407 / 1200,
+    y: 1051 / 1500
+  });
+  assert.deepEqual(views.top.landmarks['vehicle-left'], {
+    x: 618 / 1200,
+    y: 926 / 1500
+  });
+
+  const fallbackRecord = BLUEPRINT_CALIBRATION_RECORDS.fr_char_b1bis;
+  const fallback = createVehicleOwnedRegistrations(
+    new THREE.Group(),
+    fallbackRecord
+  );
+  for (const viewName of ['side', 'front', 'top']) {
+    assert.deepEqual(fallback[viewName], {
+      ...structuredClone(fallbackRecord.views[viewName]),
+      autoFit: false
+    });
+  }
+});
+
 test('R35 record exposes source-backed side, front, and top fit mechanics', () => {
   const record = BLUEPRINT_CALIBRATION_RECORDS.fr_renault_r35;
   assert.match(record.dataQuality, /side, front, and top registered/);

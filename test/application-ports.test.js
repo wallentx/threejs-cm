@@ -92,6 +92,18 @@ function runtimeHarness() {
     getVisibilityProjection: () => ({ visibleUnitIds: ['blue-1'], contacts: [] }),
     getBocageObstacles: () => [{ id: 'hedge-1' }],
     getImpacts: () => [{ id: 9 }],
+    getDebugDiagnostics: () => ({
+      frame: { fps: 60 },
+      renderer: { drawCalls: 12 },
+      overlays: { hitboxes: 3 },
+      lod: { high: 2, medium: 1, low: 4 }
+    }),
+    getDebugOverlayState: () => ({ hitboxes: false }),
+    getHoveredUnitId: () => 'blue-1',
+    setDebugOverlayEnabled: (name, enabled) => {
+      calls.push(['debug-overlay', name, enabled]);
+      return enabled;
+    },
     getBuildingFloorIds: buildingId =>
       buildingId === 'house-1' ? buildingFloorIds : [],
     selectUnit: (next, { additive = false } = {}) => {
@@ -125,6 +137,13 @@ test('UI runtime port exposes explicit queries and delegates named commands', ()
   assert.equal(port.getFactionPresentation('red').flagGlyph, 'R');
   assert.deepEqual(port.mapDimensions, { width: 300, depth: 180 });
   assert.deepEqual(port.getImpacts(), [{ id: 9 }]);
+  assert.equal(port.hoveredUnitId, 'blue-1');
+  assert.deepEqual(port.getDebugDiagnostics().lod, {
+    high: 2,
+    medium: 1,
+    low: 4
+  });
+  assert.equal(port.setDebugOverlayEnabled('hitboxes', true), true);
   const floorIds = port.getBuildingFloorIds('house-1');
   assert.deepEqual(floorIds, ['ground-floor', 'upper-floor']);
   floorIds.pop();
@@ -145,7 +164,7 @@ test('UI runtime port exposes explicit queries and delegates named commands', ()
   assert.equal(sound.enabled, false);
   assert.equal(commands.pathLinesGroup.visible, false);
   assert.equal(commands.targetLinesGroup.visible, false);
-  assert.deepEqual(calls.slice(0, 6), [
+  assert.deepEqual(calls.slice(1, 7), [
     ['execute'],
     ['step', -5],
     ['command', 'TARGET'],
@@ -210,11 +229,16 @@ test('UI runtime port owns direct selected-unit mutations and building event bin
 
 test('map editor port limits authoring to explicit terrain, scene, and notification actions', () => {
   const obstacles = [];
+  const terrainCalls = [];
   const objects = [];
   const notices = [];
   const port = createMapEditorPort({
     terrain: {
       bocageObstacles: obstacles,
+      addBocageObstacle: obstacle => {
+        terrainCalls.push(obstacle);
+        obstacles.push(obstacle);
+      },
       getHeightAt: (x, z) => x - z
     },
     scene: {
@@ -230,6 +254,7 @@ test('map editor port limits authoring to explicit terrain, scene, and notificat
   port.addSceneObject(object);
   port.notify('placed', 'info');
   assert.deepEqual(obstacles, [obstacle]);
+  assert.deepEqual(terrainCalls, [obstacle]);
   assert.deepEqual(objects, [object]);
   assert.deepEqual(notices, [['placed', 'info']]);
 });

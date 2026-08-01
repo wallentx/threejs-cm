@@ -12,14 +12,35 @@
 <body>
   <div id="battle-setup-root" hidden></div>
   <div id="app">
-    <!-- On-Screen Debug & Error Console Overlay -->
+    <!-- On-Screen Profiling and Authoritative Debug Overlay Controls -->
     <div id="debug-log" class="debug-log hidden">
       <div class="debug-header">
-        <span>LOG CONSOLE</span>
-        <button id="btn-clear-log" style="background:none;border:none;color:#aaa;font-size:10px;cursor:pointer;">Clear</button>
+        <span>DEBUG &amp; PROFILING</span>
+        <button id="btn-clear-log" type="button">Clear log</button>
       </div>
-      <div id="debug-content"></div>
-      <section id="shot-inspector" aria-live="polite">
+      <div id="debug-performance" class="debug-performance" aria-live="polite">
+        <div><span>FPS</span><strong id="debug-fps">--</strong></div>
+        <div><span>AVG</span><strong id="debug-frame-average">-- ms</strong></div>
+        <div><span>P95</span><strong id="debug-frame-p95">-- ms</strong></div>
+        <div><span>DRAWS</span><strong id="debug-draw-calls">--</strong></div>
+        <div><span>TRIS</span><strong id="debug-triangles">--</strong></div>
+        <div><span>LOD H/M/C/F</span><strong id="debug-lod-counts">--</strong></div>
+      </div>
+      <div id="debug-renderer-detail" class="debug-renderer-detail">Renderer metrics unavailable</div>
+      <div class="debug-toggle-grid" aria-label="Debug visualization toggles">
+        <button id="debug-toggle-fps" type="button" class="active" aria-pressed="true">FPS</button>
+        <button id="debug-toggle-fov" type="button" aria-pressed="false">FIELD OF VIEW</button>
+        <button id="debug-toggle-hitboxes" type="button" aria-pressed="false">HIT BOXES</button>
+        <button id="debug-toggle-components" type="button" aria-pressed="false">VEHICLE SYSTEMS</button>
+        <button id="debug-toggle-crew" type="button" aria-pressed="false">VEHICLE CREW</button>
+        <button id="debug-toggle-formation" type="button" aria-pressed="false">FORMATION AI</button>
+        <button id="debug-toggle-logs" type="button" aria-pressed="false">LOGS</button>
+        <button id="debug-toggle-shots" type="button" aria-pressed="false">SHOT INSPECTOR</button>
+      </div>
+      <section id="debug-console-section" class="debug-section hidden">
+        <div id="debug-content"></div>
+      </section>
+      <section id="shot-inspector" class="debug-section hidden" aria-live="polite">
         <div class="shot-inspector-header">
           <span>LATEST RESOLVED SHOTS</span>
           <button id="btn-clear-shot-trajectory" type="button">CLEAR 3D PATH</button>
@@ -60,8 +81,8 @@
         <button id="btn-map-toggle" class="btn-top active" type="button" aria-pressed="true" title="Toggle Tactical Map">
           <span class="icon hide-mobile">🗺️</span><span class="mobile-control-label">MAP</span><span class="hide-mobile">MAP</span>
         </button>
-        <button id="btn-debug-toggle" class="btn-top" title="Toggle Log Console">
-          <span class="icon hide-mobile">🐛</span><span class="mobile-control-label">LOG</span><span class="hide-mobile">LOGS</span>
+        <button id="btn-debug-toggle" class="btn-top" type="button" aria-expanded="false" title="Toggle Debug and Profiling Tools">
+          <span class="icon hide-mobile">🐛</span><span class="mobile-control-label">DBG</span><span class="hide-mobile">DEBUG</span>
         </button>
       </div>
     </header>

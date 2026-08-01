@@ -266,21 +266,9 @@ export function renderBattleSetupMarkup({
           <div>
             <span class="setup-kicker">COMBAT MISSION 1940</span>
             <h1 id="battle-setup-title">Create Battle</h1>
-          </div>
-          <div class="setup-matchup">
-            <span>${playerCountry.flagGlyph} ${escapeHtml(playerCountry.name)}</span>
-            <b>VS</b>
-            <span>${enemyCountry.flagGlyph} ${escapeHtml(enemyCountry.name)}</span>
+            <p>Choose a battlefield, configure both forces, and review the mission.</p>
           </div>
         </header>
-        <ol class="setup-steps">
-          ${STEP_LABELS.map((label, index) => `
-            <li class="${index === state.step ? 'active' : ''} ${index < state.step ? 'complete' : ''}">
-              <span>${index + 1}</span>
-              <b>${label}</b>
-            </li>
-          `).join('')}
-        </ol>
         <form id="battle-setup-form">
           <div class="setup-stage">${stepContent}</div>
           <div class="setup-error" role="alert" ${errorMessage ? '' : 'hidden'}>

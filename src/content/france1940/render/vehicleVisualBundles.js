@@ -17,6 +17,9 @@ import {
   HOTCHKISS_H39_VISUAL_DATA
 } from '../vehicleData/HotchkissH39VisualData.js';
 import {
+  CHAR_B1_BIS_VISUAL_DATA
+} from '../vehicleData/CharB1BisVisualData.js';
+import {
   RENAULT_D2_VISUAL_DATA
 } from '../vehicleData/RenaultD2AuthoringData.js';
 import {
@@ -33,6 +36,7 @@ const DEFAULT_REQUIRED_LODS = Object.freeze(['high', 'medium', 'core', 'proxy'])
 const VISUAL_DATA_BY_MODEL_ID = Object.freeze({
   [RENAULT_R35_VISUAL_DATA.modelId]: RENAULT_R35_VISUAL_DATA,
   [HOTCHKISS_H39_VISUAL_DATA.modelId]: HOTCHKISS_H39_VISUAL_DATA,
+  [CHAR_B1_BIS_VISUAL_DATA.modelId]: CHAR_B1_BIS_VISUAL_DATA,
   [RENAULT_D2_VISUAL_DATA.modelId]: RENAULT_D2_VISUAL_DATA
 });
 

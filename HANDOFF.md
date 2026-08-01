@@ -1,4 +1,4 @@
-# Antigravity Work Packet
+# Agent Work Packets
 
 Packet owner: coordinating Codex agent.
 
@@ -9,17 +9,2879 @@ Wave 1 completed exactly three concurrent packets:
 - Packet TEXTURE-A: assigned external-asset worker.
 
 Packets SOUND-A, AUDIO-A, MODEL-A, and AMMO-A also completed and were
-integrated after independent review. Current Codex work is non-vehicle. Do not
-commit, push, create/switch branches, or rewrite another packet's scope. Files
-not named by the assigned packet remain out of scope.
+integrated after independent review. Do not commit, push, create/switch
+branches, or rewrite another packet's scope. Files not named by the assigned
+packet remain out of scope.
 
-Separately, the user has reserved all further vehicle-authoring work for
-Antigravity. Packet H39-B below is the only next vehicle packet; Wave 1 Codex
-workers must not implement it.
+Vehicle work remains paused by default. The user explicitly authorized the
+Char B1 bis correction as the sole current exception and assigned it to Codex
+agents rather than Antigravity. Packet CHAR-B1-BIS-REFIT-A stopped at its
+evidence gate; Packet CHAR-B1-BIS-REFIT-B completed the photo-backed correction;
+Packet CHAR-B1-BIS-REFIT-C is the active local-only multiview continuation. No
+other vehicle packet is authorized.
 
 The worktree is intentionally dirty. Existing changes include the reviewed R35
 reference implementation, its silhouette baseline, user-owned images, and
 unrelated work. Preserve every change outside the exact allowed paths.
+
+## Packet PERFORMANCE-LOS-C: revisioned terrain-sight run broadphase
+
+### Status and authorized goal
+
+FIX NOW. Add a renderer-neutral immutable revisioned terrain-sight snapshot and
+a conservative contiguous-run X/Z broadphase. Preserve byte-identical spotting,
+capture/restore, and the existing first intersecting insertion-order cover result.
+
+### Allowed files
+
+- `src/simulation/terrain/TerrainSightOccluderSnapshot.js` (new)
+- `src/world/TerrainBuilder.js`, sight snapshot publication only
+- `src/game/SpottingSystem.js`, terrain snapshot/run cache/query/diagnostics only
+- `src/app/ApplicationPorts.js`, editor obstacle delegation only
+- new `test/terrain-sight-occluder-snapshot.test.js`
+- new `test/spotting-terrain-broadphase.test.js`
+- narrow related additions to `test/terrain-fidelity.test.js` and
+  `test/application-ports.test.js`
+- this packet's Results and Questions / Blockers only
+
+`TODO.md` remains coordinator-owned. Preserve all dirty precision, building,
+grace, range, selection, editor, and diagnostics work.
+
+### Explicitly forbidden
+
+Do not edit `GameApp`, `MapEditor`, `Minimap`, `SoldierAI`, oriented-box or
+building systems, destructible-system authority, maps/content/scenarios, UI,
+package/configuration, or unrelated tests. Do not sort occluders, regroup
+non-contiguous records, infer run identity from IDs, change first-hit/cover
+labels, cadence, terrain-height sampling, contacts, targeting, RNG, or spotting
+capture version 5. Do not capture derived snapshots, caches, or diagnostics.
+
+### Implementation contract
+
+- Retain public `TerrainBuilder.bocageObstacles` for existing consumers.
+- Publish `getSightOccluderSnapshot()` as a stable deeply frozen
+  `{ revision, records }` object until a routed sight mutation. Records are
+  frozen shallow clones, preserve raw relative order, and exclude building
+  records plus `occludesSight === false` exactly as current Spotting does.
+- Add explicit `sightRunId` to TerrainBuilder-created wall records. Publish
+  once after initial walls, once per editor add or destruction, and once after
+  a batched destructible restore. Building-only replacement does not republish.
+- Route editor addition through `terrain.addBocageObstacle(record)`.
+- Spotting rebuilds derived contiguous runs only on snapshot identity/revision.
+  Equal non-null run IDs may share only while contiguous; unowned records form
+  singleton runs. Bounds are conservative finite X/Z unions; malformed bounds
+  fail open.
+- Test run bounds in original order. Definite misses skip member records;
+  candidates execute unchanged exact `segmentIntersectsBox` calls in original
+  flat order, retaining the first exact cover result.
+- A terrain object without `getSightOccluderSnapshot` uses the unchanged raw
+  array loop every query so mutable test doubles remain immediately observable.
+- Add mutation-safe uncaptured terrain diagnostics for snapshot refreshes,
+  broadphase tests/rejects, exact/avoided tests, legacy queries, current
+  revision, occluder count, and run count.
+
+### Required baseline and acceptance
+
+Before edits run the six-file baseline recorded as 68/68:
+
+```sh
+node --test --test-isolation=none \
+  test/spotting-system.test.js \
+  test/spotting-building-broadphase.test.js \
+  test/terrain-fidelity.test.js \
+  test/destructible-linear-obstacles.test.js \
+  test/application-ports.test.js \
+  test/game-app-performance.test.js
+```
+
+Add failing-before public tests for frozen/stable snapshots; exact Bridge
+25-record/five-run order; editor/destruction/batched-restore revision behavior;
+building-only stability; definite miss, run-gap, first-cover, reversed-order,
+non-contiguous-run, malformed fail-open, and next-query revision behavior;
+legacy push/pop/replacement/clear; capture and frame-partition/reordered-input
+equivalence; mutation-safe diagnostics; and ApplicationPorts delegation.
+
+After final edits run the new tests plus the baseline, full `npm test`,
+`npm run build`, `git diff --check`, and status. Benchmark the established
+56-unit / 252-soldier native-WebGPU realtime scene at the fixed seed/URL after
+10 seconds warmup. Record FPS/frame distribution, LOS count, terrain counter
+deltas normalized per LOS, snapshot refreshes, and CPU cost. Acceptance
+requires exact terrain tests below the measured 22.655/LOS, nonzero avoided
+tests, zero stable-sample rebuilds, unchanged deterministic output, ready
+runtime, and no console error. Stop on any required scope expansion or output
+change.
+
+### Results
+
+Status: CODE READY FOR INDEPENDENT REVIEW; required active-action browser
+benchmark remains blocked as recorded below.
+
+- Completed the authorized slice: terrain now publishes a stable deeply
+  frozen revisioned sight-only snapshot; authored wall records carry explicit
+  run identity; editor additions and destructible mutation/restore publish at
+  the required cadence; Spotting derives conservative contiguous X/Z runs and
+  preserves the raw-array fallback and first exact insertion-order cover.
+- Deliberately left incomplete: no out-of-packet integration or TODO work was
+  attempted, and no benchmark result is claimed from the paused runtime sample.
+- Files changed by layer: data/simulation ownership in
+  `src/simulation/terrain/TerrainSightOccluderSnapshot.js` and the bounded
+  publication seam in `src/world/TerrainBuilder.js`; terrain LOS query/cache
+  and mutation-safe uncaptured diagnostics in `src/game/SpottingSystem.js`;
+  editor delegation in `src/app/ApplicationPorts.js`; behavioral coverage in
+  `test/terrain-sight-occluder-snapshot.test.js`,
+  `test/spotting-terrain-broadphase.test.js`, and the narrow ApplicationPorts
+  assertion in `test/application-ports.test.js`. No rendering or UI owner was
+  changed.
+- Authoritative ownership: `bocageObstacles` remains the public mutable terrain
+  obstacle collection for existing consumers. `TerrainBuilder` alone publishes
+  its derived sight snapshot and revision; Spotting owns only a revision-keyed
+  contiguous-run cache and diagnostics, none of which enter capture/restore.
+- Coordinating baseline before edits: the required six-file command passed
+  68/68, 0 failures.
+- Failing-before proof: the new snapshot/broadphase/ApplicationPorts boundary
+  initially passed 4/12 and failed 8/12 on the absent snapshot API,
+  publication/delegation seams, cache/revision behavior, and stale-order
+  behavior.
+- Focused final command: `node --test --test-isolation=none
+  test/terrain-sight-occluder-snapshot.test.js
+  test/spotting-terrain-broadphase.test.js test/spotting-system.test.js
+  test/spotting-building-broadphase.test.js test/terrain-fidelity.test.js
+  test/destructible-linear-obstacles.test.js test/application-ports.test.js
+  test/game-app-performance.test.js` passed 77/77, 0 failures after the final
+  test revision.
+- Full `npm test` passed 136/136 tests, 0 failures.
+- `npm run build` passed with Vite 8.1.5, 767 modules transformed. The known
+  bundle warning remains; the largest emitted game chunk was 503.92 kB
+  minified. No runtime dependency was added.
+- `git diff --check` passed with no output. The worktree remains intentionally
+  dirty with unrelated user/coordinator work preserved; no file was reset,
+  reverted, formatted broadly, committed, branched, or pushed.
+- Runtime facts that were verified at the fixed URL: 1920x1080 DPR 1,
+  `data-game-status="ready"`, no `data-game-error`, native WebGPU, realtime
+  `ACTION_PHASE`, 56 units, 300 roster entries, and 252 living soldiers. The
+  published Bridge snapshot reported revision 1, 25 sight occluders, five
+  contiguous runs, and one initial snapshot refresh.
+- Behavioral coverage proves the exact 25-record/five-run Bridge order;
+  frozen snapshot stability; editor, destruction, single-publication restore,
+  and building-only revision behavior; definite miss/run-gap/first-cover and
+  reversed insertion order; non-contiguous equal IDs; malformed fail-open;
+  next-query refresh; live legacy push/pop/shift/distinct first-cover
+  replacement/clear;
+  mutation-safe diagnostics; the real Bridge snapshot deriving exactly five
+  Spotting runs with one refresh across repeated stable queries; and exact
+  capture, visibility-projection, and direct-precision-matrix equivalence for
+  optimized whole-step, 30 Hz, 60 Hz, reversed, and alternating-reordered
+  inputs.
+
+### Questions / Blockers
+
+- Required performance acceptance remains blocked. The pre-existing page with
+  the exact 56-unit roster was compositor-detached and paused: while its DOM,
+  backend, phase label, roster, and snapshot state were readable, its simulation
+  clock and rAF profiler did not advance. The resulting 10.255-second sample
+  had zero LOS calls and zero terrain-counter deltas and is intentionally
+  rejected, not reported as performance evidence. A fresh foreground native-
+  WebGPU page reached the setup wizard but not a comparable battle before the
+  requested stop boundary. Therefore FPS/frame distribution, normalized exact
+  terrain tests per LOS, avoided tests, stable-sample refreshes, and terrain
+  CPU cost remain unmeasured; the 22.655 exact-tests/LOS acceptance comparison
+  cannot yet be made.
+
+## Packet BUILDING-PRESENTATION-B: explicit fade projection and collapsed openings
+
+### Status and authorized goal
+
+FIX NOW. Make house fade require an explicit presentation projection, preserve
+equivalent fade at high/medium/core/proxy LOD, and hide/restore detailed and
+cheap opening visuals with their owning section's collapse/rollback state.
+
+### Allowed files
+
+- `src/world/buildings/FrenchHouse.js`, only opening metadata/construction and
+  `applyFrenchHouseVisualState` plus minimal related call signatures/userData
+- `test/building-visuals.test.js`
+- this packet's Results and Questions / Blockers only
+
+### Explicitly forbidden
+
+Do not edit TerrainBuilder, descriptors, maps, BuildingSystem, selection,
+GameApp, UI, package/configuration, baselines, TODO, or unrelated tests. Do not
+add materials/geometries, manually control LOD visibility, infer gameplay from
+meshes, or change disposal ownership.
+
+### Implementation contract and acceptance
+
+- Pass descriptor-owned opening section IDs into detailed frames/cards and
+  medium/core/proxy cards as renderer metadata.
+- Omitted `interiorPresence` means zero, never aggregate runtime occupancy.
+- Retain instance-owned materials and restore their existing opacity,
+  transparency, depth-write, and render order without cloning/swapping.
+- Gate every opening visual by its runtime opening's owning-section collapsed
+  state while preserving existing enabled/open/breached/door behavior.
+- Reapplying an intact restored snapshot restores the same objects.
+- `THREE.LOD` remains sole tier owner; idempotent unique-resource disposal
+  continues unchanged.
+
+Before edits run the renderer baseline, currently 31/31 named tests:
+
+```sh
+node --test --test-isolation=none \
+  test/building-visuals.test.js \
+  test/building-descriptor-expansion.test.js \
+  test/building-system.test.js
+```
+
+Add failing-before tests proving occupancy alone stays opaque until explicit
+projection; wall collapse hides the detailed frame and every cheap-tier card,
+and restore returns them; camera distances near 20/60/120/220 metres retain
+exactly one active LOD with equivalent fade/restore; and double disposal stays
+safe. Run focused/full/build/diff/status after final edits. In the real browser
+verify ready state, backend, console, each LOD, collapse at core/proxy, no
+floating cards, and intact rollback. Stop if another production file or new
+resource owner is required.
+
+### Results
+
+Status: READY FOR INDEPENDENT REVIEW, with the browser gate blocked by the
+headless environment described below.
+
+- Completed the renderer-only packet: descriptor-owned opening section IDs are
+  projected onto detailed frames and medium/core/proxy cards; omitted
+  `interiorPresence` is zero; explicit presence fades every tier through the
+  existing instance-owned materials; owning-section collapse hides detailed
+  and cheap openings; restored authoritative state restores the same objects.
+- Deliberately left incomplete: no selection/integration, TerrainBuilder,
+  descriptor, BuildingSystem, UI, package/configuration, baseline, TODO, LOD
+  ownership, resource ownership, or unrelated test changes.
+- Files changed by category: rendering
+  `src/world/buildings/FrenchHouse.js`; tests
+  `test/building-visuals.test.js`; docs: this packet's Results/Blockers only.
+  Authoritative simulation ownership did not change.
+- Baseline before edits: the packet's exact three-file command passed 31/31.
+- Failing-before evidence: `node --test --test-isolation=none
+  test/building-visuals.test.js` passed 11/13 and failed exactly the new omitted
+  projection and opening-section metadata/rollback tests.
+- Focused final: the packet's exact three-file command passed 33/33.
+- Full `npm test`: 134/135 test files passed. The sole failing file was the
+  concurrently modified `test/spotting-building-broadphase.test.js`; the
+  terrain worker has since restored the existing building-diagnostic shape and
+  the combined suite must be rerun after all packets finish.
+- `npm run build`: passed, 767 modules transformed. The known bundle warning
+  remains (`game` 503.62 kB); `simulation` was 167.39 kB and `render` 483.19 kB.
+- `git diff --check` for the two implementation/test files passed.
+- Browser target: `http://localhost:38237/?mode=wego`, Stonne 1940 setup,
+  headless Firefox/SWGL. Setup automation ran, but the runtime never reached
+  `data-game-status="ready"`; no renderer backend or Three.js scene became
+  available, so the required live high/medium/core/proxy and collapse/rollback
+  assertions could not be performed. Exact blocker is recorded below.
+- Review points: confirm the opening-specific `openingSectionId` metadata name
+  and the preserved window versus door enabled/open/breached behavior. No new
+  approximation, material, geometry, dependency, or disposal owner was added.
+
+### Questions / Blockers
+
+- Browser blocker: after setup submission, `data-game-status` remained `setup`,
+  `window.__CMBN_GAME__` was absent, and `data-game-error` was
+  `can't access property "getSupportedExtensions", this.gl is null`. Firefox
+  reported headless SWGL framebuffer failures, leaving no live scene for LOD,
+  collapse, rollback, backend, or console verification.
+
+## Packet BUILDING-PRESENTATION-A: selected-unit interior projection
+
+### Status and authorized goal
+
+FIX NOW. Fade only buildings containing living interior-phase soldiers from
+currently selected friendly units. Update immediately on selection, additive
+toggle, enemy inspection, deselection, capture/restore, and WEGO seek without
+adding authoritative or captured presentation state.
+
+### Allowed files
+
+- `src/game/BuildingInteractionSystem.js`, only optional stable-ID filtering in
+  `getInteriorPresenceCounts`
+- `src/app/GameApp.js`, only `syncBuildingInteriorPresentation`, `selectUnits`,
+  and the stale pre-selection restore sync if required
+- `test/building-interaction.test.js`
+- `test/unit-selection.test.js`
+- optional new `test/building-selection-presentation.test.js`
+- this packet's Results and Questions / Blockers only
+
+Preserve dirty FACE, selection, debug, restore, and all unrelated work. Do not
+edit ApplicationPorts, UIManager, TerrainBuilder, FrenchHouse, simulation
+building state, capture schemas, package/configuration, TODO, or other tests.
+
+### Implementation contract and acceptance
+
+- Add an optional stable-ID unit filter to the existing read-only presence
+  query; no argument preserves aggregate behavior, while an empty filter yields
+  no counts. Living-agent and interior-phase policy stays solely in
+  BuildingInteractionSystem.
+- GameApp passes IDs from `selectedUnits`, never inspected enemies or DOM state.
+  Empty selection projects zero to every building; additive selection may fade
+  multiple buildings; outside selected units contribute nothing.
+- Sync at the end of `selectUnits` so every UI/canvas/keyboard/inspection/restore
+  path updates immediately, while retaining per-step sync for entry/exit.
+- Capture only existing selected IDs. Restore's final presentation must be
+  driven by restored selection, never a stale aggregate/pre-selection pass.
+- Selection operations must not mutate BuildingSystem occupancy/capture state.
+
+Before edits run the recorded 22/22 focused baseline:
+
+```sh
+node --test --test-isolation=none \
+  test/unit-selection.test.js \
+  test/application-ports.test.js \
+  test/building-interaction.test.js
+```
+
+Add failing-before behavioral tests for filtered presence; two occupied
+buildings under switch/add/toggle/clear; enemy inspection; selected and
+no-selection capture/restore; and unchanged building capture output. Run
+focused/full/build/diff/status after final edits. Browser acceptance covers
+WEGO and realtime selection/deselection/additive/inspection/restore with ready
+backend and no console errors. Stop on irreconcilable dirty overlap or if UI,
+ports, TerrainBuilder, renderer, event bus, or capture-version changes are
+required.
+
+### Results
+
+Status: READY FOR INDEPENDENT REVIEW, with live WebGPU validation unavailable
+as recorded below.
+
+- Completed the filtered presentation slice: the existing presence query now
+  accepts an optional stable unit-ID filter while no argument retains aggregate
+  behavior and an empty filter returns no counts. Living-agent and
+  interior-phase policy remains owned by `BuildingInteractionSystem`.
+- `GameApp` projects only IDs from `selectedUnits`, clears every building for an
+  empty selection or enemy inspection, synchronizes at the end of
+  `selectUnits`, and removes the stale aggregate sync before restore resolves
+  selected IDs. The existing per-step sync remains unchanged for transit.
+- Selection, additive toggle, inspection, capture/restore, and projection add
+  no authoritative or captured fields. The behavioral tests prove selection
+  operations leave the complete `BuildingSystem.captureState()` output
+  unchanged.
+- Files changed by category: integration `src/app/GameApp.js`; read-only
+  simulation query `src/game/BuildingInteractionSystem.js`; tests
+  `test/building-selection-presentation.test.js` and the minimal new projection
+  stubs in `test/unit-selection.test.js`; docs: this packet Results/Blockers.
+  Renderer, TerrainBuilder, ports, UI, capture schemas, TODO, and unrelated
+  dirty FACE/selection/debug/restore work were deliberately left unchanged.
+- Baseline before edits: the packet's exact three-file command passed 22/22.
+- Failing-before proof: the new test file failed 0/3 for exactly unfiltered
+  counts, absent selection-triggered projection, and stale aggregate restore
+  projection.
+- Focused final: the new test plus the packet's three baseline files passed
+  25/25.
+- Full `npm test`: passed 136/136 test files.
+- `npm run build`: passed, 767 modules transformed. The known bundle warning
+  remains; `game` is 503.92 kB, `simulation` 167.39 kB, and `render` 483.19 kB.
+- Browser check: no real ready WebGPU session was available. The prescribed
+  `http://127.0.0.1:5173/` target refused connection and no Chrome, Chromium,
+  Firefox, or Vite runtime process existed, so WEGO/realtime live interaction
+  claims were not made.
+- Review points: optional filter normalization to stable string IDs, the single
+  end-of-`selectUnits` projection, and removal of only the pre-selection restore
+  sync. No gameplay approximation or persistent state was added.
+
+### Questions / Blockers
+
+- Browser-only blocker: there was no connected real WebGPU browser/session to
+  validate WEGO and realtime selection, deselection, additive selection, enemy
+  inspection, and seek/restore. The current environment's earlier headless
+  Firefox attempt also failed WebGL creation with
+  `AllowWebgl2:false` / `this.gl is null`, so it cannot substitute for that
+  required real-browser gate.
+
+## Packet PERFORMANCE-INFANTRY-RESOURCES-A: squad-owned geometry/material pooling
+
+### Status and authorized goal
+
+FIX NOW. Pool repeated infantry body/equipment/proxy geometry and palette
+materials within each squad while preserving every mesh, soldier, weapon,
+marker, pose, LOD, shadow, selection, hit-volume, and raycast result. This is a
+GPU/resource-ownership slice, not a draw-call, shadow-pass, or guaranteed FPS
+claim.
+
+### Allowed files
+
+- `src/content/france1940/render/France1940UnitMeshFactory.js`
+- new `test/infantry-render-resource-sharing.test.js`
+- `test/france1940-infantry-lod-models.test.js`, only replace the obsolete
+  per-mesh material-identity assertion while retaining all behavior coverage
+- this packet's Results and Questions / Blockers only
+
+Preserve the separable dirty mortar/selection work byte-for-byte. Do not edit
+the infantry weapon factory, disposal owners, Unit, SoldierAI, GameApp,
+Renderer, simulation, UI, package/configuration, TODO, or unrelated tests.
+
+### Implementation contract
+
+- Extend the existing squad-local geometry pack with repeated non-weapon body,
+  equipment, joint, and proxy primitives currently created inside soldier loops.
+- Reuse exact BufferGeometry objects only within that squad. Independently
+  created squads must not share disposable resources.
+- Reuse the squad-local palette and remove per-mesh material cloning. Keep the
+  color-specific translucent selection material independently owned.
+- Do not merge or instance meshes, clone weapon rigs, or alter object count,
+  hierarchy, names, transforms, LOD tags, shadows, visibility, raycasting,
+  markers, silhouettes, bounds, or disposal behavior.
+
+### Required baseline and acceptance
+
+Before editing run the recorded 51/51 focused baseline over infantry LOD,
+geometry, fidelity, pose, trigger, hit-volume, selection, and GameApp
+performance tests. Add a failing-before exact 44-unit / 252-soldier roster test.
+The current factory-only evidence is 28,536 meshes, 11,372 distinct geometries,
+28,536 materials, and 13,102 configured infantry casters.
+
+Acceptance retains exactly 44 units, 252 soldier groups, 28,536 mesh nodes and
+forced-tier visible counts high 16,818 / medium 9,636 / core 7,602 / proxy
+1,178, while reducing distinct geometry objects to at most 5,558 and materials
+to at most 748. Prove within-squad sharing, cross-squad isolation, unique
+soldier/weapon/muzzle/three-grip/parts/bones state, independent pose/casualty
+projection, selection-material isolation, LOD/material stability, and that
+disposing one squad cannot affect another.
+
+Run focused/full/build/diff/status after the final edit. Repeat the established
+paused 56-unit / 252-infantry 1920x1080 DPR-1 native-WebGPU benchmark and record
+ready/backend/LOD, draws, triangles, uploaded geometries, textures, configured
+casters, frame distribution, and console. Measured geometry reduction is
+required; unchanged draws/shadows and noisy FPS must be reported honestly.
+Stop if weapon-factory edits, global caching, a new disposal system, changed
+visual/interaction behavior, or another production file is required.
+
+### Results
+
+- Status: READY FOR INDEPENDENT REVIEW.
+- Scope completed: extended the existing squad-owned infantry geometry pack
+  across repeated non-weapon body, equipment, joint, and proxy primitives and
+  removed the per-mesh palette-material clone. Geometry and palette materials
+  are shared only by meshes in the same squad; independently created squads,
+  selection materials, soldier groups, weapon rigs, muzzle markers, grips,
+  parts maps, and bones remain independently owned.
+- Scope deliberately left incomplete: no mesh merging or instancing, weapon
+  factory change, global cache, disposal owner, draw-call reduction, shadow
+  policy change, or FPS claim was introduced.
+- Files changed:
+  - Rendering: `src/content/france1940/render/France1940UnitMeshFactory.js`.
+  - Tests: new `test/infantry-render-resource-sharing.test.js`; one obsolete
+    per-mesh material-identity assertion replaced in
+    `test/france1940-infantry-lod-models.test.js`.
+  - Packet record: this Results and Questions / Blockers section only.
+- Authoritative simulation state and ownership are unchanged. The only
+  ownership change is squad-local reuse of renderer resources. The pre-existing
+  dirty mortar selection-footprint and `selectionEquipment` edits were
+  preserved.
+- Pre-edit focused baseline: the eight recorded files passed 51/51.
+- Failing-before proof: the new exact-roster file failed 0/2 before production
+  edits. The 44-unit roster created 11,372 distinct geometries, exceeding the
+  5,558 cap, and repeated knee geometry was not shared.
+- Final focused command, comprising the new proof plus the eight baseline
+  files, passed 53/53 in 2,390.480004 ms.
+- Exact factory-only acceptance evidence: 44 infantry units, 252 soldier
+  groups, 28,536 mesh nodes, 13,102 configured casters, and forced-tier visible
+  meshes high 16,818 / medium 9,636 / core 7,602 / proxy 1,178. Distinct
+  geometries fell from 11,372 to 5,558 (-5,814, -51.1%); distinct materials
+  fell from 28,536 to 748 (-27,788, -97.4%). Behavioral tests also prove
+  within-squad sharing, cross-squad isolation, individual weapon/marker/grip/
+  parts/bones state, independent casualty projection, selection-material and
+  LOD stability, and cross-squad disposal isolation.
+- Full `npm test`: passed 135/135, zero failures, in 7,691.019452 ms.
+- `npm run build`: passed; Vite 8.1.5 transformed 767 modules in 316 ms. The
+  existing chunk-size warning remained (`game` 503.79 kB, gzip 139.23 kB);
+  `render` was 483.19 kB, gzip 132.07 kB.
+- `git diff --check`: passed with no output. Final status remained the expected
+  dirty `main...origin/main` worktree; this packet added only its allowlisted
+  production/test changes and packet record.
+- Browser/runtime: the exact fixed URL and seed at
+  `http://localhost:5173/?mode=realtime&camera=design&quality=high&selected=none&seed=19400510`,
+  1920x1080 DPR 1, high/final, realtime action phase paused through the existing
+  control, native WebGPU, `data-game-status="ready"`, 56 units / 44 infantry
+  units / 252 infantry soldiers / 300 total roster entries, exact 2 HQ + 20
+  squads + 6 tanks per side, and no console error. Two identical pre-existing
+  startup warnings reported a missing `uv` vertex attribute.
+- After a 10-second warmup, the isolated 10-second frame sample contained 77
+  frames: 7.713 FPS, 129.648 ms average, 150 ms p95, 166.6 ms worst, and 77
+  long frames. Renderer evidence was 5,983 draws, 374,081 triangles, 4,501
+  uploaded geometries, 21 textures, 13,822 configured casters, and active LOD
+  high 0 / medium 9 / core 17 / far 30. Uploaded geometries fell from the
+  recorded 7,245 to 4,501 (-2,744, -37.9%).
+- The older recorded scene reported 5,484 draws, 13,522 casters, and 17.4 FPS.
+  The current dirty integration state therefore drifted by +499 draws and +300
+  casters and produced a noisier/slower frame sample. This packet does not claim
+  those submission or FPS changes: its exact factory proof retains mesh,
+  configured-caster, and LOD-visible counts byte-for-byte while changing only
+  resource identity and count.
+
+### Questions / Blockers
+
+- Measurement comparison caveat: the required post-change native-WebGPU sample
+  is valid and shows the required uploaded-geometry reduction, but the recorded
+  pre-change draw/caster/FPS sample predates other dirty-worktree integration.
+  There is no clean same-worktree pre-edit browser capture from this worker, so
+  the +499 draw, +300 caster, and FPS differences cannot be attributed to this
+  packet. Independent review should rely on the exact before/after factory
+  resource proof for this slice and treat runtime FPS as non-causal evidence.
+
+## Packet PERFORMANCE-INFANTRY-PROXY-B: per-squad far-proxy instancing
+
+### Status and authorized goal
+
+FIX NOW, after approved squad-local pooling. Replace only the visible far-proxy
+soldier component meshes with squad-owned InstancedMesh batches while retaining
+every individual soldier hierarchy, weapon, muzzle/grip marker, pose, casualty,
+selection, hit-volume, and simulation owner. Reduce actual proxy submissions;
+do not alter high/medium/core presentation or shadows.
+
+### Allowed files
+
+- new `src/content/france1940/render/France1940InfantryProxyInstances.js`
+- `src/content/france1940/render/France1940UnitMeshFactory.js`, proxy batch
+  creation/wiring only, preserving approved pooling and dirty mortar work
+- `src/game/SoldierAI.js`, one renderer-only proxy-matrix synchronization seam
+  after existing individual pose/transform projection
+- new `test/infantry-proxy-instancing.test.js`
+- `test/infantry-render-resource-sharing.test.js`, only replace the approved
+  obsolete proxy visible-drawable expectation from 1,178 to the new 242 target;
+  refine the existing 28,536 mesh assertion to count exact retained
+  non-instanced meshes and assert exactly 198 new InstancedMeshes separately;
+  retain every geometry/material/caster/ownership assertion unchanged
+- `test/geometry-lod-fidelity.test.js`, only refine the obsolete French proxy
+  helmet visibility assertion to verify retained hidden dome/brim/crest source
+  identity plus visible head/helmet-brim/helmet-crest instance batches; retain
+  every detailed/outward-winding and non-proxy assertion unchanged
+- narrow related additions to infantry LOD, pose, pointer-interaction, and
+  selection tests only if required by public behavior
+- this packet's Results and Questions / Blockers only
+
+Do not edit Unit, simulation/hit volumes, weapons, GameApp, Renderer, UI,
+materials, shadows, package/configuration, TODO, or unrelated tests. Do not
+instance globally or across squads, delete individual hierarchies/markers,
+make presentation authoritative, or add captured state.
+
+### Implementation contract and acceptance
+
+- Build squad-owned batches from the existing squad-local pooled proxy
+  geometries/materials: five French and four German component batches per
+  squad are the measured target. Create no new palette/material owner.
+- Keep detailed soldier roots and true weapon/muzzle/grip objects alive; hide
+  only their old proxy component meshes when the instanced proxy is active.
+- Each instance matrix reproduces the existing soldier-root -> low-proxy ->
+  component world/local transform after current pose, stance, movement, facing,
+  wound, and KIA projection. Synchronize renderer-only matrices after existing
+  individual transforms, without feeding state back into simulation.
+- Preserve per-unit visibility, LOD thresholds, family silhouette, faction
+  materials, zero proxy-shadow policy, selection-disc ownership, unit-root
+  pointer/raycast selection, casualty visibility, bounds, and disposal scope.
+- No per-frame geometry/material/InstancedMesh allocation; matrices update in
+  bounded preallocated storage and set instanceMatrix dirty only as needed.
+
+The exact 44-infantry-unit / 252-soldier proxy baseline has 1,134 soldier
+component meshes plus 44 selection discs = 1,178 visible drawables. Acceptance
+is at most 198 proxy component InstancedMesh submissions plus the same 44 discs
+= at most 242 visible drawables, a 79.5% overall proxy reduction, with exact
+high/medium/core output unchanged.
+
+Add failing-before behavioral tests for exact batch/drawable counts; matrix
+equivalence for standing/moving/aim/reload/prone/KIA soldiers; unique per-unit
+ray selection and selection discs; distinct squad ownership/disposal; unchanged
+markers, hit-volume inputs, detailed LOD counts/bounds, zero proxy shadows, and
+bounded repeated updates without allocation/resource growth. Run focused/full/
+build/diff/status after final edits. Repeat the exact native-WebGPU scene at far
+camera and record ready/backend/LOD, draws, triangles, geometries, casters,
+frame distribution, console, and before/after proxy submissions. Stop if
+correctness requires global instances, authoritative/captured state, new
+materials, shadow changes, or another production file.
+
+### Results
+
+Status: CODE READY FOR INDEPENDENT REVIEW; the coordinating agent is completing
+the exact native-WebGPU far-camera measurement.
+
+- Completed the authorized renderer-only slice: every infantry squad owns five
+  French or four German proxy `InstancedMesh` component batches, while all
+  1,134 individual proxy sources, soldier roots, pose hierarchies, weapon and
+  muzzle/grip markers, selection discs, and squad-local resource owners remain
+  alive. Only the retained proxy source meshes are forced hidden.
+- Exact-force behavioral proof reports 198 proxy batches across 44 squads and
+  252 soldiers, plus the same 44 selection discs, for 242 far drawables versus
+  the 1,178 baseline (79.5% fewer). The exact retained non-instanced mesh count
+  remains 28,536; geometry, material, caster, and cross-squad disposal counts
+  remain unchanged from the approved pooling baseline.
+- Files changed by layer: rendering data/ownership in new
+  `src/content/france1940/render/France1940InfantryProxyInstances.js`; bounded
+  proxy component metadata, batch creation, and LOD wiring in
+  `src/content/france1940/render/France1940UnitMeshFactory.js`; one renderer-only
+  post-pose matrix synchronization seam in `src/game/SoldierAI.js`; behavioral
+  coverage in new `test/infantry-proxy-instancing.test.js` plus the narrowly
+  authorized proxy assertions in
+  `test/infantry-render-resource-sharing.test.js`,
+  `test/france1940-infantry-lod-models.test.js`, and
+  `test/geometry-lod-fidelity.test.js`. No simulation, capture, UI, material,
+  shadow, package/configuration, or TODO owner changed.
+- Authoritative ownership is unchanged. `SoldierAI` continues to project each
+  individual's authoritative transform and pose into its retained soldier
+  hierarchy; the squad-local controller then copies those existing transforms
+  into fixed-capacity instance buffers. It does not feed renderer state back
+  into simulation or capture/restore.
+- Baseline before edits: the packet's seven-file command passed 37/37 tests,
+  0 failures (629.746754 ms).
+- Failing-before proof: new `test/infantry-proxy-instancing.test.js` passed 0/4
+  and failed 4/4 on the absent 198 batches/controller, matrix, raycast, and
+  fixed-buffer behavior (455.598882 ms).
+- Focused final command covering the packet test, resource sharing, infantry
+  LOD, pose, hit volumes, pointer interaction, selection, and performance
+  passed 41/41 tests, 0 failures (1,052.020964 ms). The separately authorized
+  geometry-fidelity refinement passed 11/11 (316.086458 ms).
+- Full `npm test` passed 138/138 tests, 0 failures (7,252.93671 ms).
+- `npm run build` passed with Vite 8.1.5, 768 modules transformed, in 182 ms.
+  The known chunk-size warning remains; the largest emitted game chunk was
+  506.31 kB minified. No dependency was added.
+- `git diff --check` passed with no output. `graft build` completed with 3,605
+  nodes and 9,334 edges. The intentionally dirty worktree was preserved; no
+  unrelated file was reset, reverted, broadly formatted, committed, branched,
+  or pushed.
+- Behavioral coverage proves matrix equivalence after standing, movement,
+  aiming, reload, prone, and KIA projection; distinct per-unit raycast roots and
+  selection discs; preserved markers and pose hierarchy identity; unchanged
+  high/medium/core visible counts and proxy silhouettes; zero proxy shadows;
+  fixed instance-buffer identity/version behavior through 100 unchanged syncs;
+  and squad-local resource/disposal isolation.
+
+### Questions / Blockers
+
+- This worker did not complete or claim the required live performance sample.
+  A fresh Chrome target reached the exact URL
+  `http://127.0.0.1:5175/?mode=realtime&camera=far&quality=high&selected=none&seed=19400510`
+  with `data-game-status="setup"`; the coordinating agent requested takeover
+  before the exact 56-unit force was launched. Therefore ready/backend/LOD,
+  actual renderer draws, triangles, geometries, casters, frame distribution,
+  console state, and live before/after proxy submissions remain for the
+  coordinating agent's measurement. The temporary Chrome and Vite processes
+  were stopped cleanly.
+
+## Packet PERFORMANCE-INFANTRY-SHADOW-C: LOD shadow ownership
+
+### Status and authorized goal
+
+FIX NOW only after PERFORMANCE-INFANTRY-PROXY-B is independently approved.
+Reduce the dominant medium/core infantry shadow-pass submissions without
+changing authored visible geometry, individual soldier ownership, high-detail
+presentation, or the approved zero-shadow far proxy. The native-WebGPU design
+camera measured 2,638 visible infantry core casters out of 2,756 total visible
+casters, so this packet owns only which existing infantry LOD silhouette meshes
+cast shadows.
+
+### Allowed files
+
+- `src/content/france1940/render/France1940InfantryLodGeometry.js`, a narrow,
+  explicit medium/core shadow policy if that is the smallest ownership seam
+- `src/content/france1940/render/France1940UnitMeshFactory.js`, only applying
+  the explicit infantry LOD shadow policy while preserving pooling, instancing,
+  materials, names, transforms, visibility, and dirty mortar/weapon work
+- new `test/infantry-lod-shadow-ownership.test.js`
+- narrow assertion additions to `test/france1940-infantry-lod-models.test.js`
+  and `test/infantry-render-resource-sharing.test.js` only when required to
+  prove unchanged visible output and exact caster counts
+- `test/infantry-proxy-instancing.test.js`, only replace the now-obsolete exact
+  configured-caster expectation from 13,102 to the measured 4,534 shadow-policy
+  total; retain every proxy batch, source, matrix, drawable, and ownership
+  assertion unchanged
+- this packet's Results and Questions / Blockers only
+
+Do not edit GameApp, Renderer, lights, global shadow-map settings, SoldierAI,
+proxy instancing, simulation, hit volumes, pose/animation, selection, materials,
+weapons, package/configuration, TODO, or unrelated tests. Do not add shadow-only
+geometry, merge visible meshes, delete individual parts, or hide geometry.
+
+### Implementation contract and acceptance
+
+- Preserve every high-detail caster and every proxy's existing zero-shadow
+  policy. Medium/core may retain shadow casting only on a small explicit set of
+  identity-defining silhouette parts chosen from the existing meshes.
+- Preserve visible medium/core mesh counts, geometry, materials, transforms,
+  LOD thresholds, bounds, poses, equipment, weapons, casualty state, pointer
+  behavior, disposal, and individual soldier ownership exactly. `castShadow`
+  must remain renderer-only and uncaptured.
+- The retained caster set must form a credible standing/prone human shadow at
+  medium/core range: body mass, head/helmet identity, leg separation or an
+  equivalent existing silhouette, and carried primary weapon where it changes
+  the outline. Tiny equipment and non-silhouette detail should not own shadow
+  submissions.
+- Add failing-before behavioral tests for exact per-tier/per-faction caster
+  component sets; unchanged visible medium/core components and bounds; unchanged
+  high/proxy policies; standing/prone/KIA projection; shared-resource/disposal
+  invariants; and deterministic repeated LOD updates without resource growth.
+- On the exact 44-infantry-unit / 252-soldier force, reduce configured
+  medium/core casters by at least 50% from the approved pooling/proxy baseline.
+  At the native-WebGPU design camera, record actual visible caster totals before
+  and after and require at least a 50% reduction in visible infantry LOD casters
+  with no console error or ready/backend regression. Do not claim FPS without a
+  valid frame sample.
+
+Run focused/full/build/diff/status after final edits and record exact results.
+Capture near/design screenshots for shadow silhouette inspection if the browser
+can produce valid frames; otherwise record the exact environment blocker and do
+not substitute source inspection for visual acceptance. Stop if correctness
+requires global renderer/light changes, new geometry/materials, or another
+production file.
+
+### Results
+
+Status: CODE APPROVED; live shadow-silhouette acceptance remains blocked as
+recorded below.
+
+- Implemented only the authorized renderer policy. Existing medium/core
+  `pelvis`, `torso`, and the two separated `upper-leg` silhouette meshes retain
+  `castShadow=true`; other replacement-tier detail no longer submits to the
+  shadow pass. Every high-detail caster and every proxy's existing zero-shadow
+  policy remains unchanged.
+- Files changed by layer: the explicit renderer-only policy in
+  `src/content/france1940/render/France1940InfantryLodGeometry.js`; its bounded
+  application in `src/content/france1940/render/France1940UnitMeshFactory.js`;
+  new behavioral coverage in `test/infantry-lod-shadow-ownership.test.js`; and
+  only the explicitly authorized obsolete 13,102 -> 4,534 configured-caster
+  expectation in `test/infantry-proxy-instancing.test.js`. No simulation,
+  capture, GameApp, Renderer, light, material, pose, selection, hit-volume,
+  weapon, package, or global shadow owner changed.
+- Exact-force evidence for 44 infantry units / 252 soldiers reports 13,102 ->
+  4,534 configured casters (-65.4%). Tests retain exact visible component
+  counts and bounds, high/proxy policies, standing/prone/KIA projection,
+  deterministic repeated LOD updates, squad-local resources/disposal, proxy
+  matrices/drawables/source ownership, selection, and raycasting.
+- Failing-before proof: the new shadow test initially passed 2/4 and failed 2/4
+  on the absent explicit policy and unchanged all-on medium/core casters; final
+  packet tests passed 4/4. Independent read-only review returned APPROVE.
+- Final combined `npm test` passed 139/139 tests, 0 failures
+  (7,432.757765 ms). `npm run build` passed with Vite 8.1.5, 768 modules, in
+  232 ms; the known chunk-size warning remains and the largest game chunk is
+  506.71 kB minified. `git diff --check` passed with no output.
+
+### Questions / Blockers
+
+- The exact native-WebGPU after-state visible-caster comparison and near/design
+  shadow screenshots were not produced. The worker's browser setup attempt was
+  interrupted after it stopped making progress so it would not consume more
+  tokens. The validated code/configured-caster reduction is not being presented
+  as visual acceptance or an FPS improvement. A valid post-change browser frame
+  sample remains explicitly queued in `TODO.md`.
+
+## Packet PERFORMANCE-SPOTTING-ATTENTION-A: deterministic cold-candidate phasing
+
+### Status and authorized goal
+
+FIX NOW only after PERFORMANCE-LOS-C is independently approved. Keep close,
+moving, firing, partially acquired, directly observed, grace-retained, and
+otherwise active observer-target pairs on the authoritative 10 Hz path. Phase
+only distant stationary cold candidates across stable-ID ticks at a lower
+explicit cadence, with bounded 0-0.4 second initial scan latency and no
+retroactive acquisition credit.
+
+### Allowed files
+
+- `src/game/SpottingSystem.js`, deterministic candidate classification,
+  phasing, and uncaptured diagnostics only
+- `src/game/Unit.js`, only a small deterministic, capture/restored recent-fire
+  activity timer shared by infantry, vehicles, and structures if existing
+  durable weapon state cannot prove the real execution path
+- `src/game/CombatSystem.js`, only mark that timer after an authoritative shot
+  is actually emitted; do not change hit, projectile, cadence, or damage logic
+- new `test/spotting-attention-scheduling.test.js`
+- narrow additions to `test/spotting-system.test.js` only if a public existing
+  invariant cannot be cleanly exercised in the new file
+- narrow additions to existing combat/unit capture tests only to prove the
+  durable marker is set by real infantry, vehicle, and structure fire, decays
+  in simulation time, and restores exactly
+- this packet's Results and Questions / Blockers only
+
+Do not edit GameApp, FixedStepAccumulator, AI/fire control, terrain or
+building systems, contacts/last-known rendering, UI, package/configuration,
+TODO, or unrelated tests. Preserve all approved range, grace, building/terrain
+broadphase, precision-index, capture, and diagnostic work.
+
+### Deterministic contract
+
+- Scheduling activates only for the exact canonical 100,000,000 ns spotting
+  step used by GameApp's fixed 10 Hz accumulator. Noncanonical public advances
+  fail open to the existing full evaluation path so whole/30 Hz/60 Hz legacy
+  semantics remain unchanged.
+- Derive the current 10 Hz tick from the canonical spotting clock. Assign each
+  raw stable observer-unit/observer-person/target-unit triple a deterministic
+  string-hash phase over five ticks. Do not use RNG, insertion order, frame
+  count, or wall time. Hash collisions affect load distribution only, never ID
+  equality or outcomes.
+- Precompute bounded per-unit activity facts once per advance. A candidate is
+  urgent and evaluated every tick if observer or target is moving/firing, if
+  conservatively within the named close range, or if its existing observation
+  is partially acquired, direct-episode active, currently/grace visible, or
+  otherwise in an active direct reacquisition state. Classification must not
+  rely on render meshes or relayed/sound contacts to grant sight or precision.
+- Firing urgency must follow the real GameApp execution order, where spotting
+  precedes the frame's combat attempt. A one-frame `isFiring` flag cleared by
+  `Unit.update()` is insufficient. If a recent-fire timer is required, it must
+  be set only after `CombatSystem.fireWeapon` emits a real authoritative shot,
+  use simulation seconds, be captured/restored, and never alter combat output.
+- Only a distant stationary cold candidate may be deferred. At its phase tick,
+  evaluate current authoritative world state and pass exactly one 0.1-second
+  acquisition slice. Never credit the skipped 0.2-0.5 seconds. Once any
+  acquisition work begins, return it to 10 Hz until acquired or fully decayed.
+- Existing per-tick confidence, identification, direct-episode, grace, casualty,
+  Broken, removal, relay, contact, and cleanup rules continue even while a cold
+  evaluation is deferred.
+- Scheduling phase is derived from canonical time and stable IDs and adds no
+  capture field/version. Any authorized recent-fire activity timer is ordinary
+  authoritative Unit state and must restore exactly. Results must reproduce
+  after restore at every phase boundary.
+- Add mutation-safe uncaptured diagnostics for eligible, urgent, deferred,
+  cold-evaluated, and total evaluation counts plus the explicit cadence/range
+  approximation. Diagnostics never affect decisions.
+
+### Required tests and measurement
+
+Run the current spotting/precision/broadphase/sound/GameApp focused baseline
+before edits. Add failing-before public tests proving: exact five-phase cold
+distribution and <=0.4 s scan delay; no retroactive acquisition credit; full
+10 Hz for close, moving, firing, partial, direct, and grace cases; no engaged
+enemy blink; stable reordered unit/roster results; exact capture/restore at all
+phase offsets; realtime/WEGO use of the same mechanism; noncanonical whole/
+30 Hz/60 Hz fail-open equivalence; casualty/Broken/removal cleanup; and
+diagnostic evidence of roughly 80% fewer cold evaluations without observation
+map scans or unbounded allocation.
+
+Run focused/full/build/diff/status after final edits. On the exact 56-unit /
+252-infantry native-WebGPU realtime scene, take a 10-second warmup and active
+10-second sample. Record candidate/urgent/deferred/evaluated deltas, LOS and
+terrain/building counters, normalized checks per simulation second, FPS/frame
+distribution and CPU profile. Acceptance requires a genuine reduction in
+candidate evaluations/LOS calls with active categories still at 10 Hz, ready
+runtime, unchanged deterministic tests, and no console error. Stop if exact
+behavior requires new authoritative inputs/capture state, GameApp changes, or
+another production file.
+
+### Results
+
+Status: REVISED CODE READY FOR INDEPENDENT REVIEW; exact-scene counters were
+captured, while frame timing and the concurrent full-suite overlap remain as
+recorded below.
+
+- Completed only the authorized scheduling slice. The exact canonical 100 ms
+  path now phases distant stationary cold observer/person/target triples over
+  five stable-ID ticks. Noncanonical advances retain the previous full
+  evaluation path. Once acquisition starts, or a pair is close, moving,
+  firing, directly engaged, or grace-retained, it is evaluated at 10 Hz.
+- Revision correction: exact activation now validates the requested delta,
+  canonical nanosecond delta, both interval boundary alignments, and both
+  start/end compensation values. Sub-nanosecond neighbors such as
+  `0.1000000004` and their subsequent compensated boundaries fail open.
+- Real firing urgency now reads `Unit.recentFireActivitySeconds`, a 0.2-second
+  gameplay-approximation timer written only after CombatSystem has emitted a
+  real authoritative projectile. It covers infantry, vehicle, and structure
+  fire, decays in `Unit.update`, restores exactly, and does not change combat
+  output.
+- The close policy is an explicit gameplay approximation: conservative unit
+  bounds within 80 metres are urgent. Cold cadence is 0.5 seconds with 0-0.4
+  seconds initial latency. A phased evaluation receives exactly one 0.1-second
+  acquisition slice and never receives skipped-time credit.
+- Files changed by category: scheduling/diagnostics in
+  `src/game/SpottingSystem.js`; recent-fire ownership and capture/restore in
+  `src/game/Unit.js`; accepted-shot marking in `src/game/CombatSystem.js`;
+  behavioral coverage in new `test/spotting-attention-scheduling.test.js` and
+  narrow assertions in `test/soldier-ai.test.js`,
+  `test/vehicle-weapon-selection.test.js`, and `test/structure-damage.test.js`;
+  documentation in this packet only. No GameApp, fixed-step, AI/fire-control,
+  rendering, UI, terrain/building, package/configuration, or TODO owner changed.
+- Authoritative ownership: Unit owns the one new persistent timer;
+  CombatSystem is its sole producer after accepted projectile emission; Unit's
+  simulation update is its sole decay owner; Spotting is a read-only consumer.
+  Phase/counters remain derived and uncaptured, with no spotting capture-version
+  change or scheduling-state field.
+- Required pre-edit focused baseline passed 67/67, 0 failures. The failing-
+  before packet test passed 3/8 and failed 5/8: all cold candidates were still
+  evaluated on tick zero and attention diagnostics were absent.
+- Revision baseline covering attention, spotting/precision/broadphases, sound,
+  GameApp performance, infantry/vehicle/structure fire, and combat rollback
+  passed 100/100. Revision failing-before proof passed 26/31 and failed the five
+  intended seams: all three real fire routes lacked durable activity,
+  Spotting ignored it, and the sub-nanosecond neighbor activated scheduling.
+- Final revised focused command passed 102/102, 0 failures. The final full run
+  passed 136/139; the three reported files were concurrently edited infantry
+  rendering tests. Isolated rerun passed 8/9 and left only the shadow packet's
+  stale caster expectation (actual 4,534 versus 13,102). No attention-owned
+  test failed, and this packet did not edit or weaken those overlapping tests.
+- `npm run build` passed after final edits with Vite 8.1.5 and 768 transformed
+  modules. The known chunk warning remains; the concurrent game chunk is 506.71 kB
+  minified. No dependency was added. `git diff --check` passed with no output.
+  The intentionally dirty worktree was preserved; no unrelated file was reset,
+  reverted, committed, branched, or pushed.
+- Deterministic coverage proves all five phases and the 0.4-second maximum;
+  exact no-retroactive credit; observer and target movement/firing; close,
+  partial, direct, and grace urgency; no engaged blink; reordered unit/roster
+  and realtime/WEGO-equivalent behavior; restore from every phase offset;
+  whole/30 Hz/60 Hz fail-open equivalence; and casualty, Broken, and removal
+  cleanup. The cold diagnostic fixture records 400 eligible opportunities,
+  320 deferred, 80 cold-evaluated, and 80 total evaluations across five ticks:
+  exactly 80% fewer evaluations than the prior full scan.
+- Coordinating live exact-scene sample: native WebGPU reached ready with 56
+  units and 252 living infantry. One canonical cold step recorded 8,400
+  eligible, 6,711 deferred, and 1,689 evaluated candidates, a 79.9% reduction.
+  Terrain diagnostics recorded one snapshot refresh, 10,436 run tests, 10,144
+  rejects, 1,274 exact box tests, and 50,927 avoided box tests.
+
+### Questions / Blockers
+
+- The live page's rAF did not produce a valid frame sample, so no FPS, frame
+  distribution, or CPU-profile claim is made. The coordinating agent will
+  rerun the full suite after the concurrent infantry shadow packet lands; this
+  worker deliberately did not edit its stale caster assertion.
+
+## Packet PERFORMANCE-PRECISION-A: derived direct-observation pair index
+
+### Status and authorized goal
+
+FIX NOW. Preserve every authoritative observation, contact, visibility,
+precision-targeting, casualty, split, capture/restore, and replay outcome while
+replacing `hasDirectObservation`'s repeated scan of every observer-person map
+with one derived observer-unit -> target-unit membership index.
+
+The current measured 56-unit / 252-soldier runtime called both
+`hasDirectObservation` and `canPrecisionTarget` 221,760 times in one profile;
+together they consumed 1,699.5 ms inclusive, 15.07% of sampled CPU and roughly
+2.7 times the remaining terrain-obstacle LOS path. This packet is limited to
+that measured seam.
+
+### Required work order and baseline
+
+Read completely before editing:
+
+- `AGENTS.md`, `TODO.md`, `docs/ARCHITECTURE.md`, and this packet;
+- `src/game/SpottingSystem.js`, focusing on `advance`,
+  `buildDirectContacts`, `hasDirectObservation`, `canPrecisionTarget`,
+  capture, restore, visibility grace, and observer cleanup;
+- `src/app/GameApp.js` precision callers as read-only evidence;
+- `src/game/SoldierAgent.js` / `SoldierAI.js` precision callers as read-only
+  evidence;
+- every focused test listed below.
+
+Inspect `git status --short --branch` and the current `SpottingSystem` diff.
+Preserve all approved range, grace, observer-debug, building-broadphase, and LOS
+diagnostic work. Reproduce this coordinating baseline before editing:
+
+```sh
+node --test --test-isolation=none \
+  test/spotting-system.test.js \
+  test/spotting-building-broadphase.test.js \
+  test/sound-contacts.test.js \
+  test/infantry-buddy-bounds.test.js \
+  test/infantry-crawl-assault-order.test.js \
+  test/game-app-performance.test.js
+```
+
+The coordinating baseline is 75/75. Record a failure and stop rather than
+weakening or deleting coverage.
+
+### Allowed files
+
+Only these paths may change:
+
+- `src/game/SpottingSystem.js`, exact derived index, rebuild, query, and
+  mutation-safe diagnostic seams
+- `test/spotting-precision-index.test.js` (new)
+- `HANDOFF.md`, only this packet's Results and Questions / Blockers
+
+`TODO.md` is coordinator-owned. No other production or test file is allowed.
+
+### Explicitly forbidden
+
+- Editing `GameApp`, `SoldierAgent`, `SoldierAI`, `Unit`, terrain/building LOS,
+  observation/contact helper modules, UI/rendering, package/configuration, or
+  existing tests.
+- Changing precision from unit-pair authority to target-person authority;
+  parsing composite observer keys; stringifying/coercing IDs; deriving from
+  contacts, relay episodes, confidence, identification, last-known position,
+  target soldier, or render projection.
+- Treating visibility grace as precision. Only `visibleNow === true` grants
+  direct precision observation; stale, VOICE, RADIO, SOUND, and grace-only
+  states remain false.
+- Eager death/split invalidation outside the existing authoritative spotting
+  advance. Preserve the sampled 10 Hz lifecycle exactly.
+- Capturing/restoring the index or diagnostics, changing state version 5,
+  changing iteration/acquisition order, adding RNG use, per-query allocations,
+  source-string/timing-only tests, tolerance changes, broad cleanup, commits,
+  branches, or pushes.
+
+### Implementation contract
+
+- Initialize one empty derived `Map<observerUnitId, Set<targetUnitId>>` in the
+  constructor. Preserve raw Map key identity; do not stringify IDs.
+- At the end of each successful `advance`, atomically replace the index from
+  the already-derived `directBySource` map, using only its target keys. This
+  avoids a second observation scan and inherits existing living-observer,
+  Broken, removal, split, target-observability, and `visibleNow` finalization.
+- At the very end of successful `restoreState`, atomically rebuild the index by
+  scanning restored observations and including only exact raw
+  `observerUnitId` / `targetUnitId` pairs with `visibleNow === true`. Support
+  every existing v1-v5 migration without changing captured bytes.
+- `hasDirectObservation` performs one observer Map lookup plus one target Set
+  membership lookup. `canPrecisionTarget` remains its exact alias and all
+  callers remain unchanged.
+- Expose a mutation-safe uncaptured `getPrecisionDiagnostics()` snapshot with
+  cumulative query, hit, lookup, and rebuild counts plus current indexed
+  observer-unit and pair counts. Rebuild diagnostics may count observation rows
+  visited on restore; ordinary queries must visit zero observation rows.
+  Diagnostics never feed decisions.
+
+### Behavioral acceptance
+
+Add public tests that failed before implementation and prove:
+
+1. Multiple observer people collapse to one unit pair if any current person has
+   `visibleNow`; other observer/target pairs never leak. Object and raw-ID
+   queries preserve exact key identity.
+2. Repeated hit/miss queries perform one index lookup apiece, do not rebuild or
+   scan observation rows, allocate no per-query collections, and leave capture
+   bytes unchanged.
+3. Grace-visible rendering after LOS loss remains visible in the projection but
+   immediately returns false for both direct-observation/precision methods;
+   stale DIRECT and VOICE/RADIO/SOUND contacts never enter the index.
+4. Killing/incapacitating or breaking the only observing person/unit, removing
+   a target, and source/target splits preserve the current sampled answer until
+   the next spotting advance, then update exactly as the prior scan did. A
+   remaining visible person preserves the unit pair.
+5. Target-soldier identity remains irrelevant to this unit-pair gate: loss or
+   movement of one observed target person does not manufacture/remove a pair
+   while another person remains directly visible under existing rules.
+6. Capture/restore immediately reproduces the complete precision matrix before
+   another advance; render-grace-only states remain false. Index/diagnostics are
+   absent from the captured schema and mutation of returned diagnostics cannot
+   affect internal state.
+7. Existing v1-v5 migration behavior immediately rebuilds the same true/false
+   precision pairs. Do not weaken strict validation or round-trip checks.
+8. Whole-step, 30 Hz, 60 Hz, reversed-unit, and reversed-roster variants produce
+   byte-identical captured state, contacts, visibility projection, and stable-ID
+   precision matrices.
+9. A scaling fixture with many observer-person rows performs one rebuild per
+   authoritative advance and O(1) membership per query rather than scanning
+   rows; use real diagnostic evidence, not timing thresholds or source text.
+
+### Validation and measurement
+
+After the final edit run:
+
+```sh
+node --test --test-isolation=none \
+  test/spotting-precision-index.test.js \
+  test/spotting-system.test.js \
+  test/spotting-building-broadphase.test.js \
+  test/sound-contacts.test.js \
+  test/infantry-buddy-bounds.test.js \
+  test/infantry-crawl-assault-order.test.js \
+  test/game-app-performance.test.js
+npm test
+npm run build
+git diff --check
+git status --short --branch
+```
+
+Repeat the exact recorded Bridge benchmark: fixed URL/seed, 1920x1080 DPR 1,
+native WebGPU, design/high, realtime action phase, 56 units / 252 soldiers,
+identical roster, 10-second warmup, 10-second rAF sample, public precision
+diagnostic delta, and separate CPU profile or precise coverage. Record frame
+metrics and precision self/inclusive CPU. A noisy/unavailable sample is a
+measurement blocker, not evidence of improvement.
+
+### Stop condition
+
+Stop after filling Results and Questions / Blockers for independent review.
+Stop early if exact equivalence requires changing callers, authoritative state,
+cadence, capture schema, contacts, grace, ID semantics, another production
+file, or an inseparable dirty overlap.
+
+### Results
+
+- Status: IMPLEMENTED, independently APPROVED, and measured on the identical
+  56-unit / 252-soldier native-WebGPU runtime.
+- Scope completed: replaced the observer-person observation-map scan in
+  `hasDirectObservation` with an uncaptured raw-ID
+  `Map<observerUnitId, Set<targetUnitId>>`. A successful `advance` atomically
+  rebuilds it from the existing `directBySource` target keys; a successful
+  v1-v5 restore atomically rebuilds it from exact `visibleNow === true`
+  observation rows. `canPrecisionTarget` remains the unchanged alias.
+- Scope deliberately left incomplete: no caller, cadence, contact, grace,
+  capture-version, observation-authority, or TODO changes were made. Broader
+  LOS and frame-performance work remains outside this packet.
+- Files changed:
+  - simulation/query: `src/game/SpottingSystem.js`
+  - tests: `test/spotting-precision-index.test.js`
+  - docs: this packet's Results and Questions / Blockers only
+- Authoritative ownership: unchanged. Per-person observations remain the
+  authority; the unit-pair index and cumulative diagnostics are derived,
+  uncaptured state. Diagnostics return mutation-safe snapshots and never feed
+  simulation decisions.
+- Coordinating baseline before edits:
+  `node --test --test-isolation=none test/spotting-system.test.js
+  test/spotting-building-broadphase.test.js test/sound-contacts.test.js
+  test/infantry-buddy-bounds.test.js
+  test/infantry-crawl-assault-order.test.js
+  test/game-app-performance.test.js` -> 75/75 passed.
+- Failing-before proof: the new public behavioral suite initially produced
+  3/7 pass and 4/7 fail. All four failures were `TypeError:
+  spotting.getPrecisionDiagnostics is not a function`, proving the missing
+  derived-index/diagnostic seam without timing or source-text assertions.
+- Focused final command from this packet -> 82/82 passed after the final
+  production/test edit.
+- Full `npm test` -> 132 files/tests reported, 132 passed, 0 failed.
+- `npm run build` -> passed; Vite 8.1.5 transformed 766 modules. The known
+  chunk warning remains (`game-FWBoW7pH.js` 500.28 kB minified); this packet did
+  not add a runtime dependency.
+- `git diff --check` -> passed with no output.
+- Browser/runtime: exact fixed URL and seed at
+  `http://localhost:5173/?mode=realtime&camera=design&quality=high&selected=none&seed=19400510`,
+  1920x1080 DPR 1, design/high, realtime action phase, native WebGPU,
+  `data-game-status="ready"`, 56 units / 252 infantry soldiers (300 total
+  roster entries including vehicle crew), exact 2 HQ + 20 squads + 6 tanks per
+  side roster, and no captured console warning/error.
+- Exact benchmark after a 10-second warmup: the 10.939-second rAF sample
+  produced 13 frames, 1.188 FPS, 782.415 ms mean, 850 ms p50, and 900 ms
+  p95/p99/max. Public precision-diagnostic delta was 288,288 queries, 288,288
+  observer Map lookups, 13 advance rebuilds, zero restore observation-row
+  visits, and no query-time rebuild. Initial deployment produced zero indexed
+  direct pairs, so these runtime calls all ended at the missing-observer Map
+  lookup; populated hit/miss Set membership is covered behaviorally.
+- Separate 10.515-second Chrome CPU profile (66,302 samples):
+  `hasDirectObservation` was 3.338 ms self/inclusive (0.0317%), down from the
+  recorded 1,103.647 ms self (9.785%); `canPrecisionTarget` was 4.497 ms self
+  and 7.683 ms inclusive (0.0731%), down from the recorded 595.855 ms self and
+  1,699.502 ms inclusive (15.068%).
+- Behavioral coverage proves multi-person unit-pair collapse and raw-ID
+  identity; repeated O(1) hit/miss diagnostics without capture mutation;
+  render-grace/contact exclusion; sampled casualty, Broken, removal, and split
+  lifecycle; target-person independence; immediate v1-v5 restore; diagnostic
+  mutation safety; and whole/30 Hz/60 Hz/reversed-unit/reversed-roster capture,
+  projection, and precision-matrix equivalence.
+- Independent review: APPROVE with no blocking correctness, regression, scope,
+  or permission findings. The reviewer independently reran the seven-file
+  focused gate at 82/82 and confirmed raw-ID identity, exact `visibleNow`
+  restore filtering, successful-end-only index swaps, unchanged sampled
+  lifecycle, uncaptured version-5 state, and O(1) query behavior.
+
+### Questions / Blockers
+
+- No implementation or validation blocker.
+- Measurement limitation: the exact initial deployment had no current direct
+  observation pairs, so the browser profile measures the dominant missing-
+  observer lookup path. The behavioral scaling fixture separately exercises
+  populated target-Set hits and misses with 1,000 queries and zero rebuilds or
+  observation-row visits.
+- Remaining risk: total frame rate is still only 1.188 FPS in this stress
+  fixture even though the precision-query hotspot fell below 0.1% inclusive;
+  independent profiling should select the next hotspot rather than attributing
+  the remaining cost to this completed seam.
+
+## Packet PERFORMANCE-LOS-B: conservative building-run AABB broadphase
+
+### Status and authorized goal
+
+FIX NOW. Preserve byte-identical spotting, contact, identification, relay,
+visibility, precision-targeting, capture/restore, and replay outcomes while
+eliminating exact oriented-box LOS tests for buildings whose conservative world
+bounds do not intersect the sight segment.
+
+After the existing stable collider-ID sort, form derived contiguous runs of
+equal `buildingId`. Precompute one conservative three-dimensional world-AABB
+union for each run. `checkLOS` first tests the sight segment against that run
+bounds; only candidate or fail-open runs execute the existing exact
+`intersectSegmentOrientedBox3D` calls in their unchanged order. The first exact
+hit remains authoritative.
+
+This is output-neutral derived acceleration. Do not add a grid, terrain index,
+cadence change, attention scheduling, precision-target index, capture field,
+or ballistics optimization.
+
+### Required work order and baseline
+
+Read completely before editing:
+
+- `AGENTS.md`, `TODO.md`, `docs/ARCHITECTURE.md`, and this packet;
+- `src/simulation/geometry/OrientedBox.js`;
+- `src/game/SpottingSystem.js`, focusing on constructor state, `checkLOS`,
+  `invalidateBuildingColliders`, `refreshBuildingColliders`, `advance`,
+  capture, and restore;
+- `src/simulation/buildings/BuildingSystem.js` and
+  `BuildingTransforms.js` as read-only authority;
+- `src/app/GameApp.js` building-change and restore invalidation as read-only
+  integration evidence;
+- `test/building-spotting.test.js` and `test/spotting-system.test.js`.
+
+Inspect `git status --short --branch` and the diff for every allowed existing
+file. Preserve the dirty visibility grace, observer debug, range-before-LOS,
+and last-known-contact work. Reproduce this coordinating baseline before edits:
+
+```sh
+node --test --test-isolation=none \
+  test/building-spotting.test.js \
+  test/spotting-system.test.js \
+  test/game-app-performance.test.js
+```
+
+The coordinating baseline is 39/39. Record any pre-existing failure and stop
+instead of weakening coverage.
+
+### Allowed files
+
+Only these paths may change:
+
+- `src/simulation/geometry/OrientedBox.js`
+- `src/game/SpottingSystem.js`, only derived building-run cache,
+  broadphase filtering, and read-only LOS diagnostics
+- `test/spotting-building-broadphase.test.js` (new)
+- `test/building-spotting.test.js`, only if the real-building invalidation or
+  rotation behavior cannot be covered cleanly in the new focused file
+- `HANDOFF.md`, only this packet's Results and Questions / Blockers
+
+`TODO.md` remains coordinator-owned. If another production file is required,
+stop and name the exact seam.
+
+### Explicitly forbidden
+
+- Editing `BuildingSystem`, `BuildingTransforms`, `GameApp`, ballistics,
+  terrain/map/content/scenario/UI/rendering files, package/configuration, or
+  existing unrelated tests.
+- Changing collision snapshots, building/section IDs, collider order, nearest
+  versus first-hit policy, exact OBB math/results, endpoint lifting, terrain or
+  bocage LOS, spotting cadence, acquisition, contacts, relay, identification,
+  visibility grace, targeting, RNG, or capture schema/version.
+- Regrouping all records by building through unordered maps. Only contiguous
+  equal-building runs in the already sorted flat list may be unioned, so exact
+  traversal order remains unchanged even for unusual IDs.
+- Treating an AABB hit as authoritative blockage, rejecting an exact tangent,
+  rejecting malformed/unknown bounds, caching query outcomes, per-LOS
+  allocations, source-string tests, tolerance widening, broad cleanup,
+  commits, branches, or pushes.
+
+### Implementation contract
+
+In `OrientedBox.js`, add renderer-neutral helpers that:
+
+- derive a finite conservative world AABB from the exact collider center,
+  positive half extents, and the same nine-element orientation or yaw fallback
+  used by the exact primitive;
+- conservatively expand its finite bounds by one named geometry epsilon;
+- return a fail-open sentinel for malformed values instead of inventing
+  geometry;
+- test a finite 3D segment against a world AABB with inclusive slab boundaries
+  and no per-call arrays or objects.
+
+Do not change the return value or collision policy of
+`intersectSegmentOrientedBox3D`.
+
+In `SpottingSystem`:
+
+- retain `buildingColliders` as the current authoritative-derived, globally
+  stable-ID-sorted flat record list;
+- atomically rebuild a parallel array of contiguous building runs whenever the
+  existing dirty refresh rebuilds that list; preserve the no-building reset;
+- union each run's member AABBs without reordering. If any member cannot supply
+  safe bounds, mark the whole run fail-open so all its exact tests still run;
+- in `checkLOS`, test one run AABB, reject only a definite miss, then exact-test
+  each collider in that run in original order and return the same first hit;
+- expose a mutation-safe, read-only, uncaptured diagnostic snapshot containing
+  cumulative `buildingBroadphaseTests`, `buildingBroadphaseRejects`, and
+  `buildingExactObbTests`. Diagnostics may observe the real mechanism but must
+  never affect it or enter capture/restore.
+
+### Behavioral acceptance
+
+Add public behavior tests that would fail before this packet and prove:
+
+1. A segment outside several building-run AABBs returns the same clear result,
+   increments one broadphase test/reject per run, and performs zero exact OBB
+   tests.
+2. A segment crossing the conservative AABB corner or gap but missing every
+   rotated OBB remains clear and records exact tests; AABB overlap never becomes
+   blockage.
+3. Exact tangent/boundary contact with axis-aligned and rotated colliders is not
+   rejected and returns the existing building/section identity.
+4. Reversed source records that both block remain globally ID sorted and return
+   the same first stable-ID collider, not the nearest collider.
+5. Interleaved or non-contiguous same-building records retain their original
+   run/traversal order; no Map/Set regrouping changes outcomes.
+6. Malformed derived bounds fail open to exact testing and cannot hide a hit or
+   manufacture one.
+7. Building breach/change plus `invalidateBuildingColliders()` rebuilds exact
+   colliders and run bounds together; restore followed by the existing explicit
+   invalidation restores intact blockage and can replay the same result.
+8. Whole-step, 30 Hz, 60 Hz, and reordered-unit spotting over a real rotated
+   building retain byte-identical captured state, contacts, precision
+   eligibility, and visibility projection.
+9. Calling LOS and diagnostics does not change `captureState()`, and returned
+   diagnostics cannot mutate internal counters.
+
+Use the existing real-building test where useful. Do not replace behavior with
+source inspection.
+
+### Validation and measurement
+
+After the final edit run:
+
+```sh
+node --test --test-isolation=none \
+  test/spotting-building-broadphase.test.js \
+  test/building-spotting.test.js \
+  test/spotting-system.test.js \
+  test/game-app-performance.test.js
+npm test
+npm run build
+git diff --check
+git status --short --branch
+```
+
+Measure the identical recorded valid 56-unit / 252-soldier realtime scenario
+before and after on the attached desktop browser, with the same viewport,
+camera, renderer backend, quality tier, setup roster, warmup, sampling duration,
+and simulation mode. Record FPS/frame-time distribution and LOS diagnostic
+deltas after the change. A noisy or unavailable browser is a blocker to the
+measurement claim, not permission to invent improvement. Do not mark the TODO
+slice complete without an honest before/after result; implementation may still
+be reported as validated but measurement-pending.
+
+### Stop condition
+
+Stop after filling this packet's Results and Questions / Blockers for
+independent review. Stop early if correctness requires authoritative/schema
+changes, different collider order, GameApp/BuildingSystem/Ballistics edits,
+terrain indexing, a cadence change, or an inseparable dirty overlap.
+
+### Results
+
+- Status: IMPLEMENTED, independently APPROVED after revision, and measured on
+  the identical 56-unit / 252-soldier native-WebGPU runtime.
+- Scope completed: retained the globally stable-ID-sorted flat building
+  collider list; partitioned it into contiguous equal-`buildingId` runs;
+  cached one conservative three-dimensional world-AABB union per run; rejected
+  only definite segment/AABB misses; and retained the exact oriented-box test
+  and first-hit identity as authority for every candidate or fail-open run.
+- Scope deliberately left incomplete: no terrain or foliage index, grid,
+  attention scheduling, cadence change, precision-target index, ballistics
+  broadphase, capture field, or browser performance conclusion was added.
+- Files changed by layer:
+  - Renderer-neutral geometry: `src/simulation/geometry/OrientedBox.js`.
+  - Spotting adapter/diagnostics: the narrow derived-cache, query, and
+    diagnostic seams in `src/game/SpottingSystem.js`.
+  - Tests: new `test/spotting-building-broadphase.test.js`.
+  - Packet record: this Packet PERFORMANCE-LOS-B Results and Questions /
+    Blockers only.
+- Authoritative ownership and persistence: `BuildingSystem` collision
+  snapshots and the existing exact `intersectSegmentOrientedBox3D` result
+  remain authoritative. The run bounds and cumulative diagnostic counters are
+  derived, uncaptured state. Spotting capture version 5, restore, RNG, cadence,
+  contacts, identification, relay, visibility, targeting, terrain LOS, and
+  ballistics were not changed.
+- Deterministic order: runs are created only from contiguous records after the
+  existing global collider-ID sort. No Map/Set grouping or query-result cache
+  participates in traversal. Candidate colliders execute exact tests in their
+  prior order; the prior first exact hit still wins rather than the nearest
+  intersection.
+- Conservative/fail-open behavior: finite positive half extents and a finite
+  orthonormal nine-element orientation, or the exact primitive's yaw fallback,
+  produce a world AABB padded by the named geometry epsilon. Malformed center,
+  extent, yaw, or orientation data marks the entire run fail-open. The segment
+  slab predicate uses inclusive boundaries and allocates no arrays or objects
+  per call.
+- Review revision: the first implementation rejected an exact-accepted segment
+  whose local slab entry exceeded exit by less than the unchanged exact
+  primitive's normalized `EPSILON`. The AABB slab rejection now uses that same
+  normalized tolerance, including for very large direction magnitudes, so
+  fixed world padding is not incorrectly treated as sufficient. The hot-loop
+  near/far swap now uses a scalar temporary instead of destructuring.
+- Failing-before proof: before production implementation, the new focused file
+  had 6 failures / 3 passes because the diagnostic projection and broadphase
+  did not exist and the malformed fail-open case could not pass. A subsequent
+  finite-but-degenerate orientation regression failed with the first
+  implementation and drove the orthonormal fail-open guard. Final focused
+  coverage passes all eleven new behavioral tests.
+- Behavioral coverage: proves definite misses perform zero exact tests;
+  aggregate-run gap/corner overlap remains clear after exact testing; axis and
+  rotated boundary contacts block; reverse source order preserves stable-ID
+  first-hit policy; interleaved same-building records remain separate runs;
+  malformed bounds fail open without hiding or manufacturing a new broadphase
+  result; the review's exact axis-aligned repro, a direction scaled by one
+  million, and an exact corner/tangent all remain broadphase candidates; the
+  exact repro and scaled variant also block through public
+  `SpottingSystem.checkLOS` with one exact test each; breach and restore plus
+  explicit invalidation rebuild colliders and
+  bounds together; whole/30 Hz/60 Hz/reordered-unit rotated-building spotting
+  is byte-identical; and diagnostics are mutation-safe and absent from capture.
+- Focused baseline: the required pre-edit command passed 39/39, 0 failures.
+- Focused final after review revision: `node --test --test-isolation=none
+  test/spotting-building-broadphase.test.js test/building-spotting.test.js
+  test/spotting-system.test.js test/game-app-performance.test.js` passed 50/50,
+  0 failures after the final edit.
+- Full test after review revision: `npm test` passed 131/131 test files, 0
+  failures after the final edit.
+- Build: `npm run build` passed with Vite 8.1.5, 766 modules transformed in
+  208 ms. The largest emitted chunk was `game-BZ8mCGC1.js` at 498.81 kB; no
+  chunk-size or other warning was emitted.
+- `git diff --check`: passed with no output after the final production and test
+  edits. Final status remains intentionally dirty on `main...origin/main`; no
+  unrelated file was reset, reverted, formatted, committed, branched, or
+  pushed.
+- Independent review: the first verdict was `REVISE` because a strict AABB
+  slab comparison rejected a near-corner segment accepted by the exact OBB's
+  normalized tolerance, and the near/far swap allocated an array. After the
+  tolerance match, scalar swap, adversarial scale coverage, and public
+  `checkLOS` regression, the rereview verdict was `APPROVE`; its independent
+  focused run passed 50/50 with no remaining correctness, order, persistence,
+  scope, or test-quality blocker.
+- Browser/runtime measurement: identical Bridge battle at
+  `http://localhost:5173/?mode=realtime&camera=design&quality=high&selected=none&seed=19400510`,
+  1920x1080 DPR 1, native WebGPU, realtime `ACTION_PHASE`, 56 units and 252
+  living soldiers, with a 10-second foreground warmup. The original baseline
+  was 0.6923 FPS, 1,444.38 ms average / 1,533.3 ms p95 frame time, and 52.997
+  exact building OBB tests per LOS. Final code measured 1.0000 FPS, 999.97 ms
+  average / 1,099.9 ms p95, and 0.206962 exact tests per LOS: FPS +44.44%,
+  average frame -30.77%, p95 -28.27%, LOS throughput +42.11%, and normalized
+  exact OBB work -99.61%. The final 122,298-LOS sample rejected 237,776 of
+  244,497 building runs (97.2511%) and ran 25,311 exact OBB tests. The busy
+  main thread delayed the nominal 10-second callback to 11.068 seconds, so
+  frame and throughput calculations use actual timestamps. One ready game
+  page remains open with no `data-game-error`.
+
+### Questions / Blockers
+
+- None. Terrain obstacle LOS still performs about 22.655 box tests per LOS in
+  the measured workload and is the next evidence-backed optimization target;
+  it requires a separately reviewed revision/snapshot contract.
+
+## Packet PERFORMANCE-LOS-A: reject impossible observations before LOS
+
+### Status and goal
+
+FIX NOW. Preserve every spotting, contact, identification, relay, visibility,
+precision-targeting, capture/restore, and replay outcome while eliminating LOS
+work whose result the current implementation necessarily discards.
+
+This packet is deliberately limited to the first output-neutral slice:
+
+- after the existing FOV test and maximum-range calculation, compute the exact
+  lifted three-dimensional observer-to-target distance with the same eye and
+  aim heights used by `checkLOS`;
+- skip `checkLOS` only when that distance is strictly greater than the current
+  capability/target maximum range;
+- preserve the exact-range boundary, capability order, target-person order,
+  acquisition selection, public `checkLOS` behavior, and 10 Hz authoritative
+  spotting cadence.
+
+Do not add the building/terrain spatial broadphase or precision-target lookup
+index in this packet. They require separate invalidation and stable-order
+contracts and will be measured after this slice.
+
+### Required reading and baseline
+
+Read completely before editing:
+
+- `AGENTS.md`, `TODO.md`, `docs/ARCHITECTURE.md`, and this packet;
+- `src/game/SpottingSystem.js`, focusing on `addHeight`, `distance3d`,
+  `checkLOS`, `maximumObservationRange`, `evaluateObservation`, `advance`, and
+  capture/restore;
+- `test/spotting-system.test.js`, including unit-order, frame-partition,
+  visibility-grace, and rollback coverage;
+- `test/building-spotting.test.js` and `test/sound-contacts.test.js`.
+
+Before editing, inspect `git status --short --branch` and the current diff for
+both allowed files. The coordinating baseline passed 40/40 with:
+
+```sh
+node --test --test-isolation=none \
+  test/spotting-system.test.js \
+  test/building-spotting.test.js \
+  test/sound-contacts.test.js
+```
+
+If that baseline cannot be reproduced, record the exact failure and stop.
+
+### Allowed files
+
+Only these paths may change:
+
+- `src/game/SpottingSystem.js`
+- `test/spotting-system.test.js`
+- `HANDOFF.md`, only this packet's Results and Questions / Blockers
+
+`TODO.md` is coordinator-owned. Preserve all existing visibility-grace and
+observer-debug edits already present in the two dirty allowed files.
+
+### Explicitly forbidden
+
+- Any renderer, UI, application composition, combat, building, terrain,
+  collision, vehicle, infantry, catalog, scenario, package, configuration, or
+  dependency edit.
+- Changing the 10 Hz spotting cadence, public `checkLOS` semantics, terrain or
+  building intersection behavior, range constants, FOV, acquisition timing,
+  contact/relay rules, capture schema, RNG consumption, target ordering, or
+  precision-targeting policy.
+- Caching or reusing a stale LOS result, adding a spatial index, adding
+  authoritative state, changing `canPrecisionTarget`, weakening tolerances,
+  deleting/skipping tests, broad cleanup/formatting, commits, branches, or
+  pushes.
+
+### Implementation and behavioral contract
+
+Use one shared local helper or equivalent exact calculation so the early
+distance test and `checkLOS` cannot diverge in eye/aim-height semantics. Do not
+approximate with horizontal distance or unit-anchor distance. Preserve the
+current strict comparison: `distance > maximumRange` rejects, while exact
+equality still executes LOS.
+
+Add public behavioral coverage that would have failed before the optimization:
+
+1. An in-FOV target strictly beyond maximum range produces the same empty
+   contact/observation outcome while an instrumented `checkLOS` records zero
+   calls.
+2. A target exactly at the applicable maximum range still invokes LOS and can
+   acquire normally.
+3. A mixed infantry target evaluates LOS only for in-range individual target
+   points and preserves the current chosen target-person/contact behavior.
+4. Existing unit-order, frame-partition, visibility-grace, contact, and
+   capture/restore tests pass unchanged.
+
+The tests may instrument the public method in the fixture. Do not add
+production telemetry or source-text assertions.
+
+### Validation and stop conditions
+
+After the final edit run:
+
+```sh
+node --test --test-isolation=none \
+  test/spotting-system.test.js \
+  test/building-spotting.test.js \
+  test/sound-contacts.test.js \
+  test/infantry-buddy-bounds.test.js
+npm test
+npm run build
+git diff --check
+git status --short --branch
+```
+
+This output-neutral simulation-only slice does not require a new visual proof,
+but report the exact browser/runtime blocker if the real runtime is unavailable.
+Stop if exact endpoint lifting cannot be shared without changing public LOS
+results, an existing dirty edit overlaps inseparably, any deterministic state
+differs, or another production file is needed.
+
+### Results
+
+Worker fills this section and stops for independent review.
+
+- Status: APPROVED after independent read-only review; no blockers found.
+- Scope completed: shared the exact lifted observer-eye/target-aim endpoint
+  calculation between the range prefilter and public `checkLOS`; targets whose
+  lifted 3D distance is strictly beyond the current capability/target range now
+  skip LOS, while equality still reaches LOS. Added behavioral coverage for an
+  out-of-range unit, the exact boundary, and mixed infantry target people. The
+  pre-existing visibility-grace and observer-debug edits remain intact.
+- Scope deliberately left incomplete: building/terrain spatial broadphases,
+  repeated oriented-box traversal, precision-target indexing, cadence changes,
+  production telemetry, and measured high-unit runtime comparison remain for
+  separately authorized packets.
+- Files changed: simulation adapter `src/game/SpottingSystem.js`; tests
+  `test/spotting-system.test.js`; docs `HANDOFF.md` Results and Questions /
+  Blockers only. No data, rendering, UI, content, configuration, or dependency
+  files changed by this packet.
+- Authoritative/derived ownership: no authoritative state, schema, RNG use, or
+  capture/restore ownership changed. The prefilter is a local derived distance
+  using the exact endpoint lifting already authoritative for public LOS.
+- Focused tests: pre-edit baseline
+  `node --test --test-isolation=none test/spotting-system.test.js
+  test/building-spotting.test.js test/sound-contacts.test.js` passed 40/40. The
+  three new tests failed before the production edit (unnecessary LOS calls) and
+  passed afterward. Final required focused command including
+  `test/infantry-buddy-bounds.test.js` passed 55/55.
+- Full tests: `npm test` passed 129/129 test files, 0 failures, 0 skipped.
+- Build and warnings: `npm run build` passed with Vite 8.1.5, 765 modules
+  transformed, all emitted chunks below 500 kB, and no warnings.
+- `git diff --check`: passed with no output.
+- Browser/runtime: not run; the packet explicitly classifies this as an
+  output-neutral simulation-only slice that requires no new visual proof. No
+  browser/runtime availability claim was needed or made.
+- Remaining risks and recommended review points: no after-state high-unit
+  performance capture was authorized, so review should verify output neutrality
+  and the strict lifted-distance boundary before a later measured broadphase
+  packet.
+- Independent review: APPROVE. The reviewer confirmed shared lifted endpoints,
+  strict boundary semantics, unchanged iteration/tie behavior, no new captured
+  state, preservation of the pre-existing visibility/debug edits, and 55/55
+  focused tests plus a scoped clean diff check.
+
+### Questions / Blockers
+
+- None. The existing dirty edits were separable and no additional production
+  file was required.
+
+## Packet VISIBILITY-CONTACT-A: frozen gray last-known world contacts
+
+### Status and authorized goal
+
+FIX NOW. Add a bounded renderer-only projection of the authoritative stale
+visual/C2 contact already owned by `SpottingSystem`. After a previously
+confirmed enemy loses direct visibility and the 500 ms live-mesh grace expires,
+show a neutral gray marker at the frozen reported position. Confidence controls
+opacity and uncertainty controls a ground ring. Reacquisition or contact expiry
+hides the marker.
+
+The live hidden unit remains hidden and non-targetable. The marker must never
+follow unseen movement or expose live facing, type, stance, roster, health,
+damage, weapons, or animation. Existing terrain-point mortar area fire must
+continue to click through the marker with `targetUnit === null`.
+
+This packet deliberately does not implement negative observation of an empty
+reported area. That requires new authoritative clearance work and additional
+LOS queries and remains a separately reviewed simulation slice.
+
+### Required work order and baseline
+
+Read completely before editing:
+
+- `AGENTS.md`, `TODO.md`, `docs/ARCHITECTURE.md`, and this packet;
+- `src/game/SpottingSystem.js`, especially contact construction/decay,
+  `getFactionContacts`, `getVisibilityProjection`, capture, and restore;
+- `src/simulation/observation/ContactState.js` as read-only authority;
+- `src/app/GameApp.js`, especially initialization, animation,
+  `refreshVisibilityProjection`, interaction raycasts, and pagehide teardown;
+- `src/world/UnitHoverPreview.js` as a pooling/ground-projection/disposal
+  example only;
+- every focused test listed below.
+
+Inspect `git status --short --branch` and the current diff for every allowed
+file before editing. Preserve the dirty debug, hover, camera, visibility-grace,
+and LOS-range work. Then reproduce this audited baseline:
+
+```sh
+node --test --test-isolation=none \
+  test/spotting-system.test.js \
+  test/minimap-contacts.test.js \
+  test/game-app-performance.test.js \
+  test/unit-pointer-interaction.test.js \
+  test/mortar-target-order.test.js
+```
+
+The coordinating baseline is 46/46 tests. Record any pre-existing failure and
+stop rather than hiding it.
+
+### Allowed files
+
+Only these paths may change:
+
+- `src/world/LastKnownContactMarkerSystem.js` (new)
+- `src/app/GameApp.js`, exact import, construction, projection sync, and
+  pagehide disposal wiring only
+- `test/last-known-contact-marker-system.test.js` (new)
+- `test/game-app-performance.test.js`, exact projection-sync regression only
+- `HANDOFF.md`, only this packet's Results and Questions / Blockers
+
+`TODO.md` is coordinator-owned and is updated only after independent review.
+If another production file is required, stop and name the exact seam.
+
+### Explicitly forbidden
+
+- Editing `SpottingSystem`, `ContactState`, `Minimap`, `ApplicationPorts`,
+  `UIManager`, `CommandSystem`, `Unit`, simulation capture schemas, C2/relay,
+  targeting, scenario/content/catalog files, package/configuration, or any
+  existing presentation module.
+- Resolving `targetUnitId` to a hidden `Unit`; reading any live enemy mesh,
+  transform, dimensions, model/type, LOD, facing, posture, roster, crew,
+  health, damage, weapons, or firing state; cloning or recoloring the hidden
+  mesh; attaching markers to unit roots.
+- Granting inspection or direct-target authority, adding `unitRoot`/`unitId`
+  metadata, intercepting pointer events, changing `canPrecisionTarget`, or
+  creating a contact-to-unit targeting bridge.
+- Rendering SOUND-only reports in this confirmed-last-known slice. Direct,
+  VOICE, and RADIO visual reports are eligible; displaced SOUND contacts remain
+  minimap-only.
+- Negative observation, per-soldier knowledge redesign, new C2 casualty rules,
+  terrain/LOS changes, new runtime dependencies, textures/loaders, per-frame
+  geometry/material allocation, unbounded resources, broad cleanup, test
+  weakening, commits, branches, or pushes.
+
+### Presentation contract
+
+Implement a standalone `LastKnownContactMarkerSystem` with no simulation or UI
+authority:
+
+- constructor receives only a Three.js scene and an injected ground-height
+  resolver; add one named presentation-only root;
+- `sync({ visibleUnitIds, contacts })` receives public projection data only and
+  never receives units or simulation systems;
+- validate and process contacts in stable `targetUnitId` order; show one marker
+  per hidden, positive-confidence, finite-position, non-SOUND contact;
+- position solely from the frozen contact X/Z plus injected ground height;
+  use a generic neutral-gray center glyph and horizontal uncertainty ring;
+  opacity derives solely from bounded confidence and ring radius solely from
+  non-negative `uncertaintyM`;
+- preserve ordinary depth testing so terrain/models can occlude the marker,
+  disable depth writes, shadows, and raycasting, and add no unit-selection or
+  target metadata;
+- key a bounded pool by stable target ID. Repeated sync updates existing
+  transforms/material properties without creating geometry or materials.
+  Inactive records hide and remain reusable; the scenario roster bounds them;
+- expose only presentation diagnostics needed by behavioral tests, containing
+  contact snapshot fields and resource counts but no hidden-unit state;
+- `dispose()` is idempotent, removes the root, and disposes every owned geometry
+  and material exactly once.
+
+Wire it in `GameApp` beside the existing presentation-only overlay systems,
+using the existing terrain-aware selection ground-height resolver. Synchronize
+it only when `refreshVisibilityProjection()` obtains or applies a fresh
+projection, after live mesh visibility is determined. Dispose it in the
+existing pagehide teardown. Restore/seek already dirties visibility, so do not
+add marker state to simulation capture.
+
+### Behavioral acceptance
+
+Add public tests that would fail before this packet and prove:
+
+1. A hidden stale DIRECT/VOICE/RADIO contact creates one gray marker at the
+   frozen reported position, while SOUND and currently visible targets do not.
+2. Changing or inventing an unseen unit position/facing/damage cannot affect
+   the marker because the API accepts no unit; repeated contact sync keeps the
+   frozen center, lowers opacity with confidence, and expands the ring with
+   uncertainty using the same pooled record/resources.
+3. Reacquisition, zero confidence, missing/invalid position, or contact removal
+   hides the marker; a later report reuses it without allocation growth.
+4. Every marker child is raycast-inert, carries no `unitRoot`/`unitId`, casts
+   and receives no shadows, and cannot enter existing unit selection or direct
+   TARGET raycasts. Terrain-point mortar behavior remains covered by the
+   unchanged mortar tests.
+5. `dispose()` is idempotent, removes the scene root, and disposes every unique
+   owned geometry/material exactly once.
+6. `GameApp.refreshVisibilityProjection()` preserves its cached projection
+   behavior, toggles live meshes as before, and synchronizes markers exactly
+   when authoritative spotting dirties the projection.
+7. Existing contact freeze, decay, C2 ownership, casualty, capture/restore,
+   frame-partition, minimap, pointer, and mortar tests remain green unchanged.
+
+Do not use source-string assertions when public behavior can be exercised.
+
+### Validation commands
+
+After the final edit run:
+
+```sh
+node --test --test-isolation=none \
+  test/last-known-contact-marker-system.test.js \
+  test/game-app-performance.test.js \
+  test/spotting-system.test.js \
+  test/minimap-contacts.test.js \
+  test/unit-pointer-interaction.test.js \
+  test/mortar-target-order.test.js
+npm test
+npm run build
+git diff --check
+git status --short --branch
+```
+
+For runtime proof, check `http://127.0.0.1:5173/` before starting another
+server. In a real attached browser record URL, viewport, WEGO/realtime mode,
+backend, `data-game-status`, console errors, and this sequence: confirmed enemy
+visible -> LOS loss -> 500 ms live grace -> hidden live mesh plus frozen gray
+marker -> contact confidence/uncertainty update -> reacquisition removes the
+marker. Also verify a mortar area command can be placed through the marker. If
+the real browser/DevTools bridge is unavailable, record the exact blocker and
+do not claim runtime success.
+
+### Stop condition
+
+Stop after filling Results for independent review. Stop early if the marker
+would need hidden-unit data, authoritative/schema changes, another production
+file, pointer interception, a target bridge, or an inseparable dirty overlap.
+
+### Results
+
+- Status: IMPLEMENTED and independently APPROVED. The attached native-WebGPU
+  browser reached ready state and exposed the marker root; the full organic
+  LOS-loss/reacquisition sequence remains a manual review point.
+- Scope completed: added a standalone pooled renderer-only projection for
+  hidden, positive-confidence DIRECT/VOICE/RADIO contacts. The neutral-gray
+  glyph remains at the public contact's frozen X/Z and terrain-projected
+  height; confidence alone controls opacity and non-negative uncertainty alone
+  controls the horizontal ring radius. SOUND, visible, expired, invalid, and
+  removed contacts remain hidden. GameApp synchronizes the projection only
+  when a fresh authoritative visibility projection is applied, after live mesh
+  visibility, and disposes it on pagehide.
+- Scope deliberately left incomplete: negative observation of an empty
+  reported area, authoritative contact/schema changes, targeting or inspection
+  authority, pointer interception, hidden-unit lookup, SOUND world markers,
+  and browser-only interaction changes remain outside this packet.
+- Files changed: rendering `src/world/LastKnownContactMarkerSystem.js`;
+  integration `src/app/GameApp.js` exact import/construction/sync/pagehide
+  wiring; tests `test/last-known-contact-marker-system.test.js` and
+  `test/game-app-performance.test.js`; docs this packet's Results and Questions
+  / Blockers only. No data, simulation, UI, content, configuration, dependency,
+  or TODO file was changed by this packet.
+- Authoritative/derived ownership: `SpottingSystem` and renderer-neutral contact
+  state remain authoritative and unchanged. The marker receives only the
+  public `{ visibleUnitIds, contacts }` projection and an injected ground-height
+  resolver; it receives no units or simulation service and owns only pooled
+  Three.js presentation resources plus derived diagnostics.
+- Focused baseline/final tests: pre-edit required baseline passed 46/46. Final
+  required command passed 51/51 with 0 failures, 0 skipped, including five new
+  marker-system tests and the expanded fresh-projection GameApp regression.
+- Full tests: `npm test` passed 130/130 test files, 0 failures, 0 skipped.
+- Build and warnings: `npm run build` passed with Vite 8.1.5, 766 modules
+  transformed, all emitted chunks below 500 kB, and no warnings.
+- `git diff --check`: passed with no output.
+- Independent review: APPROVE with no correctness blocker after a separate
+  51/51 focused run and scoped whitespace review. The reviewer confirmed public
+  projection-only authority, SOUND exclusion, pooled resources, marker raycast
+  isolation, cached-frame behavior, and idempotent disposal.
+- Browser/runtime: the desktop app opened the instrumented DevTools proxy at
+  `http://localhost:9222/` (285x248 viewport) and launched the default
+  16-unit Stonne battle in WEGO command phase. Native WebGPU reached
+  `data-game-status="ready"` with no `data-game-error`; the live scene contains
+  the named `last-known-contact-markers` root and reports two shared geometries
+  with no contact records before acquisition. The console retains the already
+  queued native-WebGPU startup error `Cannot read properties of null (reading
+  'getCanvasTarget')`, but initialization continued to ready. The organic
+  visible -> grace -> stale marker -> reacquisition and mortar-through-marker
+  sequence was not manufactured through runtime mutation and remains a manual
+  visual review point; automated public behavior covers those seams.
+- Remaining risks and recommended review points: independently review that the
+  marker scene subtree stays outside unit raycasts, that per-contact material
+  pooling remains roster-bounded, and that a later attached-browser run proves
+  visible -> 500 ms grace -> frozen marker -> decay/uncertainty -> reacquisition
+  plus terrain-point mortar placement. The automated public tests cover
+  resource reuse/disposal, raycast and shadow isolation, projection timing, and
+  unchanged mortar behavior, but cannot replace that visual proof.
+
+### Questions / Blockers
+
+- No implementation, automated-test, independent-review, or ready-state
+  blocker remains. Manually exercise the full organic LOS-loss/reacquisition
+  sequence and mortar placement through an actual stale marker before treating
+  the visual interaction check as complete.
+
+## Packet CHAR-B1-BIS-REFIT-A: source-backed Char B1 bis visual correction
+
+### Status and goal
+
+FIX NOW. Correct the reported Char B1 bis rendering and fidelity defects as one
+source-registered vehicle-authoring slice:
+
+- repair locally inward-wound and degenerate faces;
+- replace the generic circular 75 mm hull-gun mantlet with its source-shaped
+  armored opening and preserve the true muzzle;
+- place and shape the driver's visor from retained source pixels instead of an
+  unsupported above-deck literal;
+- replace sixteen uniform wheel approximations and both legacy capsule tracks
+  with source-registered compound running gear and one shared support-solved
+  track path;
+- retain the defining driver and hull-gun silhouettes in the proxy;
+- validate side, front, and top at high, medium, core, and proxy LOD.
+
+This is a visual-authoring packet. It does not alter vehicle simulation,
+physics, damage, crew, armor, weapon behavior, or catalog authority.
+
+### Required reading and clean baseline
+
+Read completely before editing:
+
+- `AGENTS.md`, `TODO.md`, `docs/ARCHITECTURE.md`, and this packet;
+- `src/content/france1940/vehicleData/RenaultR35VisualData.js` as an ownership
+  and registration example only;
+- `src/world/vehicles/CharB1Bis.js`, `TrackPathSolver.js`, and
+  `TrackedRunningGear.js`;
+- `src/content/france1940/assets/manifest.js` and
+  `src/content/france1940/render/vehicleVisualBundles.js`;
+- `src/calibration/VehicleVisualBundle.js` and
+  `src/calibration/VehicleVisualEvaluator.js`;
+- every focused test listed below.
+
+Inspect the current diff for every allowed path before editing. Then run:
+
+```sh
+node --test --test-isolation=none \
+  test/char-b1bis-blueprint.test.js \
+  test/track-path-solver.test.js \
+  test/tracked-running-gear.test.js \
+  test/vehicle-visual-bundles.test.js \
+  test/vehicle-silhouette-audit.test.js
+node scripts/audit-vehicle-silhouettes.mjs /tmp/char-b1-before.json
+```
+
+The audited coordinator baseline is 27/27 focused tests and 180/180 silhouette
+records. If the worker cannot reproduce it before editing, record the exact
+failure and stop. Never update the checked-in silhouette baseline in this
+packet.
+
+### Source hierarchy and evidence contract
+
+Use these sources in order:
+
+1. U.S. War Department, `FM 30-42`, 20 June 1941, printed page 167,
+   `FRENCH HEAVY TANK — B-BIS`, containing Top/Front/Rear/Side views. The
+   Internet Archive mirror is
+   `https://archive.org/download/Fm30-42/Fm30-421941ObsoleteIdentificationOfForeignArmoredVehicles.pdf`.
+   It is a U.S. federal-government work and public domain. This is the
+   registration raster authority.
+2. Ministère des Armées / Chemins de mémoire, `Le Char B 1 bis`, for the exact
+   published rigid envelope 6.37 m long, 2.46 m wide, and 2.79 m high:
+   `https://www.cheminsdememoire.gouv.fr/sites/default/files/2019-06/char%20B1%20bis.pdf`.
+3. ECPAD image notice for B1 bis no. 738, as a perspective cross-check for
+   front asymmetry, driver projection, hull-gun opening, and APX 4 silhouette:
+   `https://imagesdefense.gouv.fr/fr/plan-general-de-trois-quarts-avant-du-char-b1-bis-numero-738-qui-sort-des-ateliers-de-fabrication-d-issy-les-moulineaux.html`.
+4. The period Rueil maintenance-manual suspension figure as reproduced and
+   identified by Tank Encyclopedia may corroborate the compound suspension:
+   three sprung bogie assemblies containing twelve central wheels, three front
+   auxiliary wheels, one rear tension wheel, 500 mm track, and 63 links. It is
+   not permission to copy the site's raster into the repository.
+
+Acquire only the public-domain FM page. Preserve the native extracted page and
+an optional lossless crop under the allowed asset directory. Record document
+identity, printed/PDF page, original and crop pixel dimensions, SHA-256 hashes,
+source URL, public-domain basis, crop rectangle, and view rectangles. Verify
+that the page itself says B-BIS before using it.
+
+The drawing is a recognition plate, not a dimensioned factory blueprint.
+Retain its original pixels and use independent horizontal and vertical
+registrations anchored to the official rigid envelope. Label support centers,
+radii, mantlet outline, visor outline, hull/turret stations, and weapon datums
+as `source-registered` or `cross-view constrained inference`; never call them
+exact published dimensions. Anything the plate cannot resolve remains a
+clearly labeled renderer approximation.
+
+### Allowed files
+
+Only these paths may change:
+
+- `public/assets/blueprints/france1940/char-b1bis-fm30-42-p167.png` (new)
+- `public/assets/blueprints/france1940/char-b1bis-fm30-42-p167-crop.png`
+  (optional new lossless crop)
+- `src/content/france1940/vehicleData/CharB1BisVisualData.js` (new)
+- `src/world/vehicles/CharB1Bis.js`
+- `src/content/france1940/assets/manifest.js`, exact Char B1 raster record only
+- `src/content/france1940/render/vehicleVisualBundles.js`, exact Char B1
+  visual-data and asset binding only
+- `test/asset-manifest.test.js`, Char B1 assertions only
+- `test/char-b1bis-blueprint.test.js`
+- `test/vehicle-visual-bundles.test.js`, Char B1 assertions only
+- `HANDOFF.md`, only this packet's Results and Questions / Blockers
+
+`TODO.md` and `test/fixtures/vehicle-silhouette-baseline.json` are coordinator
+owned. If another production or generic calibration file is necessary, stop
+and name the exact seam rather than expanding scope.
+
+### Explicitly forbidden
+
+- Any other vehicle, catalog, scenario, simulation, physics, armor, damage,
+  crew, weapons, UI, map, building, camera, VFX, package, lockfile, or build
+  configuration change.
+- Editing `TrackPathSolver.js`, `TrackedRunningGear.js`, generic evaluators, or
+  calibration schemas to accommodate one vehicle.
+- Using the current oval, current wheel centers, another vehicle's values, or a
+  scale model as source evidence.
+- Negative root scales, runtime mirrors, hidden model scale corrections,
+  opaque track slabs, or a different proxy track outline.
+- Shrinking wheels, links, cleats, or hull parts merely to force the envelope.
+- Copying a copyrighted third-party drawing into the repository.
+- Updating the silhouette baseline, weakening tolerances, deleting/skipping a
+  test, broad formatting, cleanup, commits, branches, or pushes.
+
+### Vehicle-owned data and geometry contract
+
+Create one deeply frozen renderer-neutral `CHAR_B1_BIS_VISUAL_DATA` record
+with no Three.js, DOM, simulation, or scenario imports. It owns:
+
+- model ID, coordinate frame, exact published rigid dimensions, source list,
+  source identity/license/hash/page/crop data, and four LOD requirements;
+- independent per-view registrations and retained source-space pixels for the
+  rigid envelope, hull/upper-hull/engine stations, APX 4/cupola, driver
+  projection and visor, 75 mm armored opening/mantlet and gun axis;
+- each drive sprocket, idler, road/auxiliary/tension wheel and return support
+  center/radius, plus link thickness and cleat height;
+- provenance/quality labels and explicit conflicts/limitations;
+- one `wheel-supported-quasi-static-v1` track-path policy whose stable support
+  IDs are consumed by detailed and proxy running gear.
+
+`CharB1Bis.js` must consume this record without retaining a second
+authoritative numeric table. Fix the cap topology/winding at its owning loft
+and turret constructors so every emitted closed Char B1 mesh is manifold,
+non-degenerate, and outward wound. Do not paper over local face errors with a
+whole-geometry signed-volume flip.
+
+Author the source-shaped hull-gun opening as closed outward-wound geometry,
+preserve the historical asymmetry and true muzzle marker, and bind the visor to
+the registered driver projection. The high/medium/core/proxy tiers may reduce
+detail but must keep identity-defining driver, mantlet, cupola, mudguard,
+running-gear, and track silhouettes wherever omission changes identity.
+
+Detailed and proxy tracks must consume the same solved support path. Proxy may
+reduce link count/cost; it may not use the legacy capsule or different support
+datums. Preserve material slots, names/userData needed by articulation and
+diagnostics, shadows, resource ownership/disposal, handedness, and the exact
+rigid envelope and ground contact.
+
+### Behavioral tests and candidate evidence
+
+Add public behavioral assertions that would have failed before this change:
+
+1. The visual-data record is deeply immutable and strictly retained by the
+   generic Char B1 bundle with the accepted hashed raster.
+2. Every named closed detailed and proxy loft has zero degenerate triangles,
+   manifold undirected edges, zero same-directed shared edges, and explicit
+   outward rear/front and bottom/top cap normals.
+3. The mantlet/opening is derived from a retained non-circular source outline;
+   the visor shape and transform derive from retained source pixels.
+4. All running-gear centers/radii and support IDs retain source pixels and
+   labels; detailed and proxy meshes expose the same solved path/support IDs.
+5. No detailed or proxy Char B1 track uses the legacy capsule policy.
+6. Proxy retains the driver and 75 mm hull-gun silhouettes.
+7. Full evaluator checks pass for rigid detail/proxy envelope, ground contact,
+   named/closed parts, all three registered views, source mechanics, muzzle
+   parenting, correct handedness, material slots, and all four LOD tiers.
+
+After the final worker edit, generate `/tmp/char-b1-after.json` and all twelve
+side/front/top by high/medium/core/proxy SVG/JSON records. Compare it with
+`/tmp/char-b1-before.json`: all 168 non-Char records must be byte-identical and
+only the twelve explained `fr_char_b1bis:*` records may differ. Do not update
+the checked-in fixture.
+
+Run:
+
+```sh
+node --test test/asset-manifest.test.js \
+  test/char-b1bis-blueprint.test.js \
+  test/vehicle-calibration.test.js \
+  test/vehicle-visual-bundles.test.js \
+  test/track-path-solver.test.js \
+  test/tracked-running-gear.test.js \
+  test/geometry-lod-fidelity.test.js \
+  test/vehicles.test.js
+node scripts/audit-vehicle-silhouettes.mjs /tmp/char-b1-after.json
+npm test
+npm run build
+git diff --check
+git status --short --branch
+```
+
+The silhouette audit and full suite are expected to report only the stale
+Char B1 baseline until coordinator overlay approval. Every other failure is a
+blocker. Report exact counts and warnings; never describe the expected stale
+fixture as a pass.
+
+### Browser and coordinator acceptance
+
+Use the calibration route for each of 3 views x 4 LODs:
+
+```text
+/calibration.html?vehicle=fr_char_b1bis&view=side&lod=high&mode=overlay
+```
+
+Record URL, backend, `data-calibration-status`, reference asset identity,
+console errors, and side/front/top overlay plus difference captures. Also
+inspect the live game at all four LOD transitions for invisible faces,
+grounding, track continuity, driver/mantlet identity, shadow behavior, and
+articulated turret/barrel markers. A missing framebuffer or blank view is a
+blocker, not a pass.
+
+After independent review, the coordinator alone compares all twelve overlays,
+reviews exactly which Char keys changed, updates the checked-in silhouette
+baseline, reruns the audit/focused/full/build/diff/browser gates, and updates
+the detailed TODO item. A new expected hash is never evidence by itself.
+
+### Stop conditions
+
+Stop and report if the FM page cannot be acquired and verified, the model on
+the plate is not B-BIS, source/crop hashes cannot be reproduced, support
+registration is too ambiguous to improve on the current model honestly, a
+dirty overlap appears, any non-Char silhouette changes, a generic helper or
+file outside the allowlist is required, or correct geometry cannot retain the
+published envelope without falsifying another registered datum.
+
+### Results
+
+Worker fills this section and then stops for independent review.
+
+- Status: BLOCKED by the packet's source-evidence stop condition before any
+  production, asset, or test edit.
+- Scope completed: Reproduced the required 27/27 focused baseline and clean
+  180/180 silhouette baseline, acquired both the named derived PDF and its raw
+  Internet Archive JP2 scan archive, located PDF page 171 / printed page 167,
+  and verified the page heading identifies `HEAVY TANK B-BIS`.
+- Scope deliberately left incomplete: All Char B1 visual-data, geometry,
+  running-gear, track, manifest, bundle, test, candidate-silhouette, and browser
+  work. The authoritative page contains labeled blank placeholders rather than
+  vehicle drawings, so it cannot honestly register any requested datum.
+- Files changed, grouped by data, rendering, assets, tests, and packet record:
+  packet record only: `HANDOFF.md`. No data, rendering, repository asset, or
+  test file changed; downloaded evidence remains under `/tmp` only.
+- Authoritative ownership changed: None.
+- Source identity, page, dimensions, hashes, crop, license, and quality labels:
+  U.S. War Department `FM 30-42` (20 June 1941), Internet Archive item
+  `Fm30-42`, public-domain U.S. federal work. The named 6,535,499-byte PDF has
+  175 pages. PDF page 171 is printed page 167. The PDF-rendered page is
+  1280x2215 RGB PNG, SHA-256
+  `fe42ae800db66153f2bf62fee89fa3f8cfc1ae1e4e7ac7c5d846a45521e86157`.
+  The corresponding raw JP2 archive leaf `_0170.jp2` converts losslessly to a
+  1280x2216 1-bit PNG, SHA-256
+  `252f5dc0354f281e1fd79b071101f4c923a9df16eb7a5457253ef878ed59e446`.
+  Both show the B-BIS identity and the words Top, Front, Rear, and Side, but no
+  tank pixels between those labels. No crop or source registration was made.
+- Focused baseline and final results: Baseline PASS, 27 tests, 27 passed, 0
+  failed. No final implementation run because the source stop condition fired
+  before edits.
+- Before/after 180-record comparison: Before audit PASS, 180/180 records match.
+  No after candidate was generated because no model edit was authorized after
+  the evidence failure.
+- Full test result: Not run; no production or test edit occurred.
+- Build result and warnings: Not run; no production or test edit occurred.
+- `git diff --check` result: PASS with no output after this packet-record-only
+  update.
+- Browser/calibration result: Not attempted because there is no source-backed
+  candidate to inspect.
+- Remaining risks and recommended review points: Replace the claimed FM plate
+  authority with an identified directly loadable public-domain or permissively
+  licensed side/front/top source that actually contains Char B1 bis geometry,
+  or explicitly authorize a narrower photo-plus-published-mechanics inference
+  packet. Do not promote the blank page's labels to pixel evidence.
+
+### Questions / Blockers
+
+- BLOCKER: Contrary to the packet premise, FM 30-42 printed page 167 does not
+  contain Char B1 bis Top/Front/Rear/Side drawings. The original raw scan and
+  independently rendered PDF page contain only the four view labels and blank
+  spaces. The manual's own introductory policy says blank spaces are left when
+  illustrations are not provided. Therefore mantlet, visor, hull stations,
+  running-gear supports, and track shape cannot be source-registered from this
+  page. The packet explicitly requires stopping when support registration is
+  too ambiguous or the FM page cannot supply verified registration evidence.
+
+---
+
+## Packet CHAR-B1-BIS-REFIT-B: photo-backed Char B1 bis correction
+
+### Status and bounded goal
+
+FIX NOW. Replace the blocked multiview premise with a source-qualified visual
+correction using permissively licensed exact-B1-bis photographs, published
+dimensions, and period-manual-derived mechanical descriptions. Complete only
+the defects the evidence can support:
+
+- correct every local winding and degeneracy defect in detailed and proxy
+  authored closed geometry;
+- replace the generic circular hull-gun disc with an irregular armored
+  opening/collar constrained by front and oblique B1 bis photographs;
+- integrate the driver visor into the sloped driver projection rather than
+  leaving a high unsupported box;
+- replace the uniform wheel row with the documented compound suspension
+  identity and migrate detailed/proxy tracks to one support-solved path;
+- retain the driver projection, hull 75 mm mount, compound running gear, APX 4,
+  cupola, and both gun projections through all four LODs.
+
+Do not claim full blueprint calibration, survey-grade support locations, or
+historical exactness. The broad TODO item remains unchecked after this packet;
+the coordinator adds only a completed, explicitly photo-backed sub-slice.
+Distinct B1 turret/hull targeting and the 74/7 ammunition report are separately
+queued simulation/UI work and are forbidden here.
+
+### Required sources and evidence labels
+
+Use only sources whose identity and use terms are verified:
+
+1. Ministère des Armées / Chemins de mémoire, `Le Char B 1 bis`, owns the
+   published rigid envelope 6.37 m x 2.46 m x 2.79 m. Keep it as exact
+   historical data; do not redistribute its PDF.
+2. Wikimedia Commons, `Juin 1940, Aubigny-sur-Nère, Char B1 bis.jpg`, 3344 x
+   2357, CC0, is wartime exact-B1-bis front/oblique evidence:
+   `https://commons.wikimedia.org/wiki/File:Juin_1940%2C_Aubigny-sur-N%C3%A8re%2C_Char_B1_bis.jpg`.
+3. Wikimedia Commons, `P003072 B1 bis Senegal ... May 1940.jpg`, 3547 x 2480,
+   CC BY-SA 2.0, is wartime exact-B1-bis running-gear/track evidence:
+   `https://commons.wikimedia.org/wiki/File:P003072_B1_bis_Senegal_in_Saint-Simon%2C_Aisne%2C_May_1940_%285407522168%29.jpg`.
+4. Wikimedia Commons, `Char B1 bis Rhône at Musée des Blindés ...
+   53317132533.jpg`, 5270 x 3513, Alan Wilson / HawkeyeUK, CC BY-SA 2.0, is
+   surviving-vehicle driver, hull-gun, and running-gear evidence:
+   `https://commons.wikimedia.org/wiki/File:Char_B1_bis_%E2%80%9CRh%C3%B4ne%E2%80%9D_at_Mus%C3%A9e_des_Blind%C3%A9s%2C_Saumur%2C_France_%2853317132533%29.jpg`.
+5. Wikimedia Commons, `Tourelle APX4 - B1 bis 216 Anjou.png`, 544 x 221, CC
+   BY-SA 4.0, is a corroborating APX 4 side drawing:
+   `https://commons.wikimedia.org/wiki/File:Tourelle_APX4_-_B1_bis_216_Anjou.png`.
+6. The Ateliers de Construction de Rueil B1 bis maintenance notice, as
+   identified and described in the Tank Encyclopedia suspension section,
+   supports the mechanical identity: three sprung four-wheel compound bogies,
+   three individually sprung forward wheels, one rear tension wheel, a large
+   front pulley/idler, 500 mm track, and 63 links. Use the description and cite
+   the original manual identity; do not copy the copyrighted article image.
+
+Download originals to `/tmp`, verify their Commons metadata, exact dimensions,
+creator, license/version, original URL, and SHA-256, then check in only bounded
+lossless crops needed as evidence. Preserve original pixel coordinates and crop
+rectangles in vehicle-owned data. Photo pixels are perspective evidence, never
+orthographic metre coordinates. Classify geometry values as exact published
+dimensions, source-observed feature/ratio, cross-view constrained inference,
+or renderer approximation. Record the unresolved 2.46/2.58 m width and
+450/500 mm track-width conflicts; retain the official 6.37 x 2.46 x 2.79 m
+envelope in this slice rather than silently changing it.
+
+### Required reading and baseline
+
+Read `AGENTS.md`, `TODO.md`, `docs/ARCHITECTURE.md`, Packet A's blocker, this
+packet, the R35 visual-data example, `CharB1Bis.js`, `TrackPathSolver.js`,
+`TrackedRunningGear.js`, the family asset manifest/bundle, generic evaluator,
+and focused tests. Inspect every allowed path's current diff first. Reproduce:
+
+```sh
+node --test --test-isolation=none \
+  test/char-b1bis-blueprint.test.js \
+  test/track-path-solver.test.js \
+  test/tracked-running-gear.test.js \
+  test/vehicle-visual-bundles.test.js \
+  test/vehicle-silhouette-audit.test.js
+node scripts/audit-vehicle-silhouettes.mjs /tmp/char-b1-before-b.json
+```
+
+Expected clean baseline: 27/27 focused tests and 180/180 silhouette records.
+
+### Allowed files
+
+Only these paths may change:
+
+- `public/assets/references/france1940/char-b1bis-aubigny-front.png` (new crop)
+- `public/assets/references/france1940/char-b1bis-senegal-running-gear.png`
+  (new crop)
+- `public/assets/references/france1940/char-b1bis-rhone-front-quarter.png`
+  (new crop)
+- `public/assets/references/france1940/char-b1bis-apx4-side.png` (new)
+- `src/content/france1940/vehicleData/CharB1BisVisualData.js` (new)
+- `src/world/vehicles/CharB1Bis.js`
+- `src/content/france1940/assets/manifest.js`, exact Char B1 evidence records
+  only if the existing schema can represent them honestly without calling
+  perspective photos orthographic calibration assets
+- `src/content/france1940/render/vehicleVisualBundles.js`, exact Char B1
+  visual-data/evidence binding only
+- `test/asset-manifest.test.js`, Char B1 assertions only
+- `test/char-b1bis-blueprint.test.js`
+- `test/vehicle-visual-bundles.test.js`, Char B1 assertions only
+- `HANDOFF.md`, only Packet B Results and Questions / Blockers
+
+The coordinator owns `TODO.md` and the silhouette baseline. If an existing
+manifest/bundle field cannot honestly represent photo evidence, keep the
+evidence in the vehicle-owned data and do not broaden a generic schema.
+
+### Explicitly forbidden
+
+- Any other vehicle or any simulation, weapon, ammunition, damage, physics,
+  crew, catalog, UI, map, camera, VFX, dependency, package, config, lockfile,
+  composition-root, generic solver/evaluator, or calibration-schema change.
+- Reusing current model/capsule coordinates or another vehicle's numbers as
+  evidence; copying unlicensed OnWar, The-Blueprints, museum-PDF, or Tank
+  Encyclopedia images; adding a negative scale/mirror; or calling perspective
+  photos blueprints.
+- Hiding winding errors with a whole-geometry signed-volume flip; opaque track
+  slabs; different detailed/proxy support datums; envelope repair by shrinking
+  unrelated registered parts; tolerance weakening; skipped/deleted tests;
+  baseline updates; broad cleanup; commits, branches, or pushes.
+
+### Data, geometry, and LOD contract
+
+Create one deeply frozen renderer-neutral `CHAR_B1_BIS_VISUAL_DATA` record.
+It owns exact dimensions, coordinate frame, source/creator/license/URL/hash and
+crop metadata, original retained pixel coordinates, explicit quality labels,
+conflicts, authored hull/turret/driver/mantlet datums, compound wheel/support
+IDs, link dimensions, and one `wheel-supported-quasi-static-v1` path policy.
+No Three.js, DOM, simulation, or scenario import belongs in it.
+
+Model exactly sixteen non-sprocket/idler support wheels per side in their
+documented identity: twelve central wheels grouped as three four-wheel compound
+bogies, three individually sprung forward wheels, and one rear tension wheel.
+Keep a distinct front pulley/idler and rear drive sprocket. Their precise
+centers/radii are cross-view inference from retained pixels, not published
+mechanical dimensions. Track mass/tension/sag remain labeled renderer
+approximations. Detailed and proxy tiers consume the identical stable support
+IDs and solved path; proxy may reduce link count, not change the path.
+
+Fix the owning Char loft/turret constructors so every closed part is
+non-degenerate, manifold, consistently directed, and outward wound locally.
+Author the irregular hull-gun opening/collar and seated driver visor as closed
+outward-wound geometry. Preserve true muzzle/turret/barrel references,
+historical handedness, material slots, names/userData, shadows, ownership and
+disposal, ground contact, and the official rigid envelope.
+
+High/medium/core/proxy must retain identity-defining hull stations, driver,
+hull-gun opening/projection, compound track outline, APX 4/cupola, mudguards,
+and both gun projections wherever absence changes silhouette. Do not add close
+detail that disappears into a wrong core/proxy outline.
+
+### Tests and candidate acceptance
+
+Add behavioral tests that fail on the old model and prove:
+
+1. visual data is deeply immutable and the Char bundle retains it by strict
+   identity; every checked-in crop has reproducible source/crop hashes,
+   dimensions, license, attribution, and original/crop pixel coordinates;
+2. every named closed detailed/proxy part has zero zero-area triangles, a
+   manifold edge set, zero same-directed shared edges, and outward cap normals;
+3. the mantlet outline is irregular/non-circular and evidence-labeled; the
+   visor intersects/seats on the driver hood rather than floating;
+4. each side exposes the exact documented 3x4 + 3 + 1 wheel grouping plus
+   distinct idler/sprocket, with stable IDs and evidence labels;
+5. detailed and proxy tracks report `wheel-supported-quasi-static-v1`, the same
+   support IDs/path bounds, and no legacy capsule fallback;
+6. proxy retains the driver, hull 75 mm mount, compound track outline, APX 4,
+   cupola, and both gun projections;
+7. exact 6.37 x 2.46 x 2.79 m envelope, ground contact, muzzle ownership,
+   handedness, material/LOD/disposal contracts still pass.
+
+Generate `/tmp/char-b1-after-b.json` and all 12 side/front/top by four-LOD
+SVG/JSON candidates. All 168 non-Char records must remain byte-identical; only
+the 12 explained Char keys may differ. The silhouette records remain regression
+and change-review evidence, not proof of full source accuracy. Do not update the
+fixture.
+
+Run:
+
+```sh
+node --test test/asset-manifest.test.js \
+  test/char-b1bis-blueprint.test.js \
+  test/vehicle-calibration.test.js \
+  test/vehicle-visual-bundles.test.js \
+  test/track-path-solver.test.js \
+  test/tracked-running-gear.test.js \
+  test/geometry-lod-fidelity.test.js \
+  test/vehicles.test.js
+node scripts/audit-vehicle-silhouettes.mjs /tmp/char-b1-after-b.json
+npm test
+npm run build
+git diff --check
+git status --short --branch
+```
+
+The stale Char baseline may fail before coordinator approval; no other failure
+is acceptable. Record exact counts and warnings.
+
+Inspect side/front/top silhouettes and all four LODs in the calibration route
+without pretending the perspective photos are overlays. Compare separate
+photo crops for feature identity, and inspect the live game for invisible
+faces, grounding, track continuity, driver/mantlet identity, shadows, LOD
+transitions, and articulated markers. Record URL, mode/backend,
+`data-game-status` or `data-calibration-status`, and console errors. A blank
+framebuffer is a blocker.
+
+### Coordinator acceptance and stop conditions
+
+The worker never updates the baseline or TODO. After independent source/code
+review, the coordinator reviews the three-view/four-LOD candidate and photo
+comparisons, updates only the 12 accepted Char baseline keys, reruns all gates,
+and records a completed photo-backed sub-slice while keeping full multiview
+registration explicitly incomplete.
+
+Stop if a source's exact identity/license/download cannot be verified, the
+crop cannot be traced to original pixels, the evidence cannot distinguish B1
+bis, another file/helper is required, a dirty overlap appears, a non-Char key
+changes, or honest geometry cannot retain the official envelope.
+
+### Results
+
+Worker filled this section and stopped for independent review.
+
+- Status: READY FOR COORDINATOR REVIEW. The bounded photo-backed refit is
+  implemented and revised for the first independent findings; the silhouette
+  fixture and `TODO.md` remain coordinator-owned.
+- Revision findings closed: both support-solved assemblies now meet the default
+  0.01 m ground contract (detail `-1.3783574108472418e-9` m, proxy
+  `0.0035211862782624954` m); the former 0.025 test tolerance is removed;
+  the unfiltered generic evaluator passes all eight checks; vehicle-owned
+  validation now names four LODs, required/closed detail and proxy parts,
+  turret/mount/muzzle contracts, and identical 22-support track mechanics; an
+  eight-segment core-owned APX 4 cupola remains effectively visible at core;
+  documentary provenance is explicit; and fabricated support-pixel formulas
+  and crop-corner `vehicleBounds` are removed.
+- Scope completed: locally outward-wound, non-degenerate closed Char geometry;
+  an irregular closed 75 mm hull-gun collar; a visor seated in the driver hood;
+  the documented 3x4 compound bogies plus 3 forward wheels and 1 rear tension
+  wheel per side; distinct front idlers and rear sprockets; and one shared
+  wheel-supported detailed/proxy track path. High, medium, core, and proxy keep
+  the driver projection, both gun projections, APX 4, cupola, and running-gear
+  identity.
+- Scope deliberately left incomplete: full orthographic/blueprint calibration,
+  survey-grade support locations, the unresolved width/track-width conflicts,
+  and the separately queued turret-versus-hull targeting/ammunition simulation
+  and UI. No weapon behavior, simulation, UI, catalog, manifest-schema,
+  dependency, or other-vehicle code changed. The revision added only a
+  renderer-owned coax muzzle marker needed by the existing mount contract.
+- Files changed by data, rendering, assets, tests, packet record:
+  - Data: new
+    `src/content/france1940/vehicleData/CharB1BisVisualData.js`.
+  - Rendering: `src/world/vehicles/CharB1Bis.js` and the exact Char binding in
+    `src/content/france1940/render/vehicleVisualBundles.js`.
+  - Assets: four bounded lossless crops named in this packet's allowlist.
+  - Tests: Char assertions in `test/char-b1bis-blueprint.test.js` and
+    `test/vehicle-visual-bundles.test.js`.
+  - Packet record: Packet A blocker and this Packet B Results only.
+- Authoritative ownership changed: exact dimensions, coordinate frame, source
+  provenance, crop traceability, evidence-quality labels, conflicts, hull and
+  turret datums, driver/collar outlines, stable suspension-support IDs, and the
+  shared track policy now live in deeply frozen renderer-neutral
+  `CHAR_B1_BIS_VISUAL_DATA`. The Char factory consumes that record; the family
+  bundle retains it by strict identity. Perspective photographs were not put in
+  the manifest's orthographic-calibration field.
+- Source identities, licenses, hashes, crops, and evidence-quality labels:
+  - `Le Char B 1 bis`, Ministère des Armées / Chemins de mémoire, owns the
+    exact published 6.37 x 2.46 x 2.79 m envelope; its PDF is cited but not
+    redistributed.
+  - The Ateliers de Construction de Rueil B1 bis maintenance-notice suspension
+    figure is recorded as period-document identity/mechanical-grouping
+    provenance located through a secondary description; its unheld primary
+    scan is neither redistributed nor treated as pixel registration.
+  - André Lecolinet, `Juin 1940, Aubigny-sur-Nère, Char B1 bis.jpg`, CC0,
+    3344x2357, original SHA-256
+    `d7239130b0d1895ffd489a48a20593e918c7659ea16e2034f76a3934adf0b2b2`;
+    crop x200/y500/3000x1800, SHA-256
+    `5240e3c65954d76c3e6479b0945335f77b016027d3bd59ca57d21bbff8b3b942`.
+  - PhotosNormandie, `P003072 B1 bis Senegal ...`, CC BY-SA 2.0,
+    3547x2480, original SHA-256
+    `cdbc25342b146b9c78dfa497091afd070dd1320989c20e945af3ad99958a7c26`;
+    crop x0/y350/2300x1900, SHA-256
+    `e749e1b0ea56f08e61b1eb79b0d0fa94625b79c940b6f7647a9f1d4c45c1153e`.
+  - Alan Wilson / HawkeyeUK, B1 bis `Rhône`, CC BY-SA 2.0, 5270x3513,
+    original SHA-256
+    `d8d3038aff58fae6c965d41c73f3fde94b1b98b72841e815517a825de3fd6fae`;
+    crop x1700/y650/2800x2200, SHA-256
+    `4c89330784527b80d87921c8ddec063030e23c21dda9a595eb4fda4b477a00b7`.
+  - Le Petit Chat, `Tourelle APX4 - B1 bis 216 Anjou.png`, CC BY-SA 4.0,
+    544x221, full-image original/crop SHA-256
+    `fb5ef75daff96495282c5f6af22bdd9c6ac59a124234e21703ad2a1572b318d9` /
+    `5ecbfd245f5cfd4291110123b661ce0095c048e784005f34a859282ffa7225eb`.
+    Exact envelope values remain historical. Retained driver/collar/APX 4
+    observations explicitly use original-image pixel space. Support locations
+    now have no `sourcePixels`; they are explicitly model-metre,
+    photo-constrained cross-view inference. Mass/tension/sag and the 0.02 m
+    assembly ground correction remain renderer approximations.
+- Focused baseline/final result: baseline 27/27 passed before edits. Final
+  required eight-file command after the revision passed 8/8 files, 0 failures.
+  A direct unfiltered `evaluateVehicleVisualBundle` reports `pass: true`, no
+  failures, both ground metrics within 0.01 m, 11 hull stations, the expected
+  turret position, and byte-equal detail/proxy 22-support track reports. The
+  standalone silhouette test still passes 7/8 and fails only its
+  baseline-preservation case due to the expected 12 changed Char records.
+- Candidate 180-record comparison: regenerated
+  `/tmp/char-b1-after-b-r1.json` plus
+  all 12 side/front/top x high/medium/core/proxy SVG/JSON candidates under
+  `/tmp/char-b1-candidates-b-r1/`. All 168 non-Char records are byte-identical to
+  `/tmp/char-b1-before-b.json`; exactly the 12 expected Char keys changed.
+  Contact-sheet inspection found the exact envelope retained and the driver,
+  hull gun, core APX 4/cupola, and support-solved track identity present through
+  proxy. Core now renders the cupola rather than truncating the turret top. The
+  worker did not update the fixture; after both independent rereviews approved
+  the candidate, the coordinator inspected the regenerated contact sheet and
+  updated only the accepted 12 Char keys. The final 180-record audit passes.
+- Full tests: `npm test` ran 129 files: 128 passed and 1 failed. The sole
+  failure was `test/vehicle-silhouette-audit.test.js`, where only the expected
+  12 Char baseline keys differ; no unrelated failure occurred.
+- Build and warnings: final `npm run build` passed after 765 modules in 216 ms.
+  The largest output was `game--T1Lr3IN.js` at 494.35 kB; no chunk-size warning or
+  other warning was emitted.
+- `git diff --check`: passed with no output after the final Results update.
+- Browser/calibration result: the coordinator started Vite 8.1.5 at
+  `http://127.0.0.1:5176/` and opened the Char B1 side/high calibration route in
+  1440x900 headless Firefox. The rendered UI header reported `Ready`, the exact
+  6.37 x 2.46 x 2.79 m envelope, `webgl2-fallback`, 80 visible meshes, and 3,444
+  triangles, but the model framebuffer remained blank. Firefox reported a
+  renderer-update script timeout followed by WebGL context loss. Therefore GPU
+  face visibility, `data-calibration-status`, console cleanliness, shadows, and
+  live LOD transitions remain an explicit environment blocker rather than a
+  claimed runtime pass. The dev server remains running on port 5176.
+- Independent review: first code and source/visual reviews returned REVISE for
+  ground contact, vacuous generic validation, a missing core cupola, synthetic
+  source-pixel claims, and incomplete provenance. The bounded revision closed
+  every finding. Final rereviews both returned APPROVE, independently confirmed
+  focused behavior and the 12-Char/168-non-Char manifest boundary, and retained
+  only the browser/GPU limitation.
+- Coordinator final acceptance: inspected the 12-view contact sheet; updated
+  the conservative TODO child while retaining full orthographic registration;
+  ran the focused eight-file suite at 8/8; ran the silhouette audit at 180/180;
+  ran full `npm test` at 129/129; and ran `npm run build` with 765 modules,
+  largest chunk 494.35 kB, and no warning.
+- Remaining risks and review points: precise suspension centers and hull/turret
+  surface stations remain photo-constrained inference, not survey data. A
+  connected hardware browser should still inspect back-face culling, shadows,
+  and all four live LOD transitions before calling runtime visual validation
+  complete.
+
+### Questions / Blockers
+
+- Runtime validation is blocked by headless Firefox's renderer timeout and
+  WebGL context loss; the framebuffer capture is blank despite the ready UI
+  header. The deterministic CPU silhouette/evaluator acceptance is complete.
+
+---
+
+## Packet CHAR-B1-BIS-REFIT-C: local-only multiview registration
+
+### Status
+
+FIX NOW. The user confirmed that the calibration drawing does not need to be
+redistributed. Retain the completed Packet B correction and register the exact
+external B1 bis drawing without adding its bytes to the repository.
+
+### Authorized goal
+
+Use the locally held Ken Musgrave Char B1-bis multiview drawing to replace
+photo-only uncertainty wherever its visible pixels support a better datum:
+
+- record the external image's identity, direct source locator, dimensions,
+  SHA-256, local-only status, view crops/transforms, and limitations;
+- add independent side/front/top horizontal and vertical registrations anchored
+  to the official 6.37 x 2.46 x 2.79 m envelope;
+- retain original-image pixels beside every genuinely measured hull, turret,
+  cupola, driver, 75 mm collar/gun, sprocket, idler, track, mudguard, and
+  suspension landmark;
+- derive emitted metre-space geometry from those registrations where evidence
+  quality improves on Packet B;
+- preserve inference labels for armor-hidden road-wheel centers and any detail
+  the drawing cannot resolve;
+- seed the calibration jig with crops/landmarks while requiring the user to
+  upload the private local raster at runtime;
+- inspect side/front/top across high, medium, core, and proxy before accepting
+  any new Char-only silhouette baseline.
+
+This is visual authoring and one narrow generic calibration-adapter correction.
+It must not alter gameplay, weapons, ammunition, crews, physics, damage, UI
+commands, catalogs, scenarios, or other vehicles.
+
+### Verified local-only source
+
+- Page: `https://onwar.com/wwii/tanks/france/fr001b1bisp.html`
+- Direct image locator:
+  `https://onwar.com/wwii/tanks/france/fr001b1bis.jpg`
+- Identity: exact Char B1-bis scale drawing; original drawing credited to Ken
+  Musgrave; OnWar/Ralph Zuljan page copyright applies.
+- Local preflight file: `/tmp/char-b1bis-onwar.jpg` only; never commit this
+  path or its bytes.
+- Image: 1200 x 1500 grayscale JPEG, upper-left orientation.
+- SHA-256:
+  `e4e52bad67f44066138824554c5df58952443479ed833dce67a24dd1631f7f61`.
+- Views present: side, top, front, rear. This packet registers side/front/top;
+  rear remains corroborating evidence unless a needed datum is explicit.
+- Measurement record: `/tmp/char-b1bis-onwar-registration.json`.
+- Local annotated crops:
+  `/tmp/char-b1bis-onwar-side.png`,
+  `/tmp/char-b1bis-onwar-top.png`,
+  `/tmp/char-b1bis-onwar-front.png`, and
+  `/tmp/char-b1bis-onwar-rear.png`.
+
+The image is not a dimensioned factory blueprint. Pixel positions are
+source-registered drawing evidence, not published mechanical dimensions. Keep
+the official Ministère 6.37 x 2.46 x 2.79 m envelope authoritative; do not adopt
+OnWar's conflicting 6.30 x 2.48 x 2.74 m textual specifications.
+
+### Required reading and baseline
+
+Read completely before editing:
+
+- `AGENTS.md`, `TODO.md`, `docs/ARCHITECTURE.md`, Packet B Results, and this
+  packet;
+- `src/content/france1940/vehicleData/CharB1BisVisualData.js`;
+- `src/world/vehicles/CharB1Bis.js`;
+- `src/content/france1940/render/vehicleVisualBundles.js`;
+- `src/calibration/VehicleOwnedRegistration.js`;
+- `src/calibration/VehicleVisualEvaluator.js`;
+- `src/content/france1940/vehicleData/RenaultR35VisualData.js` as a schema and
+  ownership example only, never a numeric source;
+- every focused test named below.
+
+Use `graft` before opening implementation spans. Inspect the current diff for
+every allowed file and layer changes onto Packet B. Then reproduce:
+
+```sh
+sha256sum /tmp/char-b1bis-onwar.jpg
+identify /tmp/char-b1bis-onwar.jpg
+node --test --test-isolation=none \
+  test/char-b1bis-blueprint.test.js \
+  test/vehicle-calibration.test.js \
+  test/vehicle-visual-bundles.test.js \
+  test/track-path-solver.test.js \
+  test/tracked-running-gear.test.js \
+  test/vehicle-silhouette-audit.test.js
+node scripts/audit-vehicle-silhouettes.mjs /tmp/char-b1-c-before.json
+```
+
+Expected preflight is the exact 1200 x 1500 image/hash above, a green focused
+baseline, and 180/180 baseline silhouettes. Stop on any discrepancy.
+
+### Allowed files
+
+Only these paths may change:
+
+- `src/content/france1940/vehicleData/CharB1BisVisualData.js`
+- `src/world/vehicles/CharB1Bis.js`
+- `src/calibration/VehicleOwnedRegistration.js`, only preserving authored
+  local-only view transforms when no runtime image URL exists
+- `src/content/france1940/render/vehicleVisualBundles.js`, exact Char binding
+  and validation only
+- `test/char-b1bis-blueprint.test.js`
+- `test/vehicle-calibration.test.js`, local-only registration behavior only
+- `test/vehicle-visual-bundles.test.js`, Char assertions only
+- `HANDOFF.md`, only Packet C Results and Questions / Blockers
+
+`TODO.md` and `test/fixtures/vehicle-silhouette-baseline.json` remain
+coordinator-owned. No source image, crop, annotation, or generated comparison
+artifact may be added beneath the repository.
+
+### Explicitly forbidden
+
+- Any `public/assets` file, asset-manifest record, checked-in blueprint/crop,
+  data URL, embedded bytes, package/config/lockfile/dependency, or network
+  loader for the private raster.
+- Editing `VehicleCalibrationApp`, generic evaluator checks, track solvers,
+  running-gear helpers, another vehicle, catalog, simulation, UI, scenario,
+  map, physics, damage, crew, ammunition, weapon behavior, or composition root.
+- Calling armor-hidden support centers source-measured, copying current mesh
+  coordinates into source pixels, using one axis scale where independent axes
+  are required, changing the official rigid envelope, or hiding errors with a
+  root scale/mirror.
+- Baseline updates by the worker, tolerance weakening, skipped/deleted tests,
+  broad cleanup, commits, branches, or pushes.
+
+### Registration and data contract
+
+Add one deeply frozen `blueprint` record to
+`CHAR_B1_BIS_VISUAL_DATA` containing:
+
+- stable source ID/title/page/direct-image locators, author/rights note,
+  1200 x 1500 pixel identity, exact SHA-256, orientation,
+  `redistributionStatus: 'external local-only; raster not included'`, and
+  explicit source limitations;
+- side/front/top crops, rotation, mirror state, full-image coordinate space,
+  rigid bounds, ground lines, view origins, and independent horizontal and
+  vertical metres-per-pixel;
+- at least two rigid landmarks per view and every measured source pixel from
+  `/tmp/char-b1bis-onwar-registration.json`;
+- exact published, source-registered, cross-view inferred, renderer
+  approximation, and unavailable statuses without fake precision.
+
+Expose the same source identity and view records through the existing
+vehicle-owned `calibration.imageRegistration`/recognized registration shape.
+Do not set `imageUrl`, a public asset path, or a manifest ID. Every pixel remains
+in full-image coordinates unless an explicit crop-local field says otherwise.
+
+For each metre-space datum changed in this packet, keep its source pixel(s),
+source/view ID, conversion record, and evidence status next to it. Derivations
+must recompute from the registered pixels and official scale anchors within
+`1e-9`. Road-wheel centers hidden by side armor remain cross-view constrained
+inference and must not gain fabricated `sourcePixels`.
+
+### Narrow generic adapter contract
+
+In `createVehicleOwnedRegistrations`, distinguish authored transforms from
+raster availability. When a vehicle has a valid crop/rotation/mirror/landmark
+record but intentionally no image URL, return those authored values with
+`imageUrl: null` and `autoFit` derived from its landmarks. Preserve existing
+fallback behavior when no authored transform exists. The existing local-file
+upload remains the only way to load the private raster; do not add fetching,
+storage, credentials, or a Char-specific import.
+
+### Geometry and LOD acceptance
+
+Use the drawing to revalidate and, only where supported, refine:
+
+- side/top/front hull and upper-hull stations, engine deck and mudguards;
+- rear drive sprocket, front idler, visible track envelope/path, and documented
+  compound support identity;
+- driver projection/visor and irregular 75 mm collar/gun axis;
+- APX 4 position/outline, cupola, turret ring, and 47 mm axis;
+- high/medium/core/proxy identity, exact envelope, ground contact, outward
+  winding, material ownership, muzzle parenting, and shared detail/proxy track
+  path.
+
+Do not churn correct Packet B geometry merely because the raster now exists.
+Every silhouette change must name the source datum that justifies it.
+
+### Behavioral tests
+
+Add tests that would fail before Packet C and prove:
+
+1. source identity, 1200 x 1500 dimensions, exact hash, local-only/no-bytes
+   status, view crop bounds, transforms, and deep immutability;
+2. side/front/top each have at least two rigid landmarks, independent X/Y
+   registration scales, in-bounds full-image pixels, and exact recomputation of
+   every derived metre datum;
+3. source-measured and inferred supports are distinguishable; hidden supports
+   retain no synthetic source pixels;
+4. Char jig defaults retain crop/rotation/mirror/landmarks and `autoFit: true`
+   with `imageUrl: null`; an unregistered vehicle still uses existing fallback
+   behavior;
+5. the full default vehicle evaluator, topology, mounts, four LODs, exact
+   envelope/ground, and identical detail/proxy supported path remain green;
+6. no source raster or crop is tracked or present under repository assets.
+
+Keep blueprint-registration validation explicitly local-upload-only unless the
+existing generic contract can validate records without claiming raster
+availability. Do not weaken the generic check.
+
+### Candidate and runtime gates
+
+Generate `/tmp/char-b1-c-after.json` and all 12 side/front/top x
+high/medium/core/proxy SVG/JSON candidates. Compare against the preflight:
+
+- all 168 non-Char keys must be byte-identical;
+- only explained Char keys may differ;
+- a new hash never substitutes for local overlay review.
+
+Use the existing calibration page with the local-file input to upload
+`/tmp/char-b1bis-onwar.jpg`. Verify the preseeded view crop/landmarks for
+side/front/top and inspect overlay/difference at all four LODs. Prefer the
+connected Three.js DevTools MCP for scene/LOD/backend/console inspection. If
+the MCP or attached tab is unavailable, record that exact blocker; do not use a
+headless screenshot as profiling evidence or claim runtime success.
+
+Run after the final edit:
+
+```sh
+node --test --test-isolation=none \
+  test/char-b1bis-blueprint.test.js \
+  test/vehicle-calibration.test.js \
+  test/vehicle-visual-bundles.test.js \
+  test/track-path-solver.test.js \
+  test/tracked-running-gear.test.js
+node scripts/audit-vehicle-silhouettes.mjs /tmp/char-b1-c-after.json
+git ls-files | rg -i 'char.*b1.*(jpg|jpeg|png)|b1.*bis.*(jpg|jpeg|png)'
+npm test
+npm run build
+git diff --check
+git status --short --branch
+```
+
+The worker must not update the silhouette fixture. A stale Char-only fixture is
+expected only when evidence-backed geometry changed; every other failure is a
+blocker.
+
+### Stop conditions
+
+Stop if the local image hash/dimensions differ, exact B1-bis identity is
+unclear, a source pixel cannot be traced to the held raster, correct geometry
+would require changing the official envelope or an armor-hidden inference is
+being promoted to measured fact, the adapter needs another generic file, a
+non-Char silhouette changes, or a dirty overlap cannot be preserved.
+
+### Results
+
+Worker fills this section and stops for independent review.
+
+- Status: READY FOR INDEPENDENT RE-REVIEW. The local-only registration and narrow
+  generic adapter behavior are implemented without changing the Packet B
+  silhouette, adding source bytes, or updating coordinator-owned TODO/baseline
+  files.
+- Scope completed: registered the exact external image identity, 1200 x 1500
+  dimensions, hash, rights/local-upload policy, side/front/top crops,
+  independent per-axis transforms, rigid landmarks, visible feature pixels,
+  corrected source interpretations, and explicit unavailable/inferred datums.
+  `createVehicleOwnedRegistrations` now preserves a valid authored crop and at
+  least two landmarks with `imageUrl: null`; records without that local-only
+  contract retain the former fallback behavior. Review corrections independently
+  retrace the side rigid top to cupola-roof pixel `[490, 84]` and the front rigid
+  top to cupola-roof pixel `[407, 1051]`, rather than using an interior or antenna
+  pixel.
+- Scope deliberately left incomplete: no Packet C geometry was changed. The
+  source record's side/top `hull75Gun` coordinates visibly identify the APX 4
+  turret gun, its front `driverVisorApprox` lies on the turret face, and its
+  front `hull75Opening` lies on the rectangular driver projection. The partly
+  visible idler radius also conflicts with the registered outer track nose.
+  The supplied side muzzle `[207, 186]` and collar bounds
+  `[318, 171, 360, 211]` are retained specifically as disputed/corrected APX 4
+  turret 47 mm observations and never as hull-75 geometry. Those pixels are
+  retained and labeled but do not override correct Packet B geometry. A
+  connected local-upload overlay review remains required before a
+  source-supported geometry delta can be accepted.
+- Files changed by data, rendering, calibration, tests, and packet record:
+  - Data: `src/content/france1940/vehicleData/CharB1BisVisualData.js`.
+  - Rendering: no Packet C edit; Packet B `CharB1Bis.js` and the existing
+    strict visual-bundle binding were preserved.
+  - Calibration: `src/calibration/VehicleOwnedRegistration.js`.
+  - Tests: `test/char-b1bis-blueprint.test.js`,
+    `test/vehicle-calibration.test.js`, and the exact Char assertions in
+    `test/vehicle-visual-bundles.test.js`.
+  - Packet record: this Packet C Results and Questions / Blockers only.
+- Authoritative ownership changed: the deeply frozen Char visual-data record
+  now owns local-only source identity plus renderer-neutral registered view
+  data. The generic adapter owns only the vehicle-neutral projection into jig
+  defaults. It has no Char import, raster fetch, storage, credentials, or
+  family-owned fallback.
+- Source identity/hash and local-only proof: Ken Musgrave exact Char B1-bis
+  drawing on OnWar, page
+  `https://onwar.com/wwii/tanks/france/fr001b1bisp.html`, direct locator
+  `https://onwar.com/wwii/tanks/france/fr001b1bis.jpg`, 1200 x 1500 grayscale
+  JPEG, upper-left orientation, SHA-256
+  `e4e52bad67f44066138824554c5df58952443479ed833dce67a24dd1631f7f61`.
+  The data says `external local-only; raster not included`, exposes no
+  `imageUrl`, and requires runtime upload. No source/crop/annotation bytes or
+  manifest record were added.
+- Registered views/scales/datums and retained inference:
+  - Side crop x100/y50/1030x470; 0.006573787409700722 horizontal and
+    0.006658711217183771 vertical metres/pixel, rigid x122..1091 and
+    y84..503. The `vehicle-top` landmark is the visible cupola-roof pixel
+    `[490, 84]`.
+  - Top crop x105/y535/1015x420; 0.006408450704225352 horizontal and
+    0.006507936507936508 vertical metres/pixel, rigid x121..1115 and
+    y548..926.
+  - Front crop x155/y1010/435x475; 0.006014669926650367 horizontal and
+    0.006549295774647888 vertical metres/pixel, rigid x170..579 and
+    y1051..1477. The `vehicle-top` landmark is the visible cupola-roof pixel
+    `[407, 1051]`; the separate antenna line at x440 is excluded.
+  - Side/front/top each seed four or more normalized rigid landmarks and
+    `autoFit: true` with `imageUrl: null`. Visible sprocket, idler, track,
+    hull-outline, mudguard, turret, cupola, driver, and disputed weapon pixels
+    remain traceable in full-image space. All sixteen armor-hidden road-wheel
+    centers and four return supports remain model-metre, cross-view inference
+    with no synthetic `sourcePixels`. The rear tension-wheel measurement is
+    retained only as `inferredCenterClaimPixels: [273, 406]` and
+    `inferredRadiusClaimPixels: 31`, with no `sourcePixels` or source-derived
+    metre datum.
+- Focused baseline/final results: pre-edit six-file baseline passed 58/58 and
+  the baseline audit passed 180/180. After the final edit, the required
+  five-file command passed 57/57, 0 failures after the review corrections.
+- Candidate 180-record comparison: before the review-only evidence/schema
+  correction, regenerated `/tmp/char-b1-c-after.json`; it is byte-identical to
+  `/tmp/char-b1-c-before.json`, so all 168 non-Char and all 12 Char keys are
+  unchanged. Generated all 12 SVG/JSON candidates under
+  `/tmp/char-b1-c-candidates/` and inspected
+  `/tmp/char-b1-c-contact-sheet.png`. Per coordinator instruction, the audit
+  was not rerun after the output-neutral correction. The worker did not update
+  the fixture.
+- Full test result: before the review-only evidence/schema correction,
+  `npm test` passed 129/129 files with 0 failures. Per coordinator instruction,
+  it was not rerun after the output-neutral correction; the final focused gate
+  passed 57/57.
+- Build and warnings: before the review-only evidence/schema correction,
+  `npm run build` passed after 765 modules in 296 ms. The
+  largest chunk was `game-CadxnPlP.js` at 494.35 kB; no chunk-size or other
+  warning was emitted. Per coordinator instruction, build was not rerun because
+  geometry/runtime output did not change.
+- `git diff --check`: passed with no output after the final Results edit.
+- Repository asset absence check: the required `git ls-files | rg` command
+  returned no tracked Char B1 raster. Behavioral coverage recursively hashes
+  repository JPG/JPEG/PNG assets and rejects the local source SHA, and rejects
+  OnWar/Ken-Musgrave filenames. No local source or annotation was found.
+- Browser/DevTools calibration result: an existing dev server answers HTTP 200
+  at `http://127.0.0.1:5173/`, and the Char side/high overlay route also answers
+  HTTP 200. This worker's callable tools expose the repository runtime-debug
+  skill but no Three.js DevTools MCP/browser bridge or attached tab. Therefore
+  local file upload, renderer backend, `data-calibration-status`, console,
+  overlay/difference, scene/LOD, and memory inspection were not claimable. No
+  headless browser was used as profiling evidence.
+- Remaining risks and review points: verify the local upload against the held
+  SHA, inspect all three views/four LODs in a connected Three.js DevTools tab,
+  and decide whether newly measured corrected pixels are needed for the hull
+  75 and driver before altering geometry. The current registration is a
+  secondary scale drawing, not a factory dimensioned blueprint; official
+  6.37 x 2.46 x 2.79 m dimensions remain authoritative.
+
+### Questions / Blockers
+
+- Browser/overlay blocker: no callable Three.js DevTools MCP/browser bridge or
+  attached tab is available to this worker. The served route alone does not
+  prove upload, backend, console, scene, or visual-overlay health.
+- Source-interpretation blocker for further geometry: the supplied JSON's
+  hull-gun and driver labels conflict with the visible held raster. Packet C
+  preserves those pixels with corrected limitations rather than turning them
+  into false authoritative geometry.
 
 ## Packet H39-A: output-neutral Hotchkiss H39 visual-data extraction
 

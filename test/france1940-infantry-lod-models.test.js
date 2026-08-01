@@ -41,11 +41,24 @@ function visibleStats(root) {
       return;
     }
     object.geometry.computeBoundingBox();
-    bounds.union(
-      object.geometry.boundingBox.clone().applyMatrix4(object.matrixWorld)
-    );
+    if (object.isInstancedMesh) {
+      const instanceMatrix = new THREE.Matrix4();
+      const worldMatrix = new THREE.Matrix4();
+      for (let index = 0; index < object.count; index++) {
+        object.getMatrixAt(index, instanceMatrix);
+        worldMatrix.multiplyMatrices(object.matrixWorld, instanceMatrix);
+        bounds.union(
+          object.geometry.boundingBox.clone().applyMatrix4(worldMatrix)
+        );
+      }
+    } else {
+      bounds.union(
+        object.geometry.boundingBox.clone().applyMatrix4(object.matrixWorld)
+      );
+    }
     objects++;
-    triangles += triangleCount(object.geometry);
+    triangles += triangleCount(object.geometry)
+      * (object.isInstancedMesh ? object.count : 1);
   });
 
   return {
@@ -110,6 +123,11 @@ test('French and German infantry use distinct measured high, medium, core, and p
         'FrenchProxyHelmetDome',
         'FrenchProxyHelmetBrim',
         'FrenchProxyHelmetCrest'
+      ],
+      proxyHelmetComponents: [
+        'head',
+        'helmet-brim',
+        'helmet-crest'
       ]
     },
     {
@@ -122,6 +140,10 @@ test('French and German infantry use distinct measured high, medium, core, and p
       proxyHelmet: [
         'GermanProxyHelmetDome',
         'GermanProxyHelmetSkirt'
+      ],
+      proxyHelmetComponents: [
+        'head',
+        'helmet-skirt'
       ]
     }
   ];
@@ -172,7 +194,7 @@ test('French and German infantry use distinct measured high, medium, core, and p
     const stats = {};
     for (const tier of ['high', 'medium', 'core', 'proxy']) {
       setTier(squad, tier);
-      stats[tier] = visibleStats(soldier);
+      stats[tier] = visibleStats(tier === 'proxy' ? squad : soldier);
       const visibleReplacementTiers = new Set();
       soldier.traverse(object => {
         if (
@@ -205,7 +227,24 @@ test('French and German infantry use distinct measured high, medium, core, and p
       if (tier === 'proxy') {
         assert.equal(
           visibleNamedMeshes(soldier, specification.proxyHelmet).length,
-          specification.proxyHelmet.length
+          0
+        );
+        assert.equal(
+          specification.proxyHelmet.every(name =>
+            soldier.getObjectByName(name)?.userData.proxyInstanceSource === true
+          ),
+          true
+        );
+        assert.deepEqual(
+          squad.userData.infantryProxyInstances.batches
+            .filter(batch =>
+              batch.visible
+              && specification.proxyHelmetComponents.includes(
+                batch.userData.proxyComponentKey
+              ))
+            .map(batch => batch.userData.proxyComponentKey)
+            .sort(),
+          [...specification.proxyHelmetComponents].sort()
         );
       } else {
         assert.equal(
@@ -248,7 +287,7 @@ test('French and German infantry use distinct measured high, medium, core, and p
   }
 });
 
-test('derived infantry tiers share pose pivots, cast shadows, and retain bounded resource ownership', () => {
+test('derived infantry tiers share pose pivots, explicit shadow silhouettes, and bounded resource ownership', () => {
   for (const faction of ['french', 'german']) {
     const weapon = faction === 'french' ? 'MAS-36 Rifle' : 'Kar98k';
     const squad = createFrance1940InfantrySquadMesh(faction, [
@@ -260,8 +299,15 @@ test('derived infantry tiers share pose pivots, cast shadows, and retain bounded
     for (const tier of ['medium', 'core']) {
       const firstMeshes = first.userData.lodRepresentations[tier];
       const secondMeshes = second.userData.lodRepresentations[tier];
-      assert.equal(firstMeshes.every(mesh => mesh.castShadow), true);
-      assert.equal(secondMeshes.every(mesh => mesh.castShadow), true);
+      for (const meshes of [firstMeshes, secondMeshes]) {
+        assert.equal(
+          meshes.every(mesh =>
+            mesh.castShadow === ['pelvis', 'torso', 'upper-leg']
+              .includes(mesh.userData.lodComponent)
+          ),
+          true
+        );
+      }
 
       const firstTorso = firstMeshes.find(
         mesh => mesh.userData.lodComponent === 'torso'
@@ -275,10 +321,10 @@ test('derived infantry tiers share pose pivots, cast shadows, and retain bounded
         secondTorso.geometry,
         `${tier} geometry should be shared within one squad`
       );
-      assert.notEqual(
+      assert.equal(
         firstTorso.material,
         secondTorso.material,
-        `${tier} material ownership must remain per mesh`
+        `${tier} material should be shared within one squad`
       );
     }
 
@@ -329,4 +375,33 @@ test('derived infantry tiers share pose pivots, cast shadows, and retain bounded
       assert.ok(object.scale.z > 0);
     });
   }
+});
+
+test('French mortar teams expose their modeled mortar as a selection footprint', () => {
+  const squad = createFrance1940InfantrySquadMesh('french', [
+    {
+      id: 'mortar-gunner',
+      weapon: 'MAS-36 Rifle',
+      crewServedRole: 'gunner'
+    },
+    {
+      id: 'mortar-assistant',
+      weapon: 'MAS-36 Rifle',
+      crewServedRole: 'assistant'
+    }
+  ]);
+
+  assert.deepEqual(
+    squad.userData.selectionEquipment,
+    [squad.userData.mortarEquipment]
+  );
+  assert.deepEqual(
+    squad.userData.mortarEquipment.userData.selectionFootprint,
+    {
+      id: 'brandt-mle1935-60mm-mortar',
+      shape: 'circle',
+      radiusMeters: 0.48,
+      dataQuality: 'renderer footprint approximation'
+    }
+  );
 });

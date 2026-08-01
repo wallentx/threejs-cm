@@ -105,88 +105,16 @@ body.battle-setup-active #app {
   letter-spacing: 0.04em;
 }
 
+.battle-setup-header p {
+  margin-top: 5px;
+  color: #c6cbd0;
+  font-size: 12px;
+}
+
 .setup-kicker {
   color: #d7bd71;
   font: 700 10px/1.2 var(--font-mono);
   letter-spacing: 0.18em;
-}
-
-.setup-matchup {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  color: #e5e7eb;
-  font-weight: 700;
-}
-
-.setup-matchup b {
-  color: #d7bd71;
-  font: 700 10px var(--font-mono);
-}
-
-.setup-steps {
-  min-height: 72px;
-  padding: 12px 24px;
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 4px;
-  list-style: none;
-  border-bottom: 1px solid #2b3430;
-  background: #151b20;
-}
-
-.setup-steps li {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #75808b;
-}
-
-.setup-steps li::after {
-  content: '';
-  height: 1px;
-  position: absolute;
-  left: 34px;
-  right: 5px;
-  bottom: 4px;
-  background: #364139;
-}
-
-.setup-steps li:last-child::after {
-  display: none;
-}
-
-.setup-steps span {
-  width: 24px;
-  height: 24px;
-  display: grid;
-  flex: 0 0 auto;
-  place-items: center;
-  border: 1px solid #48535d;
-  border-radius: 50%;
-  font: 700 10px var(--font-mono);
-}
-
-.setup-steps b {
-  font-size: 11px;
-}
-
-.setup-steps .active,
-.setup-steps .complete {
-  color: #f3f4f6;
-}
-
-.setup-steps .active span {
-  color: #15130d;
-  border-color: #e1c16d;
-  background: #e1c16d;
-}
-
-.setup-steps .complete span {
-  color: #d9ecd2;
-  border-color: #607853;
-  background: #364b30;
 }
 
 #battle-setup-form {
@@ -556,25 +484,6 @@ body.battle-setup-active #app {
     padding: 12px 16px;
   }
 
-  .setup-matchup {
-    gap: 5px;
-    font-size: 10px;
-  }
-
-  .setup-steps {
-    min-height: 58px;
-    padding: 8px 10px;
-  }
-
-  .setup-steps li {
-    justify-content: center;
-  }
-
-  .setup-steps b,
-  .setup-steps li::after {
-    display: none;
-  }
-
   .setup-stage {
     padding: 20px 15px;
   }
@@ -630,9 +539,9 @@ body.battle-setup-active #app {
   position: absolute;
   top: 54px;
   left: 10px;
-  width: 340px;
+  width: 460px;
   max-width: 90vw;
-  max-height: 260px;
+  max-height: 72vh;
   background: rgba(10, 14, 20, 0.94);
   border: 1px solid #ef4444;
   border-radius: 6px;
@@ -657,6 +566,72 @@ body.battle-setup-active #app {
   display: flex;
   justify-content: space-between;
   border-bottom: 1px solid var(--panel-border);
+}
+
+.debug-header button,
+.debug-toggle-grid button {
+  border: 1px solid rgba(148, 163, 184, 0.42);
+  background: rgba(15, 23, 42, 0.94);
+  color: #cbd5e1;
+  border-radius: 3px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.debug-performance {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  background: rgba(148, 163, 184, 0.2);
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.debug-performance > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 8px;
+  background: rgba(3, 7, 18, 0.92);
+  color: #94a3b8;
+}
+
+.debug-performance strong {
+  color: #67e8f9;
+  font-size: 13px;
+}
+
+.debug-renderer-detail {
+  padding: 4px 7px;
+  color: #94a3b8;
+  border-bottom: 1px solid var(--panel-border);
+  overflow-wrap: anywhere;
+}
+
+.debug-toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 6px;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.debug-toggle-grid button {
+  min-height: 28px;
+  padding: 4px 6px;
+  text-align: left;
+}
+
+.debug-toggle-grid button.active {
+  border-color: #facc15;
+  color: #fef08a;
+  box-shadow: inset 3px 0 #facc15;
+}
+
+.debug-section.hidden,
+.debug-performance.hidden,
+.debug-renderer-detail.hidden {
+  display: none;
 }
 
 #debug-content {
@@ -924,14 +899,8 @@ canvas {
   color: #fff;
   box-shadow: 0 3px 8px rgba(0,0,0,0.8);
   border: 2px solid #ffffff88;
-  pointer-events: none;
-}
-
-.icon-badge.friendly,
-.icon-badge.hostile {
-  cursor: pointer;
   pointer-events: auto;
-  touch-action: manipulation;
+  cursor: pointer;
 }
 
 .icon-badge.faction {
@@ -944,10 +913,9 @@ canvas {
   box-shadow: 0 0 12px var(--accent-gold);
 }
 
-.icon-badge.friendly:focus-visible,
-.icon-badge.hostile:focus-visible {
-  outline: 2px solid #fff;
-  outline-offset: 2px;
+.icon-badge.hovered {
+  border-color: #facc15;
+  box-shadow: 0 0 12px #facc15, 0 3px 8px rgba(0,0,0,0.8);
 }
 
 .icon-details {

@@ -2,9 +2,18 @@ import * as THREE from 'three';
 import { Renderer } from '../engine/Renderer.js';
 import { CameraManager } from '../engine/CameraManager.js';
 import { SoundEngine } from '../engine/SoundEngine.js';
+import { FrameProfiler } from '../engine/FrameProfiler.js';
 import { TerrainBuilder } from '../world/TerrainBuilder.js';
 import { VehicleDamageEffects } from '../world/VehicleDamageEffects.js';
 import { ShotTrajectoryOverlay } from '../world/debug/ShotTrajectoryOverlay.js';
+import { DebugOverlaySystem } from '../world/debug/DebugOverlaySystem.js';
+import {
+  createSelectionGroundHeightResolver,
+  UnitHoverPreview
+} from '../world/UnitHoverPreview.js';
+import {
+  LastKnownContactMarkerSystem
+} from '../world/LastKnownContactMarkerSystem.js';
 import { Unit } from '../game/Unit.js';
 import {
   CommandSystem,
@@ -37,6 +46,7 @@ import {
 // corners add it to the live formation extent so advancing early cannot cut
 // the squad back through the obstacle the corner is intended to clear.
 const ENTER_ROUTE_WAYPOINT_TOLERANCE = 0.8;
+const DEBUG_METRICS_INTERVAL_MS = 250;
 
 // Deduplicated Logger to prevent 60 FPS console flooding
 let lastLoggedMsg = '';
@@ -156,14 +166,6 @@ export class GameApp {
     log('Initializing tactical combat runtime...', 'info');
     document.body.dataset.gameStatus = 'loading';
 
-    const dbgBtn = document.getElementById('btn-debug-toggle');
-    if (dbgBtn) {
-      dbgBtn.addEventListener('click', () => {
-        const el = document.getElementById('debug-log');
-        if (el) el.classList.toggle('hidden');
-      });
-    }
-
     const clearBtn = document.getElementById('btn-clear-log');
     if (clearBtn) {
       clearBtn.addEventListener('click', () => {
@@ -196,6 +198,10 @@ export class GameApp {
         ? params.get('camera')
         : 'design';
       this.lastDiagnosticsUpdate = 0;
+      this.frameProfiler = new FrameProfiler();
+      this.debugDiagnostics = null;
+      this.lastDebugMetricsUpdate = Number.NEGATIVE_INFINITY;
+      this.formationDebugEnabled = this.visualDebugMode === 'agents';
       this.simulationStepper = new FixedStepAccumulator(1 / 30);
       // Gameplay approximation: observation samples the authoritative world at
       // 10 Hz while movement, fire control, and ballistics retain their existing
@@ -304,6 +310,17 @@ export class GameApp {
         vfxProvider: this.visualFactories.vfxProvider
       });
       this.shotTrajectoryOverlay = new ShotTrajectoryOverlay(this.scene);
+      this.debugOverlay = new DebugOverlaySystem(this.scene);
+      const selectionGroundHeight = createSelectionGroundHeightResolver(
+        this.terrain
+      );
+      this.lastKnownContactMarkers = new LastKnownContactMarkerSystem(
+        this.scene,
+        { getGroundHeightAt: selectionGroundHeight }
+      );
+      this.unitHoverPreview = new UnitHoverPreview(this.scene, {
+        getGroundHeightAt: selectionGroundHeight
+      });
       this.support = new SupportSystem(this.scene, this.combat, () => this.random());
       this.wego = new WegoManager(this);
 
@@ -325,6 +342,14 @@ export class GameApp {
           ?? this.spotting.getVisibilityProjection(this.playerFactionId, units),
         getBocageObstacles: () => this.terrain.bocageObstacles,
         getImpacts: () => this.combat.telemetry.impacts,
+        getDebugDiagnostics: () => this.debugDiagnostics,
+        getDebugOverlayState: () => ({
+          ...this.debugOverlay.getState(),
+          formationAI: this.formationDebugEnabled
+        }),
+        getHoveredUnitId: () => this.hoveredUnit?.id ?? null,
+        setDebugOverlayEnabled: (name, enabled) =>
+          this.setDebugOverlayEnabled(name, enabled),
         getBuildingFloorIds: buildingId => {
           try {
             return this.buildingSystem
@@ -336,8 +361,8 @@ export class GameApp {
           }
         },
         selectUnit: (unit, options) => this.selectUnit(unit, options),
-        inspectUnit: unit => this.inspectUnit(unit),
-        deselectUnit: () => this.deselectUnit(),
+        inspectUnit: (unit, options) => this.inspectUnit(unit, options),
+        deselectUnit: options => this.deselectUnit(options),
         splitUnit: unit => this.splitUnit(unit),
         issueBuildingExit: unit => this.issueBuildingExit(unit)
       });
@@ -364,6 +389,9 @@ export class GameApp {
       this.raycaster = new THREE.Raycaster();
       this.mouse = new THREE.Vector2();
       this.pointerStart = { x: 0, y: 0 };
+      this.pointerButton = null;
+      this.pointerDragged = false;
+      this.hoveredUnit = null;
       this.initInteraction();
       window.__CMBN_GAME__ = this;
       document.body.dataset.gameStatus = 'ready';
@@ -384,6 +412,12 @@ export class GameApp {
       // 8. Start Game Loop
       this.timer = new THREE.Timer();
       this.timer.connect(document);
+      window.addEventListener('pagehide', () => {
+        this.debugOverlay?.dispose();
+        this.shotTrajectoryOverlay?.dispose();
+        this.lastKnownContactMarkers?.dispose();
+        this.unitHoverPreview?.dispose();
+      }, { once: true });
       requestAnimationFrame(timestamp => this.animate(timestamp));
 
     } catch (err) {
@@ -408,10 +442,23 @@ export class GameApp {
     this.rebuildFactionIndex();
     this.terrain.registerUnitColliders(this.units);
     if (loaded.cameraTarget) {
-      this.cameraManager.setHomeTarget(loaded.cameraTarget.position);
+      this.cameraManager.setHomeTarget(loaded.cameraTarget.position, {
+        frame: true
+      });
     }
     if (this.startWithoutSelection || !loaded.initialSelection) this.deselectUnit();
     else this.selectUnit(loaded.initialSelection);
+  }
+
+  setDebugOverlayEnabled(name, enabled) {
+    if (name === 'formationAI') {
+      this.formationDebugEnabled = Boolean(enabled);
+      for (const unit of this.units ?? []) {
+        unit.setAgentDebug?.(this.formationDebugEnabled);
+      }
+      return this.formationDebugEnabled;
+    }
+    return this.debugOverlay.setEnabled(name, enabled);
   }
 
   rebuildFactionIndex() {
@@ -498,7 +545,12 @@ export class GameApp {
   }
 
   syncBuildingInteriorPresentation() {
-    const presenceCounts = this.buildingInteraction.getInteriorPresenceCounts();
+    const selectedUnitIds = new Set(
+      this.selectedUnits.map(unit => String(unit.id))
+    );
+    const presenceCounts = this.buildingInteraction.getInteriorPresenceCounts(
+      selectedUnitIds
+    );
     for (const buildingId of this.buildingSystem.getBuildingIds()) {
       this.terrain.setBuildingInteriorPresence(
         buildingId,
@@ -507,7 +559,7 @@ export class GameApp {
     }
   }
 
-  selectUnits(units, primaryUnit = null, { frameCamera = true } = {}) {
+  selectUnits(units, primaryUnit = null, { frameCamera = false } = {}) {
     const uniqueUnits = [...new Set((units ?? []).filter(unit =>
       unit
       && unit.faction === this.playerFactionId
@@ -538,10 +590,11 @@ export class GameApp {
     if (this.selectedUnit) this.ui.updateUnitHUD(this.selectedUnit);
     else this.ui.clearUnitHUD();
     this.ui.renderCommandGrid();
+    this.syncBuildingInteriorPresentation();
     return this.selectedUnit;
   }
 
-  selectUnit(unit, { additive = false, frameCamera = true } = {}) {
+  selectUnit(unit, { additive = false, frameCamera = false } = {}) {
     if (
       !unit
       || unit.faction !== this.playerFactionId
@@ -564,7 +617,7 @@ export class GameApp {
     return true;
   }
 
-  inspectUnit(unit, { frameCamera = true } = {}) {
+  inspectUnit(unit, { frameCamera = false } = {}) {
     if (
       !unit
       || unit.faction === this.playerFactionId
@@ -584,7 +637,7 @@ export class GameApp {
     return true;
   }
 
-  deselectUnit({ frameCamera = true } = {}) {
+  deselectUnit({ frameCamera = false } = {}) {
     this.selectUnits([], null, { frameCamera: false });
     if (frameCamera) this.cameraManager.resetHome();
     this.inspectedUnit = null;
@@ -622,10 +675,10 @@ export class GameApp {
     const oldSourceMesh = unit.replaceRoster(unit.roster);
     this.scene.remove(oldSourceMesh);
     this.scene.add(unit.mesh);
-    unit.setAgentDebug(this.visualDebugMode === 'agents');
+    unit.setAgentDebug(this.formationDebugEnabled);
 
     splitUnit.mesh.position.copy(splitUnit.position);
-    splitUnit.setAgentDebug(this.visualDebugMode === 'agents');
+    splitUnit.setAgentDebug(this.formationDebugEnabled);
     splitUnit.bindCollisionWorld(this.terrain.collisionWorld);
 
     for (const ammoType of Object.keys(unit.ammo)) {
@@ -691,7 +744,6 @@ export class GameApp {
       unitMap.get(unitState.id)?.restoreState(unitState, unitMap);
     }
     this.buildingInteraction.restoreState(state.buildingInteractions);
-    this.syncBuildingInteriorPresentation();
     for (const buildingId of this.buildingSystem.getBuildingIds()) {
       this.terrain.syncBuildingRuntime(buildingId);
     }
@@ -892,6 +944,50 @@ export class GameApp {
 
   initInteraction() {
     const dom = this.renderer.domElement;
+    const setPointerCoordinates = (clientX, clientY) => {
+      this.mouse.x = (clientX / window.innerWidth) * 2 - 1;
+      this.mouse.y = -(clientY / window.innerHeight) * 2 + 1;
+      this.raycaster.setFromCamera(this.mouse, this.camera);
+    };
+    const unitForHitObject = object => {
+      let candidate = object;
+      while (candidate) {
+        if (
+          candidate.visible === false
+          || candidate.userData?.lodBand === 'ui'
+          || candidate.userData?.presentationOnly === true
+        ) {
+          return null;
+        }
+        if (candidate.userData?.unitRoot === true) {
+          return this.units.find(unit =>
+            unit.id === candidate.userData.unitId) ?? null;
+        }
+        candidate = candidate.parent;
+      }
+      return null;
+    };
+    const unitAt = (clientX, clientY, { opposingOnly = false } = {}) => {
+      setPointerCoordinates(clientX, clientY);
+      const meshes = this.units
+        .filter(unit =>
+          unit.mesh
+          && unit.mesh.visible !== false
+          && (!opposingOnly || unit.faction !== this.playerFactionId)
+        )
+        .map(unit => unit.mesh);
+      for (const hit of this.raycaster.intersectObjects(meshes, true)) {
+        const unit = unitForHitObject(hit.object);
+        if (unit) return unit;
+      }
+      return null;
+    };
+    const setHoveredUnit = unit => {
+      const next = unit?.mesh?.visible === false ? null : (unit ?? null);
+      if (this.hoveredUnit === next) return;
+      this.hoveredUnit = next;
+      this.unitHoverPreview.setHoveredUnit(next);
+    };
     const terrainPointAt = (clientX, clientY) => {
       if (
         clientX == null
@@ -900,9 +996,7 @@ export class GameApp {
       ) {
         return null;
       }
-      this.mouse.x = (clientX / window.innerWidth) * 2 - 1;
-      this.mouse.y = -(clientY / window.innerHeight) * 2 + 1;
-      this.raycaster.setFromCamera(this.mouse, this.camera);
+      setPointerCoordinates(clientX, clientY);
       return this.raycaster.intersectObject(
         this.terrain.terrainMesh
       )[0]?.point?.clone() ?? null;
@@ -912,6 +1006,9 @@ export class GameApp {
       const x = e.clientX ?? e.touches?.[0]?.clientX;
       const y = e.clientY ?? e.touches?.[0]?.clientY;
       this.pointerStart = { x, y };
+      this.pointerButton = e.button ?? 0;
+      this.pointerDragged = false;
+      if (this.pointerButton !== 0) return;
       if (!['MORTAR_HE', 'MORTAR_SMOKE'].includes(this.commands.activeMode)) {
         return;
       }
@@ -925,6 +1022,7 @@ export class GameApp {
         radiusMeters: defaultRadius,
         mode: this.commands.activeMode
       };
+      this.cameraManager.setInteractionLocked(true);
       this.commands.setAreaTargetPreview(
         center,
         defaultRadius,
@@ -933,9 +1031,25 @@ export class GameApp {
     };
 
     const onPointerMove = (e) => {
-      if (!this.mortarAreaDrag) return;
       const x = e.clientX ?? e.touches?.[0]?.clientX;
       const y = e.clientY ?? e.touches?.[0]?.clientY;
+      if (x == null || y == null) return;
+      if (
+        Math.abs(x - this.pointerStart.x) > 12
+        || Math.abs(y - this.pointerStart.y) > 12
+      ) {
+        this.pointerDragged = true;
+      }
+      if (!this.mortarAreaDrag) {
+        const hoverable = !this.commands.activeMode
+          || isTargetCommandMode(this.commands.activeMode);
+        setHoveredUnit(hoverable
+          ? unitAt(x, y, {
+              opposingOnly: isTargetCommandMode(this.commands.activeMode)
+            })
+          : null);
+        return;
+      }
       const point = terrainPointAt(x, y);
       if (!point) return;
       e.preventDefault?.();
@@ -958,15 +1072,34 @@ export class GameApp {
       );
     };
 
+    const cancelCommandOrDeselect = () => {
+      const cancelled = this.commands.cancelActiveMode();
+      if (cancelled) {
+        this.ui.renderCommandGrid();
+        this.ui.showToast('Command tool cancelled', 'info');
+      } else {
+        this.deselectUnit({ frameCamera: false });
+      }
+    };
+
     const onPointerUp = (e) => {
       const clientX = e.clientX ?? e.changedTouches?.[0]?.clientX;
       const clientY = e.clientY ?? e.changedTouches?.[0]?.clientY;
       if (clientX == null || clientY == null) return;
 
+      const pointerButton = e.button ?? this.pointerButton ?? 0;
+      if (pointerButton === 2) {
+        e.preventDefault?.();
+        if (!this.pointerDragged) cancelCommandOrDeselect();
+        return;
+      }
+      if (pointerButton !== 0) return;
+
       if (this.mortarAreaDrag) {
         e.preventDefault?.();
         const drag = this.mortarAreaDrag;
         this.mortarAreaDrag = null;
+        this.cameraManager.setInteractionLocked(false);
         this.commands.handleMapClick(
           drag.center,
           null,
@@ -981,39 +1114,28 @@ export class GameApp {
       const dy = Math.abs(clientY - this.pointerStart.y);
       if (dx > 12 || dy > 12) return;
 
-      this.mouse.x = (clientX / window.innerWidth) * 2 - 1;
-      this.mouse.y = -(clientY / window.innerHeight) * 2 + 1;
-
-      this.raycaster.setFromCamera(this.mouse, this.camera);
-
-      // Friendly selection belongs exclusively to the floating badge overlay.
-      // During a target command, raycast only visible opposing models so
-      // friendly bodies cannot steal a terrain or enemy target click.
-      const targetMeshes = isTargetCommandMode(this.commands.activeMode)
-        ? this.units
-            .filter(unit =>
-              unit.faction !== this.playerFactionId
-              && unit.mesh
-              && unit.mesh.visible)
-            .map(unit => unit.mesh)
-        : [];
-      const targetIntersects = this.raycaster.intersectObjects(
-        targetMeshes,
-        true
-      );
-
-      if (targetIntersects.length > 0) {
-        let hitObj = targetIntersects[0].object;
-        while (hitObj.parent && hitObj.userData?.unitRoot !== true) {
-          hitObj = hitObj.parent;
-        }
-
-        const clickedUnit = hitObj.userData?.unitRoot === true
-          ? this.units.find(unit => unit.id === hitObj.userData.unitId)
-          : null;
-        if (clickedUnit && isTargetCommandMode(this.commands.activeMode)) {
+      const clickedUnit = unitAt(clientX, clientY, {
+        opposingOnly: isTargetCommandMode(this.commands.activeMode)
+      });
+      if (clickedUnit) {
+        if (isTargetCommandMode(this.commands.activeMode)) {
           this.commands.handleMapClick(clickedUnit.position, clickedUnit);
           this.ui.renderCommandGrid();
+          this.sound.playUIClick();
+          return;
+        }
+        if (!this.commands.activeMode) {
+          const selectionOptions = {
+            additive: e.shiftKey || e.ctrlKey || e.metaKey,
+            frameCamera: (e.detail ?? 1) >= 2
+          };
+          if (clickedUnit.faction === this.playerFactionId) {
+            this.selectUnit(clickedUnit, selectionOptions);
+          } else {
+            this.inspectUnit(clickedUnit, {
+              frameCamera: selectionOptions.frameCamera
+            });
+          }
           this.sound.playUIClick();
           return;
         }
@@ -1050,7 +1172,7 @@ export class GameApp {
             this.ui.renderCommandGrid();
             this.sound.playUIClick();
           } else {
-            this.deselectUnit();
+            this.deselectUnit({ frameCamera: false });
           }
         }
       }
@@ -1058,14 +1180,9 @@ export class GameApp {
 
     const onContextMenu = (e) => {
       e.preventDefault();
-      const cancelled = this.commands.cancelActiveMode();
-      if (cancelled) {
-        this.ui.renderCommandGrid();
-        this.ui.showToast('Command tool cancelled', 'info');
-      } else {
-        this.deselectUnit();
-      }
     };
+
+    const onPointerLeave = () => setHoveredUnit(null);
 
     dom.addEventListener('mousedown', onPointerDown);
     dom.addEventListener('mousemove', onPointerMove);
@@ -1074,11 +1191,13 @@ export class GameApp {
     dom.addEventListener('touchmove', onPointerMove, { passive: false });
     dom.addEventListener('touchend', onPointerUp, { passive: false });
     dom.addEventListener('contextmenu', onContextMenu);
+    dom.addEventListener('mouseleave', onPointerLeave);
   }
 
   animate(timestamp) {
     try {
       if (this.renderer.deviceLost) return;
+      this.frameProfiler.record(timestamp);
       this.timer.update(timestamp);
       const delta = Math.min(this.timer.getDelta(), 0.1);
 
@@ -1093,11 +1212,26 @@ export class GameApp {
 
       this.refreshVisibilityProjection();
       this.cameraManager.update(delta);
-      const lodCounts = { high: 0, medium: 0, low: 0 };
+      const lodCounts = { high: 0, medium: 0, core: 0, low: 0 };
       for (const unit of this.units) {
         const lod = unit.updateLOD(this.camera.position, this.qualityTier);
-        lodCounts[lod]++;
+        if (Object.hasOwn(lodCounts, lod)) lodCounts[lod]++;
       }
+      if (this.debugOverlay.hasEnabledOverlays()) {
+        const debugFocusUnits = this.inspectedUnit
+          ? [this.inspectedUnit]
+          : this.selectedUnits;
+        this.debugOverlay.update({
+          units: this.units,
+          focusedUnits: debugFocusUnits,
+          observerRecords: this.debugOverlay.isEnabled('fieldOfView')
+            ? this.spotting.getObserverDebugRecords(this.units)
+            : [],
+          playerFactionId: this.playerFactionId
+        });
+      }
+      this.unitHoverPreview.update();
+      const debugOverlayStats = this.debugOverlay.getStats();
       this.vehicleDamageEffects.update(
         delta,
         this.units,
@@ -1107,12 +1241,23 @@ export class GameApp {
       this.renderer.render();
 
       const now = timestamp;
+      if (now - this.lastDebugMetricsUpdate >= DEBUG_METRICS_INTERVAL_MS) {
+        this.debugDiagnostics = {
+          frame: this.frameProfiler.snapshot(),
+          renderer: this.renderer.getDiagnostics(),
+          overlays: debugOverlayStats,
+          lod: { ...lodCounts }
+        };
+        this.lastDebugMetricsUpdate = now;
+      }
+      this.ui.renderDebugMetrics(this.debugDiagnostics, timestamp);
       if (now - this.lastDiagnosticsUpdate >= 1000) {
-        const diagnostics = this.renderer.getDiagnostics();
+        const diagnostics = this.debugDiagnostics?.renderer
+          ?? this.renderer.getDiagnostics();
         document.body.dataset.renderStats = `${diagnostics.drawCalls}:${diagnostics.triangles}:${diagnostics.geometries}:${diagnostics.textures}`;
         document.body.dataset.shadowStats = `${diagnostics.shadowCasters}:${diagnostics.shadowReceivers}:${diagnostics.shadowMapSize}`;
         document.body.dataset.renderQuality = `${diagnostics.qualityTier}:${diagnostics.pixelRatio}`;
-        document.body.dataset.lodStats = `${lodCounts.high}:${lodCounts.medium}:${lodCounts.low}`;
+        document.body.dataset.lodStats = `${lodCounts.high}:${lodCounts.medium}:${lodCounts.core}:${lodCounts.low}`;
         document.body.dataset.ballisticsStats = `${this.combat.telemetry.shotsFired}:${this.combat.telemetry.infantryHits}:${this.combat.telemetry.vehicleHits}:${this.combat.telemetry.buildingHits}:${this.combat.telemetry.penetrations}:${this.combat.telemetry.ricochets}:${this.combat.telemetry.stops}`;
         this.lastDiagnosticsUpdate = now;
       }
@@ -1145,6 +1290,7 @@ export class GameApp {
     for (const unit of this.units) {
       if (unit.mesh) unit.mesh.visible = this.visibleUnitIdSet.has(unit.id);
     }
+    this.lastKnownContactMarkers?.sync(visibility);
     return visibility;
   }
 }

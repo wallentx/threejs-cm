@@ -2,6 +2,10 @@ import {
   localToWorldPoint,
   worldToLocalPoint
 } from '../simulation/buildings/index.js';
+import {
+  OBSERVATION_EQUIPMENT,
+  observerHasEquipment
+} from '../simulation/observation/ObservationEquipment.js';
 
 const APPROACH_DISTANCE_METERS = 3.25;
 // Keep the entire four-man entry element outside the ground shell regardless
@@ -273,9 +277,25 @@ function claimableSlots(slots, state, claimedTargetSlotIds = new Set()) {
 function slotIndex(descriptor) {
   const index = new Map();
   for (const room of descriptor.rooms) {
-    for (const slot of room.slots) index.set(slot.id, { ...slot, roomId: room.id });
+    for (const slot of room.slots) {
+      index.set(slot.id, {
+        ...slot,
+        roomId: room.id,
+        floorId: room.floorId
+      });
+    }
   }
   return index;
+}
+
+function firePortTargetCosine(port, target) {
+  const directionX = target[0] - port.worldPosition[0];
+  const directionZ = target[2] - port.worldPosition[2];
+  const directionLength = Math.hypot(directionX, directionZ);
+  const normalLength = Math.hypot(port.worldNormal[0], port.worldNormal[2]);
+  if (directionLength <= EPSILON || normalLength <= EPSILON) return -1;
+  return (directionX * port.worldNormal[0] + directionZ * port.worldNormal[2])
+    / (directionLength * normalLength);
 }
 
 function portalIndex(descriptor) {
@@ -342,6 +362,7 @@ export class BuildingInteractionSystem {
     this.getUnits = getUnits;
     this.orderSequence = 0;
     this.orders = new Map();
+    this.faceBiases = new Map();
   }
 
   findBuildingAt(worldPosition, paddingMeters = 1.5) {
@@ -615,6 +636,7 @@ export class BuildingInteractionSystem {
       assignments: assignments.map(clone)
     });
     const assigned = assignments.map(assignment => assignment.soldierKey);
+    this.faceBiases.delete(String(unit.id));
     return { accepted: true, reason: null, assigned };
   }
 
@@ -623,6 +645,7 @@ export class BuildingInteractionSystem {
     const knownUnits = [...(this.getUnits() ?? [])]
       .sort((left, right) => compareId(left.id, right.id));
     this.#cleanupUnavailableOccupants(knownUnits);
+    this.#advanceOccupiedFacing(knownUnits);
     const units = new Map(knownUnits.map(unit => [String(unit.id), unit]));
     for (const order of [...this.orders.values()]
       .sort((left, right) => left.sequence - right.sequence || compareId(left.unitId, right.unitId))) {
@@ -658,6 +681,149 @@ export class BuildingInteractionSystem {
     }
   }
 
+  issueFace(unit, targetPosition) {
+    const result = this.#reassignOccupiedForDirection(unit, targetPosition);
+    if (!result.accepted) return result;
+    const target = Array.isArray(targetPosition)
+      ? targetPosition
+      : [targetPosition?.x ?? 0, targetPosition?.y ?? 0, targetPosition?.z ?? 0];
+    this.faceBiases.set(String(unit.id), {
+      unitId: String(unit.id),
+      buildingId: result.buildingId,
+      floorId: result.floorId,
+      target: target.map(value => Number(value) || 0)
+    });
+    return result;
+  }
+
+  #reassignOccupiedForDirection(unit, targetPosition) {
+    if (unit?.type !== 'infantry_squad') return { handled: false };
+    const occupied = livingAgents(unit).filter(agent =>
+      agent.buildingLocation?.phase === 'occupied');
+    if (occupied.length === 0) return { handled: false };
+
+    const locations = occupied.map(agent => agent.buildingLocation);
+    const buildingIds = new Set(locations.map(location => String(location.buildingId)));
+    if (buildingIds.size !== 1) {
+      return { handled: true, accepted: false, reason: 'split_building_occupancy' };
+    }
+    const buildingId = [...buildingIds][0];
+    const descriptor = this.buildingSystem.getDescriptorForBuilding(buildingId);
+    const slots = slotIndex(descriptor);
+    const floorIds = new Set(locations.map(location =>
+      slots.get(location.nodeId)?.floorId ?? null));
+    if (floorIds.size !== 1 || floorIds.has(null)) {
+      return { handled: true, accepted: false, reason: 'split_floor_occupancy' };
+    }
+
+    const target = Array.isArray(targetPosition)
+      ? targetPosition
+      : [targetPosition?.x ?? 0, targetPosition?.y ?? 0, targetPosition?.z ?? 0];
+    const floorId = [...floorIds][0];
+    const state = this.buildingSystem.getBuildingSnapshot(buildingId);
+    const movingSoldierKeys = new Set(locations.map(location =>
+      String(location.soldierKey)));
+    const candidateSlots = slotsOnFloor(descriptor, floorId)
+      .filter(slot => {
+        const slotId = String(slot.id);
+        if (state.invalidSlots.includes(slotId) || state.reservations[slotId]) {
+          return false;
+        }
+        const occupant = state.occupancy[slotId];
+        return !occupant || movingSoldierKeys.has(String(occupant.soldierKey));
+      });
+    if (candidateSlots.length < occupied.length) {
+      return { handled: true, accepted: false, reason: 'insufficient_floor_positions' };
+    }
+    const portsBySlot = new Map(
+      this.buildingSystem.getFirePorts(buildingId)
+        .filter(port => port.enabled)
+        .map(port => [String(port.approachSlotId), port])
+    );
+    const rankedSlots = candidateSlots
+      .map(slot => {
+        const slotId = String(slot.id);
+        const port = portsBySlot.get(slotId) ?? null;
+        const score = port ? firePortTargetCosine(port, target) : -2;
+        const requiredCosine = port
+          ? Math.cos((port.horizontalArcDeg * Math.PI / 180) * 0.5)
+          : 2;
+        return {
+          slotId,
+          port,
+          score,
+          preferred: Boolean(port && score + EPSILON >= requiredCosine)
+        };
+      })
+      .sort((left, right) => {
+        const preferenceOrder = Number(right.preferred) - Number(left.preferred);
+        if (preferenceOrder !== 0) return preferenceOrder;
+        if (left.preferred && right.preferred) {
+          return compareId(left.slotId, right.slotId);
+        }
+        return right.score - left.score || compareId(left.slotId, right.slotId);
+      });
+    const bestPort = rankedSlots[0]?.port;
+    if (!bestPort) {
+      return { handled: true, accepted: false, reason: 'no_window_position' };
+    }
+    if (!rankedSlots[0].preferred) {
+      return { handled: true, accepted: false, reason: 'no_window_facing_target' };
+    }
+
+    const rankedAgents = [...occupied].sort((left, right) => {
+      const leftBinoculars = observerHasEquipment(
+        unit,
+        left.record ?? left,
+        OBSERVATION_EQUIPMENT.BINOCULARS
+      );
+      const rightBinoculars = observerHasEquipment(
+        unit,
+        right.record ?? right,
+        OBSERVATION_EQUIPMENT.BINOCULARS
+      );
+      return Number(rightBinoculars) - Number(leftBinoculars)
+        || compareId(left.id, right.id);
+    });
+    const assignments = rankedAgents.map((agent, index) => ({
+      soldierKey: agent.buildingLocation.soldierKey,
+      fromSlotId: agent.buildingLocation.nodeId,
+      toSlotId: rankedSlots[index].slotId
+    }));
+    const changed = assignments.some(assignment =>
+      String(assignment.fromSlotId) !== String(assignment.toSlotId));
+    const result = changed
+      ? this.buildingSystem.reassignOccupiedSlots(buildingId, assignments)
+      : { accepted: true, reason: null, assignments };
+    if (!result.accepted) return { handled: true, ...result };
+
+    if (changed) {
+      for (let index = 0; index < rankedAgents.length; index++) {
+        const agent = rankedAgents[index];
+        agent.buildingLocation = {
+          ...agent.buildingLocation,
+          nodeId: rankedSlots[index].slotId,
+          firePortId: null
+        };
+        this.#setOccupiedPose(agent);
+      }
+      unit.soldierAI?.syncMeshes?.();
+    }
+    return {
+      handled: true,
+      accepted: true,
+      reason: null,
+      buildingId,
+      floorId,
+      observerSoldierKey: rankedAgents[0].buildingLocation.soldierKey,
+      firePortId: rankedAgents[0].buildingLocation.firePortId,
+      preferredSlotIds: rankedSlots
+        .filter(slot => slot.preferred)
+        .map(slot => slot.slotId),
+      assignments: result.assignments
+    };
+  }
+
   getFirePort(agent) {
     const location = agent?.buildingLocation;
     if (!location?.buildingId || location.phase !== 'occupied') return null;
@@ -687,11 +853,15 @@ export class BuildingInteractionSystem {
     return this.getInteriorPresenceCounts()[String(buildingId)] ?? 0;
   }
 
-  getInteriorPresenceCounts() {
+  getInteriorPresenceCounts(unitIds = null) {
     const counts = {};
+    const includedUnitIds = unitIds == null
+      ? null
+      : new Set([...unitIds].map(id => String(id)));
     const units = [...(this.getUnits() ?? [])]
       .sort((left, right) => compareId(left.id, right.id));
     for (const unit of units) {
+      if (includedUnitIds && !includedUnitIds.has(String(unit.id))) continue;
       for (const agent of livingAgents(unit)) {
         const location = agent.buildingLocation;
         if (!location?.buildingId || !INTERIOR_PRESENCE_PHASES.has(location.phase)) continue;
@@ -762,9 +932,12 @@ export class BuildingInteractionSystem {
 
   captureState() {
     return {
-      version: 1,
+      version: 2,
       orderSequence: this.orderSequence,
       orders: [...this.orders.values()]
+        .sort((left, right) => compareId(left.unitId, right.unitId))
+        .map(clone),
+      faceBiases: [...this.faceBiases.values()]
         .sort((left, right) => compareId(left.unitId, right.unitId))
         .map(clone)
     };
@@ -775,6 +948,56 @@ export class BuildingInteractionSystem {
     this.orders = new Map(
       (state?.orders ?? []).map(order => [String(order.unitId), clone(order)])
     );
+    this.faceBiases = new Map(
+      (state?.faceBiases ?? []).map(bias => [String(bias.unitId), clone(bias)])
+    );
+  }
+
+  #advanceOccupiedFacing(units) {
+    const unitMap = new Map(units.map(unit => [String(unit.id), unit]));
+    for (const bias of [...this.faceBiases.values()]
+      .sort((left, right) => compareId(left.unitId, right.unitId))) {
+      const unit = unitMap.get(String(bias.unitId));
+      if (!unit) {
+        this.faceBiases.delete(String(bias.unitId));
+        continue;
+      }
+      const descriptor = this.buildingSystem.getDescriptorForBuilding(
+        bias.buildingId
+      );
+      const slots = slotIndex(descriptor);
+      const occupants = livingAgents(unit).filter(agent => {
+        const location = agent.buildingLocation;
+        return location?.phase === 'occupied'
+          && String(location.buildingId) === String(bias.buildingId)
+          && String(slots.get(location.nodeId)?.floorId) === String(bias.floorId);
+      });
+      if (occupants.length === 0) {
+        this.faceBiases.delete(String(bias.unitId));
+        continue;
+      }
+
+      const tracked = new Map();
+      for (const agent of occupants) {
+        if (agent.targetUnitId == null) continue;
+        const targetId = String(agent.targetUnitId);
+        const targetUnit = unitMap.get(targetId);
+        if (!targetUnit?.position || targetUnit.isCombatEffective?.() === false) continue;
+        const record = tracked.get(targetId) ?? {
+          count: 0,
+          targetId,
+          position: targetUnit.position
+        };
+        record.count++;
+        tracked.set(targetId, record);
+      }
+      const trackedTarget = [...tracked.values()].sort((left, right) =>
+        right.count - left.count || compareId(left.targetId, right.targetId))[0];
+      this.#reassignOccupiedForDirection(
+        unit,
+        trackedTarget?.position ?? bias.target
+      );
+    }
   }
 
   #cleanupUnavailableOccupants(units) {

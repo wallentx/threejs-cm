@@ -348,9 +348,22 @@ export class CommandSystem {
       this.renderOverlays();
       return true;
     } else if (this.activeMode === 'FACE') {
+      const buildingFace = this.buildingInteraction?.issueFace?.(
+        this.activeUnit,
+        pointVec3
+      );
+      if (buildingFace?.handled) {
+        if (buildingFace.accepted) {
+          this.activeMode = null;
+          this.renderOverlays();
+        }
+        return Boolean(buildingFace.accepted);
+      }
       const dir = new THREE.Vector3().subVectors(pointVec3, this.activeUnit.position);
       this.activeUnit.rotation = Math.atan2(dir.x, dir.z);
-      this.activeUnit.mesh.rotation.y = this.activeUnit.rotation;
+      if (this.activeUnit.mesh) {
+        this.activeUnit.mesh.rotation.y = this.activeUnit.rotation;
+      }
       this.activeMode = null;
       this.renderOverlays();
       return true;

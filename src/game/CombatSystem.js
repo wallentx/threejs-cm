@@ -497,6 +497,7 @@ export class CombatSystem {
     };
     this.projectiles.push(projectile);
     this.telemetry.shotsFired++;
+    attacker.recordAuthoritativeShot?.();
     this.createMuzzleFlashEffect(fromPos, weapon);
 
     if (this.onAuditoryEvent) {

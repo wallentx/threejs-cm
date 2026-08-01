@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import {
-  SpriteNodeMaterial
+  SpriteNodeMaterial,
+  TSL
 } from 'three/webgpu';
-import {
+const {
   color,
   float,
   mix,
@@ -11,7 +12,7 @@ import {
   uniform,
   uv,
   vec2
-} from 'three/tsl';
+} = TSL;
 
 const CLASSIC_FIRE_DARK = color(0x7d1708);
 const CLASSIC_FIRE_ORANGE = color(0xff5a12);
@@ -25,7 +26,8 @@ function steppedTime(framesPerSecond) {
 }
 
 function radialMask(point, radius, feather = 0.05) {
-  return smoothstep(radius, radius - feather, point.length());
+  const radiusNode = float(radius);
+  return smoothstep(radiusNode, radiusNode.sub(feather), point.length());
 }
 
 function makeMaterial(role, {
@@ -178,4 +180,3 @@ export function setProceduralVfxProgress(material, progress) {
   progressUniform.value = THREE.MathUtils.clamp(progress, 0, 1);
   return true;
 }
-

@@ -22,7 +22,7 @@ import {
   progressIdentification
 } from '../src/simulation/observation/IdentificationQuality.js';
 
-const VISIBILITY_GRACE_NANOSECONDS = 150_000_000;
+const VISIBILITY_GRACE_NANOSECONDS = 500_000_000;
 
 function makeUnit({
   id,
@@ -115,6 +115,27 @@ const blockingWall = Object.freeze({
   maxZ: 36,
   height: 4,
   type: 'wall'
+});
+
+test('observer debug records project current spotting capability inputs', () => {
+  const observer = makeUnit({
+    id: 'observer',
+    faction: 'blue',
+    x: 12,
+    z: 18,
+    experience: 'Veteran'
+  });
+  const records = makeSpotting().getObserverDebugRecords([observer]);
+
+  assert.ok(records.length > 0);
+  assert.ok(records.every(record => record.observerUnitId === 'observer'));
+  assert.ok(records.every(record => record.factionId === 'blue'));
+  assert.ok(records.every(record => record.position[1] > observer.position.y));
+  assert.ok(records.every(record => record.horizontalFovDegrees > 0));
+  assert.ok(records.every(record => record.nominalRangeMeters > 0));
+  assert.deepEqual(records.map(record => record.id), [...records]
+    .map(record => record.id)
+    .sort((left, right) => left.localeCompare(right)));
 });
 
 test('line-of-sight uses obstacle height and rejects nearby non-intersecting segments', () => {
@@ -254,6 +275,134 @@ test('occlusion prevents acquisition even inside nominal spotting range', () => 
   assert.equal(spotting.canPrecisionTarget(observer, target), false);
 });
 
+test('in-FOV targets beyond lifted maximum range skip LOS without contact', () => {
+  const observer = makeUnit({
+    id: 'range-observer',
+    faction: 'blue',
+    x: 0,
+    z: 0
+  });
+  const target = makeUnit({
+    id: 'range-target',
+    faction: 'red',
+    x: 0,
+    z: 161
+  });
+  target.morale = 'Broken';
+  const spotting = makeSpotting();
+  const originalCheckLOS = spotting.checkLOS.bind(spotting);
+  const losCalls = [];
+  spotting.checkLOS = (...args) => {
+    losCalls.push(args);
+    return originalCheckLOS(...args);
+  };
+
+  spotting.advance([observer, target], 4);
+
+  const observation = spotting.getObservation(observer.id, 0, target.id);
+  assert.equal(losCalls.length, 0);
+  assert.equal(observation.acquisition, 0);
+  assert.equal(observation.visibleNow, false);
+  assert.equal(spotting.getContactForUnit(observer, target), null);
+});
+
+test('a target at the exact lifted maximum range still invokes LOS and acquires', () => {
+  const observer = makeUnit({
+    id: 'boundary-observer',
+    faction: 'blue',
+    x: 0,
+    z: 0
+  });
+  const observerEyeHeight = 1.55;
+  const targetAimHeight = observerEyeHeight * 0.82;
+  const maximumRange = 160;
+  const horizontalRange = Math.sqrt(
+    maximumRange ** 2 - (targetAimHeight - observerEyeHeight) ** 2
+  );
+  const target = makeUnit({
+    id: 'boundary-target',
+    faction: 'red',
+    x: 0,
+    z: horizontalRange
+  });
+  target.morale = 'Broken';
+  const spotting = makeSpotting();
+  const originalCheckLOS = spotting.checkLOS.bind(spotting);
+  const losCalls = [];
+  spotting.checkLOS = (...args) => {
+    losCalls.push(args);
+    return originalCheckLOS(...args);
+  };
+
+  spotting.advance([observer, target], 4);
+
+  const observation = spotting.getObservation(observer.id, 0, target.id);
+  assert.equal(losCalls.length, 1);
+  assert.deepEqual(losCalls[0][1], {
+    x: target.position.x,
+    y: target.position.y,
+    z: target.position.z
+  });
+  assert.equal(observation.visibleNow, true);
+  assert.equal(spotting.getContactForUnit(observer, target).channel, CONTACT_CHANNEL.DIRECT);
+});
+
+test('mixed infantry targets run LOS only for in-range people and keep the nearest contact', () => {
+  const observer = makeUnit({
+    id: 'mixed-observer',
+    faction: 'blue',
+    x: 0,
+    z: 0
+  });
+  const target = makeUnit({
+    id: 'mixed-target',
+    faction: 'red',
+    x: 0,
+    z: 100
+  });
+  target.morale = 'Broken';
+  target.roster = [
+    {
+      id: 'far',
+      role: 'RIFLEMAN',
+      status: 'OK',
+      health: 100,
+      worldPosition: [0, 0, 170]
+    },
+    {
+      id: 'mid',
+      role: 'RIFLEMAN',
+      status: 'OK',
+      health: 100,
+      worldPosition: [0, 0, 80]
+    },
+    {
+      id: 'near',
+      role: 'RIFLEMAN',
+      status: 'OK',
+      health: 100,
+      worldPosition: [0, 0, 35]
+    }
+  ];
+  const spotting = makeSpotting();
+  const originalCheckLOS = spotting.checkLOS.bind(spotting);
+  const targetRanges = [];
+  spotting.checkLOS = (fromPosition, toPosition, options) => {
+    targetRanges.push(toPosition.z);
+    return originalCheckLOS(fromPosition, toPosition, options);
+  };
+
+  spotting.advance([observer, target], 4);
+
+  assert.deepEqual(targetRanges, [80, 35]);
+  const observation = spotting.getObservation(observer.id, 0, target.id);
+  assert.equal(observation.lastSeenTargetSoldierId, 'near');
+  assert.deepEqual(observation.lastSeenPosition, [0, 0, 35]);
+  const contact = spotting.getContactForUnit(observer, target);
+  assert.equal(contact.targetSoldierId, 'near');
+  assert.deepEqual(contact.position, [0, 0, 35]);
+});
+
 test('direct render visibility grace survives one LOS miss without precision leakage and expires', () => {
   const terrain = makeTerrain();
   const observer = makeUnit({
@@ -298,7 +447,7 @@ test('direct render visibility grace survives one LOS miss without precision lea
   assert.ok(missed.identificationProgress < acquired.identificationProgress);
   assert.equal(
     missed.visibilityGraceRemainingNanoseconds,
-    133_333_333
+    483_333_333
   );
   assert.equal(
     spotting.captureState().directObservationEpisodes.find(
@@ -324,7 +473,7 @@ test('direct render visibility grace survives one LOS miss without precision lea
   );
 
   terrain.bocageObstacles.push(occludingWall);
-  spotting.advance(units, 0.2);
+  spotting.advance(units, 0.501);
 
   assert.equal(
     spotting.getObservation(observer.id, 0, target.id)
@@ -339,6 +488,80 @@ test('direct render visibility grace survives one LOS miss without precision lea
       .includes(target.id),
     false,
     'the independent 60-second contact memory must not keep a mesh visible'
+  );
+});
+
+test('a returning clear sight path bridges precision reacquisition without mesh flicker', () => {
+  const terrain = makeTerrain();
+  const observer = makeUnit({
+    id: 'reacquisition-observer',
+    faction: 'blue',
+    x: 0,
+    z: 0
+  });
+  const target = makeUnit({
+    id: 'reacquisition-target',
+    faction: 'red',
+    x: 0,
+    z: 40
+  });
+  const units = [observer, target];
+  const spotting = makeSpotting(terrain);
+  acquire(spotting, units);
+  const occludingWall = {
+    minX: -2,
+    maxX: 2,
+    minZ: 10,
+    maxZ: 12,
+    height: 4,
+    type: 'wall'
+  };
+
+  terrain.bocageObstacles.push(occludingWall);
+  spotting.advance(units, 0.3);
+  assert.equal(
+    spotting.getObservation(observer.id, 0, target.id).visibleNow,
+    false
+  );
+  assert.ok(
+    spotting
+      .getVisibilityProjection(observer.faction, units)
+      .visibleUnitIds
+      .includes(target.id)
+  );
+
+  terrain.bocageObstacles.pop();
+  spotting.advance(units, 0.01);
+  const rebuilding = spotting.getObservation(observer.id, 0, target.id);
+  assert.equal(rebuilding.visibleNow, false);
+  assert.equal(spotting.canPrecisionTarget(observer, target), false);
+  assert.equal(
+    rebuilding.visibilityGraceRemainingNanoseconds,
+    VISIBILITY_GRACE_NANOSECONDS
+  );
+  assert.ok(
+    spotting
+      .getVisibilityProjection(observer.faction, units)
+      .visibleUnitIds
+      .includes(target.id),
+    'current clear LOS should keep a previously acquired mesh rendered while precision work rebuilds'
+  );
+
+  spotting.advance(units, 0.1);
+  assert.equal(
+    spotting.getObservation(observer.id, 0, target.id).visibleNow,
+    true
+  );
+
+  terrain.bocageObstacles.push(occludingWall);
+  spotting.advance(units, 0.501);
+  assert.equal(
+    spotting
+      .getVisibilityProjection(observer.faction, units)
+      .visibleUnitIds
+      .includes(target.id),
+    false,
+    'sustained LOS loss must still hide the exact unit mesh'
   );
 });
 
@@ -369,7 +592,7 @@ test('visibility grace advances safely when an acquired target is not updated', 
   assert.equal(duringGrace.directEpisodeActive, false);
   assert.equal(
     duringGrace.visibilityGraceRemainingNanoseconds,
-    100_000_000
+    450_000_000
   );
   assert.ok(
     spotting
@@ -378,7 +601,7 @@ test('visibility grace advances safely when an acquired target is not updated', 
       .includes(target.id)
   );
 
-  spotting.advance(units, 0.1);
+  spotting.advance(units, 0.451);
   assert.equal(
     spotting.getObservation(observer.id, 0, target.id)
       .visibilityGraceRemainingNanoseconds,
@@ -429,7 +652,7 @@ test('relayed and stale contacts remain hidden after direct render grace expires
     height: 4,
     type: 'wall'
   });
-  spotting.advance(units, 0.151);
+  spotting.advance(units, 0.501);
 
   const projection = spotting.getVisibilityProjection('blue', units);
   assert.equal(spotting.hasContact(sender, target), true);
@@ -481,7 +704,7 @@ test('visibility grace is byte-identical across 30 Hz and 60 Hz partitions', () 
       0,
       hz30.target.id
     ).visibilityGraceRemainingNanoseconds,
-    50_000_000
+    400_000_000
   );
   assert.deepEqual(
     hz30.spotting.getVisibilityProjection('blue', hz30.units),
@@ -527,7 +750,7 @@ test('capture and restore preserve deep state during visibility grace', () => {
   );
   assert.equal(
     savedObservation.visibilityGraceRemainingNanoseconds,
-    100_000_000
+    450_000_000
   );
   savedObservation.visibilityGraceRemainingNanoseconds = 0;
   savedObservation.lastSeenPosition[0] = 999;
@@ -538,12 +761,12 @@ test('capture and restore preserve deep state during visibility grace', () => {
   );
   assert.equal(
     restoredObservation.visibilityGraceRemainingNanoseconds,
-    100_000_000
+    450_000_000
   );
   assert.notEqual(restoredObservation.lastSeenPosition[0], 999);
 
-  original.advance(units, 0.1);
-  restored.advance([...units].reverse(), 0.1);
+  original.advance(units, 0.451);
+  restored.advance([...units].reverse(), 0.451);
   assert.deepEqual(restored.captureState(), original.captureState());
   assert.equal(
     restored

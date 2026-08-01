@@ -193,6 +193,7 @@ test('each infantryman owns autonomous movement, health, and attack state', () =
   assert.ok(combat.projectiles.length >= attacker.roster.length);
   assert.equal(new Set(combat.projectiles.map(projectile => projectile.shooterId)).size, attacker.roster.length);
   assert.ok(attacker.soldierAI.agents.every(agent => agent.targetUnitId === target.id));
+  assert.ok(attacker.recentFireActivitySeconds > 0);
 });
 
 test('French tank model carries SOMUA S35 dimensions and defining assemblies', () => {

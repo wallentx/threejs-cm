@@ -283,11 +283,6 @@ export function createVehicleOwnedRegistrations(
     const fallback = cloneRegistration(record.views[view]);
     const viewData = viewRegistration(registration, view);
     const crop = normalizedCrop(viewData.crop, dimensions, viewData.cropMode);
-    const hasAuthoredTransform = Boolean(crop || viewData.entry);
-    if (!imageUrl || !hasAuthoredTransform) {
-      views[view] = fallback;
-      continue;
-    }
     const landmarks = {
       ...fallback.landmarks,
       ...rigidLandmarks(
@@ -299,9 +294,22 @@ export function createVehicleOwnedRegistrations(
         crop
       )
     };
+    const hasAuthoredTransform = Boolean(crop || viewData.entry);
+    const hasLocalOnlyTransform = Boolean(
+      crop
+      && viewData.entry
+      && Object.keys(landmarks).length >= 2
+    );
+    if (
+      !hasAuthoredTransform
+      || (!imageUrl && !hasLocalOnlyTransform)
+    ) {
+      views[view] = fallback;
+      continue;
+    }
     views[view] = {
       ...fallback,
-      imageUrl,
+      imageUrl: imageUrl ?? null,
       crop: crop ?? fallback.crop,
       rotationDegrees: finite(
         viewData.entry?.rotationDegrees

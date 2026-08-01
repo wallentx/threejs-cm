@@ -61,6 +61,34 @@ test('camera update moves position and target together without changing framing'
   assert.equal(updates, 1);
 });
 
+test('camera interaction lock freezes pointer damping and keyboard movement', () => {
+  const manager = Object.create(CameraManager.prototype);
+  manager.camera = { position: new THREE.Vector3(0, 20, 20) };
+  let updates = 0;
+  manager.controls = {
+    enabled: true,
+    target: new THREE.Vector3(0, 0, 0),
+    update() { updates++; }
+  };
+  manager.followUnit = null;
+  manager.pressedPanKeys = new Set(['KeyW']);
+  const position = manager.camera.position.clone();
+  const target = manager.controls.target.clone();
+
+  assert.equal(manager.setInteractionLocked(true), true);
+  assert.equal(manager.controls.enabled, false);
+  assert.deepEqual([...manager.pressedPanKeys], []);
+  manager.update(1);
+  assert.deepEqual(manager.camera.position.toArray(), position.toArray());
+  assert.deepEqual(manager.controls.target.toArray(), target.toArray());
+  assert.equal(updates, 0);
+
+  assert.equal(manager.setInteractionLocked(false), false);
+  assert.equal(manager.controls.enabled, true);
+  manager.update(0);
+  assert.equal(updates, 1);
+});
+
 test('unit focus and home reset replace stale orbit distance and target', () => {
   const manager = Object.create(CameraManager.prototype);
   manager.camera = {

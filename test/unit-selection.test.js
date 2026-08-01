@@ -16,7 +16,7 @@ function unit(id, faction = 'blue') {
   };
 }
 
-test('selection is friendly-only, additive, camera-framed, and group-command aware', () => {
+test('selection is friendly-only, additive, camera-neutral, and group-command aware', () => {
   const previousDocument = globalThis.document;
   globalThis.document = { body: { dataset: {} } };
 
@@ -34,6 +34,15 @@ test('selection is friendly-only, additive, camera-framed, and group-command awa
     app.units = [first, second, enemy];
     app.selectedUnit = null;
     app.selectedUnits = [];
+    app.buildingInteraction = {
+      getInteriorPresenceCounts() { return {}; }
+    };
+    app.buildingSystem = {
+      getBuildingIds() { return []; }
+    };
+    app.terrain = {
+      setBuildingInteriorPresence() {}
+    };
     app.commands = {
       setActiveUnits(units, primary) {
         commandSelections.push({
@@ -70,7 +79,7 @@ test('selection is friendly-only, additive, camera-framed, and group-command awa
     assert.equal(first.mesh.userData.selectionDisc.visible, true);
     assert.equal(second.mesh.userData.selectionDisc.visible, false);
     assert.equal(app.cameraManager.followUnit, null);
-    assert.deepEqual(cameraFocusIds, ['blue-1']);
+    assert.deepEqual(cameraFocusIds, []);
 
     assert.equal(app.selectUnit(second, { additive: true }), true);
     assert.deepEqual(app.selectedUnits, [first, second]);
@@ -97,7 +106,7 @@ test('selection is friendly-only, additive, camera-framed, and group-command awa
     assert.equal(app.selectedUnit, null);
     assert.equal(app.inspectedUnit, enemy);
     assert.equal(hudSelections.at(-1), 'red-1');
-    assert.equal(cameraFocusIds.at(-1), 'red-1');
+    assert.deepEqual(cameraFocusIds, []);
     assert.deepEqual(commandSelections.at(-1), {
       ids: [],
       primaryId: null
@@ -113,7 +122,10 @@ test('selection is friendly-only, additive, camera-framed, and group-command awa
     assert.equal(first.mesh.userData.selectionDisc.visible, false);
     assert.equal(document.body.dataset.selectedUnit, 'none');
     assert.equal(clearedHud, 2);
-    assert.equal(cameraHomeResets, 1);
+    assert.equal(cameraHomeResets, 0);
+
+    app.selectUnit(first, { frameCamera: true });
+    assert.deepEqual(cameraFocusIds, ['blue-1']);
   } finally {
     if (previousDocument === undefined) delete globalThis.document;
     else globalThis.document = previousDocument;

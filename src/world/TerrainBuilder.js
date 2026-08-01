@@ -4,6 +4,9 @@ import { StaticCollisionWorld } from '../simulation/collision/StaticCollisionWor
 import {
   DestructibleLinearObstacleSystem
 } from '../simulation/terrain/DestructibleLinearObstacleSystem.js';
+import {
+  createTerrainSightOccluderSnapshot
+} from '../simulation/terrain/TerrainSightOccluderSnapshot.js';
 
 const QUAD_UVS = [
   0, 0,
@@ -625,6 +628,10 @@ export class TerrainBuilder {
       additionalZCoordinates: createRiverBankZCoordinates(mapDescriptor.river)
     });
     this.bocageObstacles = [];
+    this.sightOccluderRevision = 0;
+    this.sightOccluderSnapshot = createTerrainSightOccluderSnapshot(0, []);
+    this.sightOccluderPublicationDepth = 0;
+    this.sightOccluderPublicationPending = false;
     this.buildings = [];
     this.colliderRecords = [];
     this.navigationRecords = [];
@@ -812,6 +819,33 @@ export class TerrainBuilder {
       .filter(record => record.id !== stableId);
   }
 
+  publishSightOccluderSnapshot() {
+    if (this.sightOccluderPublicationDepth > 0) {
+      this.sightOccluderPublicationPending = true;
+      return this.sightOccluderSnapshot;
+    }
+    if (this.sightOccluderRevision >= Number.MAX_SAFE_INTEGER) {
+      throw new RangeError('terrain sight revision exhausted');
+    }
+    this.sightOccluderRevision++;
+    this.sightOccluderSnapshot = createTerrainSightOccluderSnapshot(
+      this.sightOccluderRevision,
+      this.bocageObstacles
+    );
+    this.sightOccluderPublicationPending = false;
+    return this.sightOccluderSnapshot;
+  }
+
+  getSightOccluderSnapshot() {
+    return this.sightOccluderSnapshot;
+  }
+
+  addBocageObstacle(record) {
+    this.bocageObstacles.push(record);
+    this.publishSightOccluderSnapshot();
+    return record;
+  }
+
   syncDestructibleFenceSegment(state, segment) {
     const mesh = this.fenceMeshesByRunId.get(segment.runId);
     if (mesh) {
@@ -860,6 +894,7 @@ export class TerrainBuilder {
         this.bocageObstacles.push({ ...segment.obstacleRecord });
       }
     }
+    this.publishSightOccluderSnapshot();
   }
 
   captureDestructibleObstacleState() {
@@ -867,7 +902,17 @@ export class TerrainBuilder {
   }
 
   restoreDestructibleObstacleState(state) {
-    return this.destructibleLinearObstacles.restoreState(state);
+    this.sightOccluderPublicationDepth++;
+    this.sightOccluderPublicationPending = true;
+    try {
+      return this.destructibleLinearObstacles.restoreState(state);
+    } finally {
+      this.sightOccluderPublicationDepth--;
+      if (this.sightOccluderPublicationDepth === 0
+          && this.sightOccluderPublicationPending) {
+        this.publishSightOccluderSnapshot();
+      }
+    }
   }
 
   applyVehicleImpactToLinearObstacle(impact) {
@@ -1266,7 +1311,8 @@ export class TerrainBuilder {
           type: profile.collisionType,
           occludesSight: profile.occludesSight,
           enclosureId: run.enclosureId ?? null,
-          adjacentGateId: run.adjacentGateId ?? null
+          adjacentGateId: run.adjacentGateId ?? null,
+          sightRunId: runId
         };
         this.bocageObstacles.push(obstacleRecord);
         const colliderRecord = this.addColliderRecord({
@@ -1427,6 +1473,7 @@ export class TerrainBuilder {
     };
 
     for (const run of this.mapDescriptor.wallRuns) createWallRun(run);
+    this.publishSightOccluderSnapshot();
   }
 
   replaceBuildingCollisionRecords(buildingId, sourceRecords, minimumGroundY, foundationTopY) {

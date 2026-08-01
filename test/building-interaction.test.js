@@ -255,6 +255,23 @@ test('four individual soldiers enter upper floor, use window arcs, and exit', ()
   assert.equal(interactions.canFireAt(rearSoldier, [10, 4, -20]), true);
   assert.equal(interactions.canFireAt(rearSoldier, [10, 4, 60]), false);
 
+  rearSoldier.record.equipment = ['BINOCULARS'];
+  const face = interactions.issueFace(unit, [10, 4, 60]);
+  assert.equal(face.accepted, true);
+  assert.equal(face.observerSoldierKey, rearSoldier.buildingLocation.soldierKey);
+  assert.equal(rearSoldier.buildingLocation.firePortId, 'upper-window-left');
+  assert.equal(interactions.canFireAt(rearSoldier, [10, 4, 60]), true);
+  assert.equal(interactions.canFireAt(rearSoldier, [10, 4, -20]), false);
+  assert.deepEqual(
+    Object.keys(buildings.getBuildingSnapshot('house').occupancy).sort(),
+    [
+      'upper-front-left',
+      'upper-front-right',
+      'upper-rear-left',
+      'upper-rear-right'
+    ]
+  );
+
   assert.equal(interactions.issueExit(unit).accepted, true);
   interactions.advance(0);
   interactions.advance(3.8);
@@ -264,6 +281,111 @@ test('four individual soldiers enter upper floor, use window arcs, and exit', ()
     0
   );
   assert.deepEqual(buildings.getBuildingSnapshot('house').occupancy, {});
+});
+
+test('face fills every available window toward the requested direction before overflow', () => {
+  const { buildings, interactions, unit, agents } = createHarness();
+  for (const agent of agents.slice(3)) {
+    agent.health = 0;
+    agent.status = 'KIA';
+  }
+  agents[0].record.equipment = ['BINOCULARS'];
+  const initialSlots = [
+    'upper-rear-left',
+    'upper-front-left',
+    'upper-rear-right'
+  ];
+  for (let index = 0; index < initialSlots.length; index++) {
+    const agent = agents[index];
+    const key = `${unit.id}:${agent.id}`;
+    agent.buildingLocation = {
+      buildingId: 'house',
+      phase: 'occupied',
+      nodeId: initialSlots[index],
+      soldierKey: key,
+      unitId: unit.id,
+      soldierId: agent.id,
+      firePortId: null
+    };
+    const occupied = buildings.occupySlot('house', {
+      slotId: initialSlots[index],
+      soldierKey: key,
+      unitId: unit.id,
+      soldierId: agent.id
+    });
+    assert.equal(occupied.accepted, true);
+  }
+
+  const forward = interactions.issueFace(unit, [10, 4, 60]);
+  assert.equal(forward.accepted, true);
+  assert.deepEqual(forward.preferredSlotIds, [
+    'upper-front-left',
+    'upper-front-right'
+  ]);
+  assert.equal(agents[0].buildingLocation.firePortId, 'upper-window-left');
+  let occupancy = buildings.getBuildingSnapshot('house').occupancy;
+  assert.equal(occupancy['upper-front-left'].soldierKey, 'squad:soldier-0');
+  assert.equal(occupancy['upper-front-right'].soldierKey, 'squad:soldier-1');
+  assert.equal(
+    ['upper-rear-left', 'upper-rear-right']
+      .filter(slotId => occupancy[slotId]).length,
+    1,
+    'only the third soldier overflows to a rear window'
+  );
+
+  const savedBias = interactions.captureState();
+  assert.equal(savedBias.version, 2);
+  assert.deepEqual(savedBias.faceBiases, [{
+    unitId: 'squad',
+    buildingId: 'house',
+    floorId: 'upper-floor',
+    target: [10, 4, 60]
+  }]);
+  const enemy = {
+    id: 'tracked-enemy',
+    position: new THREE.Vector3(10, 4, -20),
+    isCombatEffective: () => true
+  };
+  interactions.getUnits = () => [enemy, unit];
+  agents[1].targetUnitId = enemy.id;
+  interactions.advance(0);
+  occupancy = buildings.getBuildingSnapshot('house').occupancy;
+  assert.equal(occupancy['upper-rear-left'].soldierKey, 'squad:soldier-0');
+  assert.equal(occupancy['upper-rear-right'].soldierKey, 'squad:soldier-1');
+
+  agents[1].targetUnitId = null;
+  interactions.advance(0);
+  occupancy = buildings.getBuildingSnapshot('house').occupancy;
+  assert.equal(occupancy['upper-front-left'].soldierKey, 'squad:soldier-0');
+  assert.equal(occupancy['upper-front-right'].soldierKey, 'squad:soldier-1');
+  assert.deepEqual(interactions.captureState(), savedBias);
+
+  const rearward = interactions.issueFace(unit, [10, 4, -20]);
+  assert.equal(rearward.accepted, true);
+  assert.deepEqual(rearward.preferredSlotIds, [
+    'upper-rear-left',
+    'upper-rear-right'
+  ]);
+  assert.equal(
+    agents[0].buildingLocation.firePortId,
+    'upper-rear-window-left'
+  );
+  occupancy = buildings.getBuildingSnapshot('house').occupancy;
+  assert.equal(occupancy['upper-rear-left'].soldierKey, 'squad:soldier-0');
+  assert.equal(occupancy['upper-rear-right'].soldierKey, 'squad:soldier-1');
+  assert.equal(
+    ['upper-front-left', 'upper-front-right']
+      .filter(slotId => occupancy[slotId]).length,
+    1,
+    'only the third soldier overflows after reversing the bias'
+  );
+
+  interactions.restoreState(savedBias);
+  interactions.advance(0);
+  occupancy = buildings.getBuildingSnapshot('house').occupancy;
+  assert.equal(occupancy['upper-front-left'].soldierKey, 'squad:soldier-0');
+  assert.equal(occupancy['upper-front-right'].soldierKey, 'squad:soldier-1');
+  assert.deepEqual(interactions.captureState(), savedBias);
 });
 
 test('second entry order never depenetrates existing upper-floor occupants', () => {
@@ -916,7 +1038,7 @@ test('pending and occupied target claims block later ENTER until lifecycle relea
   assert.equal(afterRelease.assigned.length, 2);
 });
 
-test('pending target claims survive interaction and agent rollback without a new version', () => {
+test('pending target claims survive interaction and agent rollback', () => {
   const original = createCapacityHarness(['unit-a', 'unit-b']);
   const [firstUnit, secondUnit] = original.units;
   const order = original.interactions.issueEnter(
@@ -931,7 +1053,7 @@ test('pending target claims survive interaction and agent rollback without a new
   original.interactions.advance(0.45);
 
   const pending = captureCapacityHarness(original);
-  assert.equal(pending.interaction.version, 1);
+  assert.equal(pending.interaction.version, 2);
   assert.ok(
     pending.units
       .find(unit => unit.id === firstUnit.id)

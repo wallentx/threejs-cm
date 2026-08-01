@@ -167,6 +167,62 @@ test('entry, floor transit, exit, and casualty release keep soldier location ext
   assert.deepEqual(system.getBuildingSnapshot('house-1').reservations, {});
 });
 
+test('occupied soldiers can atomically exchange valid slots', () => {
+  const system = createSystem();
+  system.occupySlot(
+    'house-1',
+    request('upper-front-left', 1, 'hq', 'assistant')
+  );
+  system.occupySlot(
+    'house-1',
+    request('upper-rear-left', 1, 'hq', 'leader')
+  );
+
+  const result = system.reassignOccupiedSlots('house-1', [
+    {
+      soldierKey: 'hq:leader',
+      fromSlotId: 'upper-rear-left',
+      toSlotId: 'upper-front-left'
+    },
+    {
+      soldierKey: 'hq:assistant',
+      fromSlotId: 'upper-front-left',
+      toSlotId: 'upper-rear-left'
+    }
+  ]);
+
+  assert.equal(result.accepted, true);
+  const occupancy = system.getBuildingSnapshot('house-1').occupancy;
+  assert.equal(occupancy['upper-front-left'].soldierKey, 'hq:leader');
+  assert.equal(occupancy['upper-rear-left'].soldierKey, 'hq:assistant');
+  const captured = system.captureState();
+  system.restoreState(captured);
+  assert.deepEqual(system.captureState(), captured);
+});
+
+test('occupied-slot reassignment rejects stealing without partial mutation', () => {
+  const system = createSystem();
+  system.occupySlot(
+    'house-1',
+    request('upper-front-left', 1, 'hq', 'leader')
+  );
+  system.occupySlot(
+    'house-1',
+    request('upper-rear-left', 1, 'other-unit', 'rifleman')
+  );
+  const before = system.captureState();
+
+  const result = system.reassignOccupiedSlots('house-1', [{
+    soldierKey: 'hq:leader',
+    fromSlotId: 'upper-front-left',
+    toSlotId: 'upper-rear-left'
+  }]);
+
+  assert.equal(result.accepted, false);
+  assert.equal(result.reason, 'occupied');
+  assert.deepEqual(system.captureState(), before);
+});
+
 test('transit timing is frame-partition independent', () => {
   const identity = {
     unitId: 'squad-1',

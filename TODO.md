@@ -9,17 +9,109 @@ Status:
 - `[x]` completed
 - `~~strikethrough~~` intentionally dropped
 
+## Work queue and routing
+
+This short queue controls dispatch; the detailed checkboxes below remain the
+authoritative scope and completion record.
+
+### Bugfixes
+
+- **FIX NOW / P0 — completed:** restore visible procedural battlefield VFX; see
+  the validated WebGPU-migration slice below.
+- **FIX NOW / P0 — partial:** retain an engaged enemy as a decaying gray
+  last-known world contact after direct LOS is lost. The frozen, non-targetable
+  3D projection is implemented and independently approved; deterministic
+  negative observation of an empty reported area remains queued below.
+- **QUEUED / P1:** allow every living member of an ordered infantry unit onto
+  the requested building floor while retaining finite individual window
+  positions; see the unchecked building-capacity slice below.
+- **FIX NOW / P1 — completed:** show the transparent building/interior
+  presentation only while an occupying friendly unit is selected, preserve
+  that projection through high/medium/core/proxy LOD and rollback, and remove
+  each section's opaque window cards on collapse so no black apertures float
+  over rubble.
+- **NEEDS REPRODUCTION / P1:** unexpected enemy blinking while current LOS is
+  valid, unexplained vehicle immobilization, and infantry waypoint/path
+  divergence must each receive a current bounded reproduction before
+  implementation is dispatched.
+- **QUEUED / P0:** reject or constrain battle-setup rosters whose expanded
+  living infantry count exceeds the authoritative 256-candidate separation
+  limit; the accepted 78-formation / 354-soldier maximum currently enters an
+  error state on the first realtime step at candidate 257.
+- **QUEUED / P1:** eliminate the native-WebGPU startup console error
+  `Cannot read properties of null (reading 'getCanvasTarget')`; an experimental
+  Vulkan Chrome profile remains ready on WebGPU after the error, but a clean
+  initialization is required before hardware validation is complete.
+- **FIX NOW / P1 — active follow-up:** retain the completed photo-backed Char
+  B1 bis correction and finish exact multiview source registration from a
+  locally held, non-redistributed drawing; see the remaining slice below.
+
+### New features
+
+- **QUEUED / P1:** pre-match mixed movement and building-entry route planning.
+- **QUEUED / P1:** give the Char B1 bis distinct turret- and hull-weapon target
+  controls, ammunition ownership, and automatic hull-group fire selection; see
+  the unchecked Char B1 multi-mount slice below.
+- **QUEUED / P1:** concealment-aware infantry route choice and broader tactical
+  AI beyond the completed bounded movement slices.
+- Remaining feature work is selected explicitly before it is packetized; one
+  worker receives one cohesive vertical slice at a time.
+
+### Optimizations
+
+- **FIX NOW / P0 — completed bounded block:** the building-run broadphase cut
+  exact building OBB work per LOS by 99.61%, the direct-precision index cut its
+  profiled inclusive cost from 1,699.502 ms to 7.683 ms, the revisioned terrain
+  run index avoided 50,927 exact box tests in one live canonical step, and
+  deterministic attention scheduling evaluated 1,689 of 8,400 cold candidates
+  (-79.9%) while active contacts retain 10 Hz service. A valid post-change FPS
+  sample remains part of the representative-hardware capture below.
+- **FIX NOW / P1 — completed bounded block:** squad-local infantry resource
+  pooling cut exact-force geometries 51.1% and materials 97.4%; far-proxy
+  instancing cut proxy drawables from 1,178 to 242 (-79.5%); and explicit
+  medium/core shadow ownership cut configured casters from 13,102 to 4,534
+  (-65.4%) without changing individual soldier, weapon, pose, hit-volume,
+  casualty, selection, or high-detail ownership.
+- **QUEUED / P2:** finish representative native-WebGPU/WebGL performance at
+  near, design, and far cameras plus mobile hardware; the measured desktop
+  design and WebGL near/far slices are recorded below.
+- Optimization packets require a measured baseline and a measured after-state;
+  they do not preempt reproduced playability regressions.
+
+Vehicle authoring, refits, physics, crew, and vehicle-specific damage remain
+paused for Codex and reserved for the Antigravity handoff unless the user marks
+a specific vehicle packet **FIX NOW**. Cross-cutting regressions such as the
+shared VFX compiler failure may be fixed independently when explicitly
+authorized.
+
 ## Current priorities
 
 - [ ] Complete the Three.js r185 WebGPU renderer migration.
   - [x] Upgrade Three.js from r160 to r185; make `WebGPURenderer` primary with its direct WebGL 2 fallback; use explicit asynchronous initialization and pipeline warmup; replace deprecated `Clock` use with the visibility-aware `Timer`; retain opaque-background alpha behavior; and expose the active backend and current-frame diagnostics.
   - [x] Harden fallback reconstruction so shadow settings and device-loss reporting survive renderer replacement, failed WebGL initialization propagates, and native WebGPU reaches the live ready state.
   - [ ] Validate native WebGPU on representative desktop and mobile hardware, then establish WebGPU post-processing conventions; the bounded VFX slice now establishes TSL/node-material-only custom-effect ownership, but hardware validation remains.
+  - [ ] Remove the native-WebGPU startup `null.getCanvasTarget` console error reproduced on Chrome 152 with an AMD RDNA2 adapter; retain ready-state and direct WebGL2 fallback behavior, and add a behavioral initialization regression before claiming a clean backend launch.
 - [ ] Complete measured runtime optimization on representative desktop and mobile hardware.
   - [x] First bounded render/main-thread pass: reduce default high-tier pixel work from a 2.0 to 1.5 device-pixel-ratio cap, reduce its directional shadow map from 2048 to 1024, retain the previous settings as explicit `quality=ultra`, limit shadow casters to authored core/proxy silhouettes, exclude blended/UI meshes, replace visibility projection's nested target/observer/unit scan with indexed observation traversal, cache projection between authoritative spotting steps, and bound floating badges to 30 Hz and the minimap to 10 Hz.
   - [x] Realtime/VFX pass: sample authoritative observation at a rollback-owned deterministic 10 Hz, avoid rebuilding unchanged building LOS colliders, and replace CPU-stacked vehicle fire/smoke plus pooled impact/explosion/muzzle-flash meshes with bounded WebGPU TSL sprite effects while preserving simulation-owned hits, damage, and muzzle origins.
     - [x] Correct TSL explosion sprite presentation after the geometry-to-sprite migration: preserve metre-scale blast visibility and lift the centered sprite above its authoritative ground-impact position instead of leaving a sub-metre, terrain-occluded flash.
-  - [ ] Capture native WebGPU/WebGL fallback frame time, draw calls, submitted triangles, active shadow casters, GPU memory, and long tasks at near/design/far cameras on representative hardware; the Termux headless Chromium GPU process currently crashes and the Three.js devtools bridge requires a connected real browser tab.
+    - [x] Repair the r185 invisible-VFX regression: resolve renderer, node-material, and TSL imports to one Three.js singleton; replace non-finite JavaScript shader-node subtraction with TSL arithmetic; reject divergent Vite identities and non-finite VFX graphs; and confirm a live WebGL2-fallback explosion renders visible pixels without TSL, shader, or page errors.
+  - [x] Add an on-demand top-bar profiling panel with rolling FPS, average/p95 frame time, renderer backend, draw calls, submitted triangles, geometry/texture counts, and active LOD counts; add independent FOV, infantry/vehicle hit-volume, vehicle-component, vehicle-crew, and formation-AI overlays that project the live authoritative mechanisms and dispose their GPU resources.
+  - [ ] Capture native WebGPU/WebGL fallback frame time, draw calls, submitted triangles, active shadow casters, GPU memory, and long tasks at near/design/far cameras on representative hardware; desktop design and WebGL near/far slices are complete, while native-WebGPU near/far and mobile remain.
+    - [x] Desktop laptop slice: connect the real Three.js DevTools bridge at 1920x1080; confirm the default 16-unit design/high battle holds 60 FPS on both WebGL2 fallback and experimental native WebGPU; reproduce the valid 56-unit / 252-soldier scene at 17.4 FPS paused and 1.7 FPS realtime on WebGL2 versus 1.6 FPS realtime on WebGPU; show that far LOD removes 84% of draws and 92% of triangles for only an 11% realtime improvement; reject badges as the dominant cause; attribute 55.3% CPU self time to oriented-box LOS/spotting/precision targeting; and record 35.1 MB estimated GPU resources, five potentially orphaned textures, no device loss, high host memory pressure, and the exact temporary Vulkan/WebGPU launch profile. Native near/far and mobile captures remain.
+  - [ ] Make high-unit spotting and precision targeting scale without changing deterministic observation outcomes: reject out-of-range targets before LOS, spatially prefilter building/terrain occluders, avoid repeated equivalent oriented-box traversal, preserve the authoritative 10 Hz cadence, and prove identical contacts plus capture/restore and frame-partition results before accepting measured performance gains.
+    - [x] First output-neutral slice: compute the exact lifted observer-eye/target-aim distance before LOS, skip LOS only when it is strictly beyond the current capability/target range, preserve the exact-range boundary and target-person ordering, and validate zero unnecessary out-of-range calls with 55/55 focused tests, 129/129 full test files, a clean build, and independent approval.
+    - [x] Add a conservative building world-AABB broadphase before exact oriented-box LOS while preserving stable collider order and dirty/restore rebuild behavior; on the identical 56-unit / 252-soldier native-WebGPU battle it rejected 97.2511% of building runs, reduced exact OBB work per LOS from 52.997 to 0.206962 (-99.61%), improved FPS from 0.6923 to 1.0000 (+44.44%), and reduced average frame time from 1,444.38 ms to 999.97 ms (-30.77%) after independent approval.
+    - [x] Replace repeated full observation-map precision checks with an uncaptured raw-ID observer-unit/target-unit index rebuilt only after authoritative spotting advance and restore; preserve direct `visibleNow` eligibility, sampled casualty/split lifecycle, v1-v5 restore, frame-partition and reordered-input equivalence, and reduce the identical stress profile from 1,699.502 ms to 7.683 ms inclusive after independent approval.
+    - [x] Define an immutable revisioned terrain sight-occluder snapshot, group its 25 scenario obstacles into five stable authored runs, conservatively reject non-intersecting runs before exact insertion-ordered box tests, preserve mutable legacy fallback behavior, and expose uncaptured diagnostics; one native-WebGPU canonical step rejected 10,144 of 10,436 run tests and avoided 50,927 exact box tests.
+    - [x] Add deterministic attention scheduling after output-neutral broadphases are measured: keep firing, moving, close, partially acquired, and active contacts at 10 Hz; phase distant stationary cold candidates across stable-ID ticks with 0-0.4 second initial latency and no retroactive acquisition credit; preserve rollback and reordered-input equivalence; and use a capture/restored recent-fire timer set only by emitted projectiles so the real infantry, vehicle, and structure execution paths remain urgent. The exact native-WebGPU step evaluated 1,689 of 8,400 eligible cold pairs (-79.9%).
+  - [ ] Reduce infantry draw, geometry, material, and shadow submissions across LODs without losing individual soldier, weapon, pose, hit-volume, casualty, or selection ownership; measure paused 252-soldier design/high performance before and after.
+    - [x] Pool infantry geometry and materials within each squad without changing the 28,536 individual mesh nodes, articulation, or disposal owner; exact-force geometry references fell from 11,372 to 5,558 (-51.1%) and material references from 28,536 to 748 (-97.4%).
+    - [x] Instance only the far-proxy presentation per squad while retaining every individual soldier hierarchy and renderer source; exact-force proxy drawables fell from 1,178 to 242 (-79.5%) with high/medium/core output and zero proxy-shadow policy unchanged.
+    - [x] Limit medium/core shadow ownership to existing identity-defining silhouette meshes while preserving all visible geometry and high/proxy policies; exact-force configured casters fell from 13,102 to 4,534 (-65.4%).
+    - [ ] Capture a valid post-change native-WebGPU frame distribution and near/design shadow-silhouette comparison; renderer counters and ready/backend state are recorded, but the available `requestAnimationFrame` sample did not produce valid timing evidence.
+  - [ ] Determine whether the five textures reported as potentially orphaned after repeated battle reloads are retained leaks or DevTools false positives; prove bounded renderer memory across repeated setup -> battle -> setup cycles.
+  - [ ] Validate battle setup against expanded individual rosters before launch: either cap accepted formations so living infantry never exceeds the deterministic 256-candidate separation limit or replace that bounded algorithm with a proven scalable equivalent; never allow the current accepted 354-soldier setup to fail only after realtime begins.
   - [ ] Reduce vehicle submission overhead without breaking articulation or damage ownership; the 15 factories currently contain 1,485 mesh objects and can expose 1,313 visible high-tier meshes before the shadow pass.
   - [ ] Batch static terrain presentation where identity permits.
     - [x] Add a terrain-conforming, alpha-tested, non-blended fence-card profile with aligned front, back, top, and end faces; use it for the five scenario-authored farmhouse enclosure runs; retain authoritative oriented movement collision without making the cutout fence an opaque LOS blocker; preserve the village masonry profile; and reduce those boundaries from 51 submitted masonry meshes to 25 masonry plus 5 fence-card meshes.
@@ -30,6 +122,7 @@ Status:
   - [x] Define ownership and one-way import rules in `docs/ARCHITECTURE.md` and `AGENTS.md`.
   - [x] Add a pre-battle startup wizard for the current `Bridge` map: select France or Germany for both sides, choose a gameplay-scale formation package or an independently counted a-la-carte force, apply Regular-current or alternate enemy experience/leadership difficulty, deterministically deploy complete forces inside their faction zones facing each other, and construct `GameApp` only after Start Battle.
     - [x] Restore explicit French and German platoon HQ choices to a-la-carte selection and every predefined force package, including binocular-equipped leaders and rollback-safe radio-operator command-net endpoints.
+    - [x] Keep the initial Create Battle header nation-neutral and remove the redundant numbered step bubbles; show the actual selected matchup only in the final force review.
   - [x] Add a separately selectable `Stonne` map from the supplied aerial reference: rolling 300 m terrain, north-south and eastern crossroads, five reused enterable rural structures, orchard fencing, crop/pasture/woodland surface composition, 152 deterministic trees rendered in four instanced submissions, opposing setup bands, and no invented river or bridge.
     - [x] Reduce shared mature-tree crown geometry from detail-1 to detail-0 icosahedra and trunk radial segments from eight to six while preserving the same instanced placements and tree dimensions.
   - [ ] Replace Stonne's screenshot-registered approximation with georeferenced contours, road widths and grades, field/wood boundaries, exact building footprints, and source-backed 1940 terrain evidence; connect woodland and crop records to authoritative concealment, movement cost, and vehicle-access policy instead of leaving foliage presentation-only.
@@ -123,7 +216,9 @@ Status:
   - [x] Add deterministic accepted-shot weapon reports and short-lived displaced SOUND contacts for in-range living enemies; preserve uncertainty without precision targeting, hidden-mesh exposure, target-soldier leakage, or same-step relay; and capture/restore the contacts with version-one compatibility.
   - [x] Add deterministic first-report VOICE/RADIO delay: freeze the acquisition report, deliver it at the exact gameplay-approximation boundary through a bounded stable-ID queue, revalidate endpoints, preserve contact precedence, and capture the authoritative fractional clock for byte-identical rollback and frame partitioning.
   - [x] Add deterministic direct identification progression and decay, frozen first-report relay quality, strict legacy/new-state migration, and exact rollback/frame-partition behavior without precision-target leakage.
-  - [x] Add a deterministic 150 ms render-only grace after direct LOS loss so one fixed-step miss cannot blink an acquired enemy mesh; revoke direct contacts and precision targeting immediately, keep stale/relayed contacts hidden, and preserve exact capture/restore, legacy migration, and frame-partition behavior.
+  - [x] Add a deterministic 500 ms render-only grace after direct LOS loss and retain that bridge while a previously acquired observer again has a valid sight path, so consecutive 10 Hz misses and precision reacquisition cannot blink an otherwise visible enemy mesh; revoke direct contacts and precision targeting immediately, keep stale/relayed contacts hidden, and preserve exact capture/restore, legacy migration, and frame-partition behavior.
+  - [x] Project stale confirmed contacts into the 3D world as frozen gray last-known markers or identification-appropriate proxies whose opacity and uncertainty come from the existing authoritative contact snapshot; never move them with the hidden live unit, reveal current facing/damage, or permit direct precision targeting; retain area-fire/support targeting at the reported location; preserve per-unit/C2 ownership and source-casualty consequences; and capture/restore the projection inputs without making presentation authoritative.
+    - [ ] Add deterministic negative observation: when an eligible observer has clear LOS over the frozen contact's uncertainty region and the reported unit is not observably present there, revoke or downgrade that unit's contact; otherwise let confidence, identification, and uncertainty decay normally until expiry or reacquisition.
   - [x] Add a renderer-neutral foliage-concealment foundation with stable circular/oriented canopy volumes, ordered three-dimensional sight-path measurements, overlap-aware density, distinct observer/target/intervening effects, bounded non-occluding observation factors, and input-order invariance. Map-foliage adaptation and live `SpottingSystem` consumption remain.
   - [x] Conceal occupied building soldiers until an individual attacks from an assigned fire port; clear outside firing solutions at completed entry and prevent hidden occupants from entering spotting and infantry fire-control target sets.
   - [x] Make HIDE an authoritative infantry fire hold across outside, building-approach, transit, occupied, exit-waiting, and exiting phases; include deployed mortar fire and reset individual fire-control targets until HIDE is released.
@@ -136,7 +231,7 @@ Status:
   - [ ] Add Brandt Mle 1935 60 mm company mortar teams and Brandt 81 mm battalion/heavy-weapons mortar teams with stable crew roles, carried ammunition, setup/deployment, indirect-fire ballistics, observers/communications, ranging, suppression, realtime/WEGO behavior, and deep rollback; verify exact allocation and crew strength per formation rather than applying one universal table.
     - [x] First playable on-map 60 mm slice: add one provisional French Brandt Mle 1935 team with stable gunner, assistant, and ammunition-bearer ownership; timed setup/pack state; casualty and individually conserved ammunition gates; a modeled tube/baseplate/bipod and true muzzle; deterministic high-angle variable-charge projectile flight through the existing swept collision, HE blast, telemetry, and audio paths; conditional deploy UI; fixed-step cadence; and deep unit/projectile rollback. The four-person roster, Berthier carbine distribution, ammunition quantity, setup/pack/cadence/range/charge/effect values, and visual geometry are explicitly labeled gameplay or renderer approximations.
     - [x] Add a deterministic renderer-neutral fire-mission lifecycle with stable mission/observer/team/target/shot IDs, authorization and availability gates, request and correction delays, a real ranging projectile acknowledgement, observed correction, bounded fire-for-effect sequencing, rollback state, and indirect-shot telemetry identity. Live target-command routing, external observers, communications networks, and impact-observation wiring remain.
-    - [x] Add a dedicated on-map `TARGET HE` area order for mortar teams: press/tap sets the center, drag expands a terrain-conforming circle from the weapon/range-derived default dispersion, release records a rollback-owned area order, the first bomb waits one simulation second, later bombs use reload cadence, and ordinary squad `TARGET` never fires the mortar.
+    - [x] Add a dedicated on-map `TARGET HE` area order for mortar teams: press/tap sets the center, drag expands a terrain-conforming circle from the weapon/range-derived default dispersion without moving the camera, release records a rollback-owned area order, the first bomb waits one simulation second, later bombs use reload cadence, and ordinary squad `TARGET` never fires the mortar.
     - [ ] Verify France 1940 Brandt 60 mm smoke ammunition identity, issue, carried quantity, ballistics, and effect from a primary source before exposing `TARGET SMOKE`; keep unsupported smoke out of production state instead of inventing a round.
     - [ ] Replace the provisional 60 mm roster and allocation with formation-specific primary TO&E evidence; add observer/communications authorization, ranging and correction, fire missions, displacement behavior, crew replacement, recoverable casualty-owned rounds, and mortar-specific operating poses.
     - [ ] Add historically verified 81 mm battalion/heavy-weapons teams as a separate weapon, formation, ammunition, ballistic, and presentation slice rather than scaling the 60 mm approximation.
@@ -147,6 +242,7 @@ Status:
   - [x] First functional pass across all 15 vehicles: cataloged mount identity, crew dependency, feed/reserve state, reload and cyclic cadence, exact rendered muzzle ownership, independent projectiles, component failure, telemetry, and WEGO capture/restore.
   - [x] Correct verified right-side coax placement on H39, Panzer III/IV, Panzer 35(t)/38(t), and Sd.Kfz. 231; place the Char B1 hull MG right of its 75 mm gun; align visible barrels with muzzle markers; explicitly mark unresolved mount sides provisional.
   - [x] Add explicit MG-only targeting and an automatic weapon policy that withholds vehicle MGs from armored and area targets while retaining them against infantry.
+  - [ ] Model the Char B1 bis as two distinct cannon groups: retain normal `TARGET AP` / `TARGET HE` for the turret 47 mm SA 35; add `TARGET HULL APHE` / `TARGET HULL HE` for the hull 75 mm ABS gun; and add `TARGET HULL AUTO` to coordinate that 75 mm gun with the hull MAC 31 according to target suitability, crew availability, mount limits, loaded round, and conserved ammunition. Give both cannons and the hull MG separate stable mount IDs, targets, aim/fire/reload state, crew dependencies, magazines/reserves, telemetry, UI summaries, and deep WEGO capture/restore. Verify from primary sources before canonicalizing the reported 74-round 75 mm load with only 7 APHE rounds, and keep any interim split explicitly provisional.
   - [ ] Replace explicitly labeled mount-ammunition and reload approximations with vehicle-specific archival values; add mount traverse/elevation limits, aim delay, and target-sharing rules.
 - [ ] Replace provisional new-vehicle ammunition splits, penetration values, and movement rates with cited archival firing tables and vehicle manuals.
 - [ ] Improve infantry tactical AI: cover selection, bounds, spacing, danger areas, fire-and-movement, withdrawal, and casualty response.
@@ -178,9 +274,13 @@ Status:
   - [x] Replace the solid house box with a terrain-grounded, segmented door/window/floor/stair/roof model and high/medium/core/proxy LOD tiers; separate projectile/LOS apertures from a movement shell that blocks windows and reserves doors for authorized transit.
   - [x] Wire infantry ENTER GROUND, ENTER UPPER, and EXIT orders; individual approach, door/stair transit, occupancy and casualty release; window firing arcs; roster state; realtime/WEGO simulation; and capture/restore.
   - [x] Fade occupied/interior-transit buildings consistently across every LOD so individual troops and floor changes remain visible; restore opacity on final exit and rollback.
+  - [x] Restrict occupied-building transparency to selected friendly occupying units and immediately restore opaque presentation after switching, enemy inspection, or clearing selection; preserve equivalent fade behavior at high/medium/core/proxy LOD distances without changing authoritative occupancy, and restore selection-derived presentation after rollback.
+  - [x] Hide high/medium/core/proxy opening detail and opaque window cards when their owning section collapses, then restore the same renderer-owned meshes on rollback instead of leaving black apertures floating over rubble.
   - [x] Keep authored footprint, facade openings, floor line, roof profile, damage state, and visual identity consistent across all building LOD tiers.
+  - [x] Route occupied-infantry FACE orders through authoritative window ownership: retain and replay the requested directional bias, fill all unreserved same-floor firing positions in that arc before overflow positions, place a binocular-equipped observer first, temporarily shift toward a live target already tracked by an occupant, and return to the requested bias when tracking ends.
   - [x] Restore MOVE-click floor selection, individual-occupancy exit controls, and consistent open/closed door-leaf state across every LOD.
   - [x] Enforce authored ENTER target capacity: assign only real valid requested-floor slots, exclude occupied, reserved, and rollback-owned pending claims, preserve deterministic partial acceptance and lifecycle release, and replay pending transit without a new side registry.
+  - [ ] Replace authored slots as a floor-capacity limit: every living member of an ordered unit must be able to occupy the requested floor, finite window/fire-port positions remain individually reserved, and all remaining occupants receive deterministic interior support positions with visible placement, exit/casualty cleanup, and deep capture/restore.
   - [x] Add a second frozen compact one-floor farmhouse descriptor with three real individual slots, generic building/visual-system reuse, rotation-aware terrain grounding, and one explicit non-overlapping Stonne placement.
   - [x] Deterministically select the shortest valid exterior-door route and persist that stable portal through entry, stairs, exit, ejection, capture, restore, and replay.
   - [x] Add paired rear-facade firing windows to both floors of the large house; bind them to the existing rear individual slots, preserve projectile/LOS apertures and movement blockers, and render their openings across every LOD.
@@ -247,11 +347,17 @@ Status:
       - [ ] Converge H39 and Panhard 178 contours against registered source-space side/front/top evidence.
     - [ ] Replace legacy oval/capsule tracks on every remaining tracked vehicle with vehicle-owned sprocket, idler, road-wheel, and return-roller support records.
       - [x] Establish the R35 reference implementation: one deterministic wheel-supported path, labeled renderer-only tension/gravity approximations, and the same path shape at detail and proxy LOD.
-      - [ ] Migrate the H39, S35, AMC 35, Char B1 bis, Panzer II/III/IV, Panzer 35(t), and Panzer 38(t); never use their current capsule geometry as blueprint-calibration evidence.
+      - [x] Migrate the Char B1 bis detailed and proxy tiers to one vehicle-owned, 22-support, wheel-solved track path with distinct rear drive sprocket, front idler, and documented 3x4 + 3 + 1 support-wheel identity; retain exact support locations as photo-constrained inference rather than blueprint fact.
+      - [ ] Migrate the H39, S35, AMC 35, Panzer II/III/IV, Panzer 35(t), and Panzer 38(t); never use their current capsule geometry as blueprint-calibration evidence.
       - [ ] Couple track shape to authoritative suspension travel and track/component damage if dynamic running gear becomes a simulated mechanic; the current R35 path is static presentation geometry.
     - [x] Repair the registered tail-less R35 configuration: remove the absent optional trench tail, extend the base track/nose to the 4.02 m envelope, restore the five-wheel spacing, seat detailed track cleats at ground level, and constrain the proxy turret to 2.13 m.
     - ~~[x] Seat a separate R35 driver hood and rounded generic mantlet.~~ Dropped after source overlay showed both abstractions contradicted the supplied drawing.
     - [x] Refit AMC 35, Laffly S20TL, and Char B1 bis against registered side elevations and published mechanical dimensions; preserve exact envelopes, ground contact, running gear, weapon projections, and authored far silhouettes.
+    - [ ] Correct and revalidate the Char B1 bis with current source-registration tooling: repair invisible or inward-wound faces; replace the oversized circular hull-gun mantlet with source-shaped geometry; place the driver's vision block at its source-backed hull datum rather than above the deck; register the drive sprocket, idler, road wheels, return rollers, and track supports from suitable side/front/top blueprints; replace the legacy oval track with the shared support-solved path at detailed and proxy LOD; and inspect keyed side/front/top overlays plus all four runtime tiers before accepting a new baseline.
+      - [x] Photo-backed correction: repair local winding and degeneracy; replace the circular hull-gun disc with an irregular closed collar; seat the driver visor in its armored projection; author the compound 3x4 + 3 + 1 support-wheel identity; share one support-solved path across detailed/proxy tiers; retain driver, hull-gun, APX 4/cupola, and both gun silhouettes through all four LODs; preserve the official 6.37 x 2.46 x 2.79 m envelope and standard ground tolerance; record four traceable licensed evidence crops plus official/mechanical provenance; and accept only the 12 independently reviewed Char B1 silhouette keys.
+      - [ ] Use a verified exact B1 bis multiview drawing as local-only calibration evidence: keep the raster out of the repository, retain its source URL, identity, dimensions, SHA-256, crops, transforms, and measured side/front/top pixels in vehicle-owned data, and revalidate wheel centers, cross-sections, casting curvature, suspension-plate contours, mantlet, visor, APX 4/cupola, gun axes, and all four LODs before claiming full blueprint calibration.
+        - [x] Retain the held drawing's exact identity, dimensions, SHA-256, side/front/top crops, independent registrations, rigid landmarks, corrected/disputed feature pixels, and explicit inference limits in deeply frozen vehicle-owned data; preserve those authored transforms for local upload without adding an image URL or redistributing raster/annotation bytes.
+        - [ ] Load the held raster through an attached Three.js DevTools browser tab and inspect side/front/top overlays at high/medium/core/proxy LOD; use only visually verified, correctly identified pixels for any further wheel, cross-section, suspension, mantlet, visor, turret, cupola, or gun-axis geometry change.
     - [x] Refit Panzer II Ausf. C, Panzer 35(t), and Panzer 38(t) against registered reference elevations; converge hull, turret, running-gear, and gun silhouettes while preserving exact envelopes and articulated far proxies.
     - [x] Refit Panzer IV Ausf. D against a registered multiview reference; converge its stepped hull, four-bogie suspension, faceted turret, short KwK 37, MG mounts, and articulated far proxy.
     - [x] Refit Sd.Kfz. 231 6-Rad against a registered multiview reference; preserve its exact three-axle envelope, tandem rear wheels, horseshoe turret, weapon projections, and articulated far proxy.
@@ -314,12 +420,12 @@ Status:
 - [x] Preserve in-flight projectiles, shot sequence, impact telemetry, and rollback-safe vehicle damage marks across WEGO seek and replay.
 - [x] Add visible realtime/WEGO controls on mobile.
 - [x] Add CANCEL TOOL, DESELECT, Escape, right-click, and empty-ground deselection.
-- [x] Make friendly floating badges the sole unit-selection surface, keep friendly models out of target raycasts, and stop selection from moving or following the camera.
-- [x] Reframe the orbit target and distance when selecting or inspecting a unit, and restore the scenario home target on deselection so stale max-range camera state cannot break zoom.
-- [x] Make visible hostile badges inspectable without granting command authority; show the same individual crew/component damage panel while keeping friendly selection and order ownership separate.
+- [x] Make visible friendly and hostile unit models plus their badges explicit selection/inspection surfaces; keep badges pass-through while a command tool owns the pointer, keep friendly models out of opposing-target raycasts, and preserve separate command authority.
+- [x] Keep the current orbit target and camera framing unchanged across ordinary model/badge selection, inspection, deselection, empty-ground clicks, and right-button camera panning; intentionally frame a unit on model/badge double-click.
+- [x] Preview the complete model-click selection on hover with yellow support-surface rings around every living infantryman, declared equipment such as mortars, or the vehicle footprint plus a matching yellow badge border; update hover transitions synchronously, keep render-object pools isolated per unit so differently sized footprints cannot leak across transitions, conform footprints to terrain, and let opaque models occlude them.
 - [x] Center each floating badge independently of its name and damage rows, and hide the whole badge when a nearer visible unit model blocks its camera ray.
 - [x] Raise floating badge anchors from 3.5 to 5.5 metres, add a fixed 48-pixel upward screen clearance that survives long camera range, and reduce badge size from 34 to 28 pixels so unit models remain readable underneath.
-- [x] Add Shift/Ctrl/Command badge multi-selection with shared formation-preserving move, target, and face orders plus per-unit path and target overlays.
+- [x] Add Shift/Ctrl/Command model-click multi-selection with shared formation-preserving move, target, and face orders plus per-unit path and target overlays.
 - [x] Hide command actions and squad roster/weapons content when no unit is selected while preserving the HUD footprint.
 - [x] Keep the tactical map visible in portrait mobile layout.
 - [x] Add a top tactical-map toggle and reflow the hidden-map desktop HUD with a wider crew/system panel, a rightmost command panel, narrower role-first roster cards, and more readable desktop text.
@@ -328,6 +434,7 @@ Status:
 - [x] Expand the portrait Squad Roster & Weapons panel through the tactical map's right-column row whenever the map is hidden, keep crew cards in compact content-height rows, use two mobile columns, and pin AMMO to the panel bottom so scrolling starts only when the remaining roster space is exhausted.
 - [x] Size the portrait Unit Soft Factors panel to its content, give the remaining left-column height to Actions, and enlarge its tabs while preserving the existing total HUD height and right-column roster/map split.
 - [x] Enforce complete friendly and enemy unit footprints inside their command-phase deployment boxes.
+- [ ] Add pre-match route planning: a destination inside the friendly deployment box immediately repositions the complete unit, while destinations beyond it queue visible round-start orders from the deployed position; support appended mixed FAST, SNEAK, ASSAULT, building-entry, and requested-floor stages through match start with the same deterministic movement/building transitions used after deployment.
 - [x] Make initial setup-area overlays terrain-conforming, raycast-inert, and removable at match start; relocate valid full unit footprints immediately during the opening command phase.
 - [x] Allow new movement orders after turn one by pruning completed waypoint queues.
 - [x] Add automated coverage for individual ammunition, ballistics, armor, crews, muzzle origins, LOD, realtime, and subsequent-turn orders.

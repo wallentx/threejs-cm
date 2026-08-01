@@ -140,7 +140,44 @@ test('French house disposal releases each unique owned resource exactly once', (
   assert.equal(house.userData.houseVisualDisposed, true);
 });
 
-test('occupied or transiting house fades every LOD shell and restores owned materials after exit', () => {
+test('runtime occupancy stays opaque until an explicit interior projection activates fade', () => {
+  const buildings = new BuildingSystem();
+  buildings.registerDescriptor(FR_HOUSE_12X9_2F);
+  buildings.addBuilding({
+    id: 'house-projection', descriptorId: FR_HOUSE_12X9_2F.id,
+    transform: { position: [0, 0, 0], rotationY: 0 }
+  });
+  const occupied = buildings.occupySlot('house-projection', {
+    slotId: 'ground-front-left',
+    soldierKey: 'unit-a:soldier-a',
+    unitId: 'unit-a',
+    soldierId: 'soldier-a'
+  });
+  assert.equal(occupied.accepted, true);
+
+  const runtime = buildings.getBuildingSnapshot('house-projection');
+  assert.equal(Object.keys(runtime.occupancy).length, 1);
+  const house = createFrenchHouseVisual({
+    descriptor: FR_HOUSE_12X9_2F,
+    runtime,
+    centerX: 0, centerZ: 0, foundationTopY: 0, getHeightAt: () => 0
+  });
+  assert.equal(house.userData.interiorPresence, 0);
+  assert.equal(house.userData.interiorFadeActive, false);
+
+  applyFrenchHouseVisualState(house, FR_HOUSE_12X9_2F, runtime, {
+    interiorPresence: 1
+  });
+  assert.equal(house.userData.interiorPresence, 1);
+  assert.equal(house.userData.interiorFadeActive, true);
+
+  applyFrenchHouseVisualState(house, FR_HOUSE_12X9_2F, runtime);
+  assert.equal(house.userData.interiorPresence, 0);
+  assert.equal(house.userData.interiorFadeActive, false);
+  disposeFrenchHouseVisual(house);
+});
+
+test('explicit interior projection fades and restores the active high, medium, core, and proxy LOD', () => {
   const buildings = new BuildingSystem();
   buildings.registerDescriptor(FR_HOUSE_12X9_2F);
   buildings.addBuilding({
@@ -152,41 +189,64 @@ test('occupied or transiting house fades every LOD shell and restores owned mate
     runtime: buildings.getBuildingSnapshot('house-occupied'),
     centerX: 0, centerZ: 0, foundationTopY: 0, getHeightAt: () => 0
   });
-  const exteriorMeshes = [];
+  const fadeableMeshes = [];
   house.traverse(object => {
-    if (object.isMesh && object.userData?.semantic === 'building-section-part') exteriorMeshes.push(object);
+    if (!object.isMesh) return;
+    const semantic = object.userData?.semantic ?? object.parent?.userData?.semantic;
+    if (['building-section-part', 'roof-silhouette', 'opening', 'opening-frame', 'stairs']
+      .includes(semantic)) fadeableMeshes.push(object);
   });
-  const initialMaterials = exteriorMeshes.map(mesh => mesh.material);
+  const initialMaterials = fadeableMeshes.map(mesh => mesh.material);
   const lod = house.getObjectByName('FrenchHouseLOD');
   const camera = new THREE.PerspectiveCamera();
-  camera.position.set(0, 8, 24);
-  camera.updateMatrixWorld(true);
   house.updateMatrixWorld(true);
-  lod.update(camera);
-  const activeLodBeforeFade = lod.levels.map(level => level.object.visible);
-  assert.equal(activeLodBeforeFade.filter(Boolean).length, 1);
   applyFrenchHouseVisualState(house, FR_HOUSE_12X9_2F, buildings.getBuildingSnapshot('house-occupied'), {
     interiorPresence: 1
   });
-  assert.deepEqual(
-    lod.levels.map(level => level.object.visible),
-    activeLodBeforeFade,
-    'presentation updates leave level visibility under THREE.LOD ownership'
-  );
   assert.equal(house.userData.interiorFadeActive, true);
-  assert.ok(exteriorMeshes.every(mesh => (
+  assert.ok(fadeableMeshes.every(mesh => (
     mesh.material.transparent && mesh.material.opacity <= 0.26 && mesh.material.depthWrite === false
   )));
-  assert.ok(exteriorMeshes.every((mesh, index) => mesh.material === initialMaterials[index]),
+  assert.ok(fadeableMeshes.every((mesh, index) => mesh.material === initialMaterials[index]),
     'fade mutates only this house renderer material instances rather than swapping shared materials');
+
+  for (const [distance, expectedLod] of [
+    [20, 'high'],
+    [60, 'medium'],
+    [120, 'core'],
+    [220, 'proxy']
+  ]) {
+    camera.position.set(0, 0, distance);
+    camera.updateMatrixWorld(true);
+    lod.update(camera);
+    const visibleTiers = house.userData.lodTiers
+      .filter(tier => tier.group.visible)
+      .map(tier => tier.lod);
+    assert.deepEqual(visibleTiers, [expectedLod], `${expectedLod} is the sole tier at ${distance} m`);
+    const activeTier = house.userData.lodTiers.find(tier => tier.lod === expectedLod);
+    const activeMeshes = [];
+    activeTier.group.traverse(object => {
+      if (!object.isMesh) return;
+      const semantic = object.userData?.semantic ?? object.parent?.userData?.semantic;
+      if (['building-section-part', 'roof-silhouette', 'opening', 'opening-frame', 'stairs']
+        .includes(semantic)) activeMeshes.push(object);
+    });
+    assert.ok(activeMeshes.length > 0);
+    assert.ok(activeMeshes.every(mesh => (
+      mesh.material.transparent
+      && mesh.material.opacity <= 0.26
+      && mesh.material.depthWrite === false
+    )), `${expectedLod} uses the equivalent fade policy`);
+  }
 
   applyFrenchHouseVisualState(house, FR_HOUSE_12X9_2F, buildings.getBuildingSnapshot('house-occupied'), {
     interiorPresence: 0
   });
   assert.equal(house.userData.interiorFadeActive, false);
-  assert.ok(exteriorMeshes.every(mesh => (
+  assert.ok(fadeableMeshes.every(mesh => (
     mesh.material.transparent === false && mesh.material.opacity === 1 && mesh.material.depthWrite === true
   )));
+  assert.ok(fadeableMeshes.every((mesh, index) => mesh.material === initialMaterials[index]));
   disposeFrenchHouseVisual(house);
 });
 
@@ -416,6 +476,57 @@ test('restoring an intact building state rehydrates all authored visual parts af
   }
   assert.equal(house.getObjectByName('HouseGabledRoof').visible, true);
   assert.ok(house.userData.cheapShells.every(group => group.visible && group.userData.shell.visible));
+});
+
+test('owning-section collapse hides detailed frames and every cheap opening card, then rollback restores them', () => {
+  const buildings = new BuildingSystem();
+  buildings.registerDescriptor(FR_HOUSE_12X9_2F);
+  buildings.addBuilding({
+    id: 'house-opening-rollback',
+    descriptorId: FR_HOUSE_12X9_2F.id,
+    transform: { position: [0, 0, 0], rotationY: 0 }
+  });
+  const intact = buildings.captureState();
+  const house = createFrenchHouseVisual({
+    descriptor: FR_HOUSE_12X9_2F,
+    runtime: buildings.getBuildingSnapshot('house-opening-rollback'),
+    centerX: 0,
+    centerZ: 0,
+    foundationTopY: 0,
+    getHeightAt: () => 0
+  });
+  const openingId = 'ground-window-left-aperture';
+  const visuals = [
+    house.getObjectByName(`HouseFrame:${openingId}`),
+    ...['medium', 'core', 'proxy'].map(level =>
+      house.getObjectByName(`HouseCheapOpening:${level}:${openingId}`)
+    )
+  ];
+  assert.ok(visuals.every(Boolean));
+  assert.ok(visuals.every(object => (
+    object.userData.openingSectionId === 'ground-shell'
+  )));
+  assert.ok(visuals.every(object => object.visible));
+
+  const collapse = buildings.applyBlastDamage('house-opening-rollback', {
+    sectionDamages: [{ sectionId: 'ground-shell', amount: 1000 }]
+  });
+  assert.equal(collapse.results[0].collapsed, true);
+  applyFrenchHouseVisualState(
+    house,
+    FR_HOUSE_12X9_2F,
+    buildings.getBuildingSnapshot('house-opening-rollback')
+  );
+  assert.ok(visuals.every(object => object.visible === false));
+
+  buildings.restoreState(intact);
+  applyFrenchHouseVisualState(
+    house,
+    FR_HOUSE_12X9_2F,
+    buildings.getBuildingSnapshot('house-opening-rollback')
+  );
+  assert.ok(visuals.every(object => object.visible === true));
+  disposeFrenchHouseVisual(house);
 });
 
 test('terrain runtime sync replaces only house movement colliders and LOS obstacles', () => {

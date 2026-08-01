@@ -10,6 +10,7 @@ const threeWebGPUPath = fileURLToPath(
 export default defineConfig({
   resolve: {
     alias: [
+      { find: /^three\/webgpu$/, replacement: threeWebGPUPath },
       { find: /^three$/, replacement: threeWebGPUPath }
     ]
   },

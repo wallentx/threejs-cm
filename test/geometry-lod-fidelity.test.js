@@ -160,16 +160,28 @@ test('French helmet geometry is outward-facing and survives core and proxy LODs'
 
   unit.updateLOD(new THREE.Vector3(0, 2, 180), 'high');
   assert.equal(unit.currentLOD, 'low');
+  const visibleProxyHelmetParts =
+    unit.mesh.userData.infantryProxyInstances.batches.filter(batch =>
+      batch.visible
+      && batch.userData.surfaceRole === 'helmet-proxy');
+  assert.deepEqual(
+    visibleProxyHelmetParts
+      .map(batch => batch.userData.proxyComponentKey)
+      .sort(),
+    ['head', 'helmet-brim', 'helmet-crest'].sort(),
+    'French proxy keeps dome, brim, and crest batches'
+  );
   for (const soldier of unit.mesh.userData.soldiers) {
-    const visibleProxyHelmetParts = [];
-    soldier.getObjectByName('LowDetailProxy').traverse(object => {
-      if (object.isMesh
-          && object.visible
-          && object.userData.surfaceRole === 'helmet-proxy') {
-        visibleProxyHelmetParts.push(object);
-      }
-    });
-    assert.ok(visibleProxyHelmetParts.length >= 3, 'French proxy keeps dome, brim, and crest');
+    for (const name of [
+      'FrenchProxyHelmetDome',
+      'FrenchProxyHelmetBrim',
+      'FrenchProxyHelmetCrest'
+    ]) {
+      const source = soldier.getObjectByName(name);
+      assert.ok(source, `${name} source identity must remain`);
+      assert.equal(source.userData.proxyInstanceSource, true);
+      assert.equal(source.visible, false);
+    }
   }
 });
 

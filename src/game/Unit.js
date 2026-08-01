@@ -105,6 +105,10 @@ const MAX_VEHICLE_MOUNT_ROUNDS_PER_STEP = 64;
 const VEHICLE_MOUNT_CADENCE_EPSILON = 1e-9;
 const VEHICLE_MAIN_GUN_CATCHUP_HZ = 60;
 const MAX_VEHICLE_MAIN_GUN_CATCHUP_STEPS = 4096;
+// First-order gameplay approximation: retain authoritative shot activity long
+// enough to bridge a shot emitted after spotting to the next 10 Hz sample.
+// Simulation time owns the decay.
+const RECENT_FIRE_ACTIVITY_SECONDS = 0.2;
 const COMMANDER_PRESENTATION_LOCAL = new THREE.Vector3();
 const COMMANDER_PRESENTATION_OFFSET = new THREE.Vector3();
 const COMMANDER_PRESENTATION_UP = new THREE.Vector3(0, 1, 0);
@@ -223,6 +227,7 @@ export class Unit {
     // Soft Factors
     this.experience = config.experience || 'Regular';
     this.morale = 'OK'; // 'OK', 'Pinned', 'Shaken', 'Panic', 'Broken'
+    this.recentFireActivitySeconds = 0;
     this.suppression = 0;
     this.fatigue = 'Ready';
     this.leadership = config.leadership || 0;
@@ -613,6 +618,13 @@ export class Unit {
 
   registerIncomingFire(threatPosition, impactPosition, options = {}) {
     return this.soldierAI?.registerIncomingFire(threatPosition, impactPosition, options) ?? 0;
+  }
+
+  recordAuthoritativeShot() {
+    this.recentFireActivitySeconds = Math.max(
+      this.recentFireActivitySeconds,
+      RECENT_FIRE_ACTIVITY_SECONDS
+    );
   }
 
   updateIndividualCombat(delta, context) {
@@ -2119,6 +2131,7 @@ export class Unit {
       position: this.position.toArray(),
       rotation: this.rotation,
       morale: this.morale,
+      recentFireActivitySeconds: this.recentFireActivitySeconds,
       suppression: this.suppression,
       fatigue: this.fatigue,
       stance: this.stance,
@@ -2187,6 +2200,11 @@ export class Unit {
     this.position.fromArray(state.position);
     this.rotation = state.rotation;
     this.morale = state.morale;
+    this.recentFireActivitySeconds = Number.isFinite(
+      state.recentFireActivitySeconds
+    )
+      ? Math.max(0, state.recentFireActivitySeconds)
+      : 0;
     this.suppression = state.suppression;
     this.fatigue = state.fatigue;
     this.stance = state.stance;
@@ -2297,6 +2315,11 @@ export class Unit {
       hasDirectPrecisionObservation = false,
       dynamicVehicleColliders = []
     } = options;
+    this.recentFireActivitySeconds = Math.max(
+      0,
+      this.recentFireActivitySeconds
+        - Math.max(0, Number.isFinite(delta) ? delta : 0)
+    );
     if (this.mortarTeamState) {
       advanceMortarTeamState(this.mortarTeamState, Math.max(0, delta));
       if (
