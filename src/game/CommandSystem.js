@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 import { isPositionInsideDeploymentZone } from '../scenario/DeploymentRules.js';
+import {
+  createVehicleLocalAimPoint
+} from '../simulation/combat/VehicleTargeting.js';
 
 const INFANTRY_ONLY_MOVE_ORDERS = new Set([
   'SNEAK',
@@ -12,6 +15,8 @@ const TARGET_COMMAND_MODES = new Set([
   'TARGET_AP',
   'TARGET_HE',
   'TARGET_MG',
+  'TARGET_HULL_HE',
+  'TARGET_HULL_APHE',
   'MORTAR_HE',
   'MORTAR_SMOKE'
 ]);
@@ -24,7 +29,12 @@ function canUnitUseCommandMode(unit, mode) {
   if (mode === 'TARGET_AP') return Boolean(unit?.vehicleSpec?.mainGun?.ap);
   if (mode === 'TARGET_HE') return Boolean(unit?.vehicleSpec?.mainGun?.he);
   if (mode === 'TARGET_MG') {
-    return (unit?.vehicleSpec?.weaponMounts?.length ?? 0) > 0;
+    return (unit?.vehicleSpec?.weaponMounts ?? [])
+      .some(mount => mount.kind !== 'cannon');
+  }
+  if (mode === 'TARGET_HULL_HE' || mode === 'TARGET_HULL_APHE') {
+    return (unit?.vehicleSpec?.weaponMounts ?? [])
+      .some(mount => mount.targetModes?.includes(mode));
   }
   if (mode === 'MORTAR_HE') return Boolean(unit?.mortarTeamConfig);
   if (mode === 'MORTAR_SMOKE') {
@@ -79,6 +89,8 @@ export class CommandSystem {
       TARGET_AP: 0xff3b30,
       TARGET_HE: 0xff7b00,
       TARGET_MG: 0xf4d35e,
+      TARGET_HULL_HE: 0xffa62b,
+      TARGET_HULL_APHE: 0xff4d00,
       MORTAR_HE: 0xff7b00,
       MORTAR_SMOKE: 0xd7ddd2,
       FACE: 0xd4af37      // Gold
@@ -343,6 +355,12 @@ export class CommandSystem {
       }
       this.activeUnit.targetUnit = targetUnit;
       this.activeUnit.targetPos = pointVec3.clone();
+      this.activeUnit.targetAimIntent = targetUnit?.vehicleSpec
+        ? createVehicleLocalAimPoint(
+            targetUnit,
+            context.targetSurfacePoint ?? pointVec3
+          )
+        : null;
       this.activeUnit.targetMode = this.activeMode;
       this.activeMode = null;
       this.renderOverlays();

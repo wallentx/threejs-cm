@@ -53,8 +53,14 @@ import {
   estimateVehicleCrushMassTonnes
 } from '../simulation/terrain/DestructibleLinearObstacleSystem.js';
 import {
+  getVehicleMountCadenceRPM,
   selectVehicleTargetWeapons
 } from '../simulation/combat/VehicleWeaponSelection.js';
+import {
+  captureVehicleAimIntent,
+  resolveVehicleLocalAimPoint,
+  selectVehicleTargetSoldier
+} from '../simulation/combat/VehicleTargeting.js';
 import {
   advanceVehiclePhysicsState,
   captureVehiclePhysicsState,
@@ -117,20 +123,6 @@ const UNAVAILABLE_INFANTRY_STATUSES = new Set([
   'INCAPACITATED',
   'DEAD'
 ]);
-
-function compareStableIds(left, right) {
-  const leftType = typeof left;
-  const rightType = typeof right;
-  if (leftType !== rightType) return leftType.localeCompare(rightType);
-  if (left === right) return 0;
-  return left < right ? -1 : 1;
-}
-
-function selectStableVehicleTargetSoldier(target) {
-  if (target?.type !== 'infantry_squad') return null;
-  return [...(target.soldierAI?.getLivingAgents?.() ?? [])]
-    .sort((left, right) => compareStableIds(left.id, right.id))[0] ?? null;
-}
 
 function cloneRoster(roster) {
   return roster.map(soldier => ({
@@ -320,6 +312,7 @@ export class Unit {
     // Combat Target
     this.targetUnit = null;
     this.targetPos = null;
+    this.targetAimIntent = null;
     this.targetMode = null;
 
     // Vehicle Damage
@@ -377,6 +370,7 @@ export class Unit {
         ammunition: { ap: 0, he: 0, ...state.ammunition },
         feedAmmo: state.feedAmmo ?? (loadedWeapon ? 1 : 0),
         targetUnitId: state.targetUnitId ?? null,
+        targetSoldierId: state.targetSoldierId ?? null,
         targetPos: state.targetPos ? [...state.targetPos] : null,
         targetMode: state.targetMode ?? null,
         isFiring: Boolean(state.isFiring),
@@ -400,6 +394,7 @@ export class Unit {
       turretYaw: 0,
       roundsFired: 0,
       targetUnitId: null,
+      targetSoldierId: null,
       targetPos: null,
       targetMode: null,
       isFiring: false,
@@ -1286,17 +1281,50 @@ export class Unit {
     );
   }
 
-  beginVehicleMountReload(mountId) {
+  beginVehicleMountReload(mountId, ammoType = null) {
     const mount = this.getVehicleMountSpec(mountId);
     const state = this.vehicleMounts?.[mountId];
-    const weapon = this.weaponLookup(mount?.weaponId);
+    const requestedType = mount?.weapons
+      ? (ammoType ?? state?.pendingType ?? state?.loadedType ?? 'he')
+      : null;
+    const weaponId = mount?.weapons?.[requestedType] ?? mount?.weaponId;
+    const weapon = this.weaponLookup(weaponId);
     if (!mount || !state || !weapon || state.feedAmmo > 0 || state.reloadTimer > 0
-        || state.reserveAmmo <= 0 || !this.isVehicleMountOperational(mountId)
+        || (mount.weapons
+          ? (state.ammunition?.[requestedType] ?? 0) <= 0
+          : state.reserveAmmo <= 0)
+        || !this.isVehicleMountOperational(mountId)
         || !this.isOriginalCrewRoleAlive(mount.loaderRoles)
         || !this.vehicleComponents.ammunition?.operational) return false;
+    if (mount.weapons) {
+      state.pendingType = requestedType;
+      state.weaponId = weaponId;
+    }
     state.reloadTimer = weapon.reloadSeconds;
     state.fireState = 'RELOADING';
     return true;
+  }
+
+  prepareVehicleMountAmmunition(mount, state, desiredType) {
+    if (!mount.weapons || !desiredType) return true;
+    if (!mount.weapons[desiredType]) return false;
+    state.pendingType = desiredType;
+    if (state.loadedType && state.loadedType !== desiredType && state.feedAmmo > 0) {
+      // First-order handling model: the loader returns the chambered round to
+      // stowage before completing the normal full reload delay for the new type.
+      state.ammunition[state.loadedType] =
+        (state.ammunition[state.loadedType] ?? 0) + state.feedAmmo;
+      state.reserveAmmo += state.feedAmmo;
+      state.feedAmmo = 0;
+      state.loadedType = null;
+      state.reloadTimer = 0;
+    }
+    if (state.feedAmmo <= 0) {
+      this.beginVehicleMountReload(mount.id, desiredType);
+      return false;
+    }
+    state.weaponId = mount.weapons[state.loadedType];
+    return state.loadedType === desiredType;
   }
 
   getVehicleAmmunitionHandlingFactor() {
@@ -1319,6 +1347,11 @@ export class Unit {
     for (const mount of this.vehicleSpec?.weaponMounts ?? []) {
       const state = this.vehicleMounts[mount.id];
       if (!state) continue;
+      if (state.ammunition) {
+        for (const type of Object.keys(state.ammunition)) {
+          state.ammunition[type] = 0;
+        }
+      }
       state.feedAmmo = 0;
       state.reserveAmmo = 0;
       state.reloadTimer = 0;
@@ -1493,12 +1526,10 @@ export class Unit {
 
     for (const mount of this.vehicleSpec.weaponMounts ?? []) {
       const state = this.vehicleMounts[mount.id];
-      const weapon = this.weaponLookup(mount.weaponId);
+      const weapon = this.weaponLookup(state?.weaponId ?? mount.weaponId);
       if (!state || !weapon) continue;
       state.isFiring = false;
-      if (state.reloadTimer <= 0) {
-        state.cooldown = Math.max(-delta, state.cooldown - delta);
-      }
+      state.cooldown = Math.max(-delta, state.cooldown - delta);
       if (state.reloadTimer > 0) {
         const ammunitionFactor = this.getVehicleAmmunitionHandlingFactor();
         if (ammunitionFactor <= 0) {
@@ -1509,9 +1540,24 @@ export class Unit {
           state.reloadTimer = Math.max(0, state.reloadTimer - delta * ammunitionFactor);
         }
         if (state.reloadTimer === 0 && ammunitionFactor > 0) {
-          const rounds = Math.min(mount.feedCapacity ?? weapon.magazineSize, state.reserveAmmo);
-          state.reserveAmmo -= rounds;
-          state.feedAmmo = rounds;
+          if (mount.weapons) {
+            const type = state.pendingType ?? 'he';
+            const typedWeapon = this.weaponLookup(mount.weapons[type]);
+            const rounds = Math.min(
+              mount.feedCapacity ?? typedWeapon?.magazineSize ?? 1,
+              state.ammunition?.[type] ?? 0
+            );
+            state.ammunition[type] -= rounds;
+            state.reserveAmmo = Object.values(state.ammunition)
+              .reduce((sum, count) => sum + count, 0);
+            state.loadedType = rounds > 0 ? type : null;
+            state.weaponId = mount.weapons[type];
+            state.feedAmmo = rounds;
+          } else {
+            const rounds = Math.min(mount.feedCapacity ?? weapon.magazineSize, state.reserveAmmo);
+            state.reserveAmmo -= rounds;
+            state.feedAmmo = rounds;
+          }
           state.cooldown = 0;
         }
       }
@@ -1535,6 +1581,38 @@ export class Unit {
       && this.hasOperationalGunner()
       && !this.vehicleDamageState.burning
     );
+  }
+
+  resolveVehicleChannelTarget(target, state, channelId) {
+    if (target?.type === 'infantry_squad') {
+      const soldier = selectVehicleTargetSoldier({
+        livingSoldiers: target.soldierAI?.getLivingAgents?.() ?? [],
+        preferredSoldierId: state?.targetSoldierId ?? null,
+        channelId,
+        roundsFired: state?.roundsFired ?? 0
+      });
+      if (!soldier) return null;
+      if (state) state.targetSoldierId = soldier.id;
+      return {
+        soldier,
+        position: soldier.position,
+        explicitAimPoint: null
+      };
+    }
+    if (state) state.targetSoldierId = null;
+    if (target?.vehicleSpec && this.targetAimIntent) {
+      const point = resolveVehicleLocalAimPoint(target, this.targetAimIntent);
+      if (target === this.targetUnit) this.targetPos.copy(point);
+      return {
+        soldier: null,
+        position: new THREE.Vector3().fromArray(point),
+        explicitAimPoint: point
+      };
+    }
+    const position = target?.position ?? this.targetPos;
+    return position
+      ? { soldier: null, position, explicitAimPoint: null }
+      : null;
   }
 
   updateVehicleCombat(delta, context) {
@@ -1605,11 +1683,15 @@ export class Unit {
   ) {
     if (!this.vehicleSpec || !this.isCombatEffective()) return false;
     const target = context.target;
-    const targetSoldier = selectStableVehicleTargetSoldier(target);
-    const targetPosition = targetSoldier?.position ?? target?.position ?? this.targetPos;
-    if (!targetPosition) {
+    const mainTarget = this.resolveVehicleChannelTarget(
+      target,
+      this.vehicleWeapon,
+      'main'
+    );
+    if (!mainTarget) {
       if (this.vehicleWeapon) {
         this.vehicleWeapon.targetUnitId = null;
+        this.vehicleWeapon.targetSoldierId = null;
         this.vehicleWeapon.targetPos = null;
         resetFireControlState(this.vehicleWeapon.fireControl);
       }
@@ -1617,16 +1699,24 @@ export class Unit {
         const state = this.vehicleMounts[mount.id];
         if (!state) continue;
         state.targetUnitId = null;
+        state.targetSoldierId = null;
         state.targetPos = null;
         resetFireControlState(state.fireControl);
       }
       return false;
     }
+    const targetSoldier = mainTarget.soldier;
+    const targetPosition = mainTarget.position;
     const weaponSelection = selectVehicleTargetWeapons({
       mode: this.targetMode,
       target,
       vehicleSpec: this.vehicleSpec
     });
+    const selectedMountIds = weaponSelection.mountIds ?? [];
+    const needsTurretAim = weaponSelection.fireMainGun
+      || (this.vehicleSpec.weaponMounts ?? []).some(mount =>
+        selectedMountIds.includes(mount.id) && mount.traverse === 'turret'
+      );
 
     const desiredWorldYaw = Math.atan2(
       targetPosition.x - this.position.x,
@@ -1637,6 +1727,7 @@ export class Unit {
     const yawError = wrapAngle(desiredTurretYaw - currentTurretYaw);
     if (
       this.vehicleWeapon
+      && needsTurretAim
       && this.vehicleComponents.turret_traverse?.operational
       && this.hasOperationalGunner()
       && mainGunnerDelta > 0
@@ -1723,6 +1814,7 @@ export class Unit {
           weapon,
           mountId: 'main',
           targetSoldier,
+          aimPoint: mainTarget.explicitAimPoint,
           muzzlePosition: this.getVehicleMountMuzzleWorldPosition('main'),
           dispersionScale: (experienceDispersion[this.experience] ?? 1.15)
             * opticsFactor
@@ -1764,23 +1856,20 @@ export class Unit {
       resetFireControlState(this.vehicleWeapon.fireControl, 'HOLD_FIRE');
     }
 
-    const firedMachineGun = includeMounts && weaponSelection.fireMachineGuns
-      ? this.updateVehicleMachineGunCombat(context, {
+    const firedMountedWeapon = includeMounts && selectedMountIds.length > 0
+      ? this.updateVehicleMountedWeaponCombat(context, {
           target,
-          targetSoldier,
-          targetPosition,
-          desiredWorldYaw,
-          turretYawError: remainingTurretYawError,
-          targetKey,
-          trueRangeMeters,
+          mountIds: selectedMountIds,
+          mountAmmoTypes: weaponSelection.mountAmmoTypes ?? {},
           targetMoving,
           shooterMoving,
           deltaSeconds: delta,
           occupiedCrewRoles: firedMain ? this.vehicleSpec.gunnerRoles : []
         })
       : false;
-    if (includeMounts && !weaponSelection.fireMachineGuns) {
+    if (includeMounts) {
       for (const mount of this.vehicleSpec.weaponMounts ?? []) {
+        if (selectedMountIds.includes(mount.id)) continue;
         const state = this.vehicleMounts[mount.id];
         if (!state) continue;
         state.targetUnitId = target?.id ?? null;
@@ -1790,26 +1879,75 @@ export class Unit {
         resetFireControlState(state.fireControl, 'HOLD_FIRE');
       }
     }
-    return firedMain || firedMachineGun;
+    return firedMain || firedMountedWeapon;
   }
 
-  updateVehicleMachineGunCombat(context, aiming) {
+  updateVehicleMountedWeaponCombat(context, aiming) {
     let firedAny = false;
     for (const mount of this.vehicleSpec.weaponMounts ?? []) {
+      if (!aiming.mountIds?.includes(mount.id)) continue;
       const state = this.vehicleMounts[mount.id];
-      const weapon = this.weaponLookup(mount.weaponId);
-      if (!state || !weapon) continue;
+      if (!state) continue;
+      const desiredAmmoType = aiming.mountAmmoTypes?.[mount.id] ?? null;
+      if (!this.prepareVehicleMountAmmunition(mount, state, desiredAmmoType)) {
+        continue;
+      }
+      const weapon = this.weaponLookup(state.weaponId ?? mount.weaponId);
+      if (!weapon) continue;
+      const mountTarget = this.resolveVehicleChannelTarget(
+        aiming.target,
+        state,
+        mount.id
+      );
+      if (!mountTarget) {
+        state.targetUnitId = null;
+        state.targetSoldierId = null;
+        state.targetPos = null;
+        state.fireState = 'NO_TARGET';
+        resetFireControlState(state.fireControl, 'NO_TARGET');
+        continue;
+      }
+      const targetPosition = mountTarget.position;
+      const desiredWorldYaw = Math.atan2(
+        targetPosition.x - this.position.x,
+        targetPosition.z - this.position.z
+      );
+      const desiredTurretYaw = wrapAngle(desiredWorldYaw - this.rotation);
+      let alignmentError = mount.traverse === 'turret'
+        ? wrapAngle(desiredTurretYaw - (this.vehicleWeapon?.turretYaw ?? 0))
+        : wrapAngle(desiredWorldYaw - this.rotation);
+      if (
+        mount.kind === 'cannon'
+        && mount.traverse === 'hull'
+        && !aiming.shooterMoving
+        && this.getVehicleMovementFactor() > 0
+      ) {
+        const traverseRate = Math.max(
+          0,
+          this.vehicleSpec.hullAimTraverseRadPerSecond ?? 0
+        );
+        const traverse = traverseRate * Math.max(0, aiming.deltaSeconds);
+        this.rotation = wrapAngle(
+          this.rotation
+          + THREE.MathUtils.clamp(alignmentError, -traverse, traverse)
+        );
+        this.syncTransformPresentation();
+        alignmentError = wrapAngle(desiredWorldYaw - this.rotation);
+      }
+      const targetKey = createFireControlTargetKey({
+        targetUnitId: aiming.target?.id ?? null,
+        targetSoldierId: mountTarget.soldier?.id ?? null,
+        targetPosition
+      });
+      const trueRangeMeters = this.position.distanceTo(targetPosition);
       state.targetUnitId = aiming.target?.id ?? null;
-      state.targetPos = aiming.targetPosition.toArray();
+      state.targetPos = targetPosition.toArray();
       state.targetMode = this.targetMode;
       const crewBusy = aiming.occupiedCrewRoles?.some(role => mount.crewRoles.includes(role));
       if (state.feedAmmo <= 0) {
-        this.beginVehicleMountReload(mount.id);
+        this.beginVehicleMountReload(mount.id, desiredAmmoType);
         continue;
       }
-      const alignmentError = mount.traverse === 'turret'
-        ? aiming.turretYawError
-        : wrapAngle(aiming.desiredWorldYaw - this.rotation);
       const muzzlePosition = this.getVehicleMountMuzzleWorldPosition(mount.id);
       if (!muzzlePosition) {
         state.fireState = 'NO_MUZZLE';
@@ -1821,9 +1959,9 @@ export class Unit {
       const mountAim = advanceFireControlState(state.fireControl, {
         deltaSeconds: aiming.deltaSeconds,
         shooterKey: `${this.id}:${mount.id}`,
-        targetKey: aiming.targetKey,
+        targetKey,
         weapon,
-        trueRangeMeters: aiming.trueRangeMeters,
+        trueRangeMeters,
         platform: 'vehicle-mount',
         experience: this.experience,
         targetMoving: aiming.targetMoving,
@@ -1852,16 +1990,22 @@ export class Unit {
       const mountDamageFactor = this.vehicleComponents[mount.componentId].status === 'DAMAGED'
         ? 1.35
         : 1;
-      const shotInterval = 60 / weapon.cyclicRPM
+      const cadenceRPM = getVehicleMountCadenceRPM({
+        mount,
+        state,
+        weapon
+      });
+      const shotInterval = 60 / cadenceRPM
         * (this.vehicleComponents[mount.componentId].status === 'DAMAGED' ? 1.6 : 1);
       let emitted = 0;
       while (state.cooldown <= VEHICLE_MOUNT_CADENCE_EPSILON
           && state.feedAmmo > 0
           && emitted < MAX_VEHICLE_MOUNT_ROUNDS_PER_STEP) {
-        const fired = context.combat.fireWeapon(this, aiming.target, aiming.targetPosition, {
+        const fired = context.combat.fireWeapon(this, aiming.target, targetPosition, {
           weapon,
           mountId: mount.id,
-          targetSoldier: aiming.targetSoldier,
+          targetSoldier: mountTarget.soldier,
+          aimPoint: mountTarget.explicitAimPoint,
           muzzlePosition,
           dispersionScale: opticsFactor * mountDamageFactor * mountAim.dispersionScale,
           estimatedRangeMeters: state.fireControl.estimatedRangeMeters,
@@ -1876,6 +2020,10 @@ export class Unit {
         state.feedAmmo--;
         state.cooldown += shotInterval;
         state.roundsFired++;
+        if (state.loadedType && state.roundsFiredByType) {
+          state.roundsFiredByType[state.loadedType] =
+            (state.roundsFiredByType[state.loadedType] ?? 0) + 1;
+        }
         state.isFiring = true;
         state.fireState = 'FIRING';
         firedAny = true;
@@ -1888,10 +2036,13 @@ export class Unit {
       if (emitted > 0) {
         recordFireControlShot(state.fireControl, weapon, {
           platform: 'vehicle-mount',
-          burstComplete: false
+          burstComplete: weapon.magazineSize <= 1
         });
       }
-      if (state.feedAmmo <= 0) this.beginVehicleMountReload(mount.id);
+      if (state.feedAmmo <= 0) {
+        state.loadedType = mount.weapons ? null : state.loadedType;
+        this.beginVehicleMountReload(mount.id, desiredAmmoType);
+      }
     }
     return firedAny;
   }
@@ -2153,6 +2304,7 @@ export class Unit {
       })),
       targetUnitId: this.targetUnit?.id ?? null,
       targetPos: this.targetPos?.toArray() ?? null,
+      targetAimIntent: captureVehicleAimIntent(this.targetAimIntent),
       targetMode: this.targetMode,
       ammo: { ...this.ammo },
       vehicleDamage: { ...this.vehicleDamage },
@@ -2237,6 +2389,9 @@ export class Unit {
     }));
     this.targetUnit = state.targetUnitId ? unitMap.get(state.targetUnitId) ?? null : null;
     this.targetPos = state.targetPos ? new THREE.Vector3().fromArray(state.targetPos) : null;
+    this.targetAimIntent = captureVehicleAimIntent(
+      state.targetAimIntent ?? null
+    );
     this.targetMode = state.targetMode;
     this.ammo = { ...state.ammo };
     this.vehicleDamage = { ...this.vehicleDamage, ...state.vehicleDamage };
@@ -2370,7 +2525,12 @@ export class Unit {
       }
     } else if (this.suppression > 0) {
       this.suppression = Math.max(0, this.suppression - delta * 4.0);
-      if (this.suppression < 15 && this.morale === 'Pinned') {
+      if (this.vehicleSpec) {
+        if (this.suppression > 75) this.morale = 'Broken';
+        else if (this.suppression > 45) this.morale = 'Pinned';
+        else if (this.suppression > 20) this.morale = 'Shaken';
+        else this.morale = 'OK';
+      } else if (this.suppression < 15 && this.morale === 'Pinned') {
         this.morale = 'OK';
         this.stance = 'STANDING';
       }
@@ -2386,8 +2546,21 @@ export class Unit {
       activeOrderType = targetWp.orderType;
 
       const movementFactor = this.getVehicleMovementFactor();
+      const moraleStopsMovement = this.type === 'infantry_squad'
+        && (this.morale === 'Pinned' || this.morale === 'Broken');
+      const hullGunLayingStopsMovement = Boolean(
+        this.vehicleSpec
+        && (this.targetUnit || this.targetPos)
+        && (this.vehicleSpec.weaponMounts ?? []).some(mount =>
+          mount.kind === 'cannon'
+          && mount.traverse === 'hull'
+          && mount.targetModes?.includes(this.targetMode)
+        )
+      );
       if (!haltMovement && movementFactor > 0
-        && this.morale !== 'Pinned' && this.morale !== 'Broken' && !this.isDeployed) {
+        && !moraleStopsMovement
+        && !hullGunLayingStopsMovement
+        && !this.isDeployed) {
         const vehicleSpeeds = this.vehicleSpec?.movementMps;
         let speed = vehicleSpeeds?.[targetWp.orderType] ?? 3.5;
         if (!vehicleSpeeds) {

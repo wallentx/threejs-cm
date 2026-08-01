@@ -100,8 +100,9 @@ const AUXILIARY_MOUNT_LAYOUTS = Object.freeze({
     hull_mg: {
       parent: 'hull',
       position: [lateralX('right', 0.72), 1.14, 3.08],
-      barrel: [lateralX('right', 0.72), 1.14, 2.80, 0.56],
-      side: 'right', placementQuality: 'historical arrangement'
+      side: 'right',
+      presentationHidden: true,
+      placementQuality: 'historical fixed internal mount; externally invisible'
     }
   },
   ger_panzer2: {
@@ -205,7 +206,9 @@ function addAuxiliaryWeaponMounts(root, metalMaterial) {
     root.userData.weaponMuzzles ??= {};
     return;
   }
-  const weaponMuzzles = {};
+  // Preserve model-owned articulated markers. This helper may fill missing
+  // auxiliary markers, but must not erase a calibrated factory-owned muzzle.
+  const weaponMuzzles = { ...(root.userData.weaponMuzzles ?? {}) };
 
   for (const [id, layout] of Object.entries(layouts)) {
     const parent = layout.parent === 'turret' ? root.userData.turret : root;
@@ -245,6 +248,7 @@ function addAuxiliaryWeaponMounts(root, metalMaterial) {
     marker.userData.mountSide = layout.side ?? null;
     marker.userData.placementQuality = layout.placementQuality ?? 'inferred';
     marker.userData.referenceUrl = layout.referenceUrl ?? null;
+    marker.userData.presentationHidden = Boolean(layout.presentationHidden);
     parent.add(marker);
     weaponMuzzles[id] = marker;
 

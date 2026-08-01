@@ -379,6 +379,9 @@ function addDriverAndHullArmament(tankGroup, bodyMat, metalMat) {
   hullMuzzle.position.set(hullGun.axis[0], hullGun.axis[1], hullGun.muzzleZ);
   hullMuzzle.userData.weaponMountId = 'hull_main';
   hullMuzzle.userData.mountSide = 'right';
+  hullMuzzle.userData.forwardAxis = '+Z';
+  hullMuzzle.userData.placementQuality =
+    'factory-authored Char B1 bis 75 mm muzzle datum';
   tankGroup.add(hullMuzzle);
   tankGroup.userData.hullBarrel = hullGunBarrel;
   tankGroup.userData.hullMuzzle = hullMuzzle;
@@ -773,7 +776,7 @@ export function createCharB1BisMesh() {
   tankGroup.userData.muzzle = muzzle;
   tankGroup.userData.weaponMuzzles = Object.freeze({
     coax: coaxMuzzle,
-    hull: tankGroup.userData.hullMuzzle
+    hull_main: tankGroup.userData.hullMuzzle
   });
 
   addProxySilhouette(tankGroup, bodyMat, turretMat, trackMat, metalMat);

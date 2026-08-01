@@ -63,7 +63,7 @@ function acquireVehicleTarget(vehicle, target) {
   });
 }
 
-test('all 15 catalog vehicles explicitly own data-driven machine-gun mount lists', () => {
+test('all 15 catalog vehicles explicitly own data-driven auxiliary weapon mount lists', () => {
   assert.deepEqual(Object.keys(VEHICLE_MACHINE_GUN_MOUNTS).sort(), [...vehicleIds].sort());
   for (const vehicleId of vehicleIds) {
     const spec = VEHICLES[vehicleId];
@@ -71,8 +71,8 @@ test('all 15 catalog vehicles explicitly own data-driven machine-gun mount lists
     assert.equal(spec.weaponMounts.length, VEHICLE_MACHINE_GUN_MOUNTS[vehicleId].length);
     for (const mount of spec.weaponMounts) {
       const weapon = getWeapon(mount.weaponId);
-      assert.ok(['coax', 'hull_mg'].includes(mount.id));
-      assert.equal(weapon.kind, 'machine_gun');
+      assert.ok(['coax', 'hull_mg', 'hull_main'].includes(mount.id));
+      assert.ok(weapon.kind === 'machine_gun' || weapon.kind.startsWith('cannon_'));
       assert.ok(weapon.caliberMm > 0);
       assert.ok(weapon.cyclicRPM > 0);
       assert.ok(weapon.magazineSize > 0);

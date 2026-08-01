@@ -1275,7 +1275,14 @@ test('armed vehicles expose automatic, AP, HE, and MG target controls', () => {
         type: 'vehicle',
         vehicleSpec: {
           mainGun: { ap: 'AP', he: 'HE' },
-          weaponMounts: [{ id: 'coax' }]
+          weaponMounts: [
+            { id: 'coax', kind: 'machine_gun' },
+            {
+              id: 'hull_main',
+              kind: 'cannon',
+              targetModes: ['TARGET_HULL_HE', 'TARGET_HULL_APHE']
+            }
+          ]
         }
       },
       commandMode: null,
@@ -1294,6 +1301,8 @@ test('armed vehicles expose automatic, AP, HE, and MG target controls', () => {
     assert.match(labels, /TARGET AP/);
     assert.match(labels, /TARGET HE/);
     assert.match(labels, /TARGET MG/);
+    assert.match(labels, /TARGET HULL HE/);
+    assert.match(labels, /TARGET HULL APHE/);
     assert.doesNotMatch(labels, /TARGET LIGHT/);
     commandGrid.children[1].click();
     assert.deepEqual(modes, ['TARGET_AP']);

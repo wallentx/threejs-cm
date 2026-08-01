@@ -23,8 +23,8 @@ const COMPONENT_SPECS = Object.freeze([
 ]);
 
 const DAMAGE_CANDIDATES = Object.freeze({
-  hull_front: ['transmission', 'tracks', 'hull_mg', 'optics', 'radio', 'ammunition'],
-  hull_side: ['fuel', 'ammunition', 'engine', 'transmission', 'tracks', 'radio'],
+  hull_front: ['transmission', 'tracks', 'hull_main_gun', 'hull_mg', 'optics', 'radio', 'ammunition'],
+  hull_side: ['fuel', 'ammunition', 'hull_main_gun', 'engine', 'transmission', 'tracks', 'radio'],
   hull_rear: ['engine', 'transmission', 'fuel', 'tracks', 'ammunition'],
   turret_front: ['main_gun', 'breech', 'turret_traverse', 'coax', 'optics', 'ammunition'],
   turret_side: ['turret_traverse', 'coax', 'breech', 'optics', 'ammunition', 'radio'],
@@ -68,7 +68,18 @@ function normalizeComponent(spec, installed, saved = null) {
 
 export function createVehicleComponents(vehicleSpec, saved = null) {
   if (!vehicleSpec) return {};
-  const mountIds = new Set((vehicleSpec.weaponMounts ?? []).map(mount => mount.id));
+  const mounts = vehicleSpec.weaponMounts ?? [];
+  const mountIds = new Set(mounts.map(mount => mount.id));
+  const mountComponentSpecs = mounts
+    .filter(mount => mount.componentId)
+    .map(mount => ({ id: mount.componentId, label: mount.label }));
+  const componentSpecs = [...COMPONENT_SPECS];
+  const knownComponentIds = new Set(componentSpecs.map(spec => spec.id));
+  for (const spec of mountComponentSpecs) {
+    if (knownComponentIds.has(spec.id)) continue;
+    componentSpecs.push(spec);
+    knownComponentIds.add(spec.id);
+  }
   const carriesMainGunAmmo = Object.values(vehicleSpec.ammunition ?? {})
     .some(rounds => Number.isFinite(rounds) && rounds > 0);
   const carriesMountedAmmo = (vehicleSpec.weaponMounts ?? [])
@@ -90,8 +101,11 @@ export function createVehicleComponents(vehicleSpec, saved = null) {
   if (vehicleSpec.turretTraverseRadPerSecond > 0) installed.add('turret_traverse');
   if (mountIds.has('coax')) installed.add('coax');
   if (mountIds.has('hull_mg')) installed.add('hull_mg');
+  for (const mount of mounts) {
+    if (mount.componentId) installed.add(mount.componentId);
+  }
 
-  return Object.fromEntries(COMPONENT_SPECS.map(spec => [
+  return Object.fromEntries(componentSpecs.map(spec => [
     spec.id,
     normalizeComponent(spec, installed.has(spec.id), saved?.[spec.id])
   ]));
@@ -374,18 +388,45 @@ export function createVehicleMountState(mountSpec, saved = null, weaponLookup) {
   if (typeof weaponLookup !== 'function') {
     throw new TypeError('createVehicleMountState requires a weapon lookup port');
   }
-  const weapon = weaponLookup(mountSpec.weaponId);
+  const typedWeapons = mountSpec.weapons ?? null;
+  const initialType = typedWeapons
+    ? (typedWeapons.he ? 'he' : Object.keys(typedWeapons)[0])
+    : null;
+  const weapon = weaponLookup(
+    typedWeapons?.[saved?.loadedType ?? saved?.pendingType ?? initialType]
+      ?? mountSpec.weaponId
+  );
   const feedCapacity = mountSpec.feedCapacity ?? weapon?.magazineSize ?? 1;
   if (saved) {
+    const ammunition = typedWeapons
+      ? { ...mountSpec.ammunition, ...saved.ammunition }
+      : null;
     return {
       id: mountSpec.id,
-      weaponId: mountSpec.weaponId,
+      weaponId: typedWeapons?.[saved.loadedType ?? saved.pendingType ?? initialType]
+        ?? mountSpec.weaponId,
+      loadedType: typedWeapons ? (saved.loadedType ?? null) : null,
+      pendingType: typedWeapons ? (saved.pendingType ?? initialType) : null,
+      ammunition,
       feedAmmo: Math.max(0, saved.feedAmmo ?? 0),
-      reserveAmmo: Math.max(0, saved.reserveAmmo ?? 0),
+      reserveAmmo: Math.max(
+        0,
+        saved.reserveAmmo
+          ?? (ammunition
+            ? Object.values(ammunition).reduce((sum, rounds) => sum + rounds, 0)
+            : 0)
+      ),
       reloadTimer: Math.max(0, saved.reloadTimer ?? 0),
       cooldown: Number.isFinite(saved.cooldown) ? saved.cooldown : 0,
       roundsFired: Math.max(0, saved.roundsFired ?? 0),
+      roundsFiredByType: typedWeapons
+        ? Object.fromEntries(Object.keys(typedWeapons).map(type => [
+            type,
+            Math.max(0, saved.roundsFiredByType?.[type] ?? 0)
+          ]))
+        : null,
       targetUnitId: saved.targetUnitId ?? null,
+      targetSoldierId: saved.targetSoldierId ?? null,
       targetPos: saved.targetPos ? [...saved.targetPos] : null,
       targetMode: saved.targetMode ?? null,
       isFiring: Boolean(saved.isFiring),
@@ -394,17 +435,38 @@ export function createVehicleMountState(mountSpec, saved = null, weaponLookup) {
     };
   }
 
-  const carriedAmmo = Math.max(0, mountSpec.carriedAmmo ?? weapon?.carriedAmmo ?? 0);
+  const typedAmmunition = typedWeapons
+    ? { ...mountSpec.ammunition }
+    : null;
+  const carriedAmmo = Math.max(
+    0,
+    typedAmmunition
+      ? Object.values(typedAmmunition).reduce((sum, rounds) => sum + rounds, 0)
+      : (mountSpec.carriedAmmo ?? weapon?.carriedAmmo ?? 0)
+  );
   const feedAmmo = Math.min(feedCapacity, carriedAmmo);
+  if (typedAmmunition && initialType) {
+    typedAmmunition[initialType] = Math.max(
+      0,
+      (typedAmmunition[initialType] ?? 0) - feedAmmo
+    );
+  }
   return {
     id: mountSpec.id,
-    weaponId: mountSpec.weaponId,
+    weaponId: typedWeapons?.[initialType] ?? mountSpec.weaponId,
+    loadedType: typedWeapons ? (feedAmmo > 0 ? initialType : null) : null,
+    pendingType: typedWeapons ? initialType : null,
+    ammunition: typedAmmunition,
     feedAmmo,
     reserveAmmo: Math.max(0, carriedAmmo - feedAmmo),
     reloadTimer: 0,
     cooldown: 0,
     roundsFired: 0,
+    roundsFiredByType: typedWeapons
+      ? Object.fromEntries(Object.keys(typedWeapons).map(type => [type, 0]))
+      : null,
     targetUnitId: null,
+    targetSoldierId: null,
     targetPos: null,
     targetMode: null,
     isFiring: false,
@@ -416,6 +478,10 @@ export function createVehicleMountState(mountSpec, saved = null, weaponLookup) {
 export function captureVehicleMountState(state) {
   return {
     ...state,
+    ammunition: state.ammunition ? { ...state.ammunition } : null,
+    roundsFiredByType: state.roundsFiredByType
+      ? { ...state.roundsFiredByType }
+      : null,
     targetPos: state.targetPos ? [...state.targetPos] : null,
     fireControl: captureFireControlState(state.fireControl)
   };

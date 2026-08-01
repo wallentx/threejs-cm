@@ -318,6 +318,26 @@ function orientProjectileMesh(projectile) {
   );
 }
 
+export function isSmallArmsWeapon(weapon) {
+  return Boolean(
+    weapon
+    && (weapon.caliberMm ?? 0) <= 15
+    && ['rifle', 'machine_gun', 'submachine_gun', 'light_machine_gun']
+      .includes(weapon.kind)
+  );
+}
+
+export function vehicleImpactSuppression({ weapon, target, penetrated }) {
+  const armoredEnclosed =
+    target?.vehicleSpec?.explosiveProtection?.class === 'armored_enclosed';
+  if (isSmallArmsWeapon(weapon)) {
+    if (armoredEnclosed && !penetrated) return 0;
+    return penetrated ? 18 : 4;
+  }
+  if (weapon?.explosiveRadius > 0) return penetrated ? 55 : 18;
+  return penetrated ? 55 : 12;
+}
+
 export class CombatSystem {
   constructor(scene, soundEngine, random = Math.random, options = {}) {
     this.scene = scene;
@@ -880,7 +900,12 @@ export class CombatSystem {
 
     if (impact.kind === 'vehicle') {
       const result = this.ballistics.resolveVehicleImpact(projectile, impact);
-      impact.unit.applySuppression(result.penetrated ? 55 : 14);
+      const suppression = vehicleImpactSuppression({
+        weapon,
+        target: impact.unit,
+        penetrated: result.penetrated
+      });
+      if (suppression > 0) impact.unit.applySuppression(suppression);
       this.telemetry.vehicleHits++;
       if (result.penetrated) this.telemetry.penetrations++;
       else if (result.ricocheted) this.telemetry.ricochets++;
@@ -890,7 +915,11 @@ export class CombatSystem {
         this.applyBlast(impact.point, weapon, projectile.attacker);
         this.createExplosionEffect(impact.point, 0.55);
       } else {
-        this.createImpactEffect(impact.point, result.penetrated ? 0xff5a36 : 0xe8f0ff);
+        this.createArmorSparkEffect(
+          impact.point,
+          result.penetrated ? 0xff5a36 : 0xe8f0ff,
+          isSmallArmsWeapon(weapon) ? 0.32 : 0.72
+        );
       }
       return this.applyProjectileContinuation(projectile, impact, result);
     }
@@ -955,17 +984,23 @@ export class CombatSystem {
     for (const unit of this.ballistics.getUnits()) {
       if (!unit?.isCombatEffective?.() || unit === attacker) continue;
       if (unit.type === 'infantry_squad') {
+        let maximumBlastExposure = 0;
         for (const agent of unit.soldierAI?.getLivingAgents() ?? []) {
           if (protectedOccupants.has(`${unit.id}:${agent.id}`)) continue;
           const distance = agent.position.distanceTo(position);
           if (distance > radius) continue;
           const falloff = 1 - distance / radius;
+          maximumBlastExposure = Math.max(maximumBlastExposure, falloff);
           agent.applyDamage(weapon.woundDamage * falloff, 80 * falloff);
         }
-        unit.applySuppression(35);
+        if (maximumBlastExposure > 0) {
+          unit.applySuppression(35 * maximumBlastExposure);
+        }
       } else if (unit.position.distanceTo(position) <= radius * 1.5) {
         if (unit.structureSpec) unit.applyStructureBlast(position, weapon);
-        unit.applySuppression(22);
+        const distance = unit.position.distanceTo(position);
+        const falloff = Math.max(0, 1 - distance / (radius * 1.5));
+        if (falloff > 0) unit.applySuppression(22 * falloff);
       }
     }
 
@@ -1197,6 +1232,16 @@ export class CombatSystem {
       color: color ?? style.color,
       scale: 1,
       maxLife: style.maxLife
+    });
+  }
+
+  createArmorSparkEffect(pos, color = 0xe8f0ff, scale = 0.4) {
+    const style = this.vfxResources.styles.impact;
+    return this.startEffect('impact', pos, {
+      color,
+      scale,
+      maxLife: Math.min(style.maxLife, 0.14),
+      growthPerSecond: style.growthPerSecond * 0.65
     });
   }
 

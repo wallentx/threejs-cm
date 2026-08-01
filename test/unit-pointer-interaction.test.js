@@ -8,6 +8,7 @@ function createInteractionHarness() {
   let deselections = 0;
   let cancellations = 0;
   const cameraLocks = [];
+  const mapClicks = [];
   const app = Object.create(GameApp.prototype);
   app.renderer = {
     domElement: {
@@ -43,7 +44,7 @@ function createInteractionHarness() {
       return cancelled;
     },
     setAreaTargetPreview() {},
-    handleMapClick() {}
+    handleMapClick(...args) { mapClicks.push(args); }
   };
   app.ui = {
     renderCommandGrid() {},
@@ -57,7 +58,8 @@ function createInteractionHarness() {
     listeners,
     getDeselections: () => deselections,
     getCancellations: () => cancellations,
-    cameraLocks
+    cameraLocks,
+    mapClicks
   };
 }
 
@@ -195,6 +197,43 @@ test('double-clicking a visible unit intentionally focuses it', () => {
     assert.equal(selections.length, 1);
     assert.equal(selections[0][0], unit);
     assert.equal(selections[0][1].frameCamera, true);
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
+});
+
+test('targeting a vehicle forwards the exact clicked model surface point', () => {
+  const previousWindow = globalThis.window;
+  globalThis.window = { innerWidth: 1280, innerHeight: 720 };
+  try {
+    const { app, listeners, mapClicks } = createInteractionHarness();
+    const root = {
+      visible: true,
+      userData: { unitRoot: true, unitId: 'red-tank' },
+      parent: null
+    };
+    const target = {
+      id: 'red-tank',
+      faction: 'red',
+      mesh: root,
+      position: new THREE.Vector3(0, 0, 20)
+    };
+    const surfacePoint = new THREE.Vector3(0.8, 2.1, 19.4);
+    app.units = [target];
+    app.commands.activeMode = 'TARGET_AP';
+    app.raycaster.intersectObjects = () => [{
+      object: root,
+      point: surfacePoint.clone()
+    }];
+
+    listeners.get('mousedown')({ button: 0, clientX: 300, clientY: 250 });
+    listeners.get('mouseup')({ button: 0, clientX: 300, clientY: 250 });
+
+    assert.equal(mapClicks.length, 1);
+    assert.deepEqual(mapClicks[0][0], surfacePoint);
+    assert.equal(mapClicks[0][1], target);
+    assert.deepEqual(mapClicks[0][2].targetSurfacePoint, surfacePoint);
   } finally {
     if (previousWindow === undefined) delete globalThis.window;
     else globalThis.window = previousWindow;

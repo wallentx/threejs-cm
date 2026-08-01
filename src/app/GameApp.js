@@ -967,7 +967,7 @@ export class GameApp {
       }
       return null;
     };
-    const unitAt = (clientX, clientY, { opposingOnly = false } = {}) => {
+    const unitHitAt = (clientX, clientY, { opposingOnly = false } = {}) => {
       setPointerCoordinates(clientX, clientY);
       const meshes = this.units
         .filter(unit =>
@@ -978,10 +978,12 @@ export class GameApp {
         .map(unit => unit.mesh);
       for (const hit of this.raycaster.intersectObjects(meshes, true)) {
         const unit = unitForHitObject(hit.object);
-        if (unit) return unit;
+        if (unit) return { unit, point: hit.point?.clone?.() ?? null };
       }
       return null;
     };
+    const unitAt = (clientX, clientY, options = {}) =>
+      unitHitAt(clientX, clientY, options)?.unit ?? null;
     const setHoveredUnit = unit => {
       const next = unit?.mesh?.visible === false ? null : (unit ?? null);
       if (this.hoveredUnit === next) return;
@@ -1114,12 +1116,17 @@ export class GameApp {
       const dy = Math.abs(clientY - this.pointerStart.y);
       if (dx > 12 || dy > 12) return;
 
-      const clickedUnit = unitAt(clientX, clientY, {
+      const clickedUnitHit = unitHitAt(clientX, clientY, {
         opposingOnly: isTargetCommandMode(this.commands.activeMode)
       });
+      const clickedUnit = clickedUnitHit?.unit ?? null;
       if (clickedUnit) {
         if (isTargetCommandMode(this.commands.activeMode)) {
-          this.commands.handleMapClick(clickedUnit.position, clickedUnit);
+          this.commands.handleMapClick(
+            clickedUnitHit.point ?? clickedUnit.position,
+            clickedUnit,
+            { targetSurfacePoint: clickedUnitHit.point ?? null }
+          );
           this.ui.renderCommandGrid();
           this.sound.playUIClick();
           return;

@@ -98,6 +98,25 @@ test('every catalog auxiliary mount has a correctly parented rendered muzzle mar
   }
 });
 
+test('Char B1 bis fixed hull machine gun stays externally invisible', () => {
+  const unit = new Unit({
+    id: 'char_hidden_hull_mg',
+    faction: 'french',
+    type: 'vehicle',
+    vehicleId: 'CHAR_B1_BIS'
+  });
+  const marker = unit.mesh.userData.weaponMuzzles.hull_mg;
+  const visibleMountMeshes = [];
+  unit.mesh.traverse(object => {
+    if (object.isMesh && object.userData.weaponMountId === 'hull_mg') {
+      visibleMountMeshes.push(object);
+    }
+  });
+  assert.equal(marker.userData.presentationHidden, true);
+  assert.equal(marker.userData.mountSide, 'right');
+  assert.deepEqual(visibleMountMeshes, []);
+});
+
 test('all 15 vehicle 3D model modules build cleanly and satisfy model contract and 4 LOD bands', () => {
   vehicleCreators.forEach(({ name, fn, type }) => {
     const mesh = fn();

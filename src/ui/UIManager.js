@@ -430,6 +430,7 @@ export class UIManager {
       if (e.code === 'KeyT') this.triggerCommand('TARGET');
       if (e.code === 'KeyA') this.triggerCommand('TARGET_AP');
       if (e.code === 'KeyG') this.triggerCommand('TARGET_MG');
+      if (e.code === 'KeyY') this.triggerCommand('TARGET_HULL_HE');
       if (e.code === 'KeyO') this.triggerCommand('FACE');
       if (e.code === 'KeyH') this.handleDirectAction('HIDE');
       if (
@@ -521,8 +522,18 @@ export class UIManager {
           ...(selectedVehicle.mainGun?.he
             ? [{ label: 'TARGET HE', mode: 'TARGET_HE', key: 'E' }]
             : []),
-          ...(selectedVehicle.weaponMounts?.length
+          ...(selectedVehicle.weaponMounts?.some(mount => mount.kind !== 'cannon')
             ? [{ label: 'TARGET MG', mode: 'TARGET_MG', key: 'G' }]
+            : []),
+          ...(selectedVehicle.weaponMounts?.some(
+            mount => mount.targetModes?.includes('TARGET_HULL_HE')
+          )
+            ? [{ label: 'TARGET HULL HE', mode: 'TARGET_HULL_HE', key: 'Y' }]
+            : []),
+          ...(selectedVehicle.weaponMounts?.some(
+            mount => mount.targetModes?.includes('TARGET_HULL_APHE')
+          )
+            ? [{ label: 'TARGET HULL APHE', mode: 'TARGET_HULL_APHE', key: '' }]
             : [])
         ]
       : null;
@@ -727,9 +738,27 @@ export class UIManager {
     }
     if (
       commandName === 'TARGET_MG'
-      && this.runtime.selectedUnit?.vehicleSpec?.weaponMounts?.length
+      && this.runtime.selectedUnit?.vehicleSpec?.weaponMounts?.some(
+        mount => mount.kind !== 'cannon'
+      )
     ) {
       this.runtime.setCommandMode('TARGET_MG');
+    }
+    if (
+      commandName === 'TARGET_HULL_HE'
+      && this.runtime.selectedUnit?.vehicleSpec?.weaponMounts?.some(
+        mount => mount.targetModes?.includes('TARGET_HULL_HE')
+      )
+    ) {
+      this.runtime.setCommandMode('TARGET_HULL_HE');
+    }
+    if (
+      commandName === 'TARGET_HULL_APHE'
+      && this.runtime.selectedUnit?.vehicleSpec?.weaponMounts?.some(
+        mount => mount.targetModes?.includes('TARGET_HULL_APHE')
+      )
+    ) {
+      this.runtime.setCommandMode('TARGET_HULL_APHE');
     }
     if (commandName === 'FACE') this.runtime.setCommandMode('FACE');
     this.renderCommandGrid();

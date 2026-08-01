@@ -63,7 +63,31 @@ function freezeMounts(mounts) {
   return Object.freeze(mounts.map(mount => Object.freeze({
     ...mount,
     crewRoles: Object.freeze([...(mount.crewRoles ?? [])]),
-    loaderRoles: Object.freeze([...(mount.loaderRoles ?? mount.crewRoles ?? [])])
+    loaderRoles: Object.freeze([...(mount.loaderRoles ?? mount.crewRoles ?? [])]),
+    targetModes: Object.freeze([...(mount.targetModes ?? [])]),
+    weapons: mount.weapons ? Object.freeze({ ...mount.weapons }) : undefined,
+    ammunition: mount.ammunition
+      ? Object.freeze({ ...mount.ammunition })
+      : undefined,
+    optics: mount.optics
+      ? Object.freeze({
+          ...mount.optics,
+          rangeLadderMeters: Object.freeze({
+            ...mount.optics.rangeLadderMeters
+          })
+        })
+      : undefined,
+    cadencePolicy: mount.cadencePolicy
+      ? Object.freeze({ ...mount.cadencePolicy })
+      : undefined,
+    layingMechanism: mount.layingMechanism
+      ? Object.freeze({
+          ...mount.layingMechanism,
+          elevationDegrees: Object.freeze({
+            ...mount.layingMechanism.elevationDegrees
+          })
+        })
+      : undefined
   })));
 }
 
@@ -470,6 +494,53 @@ const machineGunMount = (
   dataQuality,
   referenceUrl
 });
+const cannonMount = (
+  id,
+  label,
+  weapons,
+  crewRoles,
+  loaderRoles,
+  ammunition,
+  componentId,
+  dataQuality,
+  referenceUrl
+) => ({
+  id,
+  label,
+  kind: 'cannon',
+  weaponId: weapons.he,
+  weapons,
+  componentId,
+  crewRoles,
+  loaderRoles,
+  carriedAmmo: Object.values(ammunition).reduce((sum, rounds) => sum + rounds, 0),
+  ammunition,
+  feedCapacity: 1,
+  traverse: 'hull',
+  targetModes: ['TARGET_HULL_HE', 'TARGET_HULL_APHE'],
+  optics: {
+    sightId: 'L.710',
+    sightCount: 2,
+    horizontalFovDegrees: 11.5,
+    rangeLadderMeters: { he: 1600, aphe: 1560 },
+    dataQuality: 'secondary technical synthesis citing the B1 bis manual for prismatic binocular sight data'
+  },
+  cadencePolicy: {
+    heReadyRounds: 6,
+    initialPracticalRPM: 6,
+    sustainedPracticalRPM: 3,
+    aphePracticalRPM: 6,
+    dataQuality: 'secondary technical synthesis citing the B1 bis manual; sustained HE value uses midpoint of documented 2-4 rpm range'
+  },
+  layingMechanism: {
+    horizontal: 'whole_hull_traverse',
+    system: 'Naeder hydrostatic steering system',
+    elevationDegrees: { min: -15, max: 25 },
+    dataQuality: 'fixed horizontal mounting, Naeder hull laying, and elevation limits are secondary-source historical data; runtime traverse rate is a labeled gameplay approximation'
+  },
+  dataQuality,
+  referenceUrl
+});
 const armor = (hullFront, hullSide, hullRear, turretFront, turretSide, turretRear) => ({
   hull_front: hullFront,
   hull_side: hullSide,
@@ -506,6 +577,8 @@ const PANZER_35T_REFERENCE = 'https://www.onwar.com/wwii/tanks/germany/ge049pz35
 const PANZER_38T_REFERENCE = 'https://vhu.cz/exhibit/ceskoslovensky-tank-lt-vz-38-na-snimcich-z-konce-60-let/';
 const SDKFZ_231_REFERENCE = 'https://www.military-references.com/wp-content/uploads/books/apc/germany/sd-kfz-231-232/Schwerer_Panzerspahwagen_Sd_Kfz_231-232_D_640_1935.pdf';
 const CHAR_B1_BIS_REFERENCE = 'https://www.cheminsdememoire.gouv.fr/sites/default/files/2019-06/char%20B1%20bis.pdf';
+const CHAR_B1_BIS_TECHNICAL_REFERENCE =
+  'https://tanks-encyclopedia.com/ww2/france/char_b1_bis.php#the-naeder-steering-system-8';
 const PANZER_IV_D_REFERENCE = 'https://tankmuseum.org/tank-nuts/tank-collection/panzer-iv/';
 
 export const FRANCE_1940_VEHICLE_MACHINE_GUN_MOUNTS = Object.freeze({
@@ -541,7 +614,18 @@ export const FRANCE_1940_VEHICLE_MACHINE_GUN_MOUNTS = Object.freeze({
       'historical identity and mount; ammunition allocation is a gameplay approximation'),
     machineGunMount('hull_mg', 'Hull MAC mle 1931', 'MAC31_VEHICLE', ['DRIVER_HULL_GUNNER'], 2400,
       'historical identity and fixed hull mount; ammunition allocation is a gameplay approximation',
-      null, ['HULL_LOADER'])
+      null, ['HULL_LOADER']),
+    cannonMount(
+      'hull_main',
+      '75 mm ABS SA 35 hull howitzer',
+      { he: 'ABS_SA35_75_HE', aphe: 'ABS_SA35_75_APHE' },
+      ['DRIVER_HULL_GUNNER'],
+      ['HULL_LOADER'],
+      { he: 67, aphe: 7 },
+      'hull_main_gun',
+      'secondary technical synthesis citing the B1 bis manual for historical weapon identity, fixed hull mounting, driver aiming, dedicated loader, L.710 sights, and 67 HE plus 7 APHE allocation',
+      CHAR_B1_BIS_TECHNICAL_REFERENCE
+    )
   ]),
   PANZER_III_D: freezeMounts([
     machineGunMount('coax', 'Coaxial MG 34', 'MG34_VEHICLE', ['GUNNER'], 2250,
@@ -877,6 +961,9 @@ export const FRANCE_1940_VEHICLES = Object.freeze({
     mainGun: { ap: 'SA35_AP', he: 'SA35_HE' },
     ammunition: { ap: 30, he: 20 },
     movementMps: movement(2.2, 3.0, 4.3, 1.7),
+    hullAimTraverseRadPerSecond: 0.07,
+    hullAimTraverseDataQuality:
+      'Naeder engine-driven precision hull traverse is historical; 0.07 rad/s aiming rate is a gameplay approximation because the cited technical synthesis gives no traverse-rate measurement',
     turretTraverseRadPerSecond: 0.16,
     hitRadius: 3.2,
     armorMm: armor(60, 55, 55, 56, 46, 46),

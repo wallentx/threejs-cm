@@ -7,7 +7,7 @@ export function createCharB1BisInternalLayout(referenceUrl) {
       'historical four-man role layout, rear engine and drive, one-man APX 4 turret, and asymmetric hull armament',
       'model-backed stations use the registered Char B1 bis envelope and visible weapon datums',
       'occupied, mechanism, fuel, radio, and stowage bounds are bounded gameplay approximations',
-      'the current component contract represents the simulated turret 47 mm breech and does not invent a separate hull 75 mm damage component'
+      'the hull 75 mm mechanism volume is tied to its visible model datum; its exact interior bounds remain a gameplay approximation'
     ].join('; '),
     referenceUrl,
     volumes: [
@@ -26,6 +26,14 @@ export function createCharB1BisInternalLayout(referenceUrl) {
         center: [-0.31, 1.30, 1.45],
         halfExtents: [0.34, 0.43, 0.55],
         dataQuality: '75 mm loader role and forward fighting-compartment location are historical; occupied volume is a gameplay approximation'
+      },
+      {
+        id: 'module-hull-75',
+        kind: 'component',
+        componentId: 'hull_main_gun',
+        center: [-0.43, 1.47, 2.30],
+        halfExtents: [0.24, 0.22, 0.62],
+        dataQuality: 'right-side 75 mm visible gun axis and fixed hull mounting are model-backed and historical; interior mechanism bounds are a gameplay approximation'
       },
       {
         id: 'module-hull-mg',
