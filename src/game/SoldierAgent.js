@@ -558,6 +558,13 @@ export class SoldierAgent {
       this.syncRecord();
       return false;
     }
+    if (this.unit.holdFire) {
+      resetFireControlState(this.fireControl, 'HOLD_FIRE');
+      this.targetUnitId = null;
+      this.targetSoldierId = null;
+      this.syncRecord();
+      return false;
+    }
     if (context.holdFireSoldierIds?.has(String(this.id))) {
       resetFireControlState(this.fireControl, 'CREW_SERVED_WEAPON');
       this.targetUnitId = null;

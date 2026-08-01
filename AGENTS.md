@@ -42,7 +42,7 @@ Required work order:
    disposal or ownership paths for the selected seam.
 4. Make the smallest cohesive change inside the allowed files.
 5. Add behavioral tests that would have failed before the change.
-6. Run focused tests, full `npm test`, `npm run build`, and
+6. Run focused tests, `npm test`, `npm run build`, and
    `git diff --check`. Perform the required browser check when runtime code was
    touched.
 7. Update `TODO.md` conservatively and fill in the packet results. Then stop
@@ -61,6 +61,10 @@ Quality rules:
   indented completed slice and preserve explicit remaining work.
 - Never claim a command passed unless it ran after the final edit. Report exact
   commands, test counts, failures, build warnings, and runtime status.
+- Keep test coverage concentrated. Prefer adding assertions to one existing
+  behavioral test over creating another file or duplicating the same setup.
+  One cohesive mechanic normally gets one regression test; add more only for
+  genuinely independent failure modes.
 - Never describe a GPU/device-loss, missing browser, or bridge timeout as a
   successful runtime check. Record it as an environment blocker.
 - A diagnostic must read the real authoritative mechanism. A control that
@@ -90,7 +94,8 @@ Required handoff report:
 - Files changed, grouped by data, simulation, rendering, UI, tests, and docs.
 - Authoritative state or ownership changed.
 - Focused test command and result.
-- Full test command and exact result.
+- Core test command and exact result; exhaustive audit result only when it was
+  explicitly required and actually run.
 - Build command and result, including warnings.
 - `git diff --check` result.
 - Browser URL, mode, backend, `data-game-status`, and console errors, or the
@@ -114,6 +119,25 @@ Required handoff report:
 - Split oversized items when that makes remaining work explicit.
 - Do not strike an item merely because it is difficult.
 - Add newly agreed work to `TODO.md`; do not silently expand scope.
+
+## Test tiers
+
+- `npm run test:file -- <files...>` runs affected files in separate capped
+  Node processes. Use this during implementation.
+- `npm test` runs the six-file core integration gate. It is the normal
+  definition-of-done command and must remain small enough for Termux.
+- `npm run test:full` is an opt-in exhaustive audit. It runs every top-level
+  `test/*.test.js` file in its own process with a 384 MB heap cap. Run it only
+  for a release or milestone, an explicit user request, or an investigation
+  that cannot be bounded. Never run it automatically after routine changes.
+- Do not restore bare `node --test` as a package script; unbounded discovery
+  previously exhausted the shared Termux device.
+- Debug scripts, visual experiments, and source-string checks are not tests.
+  Keep them outside test discovery or remove them when their investigation is
+  complete.
+- When coverage overlaps, consolidate before adding. A smaller behavioral
+  suite is preferred over many micro-tests that repeat constructors, renderer
+  allocation, or browser/runtime setup.
 
 ## Core simulation invariants
 

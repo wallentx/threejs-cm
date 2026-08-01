@@ -562,6 +562,13 @@ export class UIManager {
         { label: 'FACE', mode: 'FACE', key: 'O' }
       ],
       special: [
+        {
+          label: this.runtime.selectedUnit?.holdFire
+            ? 'FREE FIRE'
+            : 'HOLD FIRE',
+          action: 'TOGGLE_HOLD_FIRE',
+          key: 'F'
+        },
         { label: 'HIDE', action: 'HIDE', key: 'H' },
         ...(
           this.runtime.selectedUnit?.canUnbuttonCommander?.()
@@ -661,6 +668,17 @@ export class UIManager {
       case 'HIDE': {
         const hiding = this.runtime.toggleHiding();
         this.showToast(`Unit Stance: ${hiding ? 'Hiding (Prone)' : 'Normal'}`, 'info');
+        break;
+      }
+      case 'TOGGLE_HOLD_FIRE': {
+        const holdFire = this.runtime.toggleHoldFire();
+        if (holdFire != null) {
+          this.showToast(
+            holdFire ? 'Unit holding fire' : 'Unit free to engage',
+            holdFire ? 'warn' : 'info'
+          );
+          this.renderCommandGrid();
+        }
         break;
       }
       case 'TOGGLE_COMMANDER_POSTURE': {

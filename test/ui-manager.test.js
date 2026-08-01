@@ -22,6 +22,7 @@ function createHarness() {
   };
   const unit = {
     isHiding: false,
+    holdFire: false,
     isDeployed: false,
     stance: 'STANDING',
     mortarTeamState: {
@@ -44,6 +45,10 @@ function createHarness() {
         : 'UNBUTTONED';
       calls.commanderPosture++;
       return this.vehicleCrewPosture;
+    },
+    toggleHoldFire() {
+      this.holdFire = !this.holdFire;
+      return this.holdFire;
     },
     vehicleCrewPosture: 'BUTTONED',
     addPause() { calls.pause++; },
@@ -134,6 +139,9 @@ test('UI manager preserves command actions and WEGO order locking', () => {
   ui.handleDirectAction('TOGGLE_COMMANDER_POSTURE');
   assert.equal(unit.vehicleCrewPosture, 'UNBUTTONED');
   assert.equal(calls.commanderPosture, 1);
+
+  ui.handleDirectAction('TOGGLE_HOLD_FIRE');
+  assert.equal(unit.holdFire, true);
 
   ui.handleDirectAction('SPLIT');
   assert.equal(calls.split, 1);
@@ -1109,6 +1117,7 @@ test('vehicle special actions expose buttoned and unbuttoned commander posture',
     const tank = {
       type: 'vehicle',
       vehicleSpec: { id: 'PANZER_III_D' },
+      holdFire: false,
       vehicleCrewPosture: 'BUTTONED',
       canUnbuttonCommander() { return true; }
     };
@@ -1121,6 +1130,7 @@ test('vehicle special actions expose buttoned and unbuttoned commander posture',
 
     ui.renderCommandGrid();
     let labels = commandGrid.children.map(child => child.innerHTML).join(' ');
+    assert.match(labels, /HOLD FIRE/);
     assert.match(labels, /UNBUTTON/);
     assert.doesNotMatch(labels, /BUTTON UP/);
 
@@ -1128,6 +1138,12 @@ test('vehicle special actions expose buttoned and unbuttoned commander posture',
     ui.renderCommandGrid();
     labels = commandGrid.children.map(child => child.innerHTML).join(' ');
     assert.match(labels, /BUTTON UP/);
+
+    tank.holdFire = true;
+    ui.renderCommandGrid();
+    labels = commandGrid.children.map(child => child.innerHTML).join(' ');
+    assert.match(labels, /FREE FIRE/);
+    assert.doesNotMatch(labels, /HOLD FIRE/);
   } finally {
     if (previousDocument === undefined) delete globalThis.document;
     else globalThis.document = previousDocument;

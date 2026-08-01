@@ -240,6 +240,12 @@ export function createUIRuntimePort({
         return unit.isHiding;
       });
     },
+    toggleHoldFire() {
+      return selectedAction(
+        getSelectedUnit,
+        unit => unit.toggleHoldFire?.() ?? null
+      );
+    },
     toggleDeployment() {
       return selectedAction(
         getSelectedUnit,

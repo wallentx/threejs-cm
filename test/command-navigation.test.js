@@ -72,7 +72,12 @@ test('ordinary infantry commands use the injected graph with formation clearance
     { x: 12, z: 8 },
     0.32,
     'infantry',
-    { clearance: 5, waypointClearance: 0.8 }
+    {
+      clearance: 5,
+      waypointClearance: 0.8,
+      lateralClearance: 3,
+      longitudinalClearance: 5.8
+    }
   ]);
   assert.equal(unit.waypoints.length, 1, 'an unobstructed route remains one command waypoint');
   assert.deepEqual(unit.waypoints[0].position.toArray(), [12, 7, 8]);

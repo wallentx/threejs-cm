@@ -301,6 +301,7 @@ export class Unit {
     this.currentWaypointIndex = 0;
     this.moveSpeed = 0;
     this.isHiding = false;
+    this.holdFire = Boolean(config.holdFire);
     this.isDeployed = false;
     this.stance = 'STANDING';
     this.vehicleCrewPosture = this.vehicleSpec
@@ -631,6 +632,11 @@ export class Unit {
           : null
     });
     this.refreshAmmoSummary();
+  }
+
+  toggleHoldFire() {
+    this.holdFire = !this.holdFire;
+    return this.holdFire;
   }
 
   hasDeployableCrewServedWeapon() {
@@ -1583,7 +1589,12 @@ export class Unit {
     );
   }
 
-  resolveVehicleChannelTarget(target, state, channelId) {
+  resolveVehicleChannelTarget(
+    target,
+    state,
+    channelId,
+    { allowPointTarget = true } = {}
+  ) {
     if (target?.type === 'infantry_squad') {
       const soldier = selectVehicleTargetSoldier({
         livingSoldiers: target.soldierAI?.getLivingAgents?.() ?? [],
@@ -1609,7 +1620,7 @@ export class Unit {
         explicitAimPoint: point
       };
     }
-    const position = target?.position ?? this.targetPos;
+    const position = target?.position ?? (allowPointTarget ? this.targetPos : null);
     return position
       ? { soldier: null, position, explicitAimPoint: null }
       : null;
@@ -1682,11 +1693,34 @@ export class Unit {
     { includeMain = true, includeMounts = true } = {}
   ) {
     if (!this.vehicleSpec || !this.isCombatEffective()) return false;
+    if (this.holdFire) {
+      if (this.vehicleWeapon) {
+        this.vehicleWeapon.isFiring = false;
+        this.vehicleWeapon.targetUnitId = null;
+        this.vehicleWeapon.targetSoldierId = null;
+        this.vehicleWeapon.targetPos = null;
+        this.vehicleWeapon.fireState = 'HOLD_FIRE';
+        resetFireControlState(this.vehicleWeapon.fireControl, 'HOLD_FIRE');
+      }
+      for (const mount of this.vehicleSpec.weaponMounts ?? []) {
+        const state = this.vehicleMounts[mount.id];
+        if (!state) continue;
+        state.isFiring = false;
+        state.targetUnitId = null;
+        state.targetSoldierId = null;
+        state.targetPos = null;
+        state.fireState = 'HOLD_FIRE';
+        resetFireControlState(state.fireControl, 'HOLD_FIRE');
+      }
+      return false;
+    }
     const target = context.target;
+    const allowPointTarget = !this.targetUnit;
     const mainTarget = this.resolveVehicleChannelTarget(
       target,
       this.vehicleWeapon,
-      'main'
+      'main',
+      { allowPointTarget }
     );
     if (!mainTarget) {
       if (this.vehicleWeapon) {
@@ -1863,6 +1897,7 @@ export class Unit {
           mountAmmoTypes: weaponSelection.mountAmmoTypes ?? {},
           targetMoving,
           shooterMoving,
+          allowPointTarget,
           deltaSeconds: delta,
           occupiedCrewRoles: firedMain ? this.vehicleSpec.gunnerRoles : []
         })
@@ -1897,7 +1932,8 @@ export class Unit {
       const mountTarget = this.resolveVehicleChannelTarget(
         aiming.target,
         state,
-        mount.id
+        mount.id,
+        { allowPointTarget: aiming.allowPointTarget }
       );
       if (!mountTarget) {
         state.targetUnitId = null;
@@ -2287,6 +2323,7 @@ export class Unit {
       fatigue: this.fatigue,
       stance: this.stance,
       isHiding: this.isHiding,
+      holdFire: this.holdFire,
       isDeployed: this.isDeployed,
       vehicleCrewPosture: this.vehicleCrewPosture,
       mortarTeam: captureMortarTeamState(this.mortarTeamState),
@@ -2361,6 +2398,7 @@ export class Unit {
     this.fatigue = state.fatigue;
     this.stance = state.stance;
     this.isHiding = state.isHiding;
+    this.holdFire = Boolean(state.holdFire);
     this.isDeployed = state.isDeployed;
     this.vehicleCrewPosture = this.vehicleSpec
       ? (state.vehicleCrewPosture === 'UNBUTTONED'
@@ -2614,6 +2652,19 @@ export class Unit {
 
         if (waypointDistance < 0.8) {
           if (this.soldierAI) {
+            const nextWaypoint = this.waypoints[this.currentWaypointIndex + 1];
+            if (nextWaypoint) {
+              const nextX = nextWaypoint.position.x - this.position.x;
+              const nextZ = nextWaypoint.position.z - this.position.z;
+              if (Math.hypot(nextX, nextZ) > 1e-5) {
+                // Reform for the outbound leg before accepting an intermediate
+                // route point. Keeping the inbound facing can strand outer
+                // soldiers against an abutment or other narrow corner while
+                // the squad anchor waits for an impossible formation.
+                this.rotation = Math.atan2(nextX, nextZ);
+                this.mesh.rotation.y = this.rotation;
+              }
+            }
             // Keep the command active while individual soldiers finish their
             // own collision-safe routes into the formation.
             anchorMoving = true;

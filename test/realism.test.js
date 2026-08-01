@@ -7,6 +7,7 @@ import { VEHICLES } from '../src/game/VehicleCatalog.js';
 import { BallisticsSystem, resolveArmorPenetration } from '../src/game/BallisticsSystem.js';
 import { CombatSystem } from '../src/game/CombatSystem.js';
 import { TEST_VFX_PROVIDER } from './helpers/TestVfxProvider.js';
+import { GameApp } from '../src/app/GameApp.js';
 
 const flatTerrain = { getHeightAt: () => 0 };
 const sound = {
@@ -135,6 +136,92 @@ test('hidden infantry holds fire throughout building movement and occupancy', ()
   assert.equal(agent.fireControl.phase, 'AIMING');
   assert.equal(agent.updateCombat(2, context), true);
   assert.equal(shots, 1);
+});
+
+test('hold fire gates individual and vehicle weapons and survives rollback', () => {
+  const infantry = new Unit({
+    id: 'hold_fire_infantry',
+    faction: 'french',
+    type: 'infantry_squad',
+    position: new THREE.Vector3()
+  });
+  const target = new Unit({
+    id: 'hold_fire_target',
+    faction: 'german',
+    type: 'infantry_squad',
+    position: new THREE.Vector3(0, 0, 20)
+  });
+  const agent = infantry.soldierAI.agents[0];
+  agent.state = 'READY';
+  agent.fireCooldown = 0;
+  infantry.holdFire = true;
+  let shots = 0;
+  const combat = { fireWeapon: () => { shots++; return true; } };
+  const spotting = {
+    checkLOS: (from, to) => ({ clear: true, dist: from.distanceTo(to) })
+  };
+
+  assert.equal(agent.updateCombat(3, {
+    opposingUnits: [target],
+    spotting,
+    combat
+  }), false);
+  assert.equal(agent.fireControl.phase, 'HOLD_FIRE');
+
+  const vehicle = new Unit({
+    id: 'hold_fire_vehicle',
+    faction: 'french',
+    type: 'tank',
+    position: new THREE.Vector3()
+  });
+  vehicle.holdFire = true;
+  assert.equal(vehicle.updateVehicleCombat(3, { target, combat }), false);
+  assert.equal(vehicle.vehicleWeapon.fireState, 'HOLD_FIRE');
+  assert.equal(shots, 0);
+
+  const unitMap = new Map([[infantry.id, infantry], [target.id, target]]);
+  const snapshot = infantry.captureState();
+  infantry.toggleHoldFire();
+  assert.equal(infantry.holdFire, false);
+  infantry.restoreState(snapshot, unitMap);
+  assert.equal(infantry.holdFire, true);
+
+  vehicle.holdFire = false;
+  const hiddenTarget = new Unit({
+    id: 'lost_target_hidden',
+    faction: 'german',
+    type: 'tank',
+    position: new THREE.Vector3(0, 0, 80)
+  });
+  const visibleTarget = new Unit({
+    id: 'lost_target_visible',
+    faction: 'german',
+    type: 'tank',
+    position: new THREE.Vector3(10, 0, 70)
+  });
+  vehicle.targetUnit = hiddenTarget;
+  vehicle.targetPos = hiddenTarget.position.clone();
+
+  vehicle.updateVehicleCombat(3, { target: null, combat });
+  assert.equal(shots, 0);
+  assert.equal(vehicle.vehicleWeapon.targetPos, null);
+
+  const app = Object.create(GameApp.prototype);
+  app.random = () => 0;
+  app.spotting = {
+    canPrecisionTarget: () => true,
+    checkLOS(from, to) {
+      return {
+        clear: to !== hiddenTarget.position,
+        dist: from.distanceTo(to)
+      };
+    }
+  };
+  assert.equal(
+    app.chooseTarget(vehicle, [hiddenTarget, visibleTarget]),
+    visibleTarget
+  );
+  assert.equal(app.chooseTarget(vehicle, [hiddenTarget]), null);
 });
 
 test('individual fire requires a stationary shooter, LOS, range, aperture permission, and an accepted projectile', () => {

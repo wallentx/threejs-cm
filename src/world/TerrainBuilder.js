@@ -1060,6 +1060,7 @@ export class TerrainBuilder {
       mapBridge.span,
       bridge.masonryRepeatMeters
     );
+    const bridgeBoundaryColliderIds = [];
     for (const side of [-1, 1]) {
       const parapet = new THREE.Mesh(parapetGeometry, stoneMat);
       parapet.name = 'BridgeParapet';
@@ -1071,8 +1072,11 @@ export class TerrainBuilder {
       parapet.castShadow = true;
       parapet.receiveShadow = true;
       bridgeGroup.add(parapet);
+      const parapetColliderId =
+        `bridge:parapet:${side < 0 ? 'west' : 'east'}`;
+      bridgeBoundaryColliderIds.push(parapetColliderId);
       this.addColliderRecord({
-        id: `bridge:parapet:${side < 0 ? 'west' : 'east'}`,
+        id: parapetColliderId,
         type: 'bridge_parapet',
         mapFeatureId: mapBridge.id,
         centerX: mapBridge.centerX + side * parapetCenterX,
@@ -1104,8 +1108,11 @@ export class TerrainBuilder {
         abutment.castShadow = true;
         abutment.receiveShadow = true;
         bridgeGroup.add(abutment);
+        const abutmentColliderId =
+          `bridge:abutment:${side < 0 ? 'west' : 'east'}:${end < 0 ? 'south' : 'north'}`;
+        bridgeBoundaryColliderIds.push(abutmentColliderId);
         this.addColliderRecord({
-          id: `bridge:abutment:${side < 0 ? 'west' : 'east'}:${end < 0 ? 'south' : 'north'}`,
+          id: abutmentColliderId,
           type: 'bridge_abutment',
           mapFeatureId: mapBridge.id,
           centerX: mapBridge.centerX + abutment.position.x,
@@ -1184,6 +1191,7 @@ export class TerrainBuilder {
       maxZ: mapBridge.centerZ + halfSpan,
       halfOpeningWidth: openingHalfWidth,
       barrierColliderIds: riverExclusionIds,
+      boundaryColliderIds: bridgeBoundaryColliderIds,
       blocks: ['vehicle', 'infantry']
     });
   }

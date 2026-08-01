@@ -593,6 +593,99 @@ test('static navigation path preserves bridge crossing stages', () => {
   assert.deepEqual(path.at(-1), goal);
 });
 
+test('a live six-man infantry formation crosses Bridge and clears the far bank', () => {
+  const terrain = createTerrain();
+  terrain.buildRiverAndBridge();
+  const river = STONNE_1940_MAP.river;
+  const start = new THREE.Vector3(
+    18,
+    0,
+    river.centerZ - river.cutWidth * 0.5 - 8
+  );
+  const goal = new THREE.Vector3(
+    18,
+    0,
+    river.centerZ + river.cutWidth * 0.5 + 8
+  );
+  const longFileRoute = terrain.collisionWorld.getNavigationPath(
+    start,
+    goal,
+    0.32,
+    'infantry',
+    {
+      clearance: 6.8,
+      lateralClearance: 0.72,
+      longitudinalClearance: 7.92,
+      waypointClearance: 0.8
+    }
+  );
+  assert.ok(longFileRoute.length >= 3);
+  assert.ok(
+    longFileRoute.every(point => Math.abs(point.x) <= 18),
+    `bridge route escaped toward a map edge: ${JSON.stringify(longFileRoute)}`
+  );
+  const unit = new Unit({
+    id: 'bridge_infantry',
+    faction: 'french',
+    type: 'infantry_squad',
+    position: start
+  });
+  terrain.registerUnitColliders([unit]);
+  const routeClearance = Math.max(
+    ...unit.soldierAI.getLivingAgents().map(agent =>
+      unit.soldierAI.getFormationOffset(agent.index, 'QUICK').length()
+    )
+  );
+  const route = terrain.collisionWorld.getNavigationPath(
+    start,
+    goal,
+    unit.collisionRadius,
+    'infantry',
+    {
+      clearance: routeClearance,
+      waypointClearance: 0.8,
+      longitudinalClearance: routeClearance + 0.8
+    }
+  );
+  for (const point of route) {
+    unit.addWaypoint(
+      new THREE.Vector3(
+        point.x,
+        terrain.getMovementHeightAt(point.x, point.z),
+        point.z
+      ),
+      'QUICK'
+    );
+  }
+
+  for (let step = 0; step < 2400
+      && unit.currentWaypointIndex < unit.waypoints.length; step++) {
+    unit.update(1 / 30, terrain);
+  }
+
+  assert.equal(
+    unit.currentWaypointIndex,
+    unit.waypoints.length,
+    JSON.stringify({
+      anchor: unit.position.toArray(),
+      waypointIndex: unit.currentWaypointIndex,
+      waypoints: unit.waypoints.map(waypoint => waypoint.position.toArray()),
+      soldiers: unit.soldierAI.getLivingAgents().map(agent => ({
+        id: agent.id,
+        position: agent.position.toArray(),
+        state: agent.state,
+        goal: agent.record.tacticalDecision?.goal
+      }))
+    })
+  );
+  const farBankEdge = river.centerZ + river.cutWidth * 0.5;
+  assert.ok(
+    unit.soldierAI.getLivingAgents().every(agent =>
+      agent.position.z > farBankEdge),
+    'every living soldier must clear the far river exclusion'
+  );
+});
+
 test('soldier stages at wall stand-off and uses tangential space without clipping', () => {
   const terrain = createTerrain();
   terrain.addColliderRecord(WALL);

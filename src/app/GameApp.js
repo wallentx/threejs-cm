@@ -782,8 +782,7 @@ export class GameApp {
       const los = this.spotting.checkLOS(attacker.position, target.position);
       return los.clear && los.dist <= (attacker.vehicleSpec ? 220 : 150);
     };
-    if (attacker.targetUnit?.isCombatEffective()
-        && this.spotting.canPrecisionTarget(attacker, attacker.targetUnit)) {
+    if (isTargetable(attacker.targetUnit)) {
       return attacker.targetUnit;
     }
     const trackedTargetId = attacker.vehicleWeapon?.targetUnitId ?? null;
@@ -863,11 +862,13 @@ export class GameApp {
       if (!attacker.isCombatEffective()) return;
 
       if (attacker.type === 'infantry_squad') {
-        attacker.updateMortarCombat?.({
-          terrain: this.terrain,
-          combat: this.combat,
-          random: () => this.random()
-        });
+        if (!attacker.holdFire) {
+          attacker.updateMortarCombat?.({
+            terrain: this.terrain,
+            combat: this.combat,
+            random: () => this.random()
+          });
+        }
         attacker.updateIndividualCombat(delta, {
           opposingUnits,
           spotting: this.spotting,
@@ -891,7 +892,7 @@ export class GameApp {
       }
 
       const weapon = this.catalogPorts.weapons.get(attacker.structureSpec?.weaponId);
-      if (!weapon) return;
+      if (!weapon || attacker.holdFire) return;
       const baseRate = 0.42;
       const ratePerSecond = attacker.targetMode === 'TARGET_LIGHT' ? baseRate * 0.45 : baseRate;
       const probability = 1 - Math.exp(-ratePerSecond * delta);

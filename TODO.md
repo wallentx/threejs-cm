@@ -16,6 +16,10 @@ authoritative scope and completion record.
 
 ### Bugfixes
 
+- **FIX NOW / P0 — completed:** replace unbounded 137-file `node --test`
+  discovery with a six-file core gate and opt-in per-file isolated exhaustive
+  runner; cap each child heap at 384 MB; delete three assertion-free debug
+  scripts; and consolidate overlapping Bridge and fire-discipline regressions.
 - **FIX NOW / P0 — completed:** restore visible procedural battlefield VFX; see
   the validated WebGPU-migration slice below.
 - **FIX NOW / P0 — partial:** retain an engaged enemy as a decaying gray
@@ -34,6 +38,13 @@ authoritative scope and completion record.
   valid, unexplained vehicle immobilization, and infantry waypoint/path
   divergence must each receive a current bounded reproduction before
   implementation is dispatched.
+- **FIX NOW / P0 — completed:** Bridge infantry routes now use real parapet and
+  abutment bounds, outbound formation pivots, separate lateral/longitudinal
+  clearance, and a collision-safe live six-man crossing regression.
+- **FIX NOW / P1 — partial:** prevent static navigation from emitting
+  unjustifiably remote detour waypoints. Bridge-owned barriers no longer send
+  long infantry files toward map edges; reproduce and bound any non-Bridge
+  route inflation that remains.
 - **QUEUED / P0:** reject or constrain battle-setup rosters whose expanded
   living infantry count exceeds the authoritative 256-candidate separation
   limit; the accepted 78-formation / 354-soldier maximum currently enters an
@@ -48,6 +59,18 @@ authoritative scope and completion record.
 
 ### New features
 
+- **FIX NOW / P1 — completed:** cease fire when no living visible target remains;
+  prevent stale unit aim points from becoming area fire; and provide a
+  rollback-owned `Hold Fire` / `Free Fire` toggle under Special for infantry,
+  mortars, vehicles, mounted guns, and bunkers.
+- **QUEUED / P1:** give vehicles bounded, vehicle-specific steering/traverse
+  rates through route corners instead of snapping hull facing to each leg.
+- **QUEUED / P1:** animate tracks from authoritative vehicle displacement and
+  solved track-path length across runtime LODs; stop, reverse, and damage-limit
+  motion consistently without frame-time-only texture scrolling.
+- **QUEUED / P1:** expand individual infantry animation coverage and blending
+  for idle variation, movement transitions, aiming, firing, recoil, reload,
+  threat reaction, pinned/wounded states, and collision-aware traversal.
 - **QUEUED / P1:** pre-match mixed movement and building-entry route planning.
 - **QUEUED / P1:** give the Char B1 bis distinct turret- and hull-weapon target
   controls, ammunition ownership, and automatic hull-group fire selection; see
@@ -269,6 +292,13 @@ authorized.
   - [x] Ordinary-infantry command slice: expand post-setup move orders through the injected deterministic bridge/static-obstacle graph from the live position or pending queue tail; preserve order types, formation-safe early-acceptance clearance, exact destination height, append behavior, and existing waypoint rollback ownership.
   - [x] Route the full living infantry formation envelope around passages too narrow for its current slots while retaining the 0.8 m waypoint-arrival tolerance.
   - [x] Add deterministic stable-ID personal-space resolution for living individual infantry, projected through static-world collision with bounded passes and rollback-owned positions.
+  - [x] Repair Bridge squad traversal: source crossing stages from the real
+    parapet/abutment collider envelope, pivot infantry formations toward the
+    outbound route leg before intermediate arrival, split lateral from
+    longitudinal formation clearance, and prove six-man QUICK crossing plus
+    long-file route locality without map-edge waypoints.
+  - [ ] Reproduce any remaining non-Bridge remote waypoint generation and add
+    a bounded path-inflation invariant before changing generic route scoring.
   - [x] Route ordinary vehicle move orders around intervening static blockers with footprint and turn clearance, including appended routes from the pending queue tail.
   - [x] Treat every vehicle, including disabled vehicles and wrecks, as a deterministic transient oriented blocker during fixed-step movement so vehicles cannot overlap or pass through one another.
   - [ ] Add reverse-aware vehicle maneuvers and deterministic wreck settling.

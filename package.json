@@ -10,7 +10,10 @@
     "audit:silhouettes": "node scripts/audit-vehicle-silhouettes.mjs",
     "author:renault-d2": "node scripts/build-renault-d2-authoring.mjs",
     "update:silhouette-baseline": "node scripts/audit-vehicle-silhouettes.mjs --update-baseline",
-    "test": "node --test",
+    "test": "node scripts/run-tests.mjs core",
+    "test:core": "node scripts/run-tests.mjs core",
+    "test:full": "node scripts/run-tests.mjs full",
+    "test:file": "node scripts/run-tests.mjs files",
     "preview": "vite preview"
   },
   "dependencies": {

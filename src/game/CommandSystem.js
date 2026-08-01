@@ -286,14 +286,20 @@ export class CommandSystem {
                   .map(offset => Math.abs(offset.z))
               )
             : 0;
+          const formationOffsets = this.activeUnit.vehicleSpec
+            ? []
+            : (this.activeUnit.soldierAI?.getLivingAgents?.().map(agent =>
+                this.activeUnit.soldierAI.getFormationOffset?.(
+                  agent.index,
+                  orderType
+                )
+              ).filter(Boolean) ?? []);
           const routeClearance = this.activeUnit.vehicleSpec
             ? vehicleLongitudinalOffset
             : Math.max(
                 0,
-                ...(this.activeUnit.soldierAI?.getLivingAgents?.().map(agent => {
-                  const offset = this.activeUnit.soldierAI.getFormationOffset?.(agent.index, orderType);
-                  return typeof offset?.length === 'function' ? offset.length() : 0;
-                }) ?? [])
+                ...formationOffsets.map(offset =>
+                  typeof offset.length === 'function' ? offset.length() : 0)
               );
           const routeOptions = {
             clearance: routeClearance,
@@ -302,6 +308,16 @@ export class CommandSystem {
           if (this.activeUnit.vehicleSpec) {
             routeOptions.longitudinalClearance =
               this.activeUnit.collisionRadius + vehicleLongitudinalOffset;
+          } else {
+            routeOptions.lateralClearance = Math.max(
+              0,
+              ...formationOffsets.map(offset => Math.abs(offset.x ?? 0))
+            );
+            // Intermediate waypoints are accepted within the arrival radius.
+            // Stage a whole formation that much farther from a bottleneck so
+            // its leading slots cannot reform inside an abutment or corner.
+            routeOptions.longitudinalClearance =
+              routeClearance + waypointArrivalTolerance;
           }
           const plannedRoute = this.activeUnit.collisionWorld?.getNavigationPath?.(
             { x: routeStart.x, z: routeStart.z },

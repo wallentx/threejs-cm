@@ -11,6 +11,7 @@ function runtimeHarness() {
   const unit = {
     id: 'blue-1',
     isHiding: false,
+    holdFire: false,
     isDeployed: false,
     stance: 'STANDING',
     targetUnit: { id: 'red-1' },
@@ -27,6 +28,11 @@ function runtimeHarness() {
     toggleVehicleCommanderPosture() {
       calls.push(['commander-posture', 'UNBUTTONED']);
       return 'UNBUTTONED';
+    },
+    toggleHoldFire() {
+      this.holdFire = !this.holdFire;
+      calls.push(['hold-fire', this.holdFire]);
+      return this.holdFire;
     }
   };
   let selectedUnit = unit;
@@ -196,6 +202,7 @@ test('UI runtime port owns direct selected-unit mutations and building event bin
   port.clearPaths();
   port.clearTarget();
   assert.equal(port.toggleHiding(), true);
+  assert.equal(port.toggleHoldFire(), true);
   assert.equal(port.toggleDeployment(), 'SETTING_UP');
   assert.equal(port.toggleVehicleCommanderPosture(), 'UNBUTTONED');
   assert.deepEqual(calls.at(-1), ['commander-posture', 'UNBUTTONED']);
@@ -221,6 +228,7 @@ test('UI runtime port owns direct selected-unit mutations and building event bin
   assert.equal(unit.targetUnit, null);
   assert.equal(unit.targetPos, null);
   assert.equal(unit.isHiding, true);
+  assert.equal(unit.holdFire, true);
   assert.equal(unit.isDeployed, true);
   assert.equal(unit.stance, 'KNEELING');
   assert.ok(calls.some(call => call[0] === 'split' && call[1] === unit.id));
