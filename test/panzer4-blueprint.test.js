@@ -106,4 +106,34 @@ test('Panzer IV Ausf. D armament and far proxy preserve silhouette ownership', (
   assert.equal(vehicle.getObjectByName('ProxyRoadWheels').count, 16);
   assert.ok(vehicle.getObjectByName('PanzerIVD_ProxyLowerHull'));
   assert.ok(vehicle.getObjectByName('PanzerIVD_ProxySuperstructureHull'));
+  assert.equal(vehicle.userData.proxyTurret.parent, vehicle.userData.turret);
+  assert.equal(vehicle.userData.proxyBustle.parent, vehicle.userData.turret);
+  assert.equal(vehicle.userData.proxyMantlet.parent, vehicle.userData.turret);
+  assert.equal(vehicle.userData.proxyBustle.userData.lodBand, 'proxy');
+  assert.equal(vehicle.userData.proxyMantlet.userData.lodBand, 'proxy');
+  assert.equal(vehicle.userData.proxyMantlet.userData.articulatedPart, 'gun-mantlet');
+  assert.equal(vehicle.userData.proxyBarrel.parent, vehicle.userData.turret);
+  assert.ok(vehicle.userData.proxyCupola);
+  assert.ok(vehicle.userData.proxySphericalMount);
+});
+
+test('Panzer IV cupola and weapons are seated on their authored axes without the stray deck hoop', () => {
+  const vehicle = createPanzerIVMesh();
+  const turret = vehicle.getObjectByName('PanzerIVD_FacetedTurret');
+  const cupola = vehicle.getObjectByName('PanzerIVD_CommanderCupola');
+  const cupolaHeight = cupola.geometry.parameters.height;
+  assert.ok(Math.abs((cupola.position.y - cupolaHeight * 0.5) - 0.65) < 1e-9);
+  assert.equal(turret.material.flatShading, true);
+  assert.equal(vehicle.getObjectByName('PanzerIVD_PrimaryHull').material.flatShading, true);
+
+  const gunMount = vehicle.getObjectByName('PanzerIVD_KwK37SphericalMount');
+  assert.equal(gunMount.position.y, vehicle.userData.barrel.position.y);
+  const ball = vehicle.getObjectByName('PanzerIVD_HullMGBallMount');
+  const barrel = vehicle.getObjectByName('hull_mg_barrel');
+  const muzzle = vehicle.getObjectByName('hull_mg_muzzle');
+  assert.equal(barrel.position.x, ball.position.x);
+  assert.equal(barrel.position.y, ball.position.y);
+  assert.equal(muzzle.position.x, ball.position.x);
+  assert.equal(muzzle.position.y, ball.position.y);
+  assert.equal(vehicle.getObjectByName('PanzerIVD_DeckSpareWheel'), undefined);
 });

@@ -35,6 +35,27 @@ test('WASD camera offsets follow the horizontal view and normalize diagonals', (
   );
 });
 
+test('Q and E move vertically and share normalized speed with planar input', () => {
+  const cameraPosition = new THREE.Vector3(0, 20, 20);
+  const target = new THREE.Vector3(0, 0, 0);
+  const getOffset = pressedKeys => getKeyboardPanOffset({
+    pressedKeys: new Set(pressedKeys),
+    cameraPosition,
+    target,
+    delta: 0.5,
+    speed: 20
+  });
+
+  assert.deepEqual(getOffset(['KeyQ']).toArray(), [0, 10, 0]);
+  assert.deepEqual(getOffset(['KeyE']).toArray(), [0, -10, 0]);
+  assert.deepEqual(getOffset(['KeyQ', 'KeyE']).toArray(), [0, 0, 0]);
+
+  const combined = getOffset(['KeyW', 'KeyQ']);
+  assert.ok(Math.abs(combined.length() - 10) < 1e-9);
+  assert.ok(combined.y > 0, 'Q must move upward');
+  assert.ok(combined.z < 0, 'W must retain camera-relative forward movement');
+});
+
 test('camera update moves position and target together without changing framing', () => {
   const manager = Object.create(CameraManager.prototype);
   manager.camera = {
@@ -46,7 +67,7 @@ test('camera update moves position and target together without changing framing'
     update() { updates++; }
   };
   manager.followUnit = { id: 'previous-follow' };
-  manager.pressedPanKeys = new Set(['KeyA']);
+  manager.pressedPanKeys = new Set(['KeyQ']);
   const originalOffset = manager.camera.position.clone()
     .sub(manager.controls.target);
 
@@ -57,7 +78,7 @@ test('camera update moves position and target together without changing framing'
     manager.camera.position.clone().sub(manager.controls.target).toArray(),
     originalOffset.toArray()
   );
-  assert.ok(manager.controls.target.x < 0);
+  assert.ok(manager.controls.target.y > 0);
   assert.equal(updates, 1);
 });
 

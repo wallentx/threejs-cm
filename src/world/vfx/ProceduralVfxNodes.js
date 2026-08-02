@@ -18,8 +18,8 @@ const CLASSIC_FIRE_DARK = color(0x7d1708);
 const CLASSIC_FIRE_ORANGE = color(0xff5a12);
 const CLASSIC_FIRE_YELLOW = color(0xffdd55);
 const CLASSIC_FIRE_WHITE = color(0xfff4c2);
-const SMOKE_DARK = color(0x18191a);
-const SMOKE_LIGHT = color(0x5b5a55);
+const SMOKE_DARK = color(0x111211);
+const SMOKE_LIGHT = color(0x55534d);
 
 function steppedTime(framesPerSecond) {
   return time.mul(framesPerSecond).floor().div(framesPerSecond);
@@ -50,7 +50,7 @@ function makeMaterial(role, {
 
 function createFlameMaterial() {
   const material = makeMaterial('vehicle-damage-flame', { additive: true });
-  const frameTime = steppedTime(24);
+  const frameTime = steppedTime(48);
   const point = uv().sub(vec2(0.5, 0.08));
   const height = point.y;
   const sway = frameTime.mul(8.3).add(height.mul(13.7)).sin()
@@ -87,35 +87,36 @@ function createFlameMaterial() {
 
 function createSmokeMaterial() {
   const material = makeMaterial('vehicle-damage-smoke');
-  const frameTime = steppedTime(18);
-  const point = uv();
-  let density = float(0);
-  let shade = float(0);
-  const puffs = [
-    [0.11, 0.46, 0.19, 0.14],
-    [0.34, 0.55, 0.17, 0.18],
-    [0.58, 0.43, 0.2, 0.12],
-    [0.79, 0.6, 0.18, 0.17],
-    [0.93, 0.5, 0.22, 0.1]
-  ];
-  for (let index = 0; index < puffs.length; index++) {
-    const [offset, x, radius, drift] = puffs[index];
-    const phase = frameTime.mul(0.12 + index * 0.006).add(offset).fract();
-    const center = vec2(
-      float(x).add(frameTime.mul(0.55 + index * 0.17).sin().mul(drift)),
-      phase.mul(0.88).add(0.05)
-    );
-    const puffPoint = point.sub(center).mul(vec2(1, 0.78));
-    const puff = radialMask(
-      puffPoint,
-      float(radius).add(phase.mul(0.08)),
-      0.08
-    ).mul(float(1).sub(phase).mul(0.45).add(0.55));
-    density = density.max(puff);
-    shade = shade.max(puff.mul(0.35 + index * 0.1));
-  }
-  material.colorNode = mix(SMOKE_DARK, SMOKE_LIGHT, shade.clamp(0, 1));
-  material.opacityNode = density.mul(0.72);
+  const frameTime = steppedTime(24);
+  const point = uv().sub(vec2(0.5, 0.02));
+  const height = point.y.clamp(0, 1);
+  const sway = frameTime.mul(1.9).add(height.mul(7.7)).sin().mul(0.09)
+    .add(frameTime.mul(3.1).add(height.mul(13.3)).cos().mul(0.035));
+  const turbulence = frameTime.mul(5.7)
+    .add(point.x.mul(19.1))
+    .add(height.mul(23.7))
+    .sin()
+    .mul(0.5)
+    .add(0.5);
+  const edgeNoise = frameTime.mul(4.3)
+    .add(height.mul(31.7))
+    .sin()
+    .mul(0.035)
+    .add(turbulence.mul(0.035));
+  const width = float(0.24)
+    .add(height.mul(0.22))
+    .add(edgeNoise);
+  const column = smoothstep(
+    width,
+    width.sub(0.12),
+    point.x.add(sway).abs()
+  )
+    .mul(smoothstep(-0.01, 0.1, point.y))
+    .mul(smoothstep(1.02, 0.83, point.y));
+  const rollingDensity = column.mul(turbulence.mul(0.46).add(0.38));
+  const charcoal = turbulence.mul(0.48).add(height.mul(0.24)).clamp(0, 1);
+  material.colorNode = mix(SMOKE_DARK, SMOKE_LIGHT, charcoal);
+  material.opacityNode = rollingDensity.mul(0.56);
   return material;
 }
 
@@ -146,18 +147,57 @@ function createBurstMaterial(role) {
     return material;
   }
 
+  if (role === 'explosion') {
+    const radius = progress.mul(0.34).add(0.11);
+    let fireball = radialMask(point, radius, 0.12);
+    const lobes = [
+      [-0.2, 0.06, 0.72],
+      [0.18, 0.1, 0.78],
+      [-0.08, 0.22, 0.66],
+      [0.08, -0.18, 0.62],
+      [0.26, -0.12, 0.54],
+      [-0.25, -0.11, 0.58]
+    ];
+    for (const [x, y, scale] of lobes) {
+      const center = vec2(x, y).mul(progress.mul(0.72).add(0.22));
+      fireball = fireball.max(radialMask(
+        point.sub(center),
+        radius.mul(scale),
+        0.11
+      ));
+    }
+    const hotCore = radialMask(
+      point.sub(vec2(-0.04, -0.03)),
+      radius.mul(0.56),
+      0.14
+    ).mul(fireball);
+    const rolling = frameTime.mul(13.7)
+      .add(point.x.mul(17.3))
+      .add(point.y.mul(23.9))
+      .sin()
+      .mul(0.11)
+      .add(0.89);
+    material.colorNode = mix(
+      mix(CLASSIC_FIRE_DARK, CLASSIC_FIRE_ORANGE, fireball),
+      CLASSIC_FIRE_WHITE,
+      hotCore
+    );
+    material.opacityNode = fireball.mul(fade).mul(rolling);
+    return material;
+  }
+
   const noise = frameTime.mul(19.7)
     .add(point.x.mul(31.1))
     .add(point.y.mul(47.3))
     .sin()
     .mul(0.045);
-  const radius = progress.mul(role === 'explosion' ? 0.44 : 0.28).add(0.08);
+  const radius = progress.mul(0.28).add(0.08);
   const core = radialMask(point, radius.add(noise), 0.09);
   const ringDistance = point.length().sub(radius).abs();
   const ring = smoothstep(0.075, 0.01, ringDistance);
   const alpha = core.max(ring.mul(0.8)).mul(fade);
   material.colorNode = mix(
-    role === 'impact' ? color(0xff9d38) : CLASSIC_FIRE_ORANGE,
+    color(0xff9d38),
     CLASSIC_FIRE_WHITE,
     core.mul(fade)
   );

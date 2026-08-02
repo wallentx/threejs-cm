@@ -110,7 +110,9 @@ export class UnitHoverPreview {
   }
 
   setHoveredUnit(unit) {
-    this.hoveredUnit = unit ?? null;
+    const validUnit = (unit && typeof unit.isControllable === 'function' && !unit.isControllable()) ? null : unit;
+    if (this.hoveredUnit === validUnit) return;
+    this.hoveredUnit = validUnit;
     this.group.visible = Boolean(this.hoveredUnit);
     for (const ring of this.rings) ring.visible = false;
     this.update();
@@ -152,7 +154,7 @@ export class UnitHoverPreview {
 
   update() {
     const unit = this.hoveredUnit;
-    if (!unit || unit.mesh?.visible === false) {
+    if (!unit || unit.mesh?.visible === false || (typeof unit.isControllable === 'function' && !unit.isControllable())) {
       this.group.visible = false;
       for (const ring of this.rings) ring.visible = false;
       return 0;

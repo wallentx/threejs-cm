@@ -933,9 +933,12 @@ function targetPoints(unit) {
 
 function unitCanBeObserved(unit) {
   if (!unit) return false;
-  if (unit.type === 'infantry_squad' || unit.vehicleSpec || unit.structureSpec) {
+  // Vehicle combat effectiveness decides whether it can act, not whether its
+  // physical hull can still be seen. Wrecked and abandoned vehicles therefore
+  // remain observation targets while the ordinary LOS policy stays authoritative.
+  if (unit.vehicleSpec) return true;
+  if (unit.type === 'infantry_squad' || unit.structureSpec) {
     return livingPeople(unit).length > 0
-      && unit.vehicleDamageState?.destroyed !== true
       && unit.structureState?.destroyed !== true;
   }
   return unit.isCombatEffective?.() ?? true;

@@ -14,6 +14,14 @@ const INFANTRY_ONLY_MOVE_COMMANDS = new Set([
   'CRAWL',
   'ASSAULT'
 ]);
+const CAMERA_RESERVED_KEY_CODES = new Set([
+  'KeyW',
+  'KeyA',
+  'KeyS',
+  'KeyD',
+  'KeyQ',
+  'KeyE'
+]);
 const ICON_UPDATE_INTERVAL_MS = 1000 / 30;
 const MINIMAP_UPDATE_INTERVAL_MS = 100;
 const DEBUG_METRICS_UPDATE_INTERVAL_MS = 250;
@@ -394,6 +402,7 @@ export class UIManager {
   initHotkeys() {
     window.addEventListener('keydown', (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.isContentEditable) return;
+      if (CAMERA_RESERVED_KEY_CODES.has(e.code)) return;
 
       if (e.code === 'Escape') {
         e.preventDefault();
@@ -424,11 +433,11 @@ export class UIManager {
       if (e.code === 'KeyF') this.triggerCommand('FAST');
       if (e.code === 'KeyN') this.triggerCommand('QUICK');
       if (e.code === 'KeyJ') this.triggerCommand('HUNT');
+      if (e.code === 'KeyR') this.triggerCommand('REVERSE');
       if (e.code === 'KeyK') this.triggerCommand('SNEAK');
       if (e.code === 'KeyL') this.triggerCommand('CRAWL');
       if (e.code === 'KeyU') this.triggerCommand('ASSAULT');
       if (e.code === 'KeyT') this.triggerCommand('TARGET');
-      if (e.code === 'KeyA') this.triggerCommand('TARGET_AP');
       if (e.code === 'KeyG') this.triggerCommand('TARGET_MG');
       if (e.code === 'KeyY') this.triggerCommand('TARGET_HULL_HE');
       if (e.code === 'KeyO') this.triggerCommand('FACE');
@@ -442,29 +451,6 @@ export class UIManager {
       ) {
         e.preventDefault();
         this.handleDirectAction('TOGGLE_COMMANDER_POSTURE');
-      }
-      if (
-        e.code === 'KeyD'
-        && this.runtime.selectedUnit?.hasDeployableCrewServedWeapon?.()
-      ) {
-        e.preventDefault();
-        this.handleDirectAction('DEPLOY');
-      }
-      if (e.code === 'KeyE') {
-        const selectedUnit = this.runtime.selectedUnit;
-        if (selectedUnit?.vehicleSpec?.mainGun?.he) {
-          e.preventDefault();
-          this.triggerCommand('TARGET_HE');
-          return;
-        }
-        const eligible = selectedUnit?.type === 'infantry_squad'
-          && selectedUnit.soldierAI?.agents?.some(
-            agent => Boolean(agent.buildingLocation)
-          );
-        if (eligible && this.canIssueOrders()) {
-          e.preventDefault();
-          this.handleDirectAction('EXIT_BUILDING');
-        }
       }
     });
   }
@@ -505,9 +491,9 @@ export class UIManager {
     const selectedVehicle = this.runtime.selectedUnit?.vehicleSpec ?? null;
     const mortarTargetCommands = this.runtime.selectedUnit?.mortarTeamConfig
       ? [
-          { label: 'TARGET HE', mode: 'MORTAR_HE', key: 'E' },
+          { label: 'TARGET HE', mode: 'MORTAR_HE', key: '' },
           ...(this.runtime.selectedUnit.mortarTeamConfig.smokeWeaponId
-            ? [{ label: 'TARGET SMOKE', mode: 'MORTAR_SMOKE', key: 'S' }]
+            ? [{ label: 'TARGET SMOKE', mode: 'MORTAR_SMOKE', key: '' }]
             : [])
         ]
       : null;
@@ -517,10 +503,10 @@ export class UIManager {
             ? [{ label: 'TARGET AUTO', mode: 'TARGET', key: 'T' }]
             : []),
           ...(selectedVehicle.mainGun?.ap
-            ? [{ label: 'TARGET AP', mode: 'TARGET_AP', key: 'A' }]
+            ? [{ label: 'TARGET AP', mode: 'TARGET_AP', key: '' }]
             : []),
           ...(selectedVehicle.mainGun?.he
-            ? [{ label: 'TARGET HE', mode: 'TARGET_HE', key: 'E' }]
+            ? [{ label: 'TARGET HE', mode: 'TARGET_HE', key: '' }]
             : []),
           ...(selectedVehicle.weaponMounts?.some(mount => mount.kind !== 'cannon')
             ? [{ label: 'TARGET MG', mode: 'TARGET_MG', key: 'G' }]
@@ -543,6 +529,9 @@ export class UIManager {
         { label: 'QUICK', mode: 'MOVE_QUICK', key: 'N' },
         { label: 'MOVE', mode: 'MOVE_MOVE', key: 'O' },
         { label: 'HUNT', mode: 'MOVE_HUNT', key: 'J' },
+        ...(selectedVehicle
+          ? [{ label: 'REVERSE', mode: 'MOVE_REVERSE', key: 'R' }]
+          : []),
         ...(this.runtime.selectedUnit?.type === 'infantry_squad'
           ? [
               { label: 'SNEAK', mode: 'MOVE_SNEAK', key: 'K' },
@@ -590,18 +579,18 @@ export class UIManager {
                 ? 'PACK MORTAR'
                 : 'DEPLOY MORTAR',
               action: 'DEPLOY',
-              key: 'D'
+              key: ''
             }]
           : []),
         ...(this.runtime.selectedUnit?.soldierAI?.agents.some(
           agent => Boolean(agent.buildingLocation)
         )
-          ? [{ label: 'DISMOUNT / EXIT', action: 'EXIT_BUILDING', key: 'E' }]
+          ? [{ label: 'DISMOUNT / EXIT', action: 'EXIT_BUILDING', key: '' }]
           : [])
       ],
       admin: this.runtime.selectedUnit?.hasDeployableCrewServedWeapon?.()
         ? []
-        : [{ label: 'SPLIT SQUAD', action: 'SPLIT', key: 'S' }]
+        : [{ label: 'SPLIT SQUAD', action: 'SPLIT', key: '' }]
     };
 
     const currentBtns = tabButtons[this.activeTab] || [];
@@ -738,6 +727,9 @@ export class UIManager {
     if (commandName === 'FAST') this.runtime.setCommandMode('MOVE_FAST');
     if (commandName === 'QUICK') this.runtime.setCommandMode('MOVE_QUICK');
     if (commandName === 'HUNT') this.runtime.setCommandMode('MOVE_HUNT');
+    if (commandName === 'REVERSE' && this.runtime.selectedUnit?.vehicleSpec) {
+      this.runtime.setCommandMode('MOVE_REVERSE');
+    }
     if (commandName === 'SNEAK') this.runtime.setCommandMode('MOVE_SNEAK');
     if (commandName === 'CRAWL') this.runtime.setCommandMode('MOVE_CRAWL');
     if (commandName === 'ASSAULT') this.runtime.setCommandMode('MOVE_ASSAULT');

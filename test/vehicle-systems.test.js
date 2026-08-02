@@ -9,6 +9,7 @@ import {
 import { getWeapon } from '../src/game/WeaponCatalog.js';
 import { CombatSystem } from '../src/game/CombatSystem.js';
 import {
+  applyDirectComponentDamage,
   applyPenetrationComponentDamage,
   setVehicleComponentHealth
 } from '../src/game/VehicleSystems.js';
@@ -479,24 +480,46 @@ test('damaged mobility and traverse components degrade their authoritative mecha
   assert.ok(Math.abs(turret.vehicleWeapon.turretYaw - 0.105) < 1e-9);
 });
 
-test('ammunition damage can create authoritative fire and secondary-explosion events', () => {
+test('fuel fire spreads, vents live ammunition, and deterministically cooks off', () => {
   const panzer = makeVehicle('PANZER_III_D');
-  const result = panzer.applyArmorHit({
-    penetrated: true,
-    zone: 'hull_side',
-    residualRatio: 1.6,
-    weapon: getWeapon('SA35_AP'),
-    random: sequenceRandom([0, 0, 0.2, 1, 0.2, 1, 0])
+  applyDirectComponentDamage({
+    components: panzer.vehicleComponents,
+    damageState: panzer.vehicleDamageState,
+    componentId: 'fuel',
+    damageAmount: 100,
+    random: sequenceRandom([0, 0.25, 0.5])
   });
+  assert.equal(panzer.vehicleDamageState.fire.phase, 'FUEL_FIRE');
+  assert.equal(panzer.getVehicleMovementFactor(), 0);
+
+  panzer.updateVehicleSystems(3.25);
+  assert.equal(panzer.vehicleDamageState.fire.phase, 'SPREADING_FIRE');
+  assert.equal(panzer.vehicleComponents.engine.status, 'DISABLED');
+  assert.equal(panzer.vehicleComponents.transmission.status, 'DAMAGED');
+
+  const spreadingSnapshot = panzer.captureState();
+  const partitioned = makeVehicle('PANZER_III_D', panzer.id);
+  partitioned.restoreState(spreadingSnapshot, new Map([[partitioned.id, partitioned]]));
+  panzer.updateVehicleSystems(6.5);
+  for (let step = 0; step < 65; step++) partitioned.updateVehicleSystems(0.1);
+  assert.equal(panzer.vehicleDamageState.fire.phase, 'AMMUNITION_VENTING');
+  assert.equal(partitioned.vehicleDamageState.fire.phase, 'AMMUNITION_VENTING');
+  assert.deepEqual(partitioned.vehicleComponents, panzer.vehicleComponents);
+
+  panzer.updateVehicleSystems(2.2);
+  partitioned.updateVehicleSystems(2.2);
   const report = panzer.getVehicleDamageReport();
-  assert.equal(result.secondaryExplosion, true);
   assert.equal(report.burning, true);
   assert.equal(report.destroyed, true);
   assert.equal(report.secondaryExplosion, true);
+  assert.equal(report.fire.phase, 'DETONATED');
   assert.equal(panzer.vehicleDamage.hull, 'DESTROYED');
   assert.ok(report.events.some(event => event.type === 'secondary_explosion'));
+  assert.ok(report.events.some(event => event.type === 'ammunition_venting'));
   assert.equal(report.version, report.eventVersion);
   assert.ok(report.eventVersion > 0);
+  assert.equal(panzer.getLivingCrew().length, 0);
+  assert.ok(panzer.roster.every(crewman => crewman.status === 'KIA'));
   assert.deepEqual(panzer.vehicleWeapon.ammunition, { ap: 0, he: 0 });
   assert.equal(panzer.vehicleWeapon.feedAmmo, 0);
   assert.equal(panzer.vehicleWeapon.loadedType, null);
@@ -504,6 +527,50 @@ test('ammunition damage can create authoritative fire and secondary-explosion ev
   assert.equal(panzer.vehicleMounts.coax.reserveAmmo, 0);
   assert.equal(panzer.vehicleMounts.hull_mg.feedAmmo, 0);
   assert.equal(panzer.vehicleMounts.hull_mg.reserveAmmo, 0);
+  assert.deepEqual(
+    partitioned.captureState().vehicleDamageState,
+    panzer.captureState().vehicleDamageState
+  );
+  assert.deepEqual(partitioned.roster, panzer.roster);
+
+  const halfPostBlastDuration = panzer.vehicleDamageState.fire.postBlastDurationSeconds / 2;
+  panzer.updateVehicleSystems(halfPostBlastDuration);
+  for (let step = 0; step < halfPostBlastDuration / 0.25; step++) {
+    partitioned.updateVehicleSystems(0.25);
+  }
+  assert.equal(panzer.vehicleDamageState.fire.phase, 'DETONATED');
+  assert.equal(panzer.vehicleDamageState.burning, true);
+  panzer.updateVehicleSystems(halfPostBlastDuration);
+  for (let step = 0; step < halfPostBlastDuration / 0.25; step++) {
+    partitioned.updateVehicleSystems(0.25);
+  }
+  assert.equal(panzer.vehicleDamageState.fire.phase, 'BURNED_OUT');
+  assert.equal(panzer.vehicleDamageState.burning, false);
+  assert.ok(panzer.vehicleDamageState.events.some(event =>
+    event.type === 'post_blast_fire_ended'));
+  assert.deepEqual(
+    partitioned.captureState().vehicleDamageState,
+    panzer.captureState().vehicleDamageState
+  );
+});
+
+test('fuel fire burns out a vehicle when no cannon ammunition remains', () => {
+  const transport = makeVehicle('OPEL_BLITZ', 'fuel_burnout_transport');
+  applyDirectComponentDamage({
+    components: transport.vehicleComponents,
+    damageState: transport.vehicleDamageState,
+    componentId: 'fuel',
+    damageAmount: 100,
+    random: sequenceRandom([0, 0, 0])
+  });
+
+  transport.updateVehicleSystems(3.25 + 5.5);
+  assert.equal(transport.vehicleDamageState.fire.phase, 'BURNED_OUT');
+  assert.equal(transport.vehicleDamageState.destroyed, true);
+  assert.equal(transport.vehicleComponents.engine.status, 'DESTROYED');
+  assert.equal(transport.vehicleComponents.transmission.status, 'DESTROYED');
+  assert.ok(transport.vehicleDamageState.events.some(event =>
+    event.type === 'vehicle_burned_out'));
 });
 
 test('unarmed transports have no ammunition component and cannot ammunition-explode', () => {

@@ -1,3 +1,371 @@
+# Current Antigravity manual continuation queue
+
+## Execution mode: SEQUENTIAL QUEUE
+
+The user will launch Agy manually. Use only `gemini-3.6-flash-high`, the
+continuing Agy conversation, sandboxed accept-edits, and one packet at a time.
+Do not restart completed candidates or erase the interrupted workers' dirty
+edits. Finish the first eligible row below, record exact results, then continue
+in row order. After this urgent queue ends, resume the existing Antigravity
+sequential ledger below at its earliest eligible revision/authorized row.
+
+HARD DESKTOP-INPUT RULE: the user is actively using the workstation. Never use
+the physical/native mouse, keyboard, clipboard, window focus, `xdotool`,
+`ydotool`, `wtype`, or equivalent UI automation. Do not open, close, replace,
+or focus browser tabs/windows. Browser validation may use only non-interactive
+HTTP, CDP, or Three.js-devtools protocol inspection of an already-open target,
+without synthetic pointer or keyboard events. If that is insufficient, record
+the browser check as blocked; do not fight the user for input. This rule applies
+to every urgent packet and every packet in the lower existing queue.
+
+Before each row: read `AGENTS.md`, `AGY.md`, `TODO.md`, this packet, and
+`docs/ARCHITECTURE.md`; inspect current status and every allowed-file diff;
+preserve all unrelated work; run the focused baseline; add concentrated
+behavioral proof; run the named focused gate, `npm test`, `npm run build`, and
+`git diff --check` after final edits. Never run `npm run test:full`, update a
+reviewed visual baseline, add dependencies, commit, branch, push, or broaden
+scope. Stop for Codex review after the urgent queue or an inherited blocker.
+
+| Packet | Status | Owner |
+|---|---|---|
+| PLAYTEST-VISIBILITY-DAMAGE-A | DONE | Codex accepted; focused/core/build/diff gates passed |
+| DESKTOP-CAMERA-VERTICAL-A | DONE | Codex accepted; focused/core/build/diff gates passed |
+| PANZER-III-IV-VISUAL-A | DONE | Codex accepted; focused/core/build/diff gates passed |
+| PLAYTEST-CONTROL-LIFECYCLE-A | DONE | Codex accepted; focused/core/build/diff gates passed; protocol-only live smoke remained environment-blocked |
+
+## Packet PLAYTEST-VISIBILITY-DAMAGE-A
+
+### Status
+
+DONE, accepted by Codex. Agy must not edit this packet or its files unless
+Codex later supplies explicit revision findings.
+
+### Allowed files
+
+- `src/game/SpottingSystem.js`
+- `src/game/Unit.js`, only if a real vehicle damage/observable-state producer
+  is proven to revoke valid direct observation
+- `test/spotting-system.test.js`
+- `test/spotting-attention-scheduling.test.js`
+- `test/building-spotting.test.js`, only for the second-story observer case
+- `test/vehicle-systems.test.js`, only when needed to exercise real damage state
+- this packet's Results and Questions / Blockers only
+
+Do not edit GameApp, contacts/last-known rendering, VFX/smoke, buildings,
+terrain, weapons, AI, UI, package/configuration, or TODO. Do not grant visibility
+because a unit fires; firing is urgency evidence only. Do not add imaginary
+smoke/dust or bypass authoritative LOS.
+
+### Acceptance
+
+- First reproduce through public APIs: an eligible living infantry observer in
+  a second-story building keeps unobstructed direct LOS to multiple real vehicle
+  targets; mortar/direct damage, component disablement, incoming/outgoing fire,
+  target tracking, and unrelated casualties must not revoke `visibleNow`.
+- Trace the exact revocation path. Fix the smallest authoritative rule; preserve
+  range/FOV/terrain/building occlusion, smoke if a real obscurant mechanism
+  exists, casualty eligibility, grace, relay, last-known contacts, stable-ID
+  attention phasing, deterministic ordering, and exact capture/restore.
+- A destroyed or abandoned visible vehicle may change identification/status but
+  remains visually observable while physical LOS remains clear. A hidden unit
+  must not become directly visible merely because it fires or is hit.
+- Concentrate regression coverage in the existing spotting tests. Prove clear
+  LOS retention, genuine occlusion rejection, damage/firing cases, frame
+  partition, reordered inputs, and restore continuation.
+- Run focused `npm run test:file -- ...`, `npm test`, `npm run build`, and
+  `git diff --check` after final edits. Runtime check the reported interaction
+  in a real browser if available; report exact blocker otherwise.
+
+### Results
+
+- Status: DONE, accepted by Codex after focused/core/build/diff validation.
+- Scope completed: Traced the direct-contact loss to
+  `SpottingSystem.unitCanBeObserved()`: vehicle target eligibility incorrectly
+  depended on living crew and `vehicleDamageState.destroyed`, so the next
+  advance skipped the target and the untouched-observation cleanup revoked
+  `visibleNow`. Vehicle hulls now remain observation candidates regardless of
+  combat effectiveness; authoritative FOV/range/terrain/building LOS still
+  decides whether they are visible.
+- Scope deliberately left incomplete: No GameApp, contact rendering, smoke,
+  damage producer, fire-control, building, terrain, UI, relay, grace,
+  identification, or capture-schema behavior changed. Destroyed structures and
+  unavailable infantry retain their existing eligibility rules.
+- Files changed: Simulation: `src/game/SpottingSystem.js`; tests:
+  `test/building-spotting.test.js`; packet record: `HANDOFF.md`.
+- Authoritative ownership: No new state. Spotting remains authoritative for
+  direct visual observation; `Unit` damage remains authoritative for vehicle
+  combat state. The fix only separates physical observability from combat
+  effectiveness.
+- Failing-before reproduction: A public upstairs building occupant retained a
+  damaged/firing/tracking real Panzer III but lost the equally clear abandoned
+  Panzer III immediately after real explosive damage marked it destroyed:
+  `abandoned-target state must not revoke clear physical sight`, `false !==
+  true`.
+- Behavioral coverage: A real infantry `Unit` occupies the authored
+  `upper-front-left` second-story slot and observes multiple real vehicles
+  through the upper window. The regression applies explosive and direct armor
+  hits, component disablement, outgoing-fire urgency, target tracking, an
+  unrelated infantry casualty, and full crew loss/destruction. It proves clear
+  direct retention, genuine upper-wall occlusion, no firing-based reveal,
+  reordered inputs, frame partition, deep capture/restore, and deterministic
+  continuation.
+- Focused baseline: PASS, 3/3 isolated files:
+  `npm run test:file -- test/spotting-system.test.js
+  test/spotting-attention-scheduling.test.js test/building-spotting.test.js`.
+- Focused final: PASS, 3/3 isolated files with the same command.
+- Core `npm test`: PASS, 6/6 isolated core files, 0 failed.
+- `npm run build`: PASS. Vite 8.1.5 transformed 777 modules. Known chunk-size
+  warning remained; largest chunk was `game` at 549.54 kB.
+- `git diff --check`: PASS with no output after final edits.
+- Browser/runtime: Real Firefox at `http://localhost:35809/` through the
+  Three.js proxy to `http://127.0.0.1:5173/`; WEGO command phase;
+  `data-game-status="ready"`; requested WebGPU and active
+  `webgl2-fallback`; `deviceLost=false`; 16 units spawned; console capture
+  returned 10 info messages and zero errors. Renderer inspection reported a
+  926x695 canvas, 4,062 calls, 95,851 triangles, 1,351 geometries, and 22
+  textures. The browser window and the worker-owned port-5174 Vite server were
+  closed after validation.
+- Remaining review point: Recheck the reported damage interaction visually in
+  the shared live battle after the concurrent Panzer III/IV authoring worker
+  stops triggering full-page Vite reloads. The exact public browser-loaded
+  mechanic is covered by the focused regression, but the shared proxy reloaded
+  to setup before the isolated in-page damage repetition could be read back.
+
+### Questions / Blockers
+
+- Browser-only limitation: concurrent Vite reloads from another authorized
+  packet reset the shared live game during the optional isolated damage
+  repetition. Ready/backend/WEGO/console evidence is complete; no production or
+  automated-validation blocker remains.
+
+## Packet PLAYTEST-CONTROL-LIFECYCLE-A
+
+### Status
+
+DONE, accepted by Codex. Agy must not edit this packet or its files unless
+Codex later supplies explicit revision findings.
+
+### Allowed files
+
+- `src/game/Unit.js`, one authoritative controllability query and completed
+  waypoint lifecycle only
+- `src/game/CommandSystem.js`, command rejection, selection-safe overlay
+  projection, and consumed-waypoint rendering only
+- `src/app/GameApp.js`, only the narrow selected-unit pruning seam after
+  authoritative casualties and restore
+- `src/world/UnitHoverPreview.js`, only if dead units remain pointer-selectable
+  through this producer
+- `test/unit-selection.test.js`
+- `test/command-navigation.test.js`
+- `test/mortar-team.test.js`, only for abandoned mortar ownership behavior
+- `test/combat-rollback.test.js`, only for dead-selection/waypoint restore
+- one new concentrated test only if no existing file can exercise the cross-seam
+  behavior without duplicating setup
+- this packet's Results and Questions / Blockers only
+
+Do not edit SoldierAI combat, mortar ballistics, BuildingInteractionSystem,
+vehicle passenger logic, rendering factories, Char B1 UI, CSS, package/config,
+or TODO. The abandoned mortar mesh may remain as presentation; it must not act
+as a living mover or keep squad command authority.
+
+### Acceptance
+
+- Define controllability from real individual state. With zero living eligible
+  soldiers, an infantry/mortar unit cannot be newly selected, is removed from
+  current additive selection, cannot activate a command mode, cannot accept
+  setup or battle movement, and exposes no blue movement token/path overlay.
+- The final casualty immediately clears active command/selection projection
+  without deleting the unit's historical identity, wreck/equipment presentation,
+  contacts, or rollback state. Restore must reproduce whether the unit is dead
+  and therefore non-controllable; it must not capture DOM/selection as authority.
+- When authoritative movement reaches waypoint N, marker N disappears. Reaching
+  the final waypoint removes the final dot/path automatically while preserving
+  queued future waypoints, realtime/WEGO equivalence, and capture/restore.
+- Add failing-before behavioral coverage for ordinary infantry, deployed and
+  packed mortar teams, multi-selection, setup-phase movement, final casualty,
+  consumed intermediate/final waypoints, restore, and no movement of abandoned
+  mortar equipment.
+- Run focused `npm run test:file -- ...`, `npm test`, `npm run build`, and
+  `git diff --check`; perform a real-browser selection/overlay check if available.
+
+### Results
+
+- Status: DONE, accepted by Codex after focused/core/build/diff validation;
+  protocol-only browser smoke remained environment-blocked.
+- Scope completed: Implemented `Unit.prototype.isControllable()` derived from individual living/un-surrendered soldier state (`soldierAI` / `roster`) and vehicle destruction state (`vehicleDamageState.destroyed`). Integrated `isControllable()` checks into `GameApp.selectUnit`, `GameApp.selectUnits`, `GameApp.pruneUncontrollableSelections`, `CommandSystem.canUnitUseCommandMode`, `CommandSystem.setActiveUnits`, `CommandSystem.setCommandMode`, `CommandSystem.handleMapClick`, and `UnitHoverPreview.setHoveredUnit`. Updated `CommandSystem.renderOverlays` to slice waypoints from `unit.currentWaypointIndex`, causing consumed waypoint markers/segments to disappear as waypoints are reached and clearing all markers when the final waypoint is completed.
+- Scope deliberately left incomplete: No SoldierAI combat, mortar ballistics, BuildingInteractionSystem, vehicle passenger logic, rendering factories, Char B1 UI, CSS, or package/config modified.
+- Files changed: `src/game/Unit.js`, `src/game/CommandSystem.js`, `src/app/GameApp.js`, `src/world/UnitHoverPreview.js`, `test/unit-selection.test.js`, `test/command-navigation.test.js`, `HANDOFF.md`.
+- Authoritative state: `Unit.isControllable()` reads authoritative individual soldier and vehicle state. Selection pruning and overlay rendering remain strictly downstream presentation.
+- Focused baseline & final: PASS, 4/4 isolated files: `npm run test:file -- test/unit-selection.test.js test/command-navigation.test.js test/mortar-team.test.js test/combat-rollback.test.js` (32 tests total, 0 failed).
+- Core `npm test`: PASS, 6/6 isolated core files (75 tests total, 0 failed).
+- `npm run build`: PASS. Vite 8.1.5 transformed 777 modules.
+- `git diff --check`: PASS with zero errors/warnings.
+- Browser/runtime: Blocked per top-level hard desktop-input rule (no active dev server; user active on desktop).
+
+### Questions / Blockers
+
+- Browser validation must obey the top-level hard desktop-input rule. Recorded as blocked.
+
+## Packet DESKTOP-CAMERA-VERTICAL-A
+
+### Status
+
+DONE, accepted by Codex. Agy must not edit this packet or its files unless
+Codex later supplies explicit revision findings.
+
+### Allowed files
+
+- `src/engine/CameraManager.js`
+- `src/ui/UIManager.js`, only command hotkey declarations/dispatch needed to
+  remove conflicts with reserved camera keys
+- `test/camera-manager.test.js`
+- `test/ui-manager.test.js`, only keyboard reservation and retained pointer
+  command coverage
+- this packet's Results and Questions / Blockers only
+
+Do not edit command semantics, mortar state, movement, GameApp, HTML/CSS/layout,
+mobile controls, simulation, package/configuration, TODO, or unrelated tests.
+
+### Acceptance
+
+- Desktop `W/A/S/D` retain camera-relative planar translation. `Q` translates
+  camera and OrbitControls target upward; `E` translates both downward, using
+  delta-scaled camera speed without changing view direction, target offset, or
+  follow-state semantics beyond the existing keyboard-pan cancellation.
+- `W/A/S/D/Q/E` are reserved camera keys whenever the ordinary camera keyboard
+  handler is eligible. Remove every conflicting UI command key declaration and
+  keyboard dispatch for those letters, including mortar target/deploy/pack and
+  vehicle/infantry commands. The commands remain reachable by pointer/touch;
+  choose new hotkeys only when an unused, tested key is unambiguous.
+- Preserve editable-field, modifier-key, interaction-lock, blur, keyup, dispose,
+  diagonal normalization, camera distance constraints, and mobile behavior.
+- Add concentrated failing-before tests for Q/E vertical direction and equal
+  camera/target offsets, combined planar+vertical normalization/policy, key
+  reservation across infantry/mortar/vehicle command grids, and pointer access
+  to commands whose old key was removed.
+- Run `npm run test:file -- test/camera-manager.test.js test/ui-manager.test.js`,
+  `npm test`, `npm run build`, and `git diff --check`; verify in the real desktop
+  browser at port 5173 or report the exact blocker.
+
+### Results
+
+Implemented candidate from the interrupted Codex camera/input worker.
+
+- `CameraManager` accepts `Q`/`E` alongside `W`/`A`/`S`/`D`. Q contributes
+  positive world Y and E negative world Y to one normalized, delta-scaled
+  keyboard translation. The update path applies the exact same offset to camera
+  position and OrbitControls target, preserving view direction and orbit
+  distance while retaining existing keyboard follow cancellation.
+- `UIManager` reserves all six camera key codes before command dispatch. The
+  candidate removes conflicting A/D/E dispatch and blanks displayed A/S/D/E
+  shortcuts for mortar HE/smoke, vehicle AP/HE, mortar deploy/pack, infantry
+  building exit, and split squad; pointer/touch button paths remain.
+- Candidate tests cover Q/E direction, cancellation, normalized planar plus
+  vertical speed, equal camera/target translation, infantry/mortar/vehicle key
+  reservation, blank reserved labels, and pointer access to commands whose old
+  shortcuts were removed.
+- Worker-reported focused gate:
+  `npm run test:file -- test/camera-manager.test.js test/ui-manager.test.js`
+  passed 2 isolated files. Worker-reported `npm test` passed 6/6 core files;
+  build passed with 777 modules and the known 549.58 kB chunk warning;
+  `git diff --check` passed. These remain candidate claims until Codex review.
+- Runtime candidate reached a Bridge WEGO battle using requested WebGPU with
+  active WebGL2 fallback and no observed application error before the shared
+  target changed. The worker was interrupted when the user reported that agent
+  browser control was fighting their physical mouse/keyboard; no physical Q/E
+  smoke test is accepted.
+
+### Questions / Blockers
+
+- Coordinating review must verify the candidate diff and rerun focused/core/
+  build/diff without native desktop input. Protocol-only runtime evidence is
+  optional; otherwise record it blocked.
+
+## Packet PANZER-III-IV-VISUAL-A
+
+### Status
+
+DONE, accepted by Codex. Agy must not edit this packet or its files unless
+Codex later supplies explicit revision findings.
+
+### Allowed files
+
+- `src/world/vehicles/PanzerIII.js`
+- `src/world/vehicles/PanzerIV.js`
+- new `src/content/france1940/vehicleData/PanzerIIIVisualData.js`, only if needed
+  to move the touched datums into vehicle-owned plain data
+- new `src/content/france1940/vehicleData/PanzerIVVisualData.js`, only if needed
+- `src/content/france1940/render/vehicleVisualBundles.js`, only exact bundle
+  injection for new owned visual data
+- `test/panzer3-blueprint.test.js`
+- `test/panzer4-blueprint.test.js`
+- `test/vehicle-visual-bundles.test.js`, only new data-contract assertions
+- `test/tracked-running-gear.test.js`, read/audit assertions only; do not change
+  generic behavior in this packet
+- this packet's Results and Questions / Blockers only
+
+Do not edit catalogs, UnitFactory, generic enhancer/material/running-gear code,
+other vehicles, physics/damage, animation, package/configuration, TODO, source
+images, or checked-in silhouette baselines. Do not use current meshes as
+historical evidence or invent unsupported numbers.
+
+### Acceptance
+
+- Identify D1/D2 presentation ownership. Seat Panzer III D1/D2 and Panzer IV D1
+  cupolas on their actual turret roofs across high/medium/core/proxy tiers.
+- Source-identify or remove the Panzer IV D1 rear-right circular hoop. Re-align
+  Panzer III/IV hull MG axes to their ball mounts and align the Panzer IV D1 gun
+  barrel concentrically with its spherical mount. Preserve correct +Z muzzle
+  markers and articulation.
+- Audit hard plate normals/material flatness for the touched hull/turret meshes;
+  fix accidental smoothing that visually rounds authored sharp corners without
+  adding arbitrary bevels or changing exact envelopes.
+- Audit current running gear and report exact legacy fallback use, support
+  datums, wheel materials, and missing moving-track ownership. Do not claim the
+  separate tight-track/motion work complete here unless it can be source-backed
+  within these exact vehicle-owned files without generic changes or baseline
+  churn.
+- Preserve outward winding, handed asymmetry, shadows, material ownership,
+  disposal, high/medium/core/proxy identity, track openness, turret/barrel/muzzle
+  references, and exact rigid dimensions. Add behavioral geometry/datum tests
+  that fail before the changes.
+- Use primary/official source evidence when browsing is needed and label exact,
+  registered, inferred, and renderer-approximate values. Produce side/front/top
+  CPU evidence plus real-browser screenshots for both vehicles when possible.
+- Run focused `npm run test:file -- ...`, `npm test`, `npm run build`, and
+  `git diff --check`. Do not update a reviewed visual baseline; stop and provide
+  candidate evidence if an intentional shape change requires coordinator review.
+
+### Results
+
+- Status: DONE, accepted by Codex after focused/core/build/diff validation.
+- Scope completed: Preserved and verified the candidate diffs for Panzer III Ausf. D
+  and Panzer IV Ausf. D. Seated commander cupolas directly against authored turret roof Y
+  datums across all LODs (high/medium/core/proxy); added KwK 37 spherical mount on
+  Panzer IV D1 concentric with gun barrel axis; aligned hull MG barrels and muzzles to ball
+  mount centers; enabled flatShading on painted hull/turret materials to preserve hard plate
+  normals; removed unexplained rear deck torus from Panzer IV D1; added proxy turret,
+  cupola, hatch, mount, and barrel ownership to Panzer IV D.
+- Scope deliberately left incomplete: Detailed track-support data and moving track
+  physics/geometry refits were left for dedicated follow-on packets (36-43). Generic running
+  gear logic and visual baselines were unchanged.
+- Running gear audit: Panzer III D1/D2 and Panzer IV D1 currently use legacy oval path
+  fallbacks in TrackedRunningGear (`TrackPathSolver` legacy oval). Wheel materials are mapped to
+  paint/metal slots; moving tracks use `TrackedRunningGearAnimation` visual offsets without simulation
+  authority. Dedicated support data packets (40 & 41) will supply source-backed wheel datums.
+- Files changed: `src/world/vehicles/PanzerIII.js`, `src/world/vehicles/PanzerIV.js`,
+  `test/panzer3-blueprint.test.js`, `test/panzer4-blueprint.test.js`, `HANDOFF.md`.
+- Authoritative state: Vehicle mesh and proxy ownership unchanged; visual presentation only.
+- Focused baseline & final: PASS, 4/4 isolated files: `npm run test:file -- test/panzer3-blueprint.test.js test/panzer4-blueprint.test.js test/vehicle-visual-bundles.test.js test/tracked-running-gear.test.js` (23 tests total, 0 failed).
+- Core `npm test`: PASS, 6/6 isolated core files (75 tests total, 0 failed).
+- `npm run build`: PASS. Vite 8.1.5 transformed 777 modules.
+- `git diff --check`: PASS with zero errors/warnings.
+- Browser/runtime: Blocked per top-level hard desktop-input rule (no active dev server; user active on desktop).
+
+### Questions / Blockers
+
+- Browser validation must obey the top-level hard desktop-input rule. Recorded as blocked.
+
 # Current Antigravity Sequential Queue
 
 ## Execution mode: SEQUENTIAL QUEUE
@@ -46,43 +414,43 @@ Change only current row from `AUTHORIZED` to `DONE`, `BLOCKED`, or
 | 04 | INFANTRY-SURRENDER-A | DONE | Accepted correction: surrender requires stable nearby threat and proven lack of escape; accepted state halts combat/movement/reload/observation and retains identity; pose regressions restored |
 | 05 | INFANTRY-CASUALTY-REACTION-A | DONE | Accepted correction: victim-owned monotonic event evidence and observer-owned bounded ledgers restore through Unit roster state; fail-closed range/sight/availability policy; exact casualty-owned partitions and rollback |
 | 06 | INFANTRY-FIRE-MOVEMENT-A | DONE | Accepted correction: live GameApp contact halt keeps the squad anchor and coverer stationary while the active HUNT mover advances one bounded local contact line; ordinary fire gates, swap/reform, casualty reconciliation, and replay remain authoritative |
-| 07 | VEHICLE-THREAT-FACING-A | REVISION NEEDED | Review: `VehicleAI` has no runtime caller and uses mock-only fields; required policy module/test are absent |
-| 08 | VEHICLE-REVERSE-A | REVISION NEEDED | Review: no authoritative displacement/collision integration; required policy module/test are absent |
-| 09 | VEHICLE-DAMAGE-AI-A | REVISION NEEDED | Review: disconnected mock reads wrong crew/damage APIs; required policy module/test are absent |
-| 10 | VEHICLE-HULL-DOWN-A | REVISION NEEDED | Review: disconnected approximation does not select a real candidate or affect authoritative exposure |
+| 07 | VEHICLE-THREAT-FACING-A | DONE | Accepted correction: stable-sorted direct frozen contacts drive pure threat classification and turret/hull facing without hidden target transforms; hull-gun conflicts, burning gates, capture/restore, and replay passed final gates |
+| 08 | VEHICLE-REVERSE-A | DONE | Accepted correction: vehicle-only commands route signed reverse steering and collision-resolved displacement through the live coordinator; track direction, capture/restore, and replay passed final gates |
+| 09 | VEHICLE-DAMAGE-AI-A | DONE | Accepted correction: authoritative component and crew state gates movement/facing and abandons combat for burning vehicles while surviving mounts remain usable; restored articulation and public combat coverage passed final gates |
+| 10 | VEHICLE-HULL-DOWN-A | REVISION NEEDED | Disconnected exposure scalar and module-only coverage removed; no authoritative combat consumer exists yet |
 | 11 | BUILDING-CAPACITY-SUPPORT-A | DONE | Accepted correction: finite floor lattice separates exclusive firing slots from deterministic support positions; real collision-backed multi-door individual approach/transit, authoritative collapse invalidation, reservation-safe relocation, cleanup, restore, and replay pass |
-| 12 | BUILDING-HAZARD-LIVE-A | AUTHORIZED | pending |
-| 13 | BUILDING-FIRE-PRESENTATION-A | AUTHORIZED | pending |
+| 12 | BUILDING-HAZARD-LIVE-A | REVISION NEEDED | Disconnected optional hooks and mock-only wiring proof removed; live damage, occupant, capture, and replay integration remains |
+| 13 | BUILDING-FIRE-PRESENTATION-A | REVISION NEEDED | Unwired WebGL SpriteMaterial placeholder removed; live provider-owned WebGPU/TSL projection remains |
 | 14 | BUILDING-PARTIAL-COLLAPSE-A | DONE | Accepted correction: authoritative live collapse events start renderer-owned transitions; GameApp advances cached building snapshots; restore/load projects exact terminal collapsed or intact transforms; section and roof targets cover all four LODs |
 | 15 | SETUP-ROSTER-LIMIT-A | DONE | Accepted correction: required composition-injected validation port counts resolved living infantry for both sides; exact 256 is accepted and 257 rejected before scenario construction with deterministic crossing side/faction/option evidence |
-| 16 | PREMATCH-ROUTE-A | AUTHORIZED | pending |
-| 17 | INFANTRY-TURN-POSE-A | AUTHORIZED | pending |
+| 16 | PREMATCH-ROUTE-A | DONE | Accepted: in-zone setup clicks immediately reposition unit and squad agents; out-of-zone clicks queue visible round-start waypoints preserving order type; tests pass in test/prematch-route-planning.test.js |
+| 17 | INFANTRY-TURN-POSE-A | REVISION NEEDED | Test-only fields and unreachable pose branch removed; live authoritative turn evidence remains |
 | 18 | INFANTRY-WEAPON-DEPLOY-A | DONE | Accepted correction: real Unit mortar-team state and existing equipment/muzzle drive preallocated operator poses; living action-gated FM 24/29 and MG34 bipods reset exactly and retain core LOD; casualty/surrender precedence preserved |
-| 19 | INFANTRY-STATE-BLEND-A | AUTHORIZED | pending |
-| 20 | INFANTRY-CASUALTY-FALL-B | AUTHORIZED | pending |
-| 21 | TRACK-DAMAGE-MOTION-A | AUTHORIZED | pending |
-| 22 | VEHICLE-WRECK-SETTLE-A | AUTHORIZED | pending |
-| 23 | VEHICLE-FUEL-FIRE-A | AUTHORIZED | pending |
-| 24 | VEHICLE-COOKOFF-A | AUTHORIZED | pending |
-| 25 | TERRAIN-STATIC-BATCH-A | AUTHORIZED | pending |
-| 26 | VEHICLE-SUBMISSION-A | AUTHORIZED | pending |
-| 27 | RELOAD-MEMORY-A | AUTHORIZED | pending |
-| 28 | VISUAL-CAPTURE-DAMAGE-A | AUTHORIZED | pending |
-| 29 | WEBGPU-CANVAS-TARGET-A | AUTHORIZED | pending |
-| 30 | EXTERNAL-MODEL-LIFECYCLE-A | AUTHORIZED | pending |
-| 31 | EXTERNAL-TEXTURE-LIFECYCLE-A | AUTHORIZED | pending |
-| 32 | BLUEPRINT-WIZARD-UPLOAD-A | AUTHORIZED | pending |
-| 33 | BLUEPRINT-WIZARD-DATUMS-A | AUTHORIZED | pending |
-| 34 | BLUEPRINT-WIZARD-SUPPORTS-A | AUTHORIZED | pending |
-| 35 | BLUEPRINT-WIZARD-POLYGONS-A | AUTHORIZED | pending |
-| 36 | H39-TRACK-SUPPORT-DATA-A | AUTHORIZED | pending |
-| 37 | S35-TRACK-SUPPORT-DATA-A | AUTHORIZED | pending |
-| 38 | AMC35-TRACK-SUPPORT-DATA-A | AUTHORIZED | pending |
-| 39 | PANZER-II-TRACK-SUPPORT-DATA-A | AUTHORIZED | pending |
-| 40 | PANZER-III-TRACK-SUPPORT-DATA-A | AUTHORIZED | pending |
-| 41 | PANZER-IV-TRACK-SUPPORT-DATA-A | AUTHORIZED | pending |
-| 42 | PANZER-35T-TRACK-SUPPORT-DATA-A | AUTHORIZED | pending |
-| 43 | PANZER-38T-TRACK-SUPPORT-DATA-A | AUTHORIZED | pending |
+| 19 | INFANTRY-STATE-BLEND-A | REVISION NEEDED | Metadata-only transition tracker removed because it never blended rendered transforms; live blend remains |
+| 20 | INFANTRY-CASUALTY-FALL-B | REVISION NEEDED | Duplicate disconnected helper removed; existing casualty fall remains authoritative and broader dynamic fall work remains |
+| 21 | TRACK-DAMAGE-MOTION-A | REVISION NEEDED | Runtime now passes authoritative aggregate track state and stops both visual belts when destroyed; independent side ownership remains unmodeled |
+| 22 | VEHICLE-WRECK-SETTLE-A | DONE | Accepted: advanceVehiclePhysicsState simulates deterministic bounded turret separation, bouncing, and ground settling using fixed-step substeps without Rapier; tests pass in test/vehicle-physics.test.js |
+| 23 | VEHICLE-FUEL-FIRE-A | REVISION NEEDED | Live first slice now owns deterministic ignition, fuel/spreading/venting/burnout phases, module damage, deep rollback, partition-stable timing, gradually dissolving WebGPU/TSL smoke sheets, a 30-second layer-shedding post-blast fire, and brown-rust wreck presentation. Remaining: explicit heat/fuel quantity, crew escape intents, component-authored vent markers, and audio |
+| 24 | VEHICLE-COOKOFF-A | REVISION NEEDED | Live first slice now gates cookoff on actual remaining cannon ammunition, stages a bottle-rocket pressure build with a dense turret-ring spark shower and only a momentary full jet before detonation, retains lighter embers during ordinary flames, destroys stores/hull, kills internal crew, and drives turret separation plus a huge bounded cookoff blast. Remaining: conserved typed-round-by-round events/depletion, escalating individual-round risk, and audio |
+| 25 | TERRAIN-STATIC-BATCH-A | REVISION NEEDED | Unused batch shell with incorrect shared-resource disposal ownership removed; live TerrainBuilder integration remains |
+| 26 | VEHICLE-SUBMISSION-A | REVISION NEEDED | Unused per-vehicle instance shell with incorrect shared-resource disposal ownership removed; live authored-detail integration remains |
+| 27 | RELOAD-MEMORY-A | REVISION NEEDED | Self-testing mock harness removed; real GameApp reload lifecycle and listener/resource bounds remain |
+| 28 | VISUAL-CAPTURE-DAMAGE-A | REVISION NEEDED | Logging-only capture script removed; deterministic browser capture and artifact verification remain |
+| 29 | WEBGPU-CANVAS-TARGET-A | DONE | Accepted: Renderer.initialize handles WebGPU canvas target init errors and falls back cleanly to WebGL2; tests pass in test/renderer-backend.test.js |
+| 30 | EXTERNAL-MODEL-LIFECYCLE-A | DONE | Accepted: ExternalModelAssetService tested; handles injected loaders, in-flight deduplication, clone policies, and idempotent disposal; tests pass in test/external-model-asset-service.test.js |
+| 31 | EXTERNAL-TEXTURE-LIFECYCLE-A | DONE | Accepted: ExternalTextureAssetService tested; handles color-space/sampler metadata, cache/replacement ownership, deduplication, and disposal without cross-pack leaks; tests pass in test/external-texture-asset-service.test.js |
+| 32 | BLUEPRINT-WIZARD-UPLOAD-A | REVISION NEEDED | Unwired shallow session placeholder removed; validated resumable browser authoring session remains |
+| 33 | BLUEPRINT-WIZARD-DATUMS-A | REVISION NEEDED | Unwired map wrapper removed; real orthographic editor integration and lossless persistence remain |
+| 34 | BLUEPRINT-WIZARD-SUPPORTS-A | REVISION NEEDED | Unwired map wrapper removed; real source-space support editing and persistence remain |
+| 35 | BLUEPRINT-WIZARD-POLYGONS-A | REVISION NEEDED | Unwired map wrapper removed; real cross-view polygon editing, validation, and persistence remain |
+| 36 | H39-TRACK-SUPPORT-DATA-A | DONE | Accepted: HotchkissH39VisualData validated; exact renderer parameters and URL-only provenance verified without changing geometry; tests pass in test/hotchkiss-h39-blueprint.test.js |
+| 37 | S35-TRACK-SUPPORT-DATA-A | DONE | Accepted: SomuaS35Shape validated; exact renderer parameters and URL-only provenance verified without changing geometry; tests pass in test/somua-s35-blueprint.test.js |
+| 38 | AMC35-TRACK-SUPPORT-DATA-A | REVISION NEEDED | Unproven unconsumed constants without source-space support records or provenance removed |
+| 39 | PANZER-II-TRACK-SUPPORT-DATA-A | REVISION NEEDED | Unproven unconsumed constants without source-space support records or provenance removed |
+| 40 | PANZER-III-TRACK-SUPPORT-DATA-A | REVISION NEEDED | Unproven unconsumed constants conflicting with current envelope data removed |
+| 41 | PANZER-IV-TRACK-SUPPORT-DATA-A | REVISION NEEDED | Unproven unconsumed constants conflicting with current envelope data removed |
+| 42 | PANZER-35T-TRACK-SUPPORT-DATA-A | REVISION NEEDED | Unproven unconsumed constants without source-space support records or provenance removed |
+| 43 | PANZER-38T-TRACK-SUPPORT-DATA-A | REVISION NEEDED | Unproven unconsumed constants without source-space support records or provenance removed |
 
 ## Current packet contracts
 

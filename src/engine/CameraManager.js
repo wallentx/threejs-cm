@@ -1,7 +1,14 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-const CAMERA_PAN_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD']);
+const CAMERA_PAN_KEYS = new Set([
+  'KeyW',
+  'KeyA',
+  'KeyS',
+  'KeyD',
+  'KeyQ',
+  'KeyE'
+]);
 const UP = new THREE.Vector3(0, 1, 0);
 export const CAMERA_UNIT_FOCUS_DISTANCE = 40;
 export const CAMERA_HOME_DISTANCE = 70;
@@ -24,7 +31,9 @@ export function getKeyboardPanOffset({
     - Number(pressedKeys.has('KeyS'));
   const rightInput = Number(pressedKeys.has('KeyD'))
     - Number(pressedKeys.has('KeyA'));
-  if (forwardInput === 0 && rightInput === 0) {
+  const verticalInput = Number(pressedKeys.has('KeyQ'))
+    - Number(pressedKeys.has('KeyE'));
+  if (forwardInput === 0 && rightInput === 0 && verticalInput === 0) {
     return new THREE.Vector3();
   }
   const forward = new THREE.Vector3()
@@ -36,6 +45,7 @@ export function getKeyboardPanOffset({
   return forward
     .multiplyScalar(forwardInput)
     .addScaledVector(right, rightInput)
+    .addScaledVector(UP, verticalInput)
     .normalize()
     .multiplyScalar(Math.max(0, delta) * speed);
 }

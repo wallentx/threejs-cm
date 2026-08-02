@@ -85,8 +85,6 @@ export class Renderer {
       forceWebGL: !hasWebGPU
     });
 
-    this.container.appendChild(this.graphicsRenderer.domElement);
-
     // 4. Lighting setup
     this.setupLighting();
     this.setDebugMode(this.debugMode);
@@ -102,6 +100,9 @@ export class Renderer {
       powerPreference: 'high-performance',
       alpha: false
     });
+    if (this.container && !this.container.contains(graphicsRenderer.domElement)) {
+      this.container.appendChild(graphicsRenderer.domElement);
+    }
     graphicsRenderer.setSize(window.innerWidth, window.innerHeight);
     graphicsRenderer.setPixelRatio(Math.min(
       window.devicePixelRatio,

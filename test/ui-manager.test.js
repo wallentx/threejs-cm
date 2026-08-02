@@ -1328,13 +1328,22 @@ test('armed vehicles expose automatic, AP, HE, and MG target controls', () => {
     assert.doesNotMatch(labels, /TARGET LIGHT/);
     commandGrid.children[1].click();
     assert.deepEqual(modes, ['TARGET_AP']);
+
+    ui.activeTab = 'move';
+    ui.renderCommandGrid();
+    const reverse = commandGrid.children.find(child =>
+      child.innerHTML.includes('REVERSE')
+    );
+    assert.ok(reverse, 'vehicle movement controls must expose REVERSE');
+    reverse.click();
+    assert.deepEqual(modes, ['TARGET_AP', 'MOVE_REVERSE']);
   } finally {
     if (previousDocument === undefined) delete globalThis.document;
     else globalThis.document = previousDocument;
   }
 });
 
-test('A, E, and G activate supported vehicle target modes without stealing infantry exit', () => {
+test('W, A, S, D, Q, and E remain reserved from command keyboard dispatch', () => {
   const previousWindow = globalThis.window;
   let keydown = null;
   globalThis.window = {
@@ -1344,51 +1353,46 @@ test('A, E, and G activate supported vehicle target modes without stealing infan
   };
 
   try {
-    const modes = [];
+    const commands = [];
     const actions = [];
-    let selectedUnit = {
-      type: 'vehicle',
-      vehicleSpec: {
-        mainGun: { ap: 'AP', he: 'HE' },
-        weaponMounts: [{ id: 'coax' }]
-      }
-    };
+    let selectedUnit = null;
     const ui = Object.create(UIManager.prototype);
     ui.runtime = {
-      get selectedUnit() { return selectedUnit; },
-      canIssueOrders: () => true,
-      setCommandMode(mode) {
-        modes.push(mode);
-        return mode;
-      }
+      get selectedUnit() { return selectedUnit; }
     };
-    ui.renderCommandGrid = () => {};
+    ui.triggerCommand = command => commands.push(command);
     ui.handleDirectAction = action => actions.push(action);
     ui.initHotkeys();
 
-    for (const code of ['KeyA', 'KeyE', 'KeyG']) {
-      keydown({
-        code,
-        target: { tagName: 'DIV', isContentEditable: false },
-        preventDefault() {}
-      });
-    }
-    assert.deepEqual(modes, ['TARGET_AP', 'TARGET_HE', 'TARGET_MG']);
-    assert.deepEqual(actions, []);
-
-    selectedUnit = {
-      type: 'infantry_squad',
-      soldierAI: {
-        agents: [{ buildingLocation: { buildingId: 'house' } }]
+    const selections = [
+      {
+        type: 'vehicle',
+        vehicleSpec: { mainGun: { ap: 'AP', he: 'HE' } }
+      },
+      {
+        type: 'infantry_squad',
+        mortarTeamState: { deploymentState: 'PACKED' },
+        hasDeployableCrewServedWeapon() { return true; }
+      },
+      {
+        type: 'infantry_squad',
+        soldierAI: {
+          agents: [{ buildingLocation: { buildingId: 'house' } }]
+        }
       }
-    };
-    keydown({
-      code: 'KeyE',
-      target: { tagName: 'DIV', isContentEditable: false },
-      preventDefault() {}
-    });
-    assert.deepEqual(modes, ['TARGET_AP', 'TARGET_HE', 'TARGET_MG']);
-    assert.deepEqual(actions, ['EXIT_BUILDING']);
+    ];
+    for (const selection of selections) {
+      selectedUnit = selection;
+      for (const code of ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE']) {
+        keydown({
+          code,
+          target: { tagName: 'DIV', isContentEditable: false },
+          preventDefault() {}
+        });
+      }
+    }
+    assert.deepEqual(commands, []);
+    assert.deepEqual(actions, []);
   } finally {
     if (previousWindow === undefined) delete globalThis.window;
     else globalThis.window = previousWindow;
@@ -1492,58 +1496,101 @@ test('building floor choices come from the target descriptor and never invent an
   }
 });
 
-test('E issues one building exit only for an eligible selected infantry unit', () => {
-  const previousWindow = globalThis.window;
-  let keydown = null;
-  globalThis.window = {
-    addEventListener(type, listener) {
-      if (type === 'keydown') keydown = listener;
+test('camera-reserved command hotkeys are blank while pointer commands remain active', () => {
+  const previousDocument = globalThis.document;
+  const commandGrid = {
+    children: [],
+    set innerHTML(value) {
+      if (value === '') this.children = [];
+    },
+    appendChild(child) {
+      this.children.push(child);
     }
+  };
+  const panels = {
+    'command-grid': commandGrid,
+    'panel-commands': createPanelHarness(),
+    'panel-team-roster': createPanelHarness()
+  };
+  globalThis.document = {
+    getElementById: id => panels[id] ?? null,
+    createElement: () => ({
+      className: '',
+      innerHTML: '',
+      classList: { add() {} },
+      addEventListener(type, listener) {
+        if (type === 'click') this.click = listener;
+      }
+    }),
+    body: { classList: { toggle() {} } }
   };
 
   try {
+    const modes = [];
     const actions = [];
+    let selectedUnit = null;
     const ui = Object.create(UIManager.prototype);
     ui.runtime = {
-      selectedUnit: {
-        type: 'infantry_squad',
-        soldierAI: {
-          agents: [{ buildingLocation: { buildingId: 'house' } }]
-        }
+      get selectedUnit() { return selectedUnit; },
+      commandMode: null,
+      canIssueOrders: () => true,
+      setCommandMode(mode) {
+        modes.push(mode);
+        return mode;
       }
     };
     ui.canIssueOrders = () => true;
     ui.handleDirectAction = action => actions.push(action);
-    ui.initHotkeys();
+    ui.showToast = () => {};
 
-    let prevented = 0;
-    keydown({
-      code: 'KeyE',
-      target: { tagName: 'DIV', isContentEditable: false },
-      preventDefault() { prevented++; }
-    });
-    assert.deepEqual(actions, ['EXIT_BUILDING']);
-    assert.equal(prevented, 1);
-
-    keydown({
-      code: 'KeyE',
-      target: { tagName: 'INPUT', isContentEditable: false },
-      preventDefault() { prevented++; }
-    });
-    ui.runtime.selectedUnit = {
-      type: 'infantry_squad',
-      soldierAI: { agents: [{ buildingLocation: null }] }
+    const clickCommand = (unit, tab, label) => {
+      selectedUnit = unit;
+      ui.activeTab = tab;
+      ui.renderCommandGrid();
+      const markup = commandGrid.children.map(child => child.innerHTML).join(' ');
+      assert.doesNotMatch(markup, /cmd-hotkey\">[WASDQE]</);
+      const button = commandGrid.children.find(child => child.innerHTML.includes(label));
+      assert.ok(button, `${label} must remain visible`);
+      button.click();
     };
-    keydown({
-      code: 'KeyE',
-      target: { tagName: 'DIV', isContentEditable: false },
-      preventDefault() { prevented++; }
-    });
-    assert.deepEqual(actions, ['EXIT_BUILDING']);
-    assert.equal(prevented, 1);
+
+    const mortar = {
+      type: 'infantry_squad',
+      mortarTeamConfig: { smokeWeaponId: 'MORTAR_SMOKE' },
+      mortarTeamState: { deploymentState: 'PACKED' },
+      soldierAI: { agents: [] },
+      hasDeployableCrewServedWeapon() { return true; }
+    };
+    clickCommand(mortar, 'combat', 'TARGET HE');
+    clickCommand(mortar, 'combat', 'TARGET SMOKE');
+    clickCommand(mortar, 'special', 'DEPLOY MORTAR');
+
+    const vehicle = {
+      type: 'vehicle',
+      vehicleSpec: { mainGun: { ap: 'AP', he: 'HE' } }
+    };
+    clickCommand(vehicle, 'combat', 'TARGET AP');
+    clickCommand(vehicle, 'combat', 'TARGET HE');
+
+    const infantry = {
+      type: 'infantry_squad',
+      soldierAI: {
+        agents: [{ buildingLocation: { buildingId: 'house' } }]
+      }
+    };
+    clickCommand(infantry, 'special', 'DISMOUNT / EXIT');
+    clickCommand(infantry, 'admin', 'SPLIT SQUAD');
+
+    assert.deepEqual(modes, [
+      'MORTAR_HE',
+      'MORTAR_SMOKE',
+      'TARGET_AP',
+      'TARGET_HE'
+    ]);
+    assert.deepEqual(actions, ['DEPLOY', 'EXIT_BUILDING', 'SPLIT']);
   } finally {
-    if (previousWindow === undefined) delete globalThis.window;
-    else globalThis.window = previousWindow;
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
   }
 });
 

@@ -144,7 +144,10 @@ test('replacement VFX provider reaches pooled combat and vehicle-damage effects'
     unit.mesh.userData.assetBindings.vehicleDamageVfx,
     expectedBinding
   );
-  assert.deepEqual(record.smoke.material.userData.assetBinding, expectedBinding);
+  assert.deepEqual(
+    record.smoke.children[0].material.userData.assetBinding,
+    expectedBinding
+  );
 
   combat.dispose();
   damageEffects.dispose();

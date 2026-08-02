@@ -33,6 +33,26 @@ const DAMAGE_CANDIDATES = Object.freeze({
   track_right: ['tracks']
 });
 
+export const VEHICLE_FIRE_MODEL = Object.freeze({
+  id: 'vehicle-progressive-fire-v1',
+  dataQuality: 'GAMEPLAY_APPROXIMATION',
+  fuelFireSeconds: 3.25,
+  spreadSecondsMin: 5.5,
+  spreadSecondsRange: 4,
+  ventSecondsMin: 1.6,
+  ventSecondsRange: 1.2,
+  postBlastFireSeconds: 30
+});
+
+const VEHICLE_FIRE_PHASES = new Set([
+  'NONE',
+  'FUEL_FIRE',
+  'SPREADING_FIRE',
+  'AMMUNITION_VENTING',
+  'BURNED_OUT',
+  'DETONATED'
+]);
+
 function clonePlain(value) {
   if (Array.isArray(value)) return value.map(clonePlain);
   if (value && typeof value === 'object') {
@@ -121,10 +141,40 @@ export function setVehicleComponentHealth(components, id, health) {
 }
 
 export function createVehicleDamageState(saved = null) {
+  const savedFire = saved?.fire;
+  const savedPhase = VEHICLE_FIRE_PHASES.has(savedFire?.phase)
+    ? savedFire.phase
+    : (saved?.secondaryExplosion
+        ? 'DETONATED'
+        : (saved?.burning ? 'FUEL_FIRE' : 'NONE'));
   return {
-    burning: Boolean(saved?.burning),
+    burning: Boolean(
+      saved?.burning
+      || !['NONE', 'BURNED_OUT'].includes(savedPhase)
+    ),
     destroyed: Boolean(saved?.destroyed),
     secondaryExplosion: Boolean(saved?.secondaryExplosion),
+    fire: {
+      modelId: VEHICLE_FIRE_MODEL.id,
+      dataQuality: VEHICLE_FIRE_MODEL.dataQuality,
+      phase: savedPhase,
+      source: savedFire?.source ?? (savedPhase === 'NONE' ? null : 'legacy'),
+      elapsedSeconds: Math.max(0, savedFire?.elapsedSeconds ?? 0),
+      phaseElapsedSeconds: Math.max(0, savedFire?.phaseElapsedSeconds ?? 0),
+      spreadDurationSeconds: Math.max(
+        VEHICLE_FIRE_MODEL.spreadSecondsMin,
+        savedFire?.spreadDurationSeconds ?? VEHICLE_FIRE_MODEL.spreadSecondsMin
+      ),
+      ventDurationSeconds: Math.max(
+        VEHICLE_FIRE_MODEL.ventSecondsMin,
+        savedFire?.ventDurationSeconds ?? VEHICLE_FIRE_MODEL.ventSecondsMin
+      ),
+      postBlastDurationSeconds: Math.max(
+        1,
+        savedFire?.postBlastDurationSeconds
+          ?? VEHICLE_FIRE_MODEL.postBlastFireSeconds
+      )
+    },
     eventVersion: Math.max(0, saved?.eventVersion ?? saved?.version ?? 0),
     events: (saved?.events ?? []).slice(-24).map(clonePlain)
   };
@@ -155,11 +205,200 @@ function damageOneComponent(components, componentId, amount) {
   };
 }
 
+function transitionVehicleFire(damageState, phase, detail = {}) {
+  damageState.fire.phase = phase;
+  damageState.fire.phaseElapsedSeconds = 0;
+  return recordVehicleEvent(damageState, 'fire_phase_changed', {
+    phase,
+    modelId: VEHICLE_FIRE_MODEL.id,
+    dataQuality: VEHICLE_FIRE_MODEL.dataQuality,
+    ...detail
+  });
+}
+
+function beginVehicleFire(damageState, source, random, phase = 'FUEL_FIRE') {
+  if (typeof random !== 'function') {
+    throw new TypeError('vehicle fire ignition requires injected deterministic random');
+  }
+  const firstIgnition = damageState.fire.phase === 'NONE';
+  damageState.burning = true;
+  damageState.fire.source = source;
+  damageState.fire.spreadDurationSeconds = VEHICLE_FIRE_MODEL.spreadSecondsMin
+    + random() * VEHICLE_FIRE_MODEL.spreadSecondsRange;
+  damageState.fire.ventDurationSeconds = VEHICLE_FIRE_MODEL.ventSecondsMin
+    + random() * VEHICLE_FIRE_MODEL.ventSecondsRange;
+  damageState.fire.phase = phase;
+  damageState.fire.phaseElapsedSeconds = 0;
+  if (firstIgnition) {
+    damageState.fire.elapsedSeconds = 0;
+    recordVehicleEvent(damageState, 'fire_started', {
+      source,
+      phase,
+      modelId: VEHICLE_FIRE_MODEL.id,
+      dataQuality: VEHICLE_FIRE_MODEL.dataQuality
+    });
+  }
+  if (phase === 'AMMUNITION_VENTING') {
+    recordVehicleEvent(damageState, 'ammunition_venting', {
+      source,
+      modelId: VEHICLE_FIRE_MODEL.id,
+      dataQuality: VEHICLE_FIRE_MODEL.dataQuality
+    });
+  }
+}
+
+function damageComponentFromFire(components, componentId, maximumHealth) {
+  const component = components?.[componentId];
+  if (!component?.installed || component.health <= maximumHealth) return false;
+  setVehicleComponentHealth(components, componentId, maximumHealth);
+  return true;
+}
+
+function normalizeFireTime(seconds) {
+  return Math.round(seconds * 1e9) / 1e9;
+}
+
+/**
+ * Advances the authoritative, rollback-owned vehicle fire lifecycle. Timing is
+ * deliberately a labeled gameplay approximation; all stochastic timings are
+ * sampled once at ignition so equal elapsed-time partitions produce the same
+ * transitions and component outcome.
+ */
+export function advanceVehicleFireState({
+  components,
+  damageState,
+  hasAmmunition = false
+}, deltaSeconds) {
+  if (!damageState?.fire || !components) {
+    throw new TypeError('vehicle fire advancement requires components and damage state');
+  }
+  if (!Number.isFinite(deltaSeconds) || deltaSeconds < 0) {
+    throw new RangeError('vehicle fire deltaSeconds must be finite and non-negative');
+  }
+
+  const result = {
+    phase: damageState.fire.phase,
+    secondaryExplosionStarted: false,
+    burnedOut: false
+  };
+  if (
+    deltaSeconds === 0
+    || ['NONE', 'BURNED_OUT'].includes(damageState.fire.phase)
+  ) {
+    return result;
+  }
+
+  let remaining = deltaSeconds;
+  let guard = 0;
+  while (remaining > 1e-9 && guard++ < 6) {
+    const phase = damageState.fire.phase;
+    const phaseDuration = phase === 'FUEL_FIRE'
+      ? VEHICLE_FIRE_MODEL.fuelFireSeconds
+      : (phase === 'SPREADING_FIRE'
+          ? damageState.fire.spreadDurationSeconds
+          : (phase === 'DETONATED'
+              ? damageState.fire.postBlastDurationSeconds
+              : damageState.fire.ventDurationSeconds));
+    const untilTransition = Math.max(
+      0,
+      phaseDuration - damageState.fire.phaseElapsedSeconds
+    );
+    const consumed = Math.min(remaining, untilTransition);
+    damageState.fire.phaseElapsedSeconds = normalizeFireTime(
+      damageState.fire.phaseElapsedSeconds + consumed
+    );
+    damageState.fire.elapsedSeconds = normalizeFireTime(
+      damageState.fire.elapsedSeconds + consumed
+    );
+    remaining = normalizeFireTime(remaining - consumed);
+    if (damageState.fire.phaseElapsedSeconds + 1e-9 < phaseDuration) break;
+
+    if (phase === 'FUEL_FIRE') {
+      const affected = ['fuel', 'engine', 'transmission'].filter(componentId =>
+        damageComponentFromFire(
+          components,
+          componentId,
+          componentId === 'transmission' ? 45 : (componentId === 'engine' ? 18 : 0)
+        ));
+      transitionVehicleFire(damageState, 'SPREADING_FIRE', {
+        source: damageState.fire.source,
+        affectedComponents: affected.join(',')
+      });
+      continue;
+    }
+
+    if (phase === 'SPREADING_FIRE' && hasAmmunition) {
+      damageComponentFromFire(components, 'ammunition', 0);
+      transitionVehicleFire(damageState, 'AMMUNITION_VENTING', {
+        source: 'spreading_fire'
+      });
+      recordVehicleEvent(damageState, 'ammunition_venting', {
+        source: 'spreading_fire',
+        modelId: VEHICLE_FIRE_MODEL.id,
+        dataQuality: VEHICLE_FIRE_MODEL.dataQuality
+      });
+      continue;
+    }
+
+    if (phase === 'SPREADING_FIRE') {
+      for (const componentId of ['fuel', 'engine', 'transmission']) {
+        damageComponentFromFire(components, componentId, 0);
+      }
+      damageComponentFromFire(components, 'hull', 0);
+      damageState.destroyed = true;
+      transitionVehicleFire(damageState, 'BURNED_OUT', {
+        source: 'fuel_fire'
+      });
+      recordVehicleEvent(damageState, 'vehicle_burned_out', {
+        source: 'fuel_fire',
+        modelId: VEHICLE_FIRE_MODEL.id,
+        dataQuality: VEHICLE_FIRE_MODEL.dataQuality
+      });
+      result.burnedOut = true;
+      break;
+    }
+
+    if (phase === 'AMMUNITION_VENTING') {
+      for (const componentId of ['ammunition', 'fuel', 'engine', 'hull']) {
+        damageComponentFromFire(components, componentId, 0);
+      }
+      damageState.secondaryExplosion = true;
+      damageState.burning = true;
+      damageState.destroyed = true;
+      transitionVehicleFire(damageState, 'DETONATED', {
+        source: 'ammunition'
+      });
+      recordVehicleEvent(damageState, 'secondary_explosion', {
+        source: 'ammunition',
+        modelId: VEHICLE_FIRE_MODEL.id,
+        dataQuality: VEHICLE_FIRE_MODEL.dataQuality
+      });
+      result.secondaryExplosionStarted = true;
+      continue;
+    }
+
+    if (phase === 'DETONATED') {
+      damageState.burning = false;
+      transitionVehicleFire(damageState, 'BURNED_OUT', {
+        source: 'post_blast_fire'
+      });
+      recordVehicleEvent(damageState, 'post_blast_fire_ended', {
+        source: 'ammunition',
+        modelId: VEHICLE_FIRE_MODEL.id,
+        dataQuality: VEHICLE_FIRE_MODEL.dataQuality
+      });
+      result.burnedOut = true;
+      break;
+    }
+  }
+  result.phase = damageState.fire.phase;
+  return result;
+}
+
 function resolvePenetrationSecondaryEffects({ components, damageState, random }) {
   const fuel = components.fuel;
   if (!damageState.burning && fuel?.installed && !fuel.operational && random() < 0.55) {
-    damageState.burning = true;
-    recordVehicleEvent(damageState, 'fire_started', { source: 'fuel' });
+    beginVehicleFire(damageState, 'fuel', random);
   }
 
   const ammunition = components.ammunition;
@@ -167,11 +406,7 @@ function resolvePenetrationSecondaryEffects({ components, damageState, random })
       && ammunition?.installed
       && !ammunition.operational
       && random() < 0.65) {
-    damageState.secondaryExplosion = true;
-    damageState.burning = true;
-    damageState.destroyed = true;
-    setVehicleComponentHealth(components, 'hull', 0);
-    recordVehicleEvent(damageState, 'secondary_explosion', { source: 'ammunition' });
+    beginVehicleFire(damageState, 'ammunition', random, 'AMMUNITION_VENTING');
   }
 }
 
@@ -523,6 +758,7 @@ export function vehicleDamageReport(unit) {
     components,
     mounts,
     burning: damageState.burning,
+    fire: clonePlain(damageState.fire),
     destroyed: damageState.destroyed,
     secondaryExplosion: damageState.secondaryExplosion,
     physics: unit.vehiclePhysics

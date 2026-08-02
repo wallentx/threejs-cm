@@ -107,7 +107,8 @@ export function recordResolvedVehicleTravel(state, {
   previousYaw,
   nextYaw,
   movedX,
-  movedZ
+  movedZ,
+  components = null
 }) {
   if (!state) return null;
   const midpointYaw = wrapVehicleYaw(
@@ -125,8 +126,27 @@ export function recordResolvedVehicleTravel(state, {
         finite(vehicleSpec.dimensionsMeters?.width, 2) * 0.72)
     );
     const yawDelta = wrapVehicleYaw(nextYaw - previousYaw);
-    state.leftTrackMeters += forwardDistance + yawDelta * gauge * 0.5;
-    state.rightTrackMeters += forwardDistance - yawDelta * gauge * 0.5;
+
+    // The authoritative component model currently owns one aggregate `tracks`
+    // record. Do not invent independent left/right component authority in the
+    // presentation accumulator. Once that component is disabled, neither belt
+    // may continue visually scrolling while the vehicle is stationary.
+    const aggregateTracksDisabled = components?.tracks?.operational === false
+      || components?.tracks?.status === 'DESTROYED'
+      || (Number.isFinite(components?.tracks?.health) && components.tracks.health <= 0);
+    const leftDisabled = aggregateTracksDisabled
+      || components?.leftTrack?.operational === false
+      || (Number.isFinite(components?.leftTrack?.health) && components.leftTrack.health <= 0);
+    const rightDisabled = aggregateTracksDisabled
+      || components?.rightTrack?.operational === false
+      || (Number.isFinite(components?.rightTrack?.health) && components.rightTrack.health <= 0);
+
+    if (!leftDisabled) {
+      state.leftTrackMeters += forwardDistance + yawDelta * gauge * 0.5;
+    }
+    if (!rightDisabled) {
+      state.rightTrackMeters += forwardDistance - yawDelta * gauge * 0.5;
+    }
   }
   return state;
 }

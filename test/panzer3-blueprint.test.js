@@ -117,7 +117,11 @@ test('Panzer III weapons and proxy preserve articulation ownership', () => {
   assert.equal(vehicle.getObjectByName('coax_barrel').userData.mountSide, 'right');
   assert.equal(vehicle.getObjectByName('PanzerIIID_HullMGBallMount').userData.mountSide, 'right');
   assert.equal(vehicle.userData.proxyTurret.parent, vehicle.userData.turret);
-  assert.equal(vehicle.userData.proxyBarrel.parent, vehicle.userData.barrel);
+  assert.equal(vehicle.userData.proxyBustle.parent, vehicle.userData.turret);
+  assert.equal(vehicle.userData.proxyMantlet.parent, vehicle.userData.turret);
+  assert.equal(vehicle.userData.proxyBustle.userData.lodBand, 'proxy');
+  assert.equal(vehicle.userData.proxyMantlet.userData.lodBand, 'proxy');
+  assert.equal(vehicle.userData.proxyBarrel.parent, vehicle.userData.turret);
   assert.equal(vehicle.getObjectByName('ProxyRoadWheels').count, 16);
   assert.ok(vehicle.getObjectByName('PanzerIIID_ProxyEngineDeck'));
   assert.equal(vehicle.userData.commanderHatches.length, 2);
@@ -139,4 +143,23 @@ test('Panzer III weapons and proxy preserve articulation ownership', () => {
     );
   }
   assert.equal(vehicle.userData.proxyCupola.userData.lodBand, 'proxy');
+});
+
+test('Panzer III cupola, hard plates, and hull MG remain aligned at every owned tier', () => {
+  const vehicle = createPanzerIIIMesh();
+  const turret = vehicle.getObjectByName('PanzerIIID_ThreeManTurret');
+  const cupola = vehicle.getObjectByName('PanzerIIID_CommanderCupola');
+  const cupolaHeight = cupola.geometry.parameters.height;
+  assert.ok(Math.abs((cupola.position.y - cupolaHeight * 0.5) - 0.62) < 1e-9);
+  assert.equal(turret.material.flatShading, true);
+  assert.equal(vehicle.getObjectByName('PanzerIIID_PrimaryHull').material.flatShading, true);
+
+  const ball = vehicle.getObjectByName('PanzerIIID_HullMGBallMount');
+  const barrel = vehicle.getObjectByName('hull_mg_barrel');
+  const muzzle = vehicle.getObjectByName('hull_mg_muzzle');
+  assert.equal(barrel.position.x, ball.position.x);
+  assert.equal(barrel.position.y, ball.position.y);
+  assert.equal(muzzle.position.x, ball.position.x);
+  assert.equal(muzzle.position.y, ball.position.y);
+  assert.equal(vehicle.userData.proxyBarrel.parent, vehicle.userData.turret);
 });

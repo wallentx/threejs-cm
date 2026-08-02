@@ -7,6 +7,7 @@ import {
   structureDamageReport
 } from './StructureSystems.js';
 import {
+  advanceVehicleFireState,
   applyExplosiveComponentDamage,
   applyPathComponentDamage,
   applyPenetrationComponentDamage,
@@ -27,6 +28,7 @@ import {
   recordFireControlShot,
   resetFireControlState
 } from '../simulation/combat/FireControl.js';
+import { VehicleAI } from './VehicleAI.js';
 import {
   advanceVehicleCrewTaskStep,
   captureVehicleCrewTaskState,
@@ -74,6 +76,7 @@ import {
   planVehicleKinematicStep,
   recordResolvedVehicleTravel
 } from '../simulation/vehicles/VehicleKinematics.js';
+import { planVehicleReverseStep } from '../simulation/vehicles/VehicleReverseManeuver.js';
 import {
   getUnbuttonedCommander,
   getUnbuttonedCommanderWorldPosition
@@ -352,6 +355,9 @@ export class Unit {
       ? new InfantryBuddyBounds()
       : null;
     this.soldierAI = this.type === 'infantry_squad' ? new SoldierAI(this) : null;
+    this.vehicleAI = (this.vehicleSpec || this.type === 'tank' || this.type === 'vehicle')
+      ? new VehicleAI(this, config.vehicleAI)
+      : null;
     this.initializeMortarPosePresentation();
     this.refreshAmmoSummary();
     this.syncMortarVisuals();
@@ -484,6 +490,13 @@ export class Unit {
   syncVehicleTrackPresentation() {
     if (!this.vehicleKinematics) return;
     this.mesh?.userData?.setTrackMotion?.(this.vehicleKinematics);
+  }
+
+  syncVehicleWeaponPresentation() {
+    const turret = this.mesh?.userData?.turret;
+    if (turret && this.vehicleWeapon) {
+      turret.rotation.y = this.vehicleWeapon.turretYaw ?? 0;
+    }
   }
 
   updateVehiclePhysics(delta, terrain) {
@@ -1462,8 +1475,38 @@ export class Unit {
     }
   }
 
+  hasVehicleCookoffAmmunition() {
+    const roundsInState = state => {
+      if (!state) return 0;
+      const stored = state.ammunition
+        ? Object.values(state.ammunition).reduce((sum, rounds) => sum + rounds, 0)
+        : (state.reserveAmmo ?? 0);
+      return stored + (state.feedAmmo ?? 0);
+    };
+    if (roundsInState(this.vehicleWeapon) > 0) return true;
+    return (this.vehicleSpec?.weaponMounts ?? []).some(mount =>
+      mount.kind === 'cannon'
+      && roundsInState(this.vehicleMounts[mount.id]) > 0);
+  }
+
+  incapacitateVehicleCrewFromCookoff() {
+    for (const crewman of this.getLivingCrew()) {
+      crewman.health = 0;
+      crewman.status = 'KIA';
+      recordVehicleEvent(this.vehicleDamageState, 'crew_hit', {
+        crewmanId: crewman.id,
+        role: crewman.role,
+        status: crewman.status,
+        health: crewman.health,
+        cause: 'ammunition_cookoff',
+        dataQuality: 'GAMEPLAY_APPROXIMATION'
+      });
+    }
+  }
+
   getVehicleMovementFactor() {
     if (!this.vehicleSpec || !this.hasOperationalDriver()) return this.vehicleSpec ? 0 : 1;
+    if (this.vehicleDamageState?.burning || this.vehicleDamageState?.secondaryExplosion) return 0;
     let factor = 1;
     if (this.vehicleComponents.engine.status === 'DAMAGED') factor *= 0.58;
     if (this.vehicleComponents.transmission.status === 'DAMAGED') factor *= 0.68;
@@ -1545,6 +1588,12 @@ export class Unit {
       barrel.userData.restZ = restZ;
       const recoil = THREE.MathUtils.clamp(this.vehicleWeapon.recoilTimer / 0.18, 0, 1);
       barrel.position.z = restZ - Math.sin(recoil * Math.PI) * 0.16;
+      const proxyBarrel = this.mesh?.userData.proxyBarrel;
+      if (proxyBarrel && proxyBarrel.parent !== barrel) {
+        const proxyRestZ = proxyBarrel.userData.restZ ?? proxyBarrel.position.z;
+        proxyBarrel.userData.restZ = proxyRestZ;
+        proxyBarrel.position.z = proxyRestZ - Math.sin(recoil * Math.PI) * 0.16;
+      }
     }
     if (this.vehicleWeapon.reloadTimer > 0) {
       const ammunitionFactor = this.getVehicleAmmunitionHandlingFactor();
@@ -1589,6 +1638,21 @@ export class Unit {
       this.vehicleCrewPosture === 'UNBUTTONED'
       && !this.canUnbuttonCommander()
     ) {
+      this.vehicleCrewPosture = 'BUTTONED';
+    }
+    advanceVehicleFireState({
+      components: this.vehicleComponents,
+      damageState: this.vehicleDamageState,
+      hasAmmunition: this.hasVehicleCookoffAmmunition()
+    }, Math.max(0, delta));
+    if (this.vehicleDamageState.burning) {
+      this.abandonVehicleCombatIntent('VEHICLE_BURNING');
+    }
+    if (this.vehicleDamageState.secondaryExplosion) {
+      if (this.getLivingCrew().length > 0) {
+        this.incapacitateVehicleCrewFromCookoff();
+      }
+      this.destroyVehicleAmmunitionStores();
       this.vehicleCrewPosture = 'BUTTONED';
     }
     const crewTaskStep = advanceVehicleCrewTaskStep(
@@ -1722,7 +1786,31 @@ export class Unit {
       : null;
   }
 
+  abandonVehicleCombatIntent(reason = 'ABANDONED') {
+    if (!this.vehicleSpec) return;
+    const clearState = state => {
+      if (!state) return;
+      state.isFiring = false;
+      state.targetUnitId = null;
+      state.targetSoldierId = null;
+      state.targetPos = null;
+      state.fireState = reason;
+      resetFireControlState(state.fireControl, reason);
+    };
+    clearState(this.vehicleWeapon);
+    for (const mount of this.vehicleSpec.weaponMounts ?? []) {
+      clearState(this.vehicleMounts[mount.id]);
+    }
+    this.targetUnit = null;
+    this.targetPos = null;
+    this.targetAimIntent = null;
+  }
+
   updateVehicleCombat(delta, context) {
+    if (this.vehicleDamageState?.burning || this.vehicleDamageState?.secondaryExplosion) {
+      this.abandonVehicleCombatIntent('VEHICLE_BURNING');
+      return false;
+    }
     const mainGunnerDelta = Math.min(
       delta,
       Math.max(0, this.vehicleMainGunnerCombatSeconds ?? delta)
@@ -1789,6 +1877,10 @@ export class Unit {
     { includeMain = true, includeMounts = true } = {}
   ) {
     if (!this.vehicleSpec || !this.isCombatEffective()) return false;
+    if (this.vehicleDamageState?.burning || this.vehicleDamageState?.secondaryExplosion) {
+      this.abandonVehicleCombatIntent('VEHICLE_BURNING');
+      return false;
+    }
     if (this.holdFire) {
       if (this.vehicleWeapon) {
         this.vehicleWeapon.isFiring = false;
@@ -1871,9 +1963,7 @@ export class Unit {
       this.vehicleWeapon.turretYaw = wrapAngle(
         currentTurretYaw + THREE.MathUtils.clamp(yawError, -traverse, traverse)
       );
-      if (this.mesh?.userData.turret) {
-        this.mesh.userData.turret.rotation.y = this.vehicleWeapon.turretYaw;
-      }
+      this.syncVehicleWeaponPresentation();
     }
     const remainingTurretYawError = wrapAngle(
       desiredTurretYaw - (this.vehicleWeapon?.turretYaw ?? currentTurretYaw)
@@ -2453,6 +2543,7 @@ export class Unit {
       vehicleKinematics: this.vehicleKinematics
         ? captureVehicleKinematicsState(this.vehicleKinematics)
         : null,
+      vehicleAI: this.vehicleAI ? this.vehicleAI.captureState() : null,
       vehicleCrewTasks: captureVehicleCrewTaskState(this.vehicleCrewTasks),
       vehicleMainGunnerCombatSeconds: this.vehicleMainGunnerCombatSeconds,
       structureState: this.structureState
@@ -2571,12 +2662,14 @@ export class Unit {
       this.roster = state.roster.map(soldier => ({ ...soldier }));
     }
     this.syncTransformPresentation();
+    this.syncVehicleWeaponPresentation();
     this.syncVehicleTrackPresentation();
     this.syncMortarVisuals(0, true);
     this.updateStanceVisuals();
     this.syncLegacyVehicleDamage();
     this.syncStructureVisuals();
     this.syncStructureCollision();
+    if (this.vehicleAI && state.vehicleAI) this.vehicleAI.restoreState(state.vehicleAI);
     this.refreshAmmoSummary();
     this.syncVehicleCommanderPresentation();
   }
@@ -2595,6 +2688,28 @@ export class Unit {
     }
     this.infantryBuddyBounds.reset();
     this.soldierAI?.clearBuddyBoundDiagnostics();
+    return true;
+  }
+
+  isControllable() {
+    if (this.soldierAI) {
+      const living = this.soldierAI.getLivingAgents().filter(agent =>
+        !UNAVAILABLE_INFANTRY_STATUSES.has(agent.status)
+        && agent.status !== 'SURRENDERED'
+        && agent.state !== 'SURRENDERED'
+      );
+      if (living.length === 0) return false;
+    } else if (this.vehicleSpec) {
+      const living = this.roster.filter(crewman =>
+        (crewman.health ?? 100) > 0
+        && !UNAVAILABLE_INFANTRY_STATUSES.has(crewman.status)
+        && crewman.status !== 'SURRENDERED'
+        && crewman.state !== 'SURRENDERED'
+      );
+      if (living.length === 0) return false;
+    }
+    if (this.vehicleDamageState?.destroyed) return false;
+    if (this.structureState?.destroyed) return false;
     return true;
   }
 
@@ -2794,15 +2909,27 @@ export class Unit {
           dir.normalize();
           const desiredRotation = Math.atan2(dir.x, dir.z);
           const previousRotation = this.rotation;
+          const isReverseOrder = activeOrderType === 'REVERSE'
+            || activeOrderType === 'MOVE_REVERSE'
+            || Boolean(this.vehicleAI?.isReversing);
           const vehicleMotion = this.vehicleSpec
-            ? planVehicleKinematicStep({
-                vehicleSpec: this.vehicleSpec,
-                currentYaw: this.rotation,
-                desiredYaw: desiredRotation,
-                speedMetersPerSecond: speed,
-                targetDistanceMeters: dist,
-                deltaSeconds: delta
-              })
+            ? (isReverseOrder
+                ? planVehicleReverseStep({
+                    vehicleSpec: this.vehicleSpec,
+                    currentYaw: this.rotation,
+                    currentPosition: this.position,
+                    targetPosition: routeTarget,
+                    speedMetersPerSecond: speed,
+                    deltaSeconds: delta
+                  })
+                : planVehicleKinematicStep({
+                    vehicleSpec: this.vehicleSpec,
+                    currentYaw: this.rotation,
+                    desiredYaw: desiredRotation,
+                    speedMetersPerSecond: speed,
+                    targetDistanceMeters: dist,
+                    deltaSeconds: delta
+                  }))
             : null;
           const movementRotation = vehicleMotion?.yaw ?? desiredRotation;
           const intendedDistance = vehicleMotion?.intendedDistanceMeters
@@ -2820,7 +2947,9 @@ export class Unit {
               rotation: movementRotation,
               transientColliders: dynamicVehicleColliders
             };
-            const impactSpeed = intendedDistance / Math.max(delta, 1e-9);
+            // Reverse plans retain a signed travel distance for track and
+            // replay accounting. Collision damage consumes speed magnitude.
+            const impactSpeed = Math.abs(intendedDistance) / Math.max(delta, 1e-9);
             const impactMass = estimateVehicleCrushMassTonnes(this.vehicleSpec);
             // Long footprints can cross several independently owned panels in
             // one fixed step. Destroy qualifying panels in stable collider
@@ -2880,7 +3009,8 @@ export class Unit {
               previousYaw: previousRotation,
               nextYaw: this.rotation,
               movedX: resolved.movedX,
-              movedZ: resolved.movedZ
+              movedZ: resolved.movedZ,
+              components: this.vehicleComponents
             });
           } else if (anchorDisplaced) {
             this.rotation = desiredRotation;
@@ -2897,6 +3027,13 @@ export class Unit {
       }
     }
 
+    const activeVehicleWaypoint = this.waypoints[this.currentWaypointIndex] ?? null;
+    this.vehicleAI?.update(delta, terrain, {
+      ...options,
+      orderType: activeVehicleWaypoint?.orderType ?? null,
+      targetPosition: activeVehicleWaypoint?.position ?? null
+    });
+    this.syncVehicleWeaponPresentation();
     this.updateVehiclePhysics(delta, terrain);
     this.syncVehicleCommanderPresentation();
 

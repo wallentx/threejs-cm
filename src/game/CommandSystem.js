@@ -26,6 +26,8 @@ export function isTargetCommandMode(mode) {
 }
 
 function canUnitUseCommandMode(unit, mode) {
+  if (unit && typeof unit.isControllable === 'function' && !unit.isControllable()) return false;
+  if (mode === 'MOVE_REVERSE') return Boolean(unit?.vehicleSpec);
   if (mode === 'TARGET_AP') return Boolean(unit?.vehicleSpec?.mainGun?.ap);
   if (mode === 'TARGET_HE') return Boolean(unit?.vehicleSpec?.mainGun?.he);
   if (mode === 'TARGET_MG') {
@@ -102,7 +104,9 @@ export class CommandSystem {
   }
 
   setActiveUnits(units, primaryUnit = null) {
-    this.activeUnits = [...new Set((units ?? []).filter(Boolean))];
+    this.activeUnits = [...new Set((units ?? []).filter(unit =>
+      unit && (typeof unit.isControllable !== 'function' || unit.isControllable())
+    ))];
     this.activeUnit = this.activeUnits.includes(primaryUnit)
       ? primaryUnit
       : (this.activeUnits.at(-1) ?? null);
@@ -111,6 +115,12 @@ export class CommandSystem {
   }
 
   setCommandMode(mode) {
+    if (!this.activeUnit || (typeof this.activeUnit.isControllable === 'function' && !this.activeUnit.isControllable())) {
+      this.activeMode = null;
+      this.areaTargetPreview = null;
+      this.renderOverlays();
+      return null;
+    }
     this.activeMode = this.activeMode === mode ? null : mode;
     this.areaTargetPreview = null;
     this.renderOverlays();
@@ -246,30 +256,29 @@ export class CommandSystem {
       if (this.isSetupPhase()) {
         const destination = pointVec3.clone();
         destination.y = this.terrain?.getHeightAt(destination.x, destination.z) ?? destination.y;
-        if (!isPositionInsideDeploymentZone(this.activeUnit, destination, this.deploymentZones)) {
-          this.onInvalidDeployment?.(this.activeUnit, destination);
-          return false;
+        if (isPositionInsideDeploymentZone(this.activeUnit, destination, this.deploymentZones)) {
+          const displacement = destination.clone().sub(this.activeUnit.position);
+          this.activeUnit.clearWaypoints();
+          this.activeUnit.position.copy(destination);
+          this.activeUnit.mesh?.position.copy(destination);
+          if (this.activeUnit.mesh) {
+            this.activeUnit.mesh.rotation.y = this.activeUnit.rotation;
+            this.activeUnit.mesh.updateMatrixWorld(true);
+          }
+          for (const agent of this.activeUnit.soldierAI?.agents ?? []) {
+            agent.position.add(displacement);
+            agent.position.y = this.terrain?.getHeightAt(agent.position.x, agent.position.z)
+              ?? agent.position.y;
+            agent.velocity.set(0, 0, 0);
+            agent.commandWaypoint = -1;
+            agent.syncRecord();
+          }
+          this.activeUnit.soldierAI?.syncMeshes();
+          this.renderOverlays();
+          return true;
         }
-        const displacement = destination.clone().sub(this.activeUnit.position);
-        this.activeUnit.clearWaypoints();
-        this.activeUnit.position.copy(destination);
-        this.activeUnit.mesh?.position.copy(destination);
-        if (this.activeUnit.mesh) {
-          this.activeUnit.mesh.rotation.y = this.activeUnit.rotation;
-          this.activeUnit.mesh.updateMatrixWorld(true);
-        }
-        // Infantry agents own their world positions. Move them with the squad
-        // anchor so the setup teleport cannot leave rendered soldiers behind.
-        for (const agent of this.activeUnit.soldierAI?.agents ?? []) {
-          agent.position.add(displacement);
-          agent.position.y = this.terrain?.getHeightAt(agent.position.x, agent.position.z)
-            ?? agent.position.y;
-          agent.velocity.set(0, 0, 0);
-          agent.commandWaypoint = -1;
-          agent.syncRecord();
-        }
-        this.activeUnit.soldierAI?.syncMeshes();
-      } else {
+      }
+      {
         if (this.activeUnit.type === 'infantry_squad' || this.activeUnit.vehicleSpec) {
           const pendingWaypoint = this.activeUnit.currentWaypointIndex < this.activeUnit.waypoints.length
             ? this.activeUnit.waypoints[this.activeUnit.waypoints.length - 1]
@@ -419,25 +428,31 @@ export class CommandSystem {
     clearGroup(this.pathLinesGroup);
     clearGroup(this.targetLinesGroup);
 
-    const units = this.activeUnits.length > 0
-      ? this.activeUnits
-      : (this.activeUnit ? [this.activeUnit] : []);
+    const controllableUnits = this.activeUnits.filter(unit =>
+      unit && (typeof unit.isControllable !== 'function' || unit.isControllable())
+    );
+    const units = controllableUnits.length > 0
+      ? controllableUnits
+      : (this.activeUnit && (typeof this.activeUnit.isControllable !== 'function' || this.activeUnit.isControllable()) ? [this.activeUnit] : []);
     for (const unit of units) {
-      // 1. Render Waypoint Paths
-      if (unit.waypoints.length > 0) {
+      // 1. Render Waypoint Paths (only unreached waypoints)
+      const remainingWaypoints = (unit.waypoints && unit.currentWaypointIndex < unit.waypoints.length)
+        ? unit.waypoints.slice(unit.currentWaypointIndex)
+        : [];
+      if (remainingWaypoints.length > 0) {
         const points = [unit.position.clone()];
-        unit.waypoints.forEach(wp => points.push(wp.position.clone()));
+        remainingWaypoints.forEach(wp => points.push(wp.position.clone()));
 
         const geo = new THREE.BufferGeometry().setFromPoints(points);
         const mat = new THREE.LineBasicMaterial({
-          color: this.colors[unit.waypoints[0].orderType] || 0xffff00,
+          color: this.colors[remainingWaypoints[0].orderType] || 0xffff00,
           linewidth: 3
         });
         const line = new THREE.Line(geo, mat);
         this.pathLinesGroup.add(line);
 
         // Render Waypoint Nodes (Spheres)
-        unit.waypoints.forEach(wp => {
+        remainingWaypoints.forEach(wp => {
           const nodeGeo = new THREE.SphereGeometry(0.5, 8, 8);
           const nodeMat = new THREE.MeshBasicMaterial({
             color: this.colors[wp.orderType] || 0xffff00
@@ -450,7 +465,7 @@ export class CommandSystem {
       }
 
       // 2. Render Target Vector
-      if (unit.targetPos) {
+      if (unit.targetPos && (typeof unit.isControllable !== 'function' || unit.isControllable())) {
         const points = [
           unit.position.clone().add(new THREE.Vector3(0, 1.5, 0)),
           unit.targetPos.clone().add(new THREE.Vector3(0, 1.0, 0))

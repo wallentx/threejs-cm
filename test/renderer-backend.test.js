@@ -134,3 +134,34 @@ test('scene shadow configuration restores authored policy after no-shadows mode'
   assert.equal(core.castShadow, true);
   assert.equal(core.receiveShadow, true);
 });
+
+test('Renderer.initialize falls back to WebGL2 when WebGPU init throws getCanvasTarget or null error', async () => {
+  const container = {
+    appendChild: () => {},
+    replaceChildren: () => {}
+  };
+  const renderer = Object.create(Renderer.prototype);
+  renderer.container = container;
+  renderer.renderProfile = { maxPixelRatio: 1, shadowMapSize: 1024 };
+
+  let webglCreated = false;
+  renderer.createGraphicsRenderer = ({ forceWebGL }) => {
+    if (forceWebGL) webglCreated = true;
+    return {
+      domElement: {},
+      backend: forceWebGL ? { isWebGLBackend: true } : { isWebGPUBackend: true },
+      init: async () => {
+        if (!forceWebGL) {
+          throw new TypeError("Cannot read properties of null (reading 'getCanvasTarget')");
+        }
+      },
+      dispose: () => {},
+      info: { autoReset: false }
+    };
+  };
+  renderer.graphicsRenderer = renderer.createGraphicsRenderer({ forceWebGL: false });
+
+  const backendName = await renderer.initialize();
+  assert.equal(webglCreated, true);
+  assert.equal(backendName, 'webgl2-fallback');
+});

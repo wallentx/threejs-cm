@@ -34,6 +34,15 @@ export default defineConfig({
               priority: 60
             },
             {
+              // Game-domain coordinators are shared by the browser composition
+              // root but do not need to remain fused into its UI/bootstrap
+              // chunk. This keeps ordinary feature growth from recreating the
+              // production warning without changing eager execution order.
+              name: 'game-systems',
+              test: /src[\\/]game[\\/]/,
+              priority: 55
+            },
+            {
               name: 'three-webgpu-renderer',
               test: /node_modules[\\/]three[\\/]src[\\/](?:renderers[\\/]webgpu|lights[\\/]webgpu)[\\/]/,
               priority: 50

@@ -10,6 +10,7 @@ import {
 } from './TrackedRunningGear.js';
 
 const MODEL_ID = 'ger_panzer3';
+const TURRET_ROOF_LOCAL_Y = 0.62;
 
 const PANZER_III_D = Object.freeze({
   length: 5.38,
@@ -257,7 +258,7 @@ function createTurretGeometry() {
   const indices = [];
   const top = TURRET_PLAN.map(([x, z]) => [x * 0.84, z * 0.89]);
   for (const [x, z] of TURRET_PLAN) positions.push(x, 0, z);
-  for (const [x, z] of top) positions.push(x, 0.62, z);
+  for (const [x, z] of top) positions.push(x, TURRET_ROOF_LOCAL_Y, z);
   const count = TURRET_PLAN.length;
   for (let edge = 0; edge < count; edge++) {
     const next = (edge + 1) % count;
@@ -448,12 +449,14 @@ export function createPanzerIIIMesh() {
   const bodyMat = setVehicleMaterialSlot(new THREE.MeshStandardMaterial({
     color: '#40484d',
     roughness: 0.77,
-    metalness: 0.14
+    metalness: 0.14,
+    flatShading: true
   }), 'paint');
   const turretMat = setVehicleMaterialSlot(new THREE.MeshStandardMaterial({
     color: '#475055',
     roughness: 0.75,
-    metalness: 0.14
+    metalness: 0.14,
+    flatShading: true
   }), 'paint');
   const trackMat = setVehicleMaterialSlot(new THREE.MeshStandardMaterial({
     color: '#191d20',
@@ -620,12 +623,20 @@ export function createPanzerIIIMesh() {
 
   const commanderStation = PANZER_III_D_COMMANDER_STATION;
   const cupolaData = commanderStation.cupola;
+  const cupolaTopLocalY =
+    cupolaData.centerTurretLocal[1] + cupolaData.heightMeters * 0.5;
+  const seatedCupolaHeight = cupolaTopLocalY - TURRET_ROOF_LOCAL_Y;
+  const cupolaCenter = [
+    cupolaData.centerTurretLocal[0],
+    TURRET_ROOF_LOCAL_Y + seatedCupolaHeight * 0.5,
+    cupolaData.centerTurretLocal[2]
+  ];
   const cupola = addMesh(
     turretGroup,
     new THREE.CylinderGeometry(
       cupolaData.radiusTopMeters,
       cupolaData.radiusBottomMeters,
-      cupolaData.heightMeters,
+      seatedCupolaHeight,
       12,
       1,
       true
@@ -633,10 +644,13 @@ export function createPanzerIIIMesh() {
     turretMat,
     'PanzerIIID_CommanderCupola',
     'core',
-    { position: cupolaData.centerTurretLocal }
+    { position: cupolaCenter }
   );
   cupola.userData.envelopeDatum = 'authoritative-height-2.50m';
   cupola.userData.dataQuality = cupolaData.dataQuality;
+  cupola.userData.seatDatum = 'PanzerIIID_ThreeManTurret roof';
+  cupola.userData.seatingQuality =
+    'renderer-local extension from registered cupola top to authored turret roof';
   const commanderHatches = createCommanderHatches(turretGroup, turretMat);
 
   const driverVisor = addMesh(
@@ -663,6 +677,7 @@ export function createPanzerIIIMesh() {
   hullMgBall.userData.placementQuality = 'blueprint-registered orthographic drawing';
   hullMgBall.userData.referenceUrl = PANZER_III_D_BLUEPRINT_CALIBRATION.source.pageUrl;
   const hullMgLength = 0.34;
+  const hullMgAxis = hullMgBall.position;
   const hullMg = addMesh(
     tankGroup,
     new THREE.CylinderGeometry(0.014, 0.020, hullMgLength, 7),
@@ -670,7 +685,11 @@ export function createPanzerIIIMesh() {
     'hull_mg_barrel',
     'high',
     {
-      position: [lateralX('right', 0.48), 1.45, 1.91 + hullMgLength * 0.5],
+      position: [
+        hullMgAxis.x,
+        hullMgAxis.y,
+        hullMgAxis.z + hullMgLength * 0.5
+      ],
       rotation: [Math.PI / 2, 0, 0],
       envelopeRole: 'weaponProjection'
     }
@@ -685,7 +704,11 @@ export function createPanzerIIIMesh() {
   };
   const hullMgMuzzle = new THREE.Object3D();
   hullMgMuzzle.name = 'hull_mg_muzzle';
-  hullMgMuzzle.position.set(lateralX('right', 0.48), 1.45, 1.91 + hullMgLength);
+  hullMgMuzzle.position.set(
+    hullMgAxis.x,
+    hullMgAxis.y,
+    hullMgAxis.z + hullMgLength
+  );
   hullMgMuzzle.userData = {
     weaponMountId: 'hull_mg',
     forwardAxis: '+Z',
@@ -755,6 +778,17 @@ export function createPanzerIIIMesh() {
 
   const proxyTurret = cloneProxyPart(turret, 'PanzerIIID_ProxyTurret', turretGroup);
   proxyTurret.position.set(0, 0, 0);
+  const proxyBustle = cloneProxyPart(
+    bustle,
+    'PanzerIIID_ProxyRearTurretBustle',
+    turretGroup
+  );
+  const proxyMantlet = cloneProxyPart(
+    mantlet,
+    'PanzerIIID_ProxyMantlet',
+    turretGroup
+  );
+  proxyMantlet.userData.articulatedPart = mantlet.userData.articulatedPart;
   const proxyCupola = cloneProxyPart(
     cupola,
     'PanzerIIID_ProxyCommanderCupola',
@@ -776,7 +810,10 @@ export function createPanzerIIIMesh() {
   proxyBarrel.castShadow = true;
   proxyBarrel.userData.lodBand = 'proxy';
   proxyBarrel.userData.proxySource = barrel.name;
-  barrel.add(proxyBarrel);
+  proxyBarrel.position.copy(barrel.position);
+  proxyBarrel.quaternion.copy(barrel.quaternion);
+  proxyBarrel.userData.restZ = proxyBarrel.position.z;
+  turretGroup.add(proxyBarrel);
 
   tankGroup.userData.turret = turretGroup;
   tankGroup.userData.barrel = barrel;
@@ -787,6 +824,8 @@ export function createPanzerIIIMesh() {
   };
   tankGroup.userData.authoredHull = lowerHull;
   tankGroup.userData.proxyTurret = proxyTurret;
+  tankGroup.userData.proxyBustle = proxyBustle;
+  tankGroup.userData.proxyMantlet = proxyMantlet;
   tankGroup.userData.proxyCupola = proxyCupola;
   tankGroup.userData.proxyBarrel = proxyBarrel;
   tankGroup.userData.commanderStation = commanderStation;

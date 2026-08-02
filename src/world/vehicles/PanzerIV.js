@@ -7,6 +7,7 @@ import {
 } from './TrackedRunningGear.js';
 
 const MODEL_ID = 'ger_panzer4';
+const TURRET_ROOF_LOCAL_Y = 0.65;
 
 const PANZER_IV_D = Object.freeze({
   length: 5.92,
@@ -245,7 +246,7 @@ function createTurretGeometry() {
   const indices = [];
   const topPlan = TURRET_PLAN.map(([x, z]) => [x * 0.86, z * 0.90]);
   for (const [x, z] of TURRET_PLAN) positions.push(x, 0, z);
-  for (const [x, z] of topPlan) positions.push(x, 0.65, z);
+  for (const [x, z] of topPlan) positions.push(x, TURRET_ROOF_LOCAL_Y, z);
   const count = TURRET_PLAN.length;
   for (let edge = 0; edge < count; edge++) {
     const next = (edge + 1) % count;
@@ -384,12 +385,14 @@ export function createPanzerIVMesh() {
   const bodyMat = setVehicleMaterialSlot(new THREE.MeshStandardMaterial({
     color: '#41484d',
     roughness: 0.76,
-    metalness: 0.14
+    metalness: 0.14,
+    flatShading: true
   }), 'paint');
   const turretMat = setVehicleMaterialSlot(new THREE.MeshStandardMaterial({
     color: '#485056',
     roughness: 0.74,
-    metalness: 0.14
+    metalness: 0.14,
+    flatShading: true
   }), 'paint');
   const trackMat = setVehicleMaterialSlot(new THREE.MeshStandardMaterial({
     color: '#1a1d20',
@@ -487,6 +490,23 @@ export function createPanzerIVMesh() {
   );
   mantlet.userData.articulatedPart = 'gun-mantlet';
 
+  const sphericalMount = addMesh(
+    turretGroup,
+    new THREE.SphereGeometry(0.14, 12, 8),
+    turretMat,
+    'PanzerIVD_KwK37SphericalMount',
+    'core',
+    {
+      position: [0.06, PANZER_IV_D.gunAxisLocalY, 1.08],
+      envelopeRole: 'weaponProjection'
+    }
+  );
+  sphericalMount.userData.articulatedPart = 'gun-mount';
+  sphericalMount.userData.placementQuality =
+    'cross-view constrained renderer approximation on the registered gun axis';
+  sphericalMount.userData.referenceUrl =
+    PANZER_IV_D_BLUEPRINT_CALIBRATION.sources[0].pageUrl;
+
   const barrelLength = 1.08;
   const barrel = addMesh(
     turretGroup,
@@ -547,13 +567,27 @@ export function createPanzerIVMesh() {
 
   const cupola = addMesh(
     turretGroup,
-    new THREE.CylinderGeometry(0.34, 0.38, 0.24, 12),
+    new THREE.CylinderGeometry(
+      0.34,
+      0.38,
+      0.94 - TURRET_ROOF_LOCAL_Y,
+      12
+    ),
     turretMat,
     'PanzerIVD_CommanderCupola',
-    'medium',
-    { position: [0.08, 0.82, -0.25] }
+    'core',
+    {
+      position: [
+        0.08,
+        TURRET_ROOF_LOCAL_Y + (0.94 - TURRET_ROOF_LOCAL_Y) * 0.5,
+        -0.25
+      ]
+    }
   );
   cupola.userData.registeredOutlinePart = 'commander-cupola';
+  cupola.userData.seatDatum = 'PanzerIVD_FacetedTurret roof';
+  cupola.userData.seatingQuality =
+    'renderer-local extension from registered cupola top to authored turret roof';
   const hatch = addMesh(
     turretGroup,
     new THREE.CylinderGeometry(0.33, 0.33, 0.05, 12),
@@ -584,6 +618,47 @@ export function createPanzerIVMesh() {
   hullMgBall.userData.weaponMountId = 'hull_mg';
   hullMgBall.userData.mountSide = 'right';
 
+  const hullMgLength = 0.34;
+  const hullMgAxis = hullMgBall.position;
+  const hullMg = addMesh(
+    tankGroup,
+    new THREE.CylinderGeometry(0.014, 0.020, hullMgLength, 7),
+    metalMat,
+    'hull_mg_barrel',
+    'high',
+    {
+      position: [
+        hullMgAxis.x,
+        hullMgAxis.y,
+        hullMgAxis.z + hullMgLength * 0.5
+      ],
+      rotation: [Math.PI / 2, 0, 0],
+      envelopeRole: 'weaponProjection'
+    }
+  );
+  hullMg.userData.weaponMountId = 'hull_mg';
+  hullMg.userData.weaponIdentity = 'MG 34';
+  hullMg.userData.mountSide = 'right';
+  hullMg.userData.placementQuality =
+    'axis constrained to the registered hull ball-mount center';
+  hullMg.userData.referenceUrl = PANZER_IV_D_BLUEPRINT_CALIBRATION.sources[0].pageUrl;
+  const hullMgMuzzle = new THREE.Object3D();
+  hullMgMuzzle.name = 'hull_mg_muzzle';
+  hullMgMuzzle.position.set(
+    hullMgAxis.x,
+    hullMgAxis.y,
+    hullMgAxis.z + hullMgLength
+  );
+  hullMgMuzzle.userData = {
+    weaponMountId: 'hull_mg',
+    forwardAxis: '+Z',
+    envelopeRole: 'weaponProjection',
+    mountSide: 'right',
+    placementQuality: 'axis constrained to the registered hull ball-mount center',
+    referenceUrl: PANZER_IV_D_BLUEPRINT_CALIBRATION.sources[0].pageUrl
+  };
+  tankGroup.add(hullMgMuzzle);
+
   for (const side of [-1, 1]) {
     addMesh(
       tankGroup,
@@ -598,7 +673,7 @@ export function createPanzerIVMesh() {
     );
   }
 
-  // Ausf. D rear deck: two banks of grilles, plus the conspicuous spare wheel.
+  // Ausf. D rear deck grille banks are retained from the registered top view.
   for (const side of [-1, 1]) {
     for (let index = 0; index < 5; index++) {
       addMesh(
@@ -611,15 +686,6 @@ export function createPanzerIVMesh() {
       );
     }
   }
-  addMesh(
-    tankGroup,
-    new THREE.TorusGeometry(0.32, 0.07, 8, 16),
-    metalMat,
-    'PanzerIVD_DeckSpareWheel',
-    'medium',
-    { position: [-0.73, 1.87, -1.67], rotation: [0, Math.PI / 2, 0] }
-  );
-
   const proxyGroup = new THREE.Group();
   proxyGroup.name = 'Proxy';
   cloneProxyPart(lowerHull, 'PanzerIVD_ProxyLowerHull', proxyGroup);
@@ -643,10 +709,63 @@ export function createPanzerIVMesh() {
   proxyGroup.add(proxyRunningGear);
   tankGroup.add(proxyGroup);
 
+  const proxyTurret = cloneProxyPart(
+    turret,
+    'PanzerIVD_ProxyTurret',
+    turretGroup
+  );
+  proxyTurret.position.set(0, 0, 0);
+  const proxyBustle = cloneProxyPart(
+    bustle,
+    'PanzerIVD_ProxyRearTurretBustle',
+    turretGroup
+  );
+  const proxyMantlet = cloneProxyPart(
+    mantlet,
+    'PanzerIVD_ProxyBoxMantlet',
+    turretGroup
+  );
+  proxyMantlet.userData.articulatedPart = mantlet.userData.articulatedPart;
+  const proxyCupola = cloneProxyPart(
+    cupola,
+    'PanzerIVD_ProxyCommanderCupola',
+    turretGroup
+  );
+  const proxyHatch = cloneProxyPart(
+    hatch,
+    'PanzerIVD_ProxyCupolaHatch',
+    turretGroup
+  );
+  const proxySphericalMount = cloneProxyPart(
+    sphericalMount,
+    'PanzerIVD_ProxyKwK37SphericalMount',
+    turretGroup
+  );
+  const proxyBarrel = new THREE.Mesh(barrel.geometry.clone(), barrel.material);
+  proxyBarrel.name = 'PanzerIVD_ProxyBarrel';
+  proxyBarrel.visible = false;
+  proxyBarrel.castShadow = true;
+  proxyBarrel.receiveShadow = true;
+  proxyBarrel.userData.lodBand = 'proxy';
+  proxyBarrel.userData.proxySource = barrel.name;
+  proxyBarrel.userData.envelopeRole = 'weaponProjection';
+  proxyBarrel.position.copy(barrel.position);
+  proxyBarrel.quaternion.copy(barrel.quaternion);
+  proxyBarrel.userData.restZ = proxyBarrel.position.z;
+  turretGroup.add(proxyBarrel);
+
   tankGroup.userData.turret = turretGroup;
   tankGroup.userData.barrel = barrel;
   tankGroup.userData.muzzle = muzzle;
+  tankGroup.userData.weaponMuzzles = { hull_mg: hullMgMuzzle };
   tankGroup.userData.authoredHull = lowerHull;
+  tankGroup.userData.proxyTurret = proxyTurret;
+  tankGroup.userData.proxyBustle = proxyBustle;
+  tankGroup.userData.proxyMantlet = proxyMantlet;
+  tankGroup.userData.proxyCupola = proxyCupola;
+  tankGroup.userData.proxyHatch = proxyHatch;
+  tankGroup.userData.proxySphericalMount = proxySphericalMount;
+  tankGroup.userData.proxyBarrel = proxyBarrel;
   tankGroup.userData.modelMetadata = {
     designation: 'Panzerkampfwagen IV Ausf. D',
     dimensionsMeters: {

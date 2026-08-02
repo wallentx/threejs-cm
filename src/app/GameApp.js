@@ -28,6 +28,7 @@ import { UIManager } from '../ui/UIManager.js';
 import { MapEditor } from '../editor/MapEditor.js';
 import { loadScenario } from '../scenario/ScenarioRuntime.js';
 import { FixedStepAccumulator } from '../simulation/FixedStepAccumulator.js';
+import { CONTACT_CHANNEL } from '../simulation/observation/ContactState.js';
 import { BuildingSystem } from '../simulation/buildings/index.js';
 import {
   InfantrySeparationSystem
@@ -568,6 +569,7 @@ export class GameApp {
       unit
       && unit.faction === this.playerFactionId
       && this.units.includes(unit)
+      && (typeof unit.isControllable !== 'function' || unit.isControllable())
     ))];
     const selectedSet = new Set(uniqueUnits);
     for (const candidate of this.units) {
@@ -598,11 +600,25 @@ export class GameApp {
     return this.selectedUnit;
   }
 
+  pruneUncontrollableSelections() {
+    if (!Array.isArray(this.selectedUnits) || this.selectedUnits.length === 0) return;
+    const controllable = this.selectedUnits.filter(unit =>
+      typeof unit.isControllable !== 'function' || unit.isControllable()
+    );
+    if (controllable.length !== this.selectedUnits.length) {
+      const primary = controllable.includes(this.selectedUnit)
+        ? this.selectedUnit
+        : (controllable.at(-1) ?? null);
+      this.selectUnits(controllable, primary);
+    }
+  }
+
   selectUnit(unit, { additive = false, frameCamera = false } = {}) {
     if (
       !unit
       || unit.faction !== this.playerFactionId
       || !this.units.includes(unit)
+      || (typeof unit.isControllable === 'function' && !unit.isControllable())
     ) {
       return false;
     }
@@ -805,13 +821,42 @@ export class GameApp {
     return opposingUnits.some(target => this.spotting.hasContact(unit, target));
   }
 
+  getDirectVehicleThreatContacts(unit, opposingUnits) {
+    return [...(opposingUnits ?? [])]
+      .sort((left, right) => String(left.id).localeCompare(String(right.id)))
+      .flatMap(target => {
+        if (!this.spotting.hasDirectObservation(unit, target)) return [];
+        const contact = this.spotting.getContactForUnit(unit, target);
+        if (!contact || contact.channel !== CONTACT_CHANNEL.DIRECT) return [];
+        return [{
+          id: target.id,
+          type: target.type ?? null,
+          vehicleSpec: target.vehicleSpec ?? null,
+          threatClass: target.vehicleSpec
+            ? 'armor'
+            : (target.mortarTeamConfig || target.type === 'gun'
+                ? 'crew-served'
+                : (target.type === 'infantry_squad' ? 'infantry' : 'generic')),
+          // Vehicle tactics consume the frozen observation coordinate,
+          // never the live target transform.
+          position: contact.position
+        }];
+      });
+  }
+
   simulateStep(delta) {
     this.movedUnitIds.clear();
+    let commandOverlaysDirty = false;
+    const overlayUnits = new Set([
+      ...(this.commands?.activeUnits ?? []),
+      ...(this.commands?.activeUnit ? [this.commands.activeUnit] : [])
+    ]);
     const dynamicVehicleColliders =
       createDynamicVehicleCollisionRecords(this.units);
     this.units.forEach(unit => {
       const previousX = unit.position.x;
       const previousZ = unit.position.z;
+      const previousWaypointIndex = unit.currentWaypointIndex;
       const waypoint = unit.waypoints[unit.currentWaypointIndex];
       const opposingUnits = this.factionRoster.opposingUnitsFor(unit.faction) ?? [];
       const huntStopped = waypoint?.orderType === 'HUNT' && this.hasContact(unit, opposingUnits);
@@ -824,14 +869,25 @@ export class GameApp {
         hasDirectPrecisionObservation
       };
       if (unit.vehicleSpec) {
+        updateOptions.contacts = this.getDirectVehicleThreatContacts(
+          unit,
+          opposingUnits
+        );
         updateOptions.dynamicVehicleColliders =
           collisionRecordsForVehicle(dynamicVehicleColliders, unit.id);
       }
       unit.update(delta, this.terrain, updateOptions);
+      if (
+        overlayUnits.has(unit)
+        && unit.currentWaypointIndex !== previousWaypointIndex
+      ) {
+        commandOverlaysDirty = true;
+      }
       if (Math.hypot(unit.position.x - previousX, unit.position.z - previousZ) > 1e-5) {
         this.movedUnitIds.add(unit.id);
       }
     });
+    if (commandOverlaysDirty) this.commands.renderOverlays();
     const separation = this.infantrySeparation?.resolve(this.units, this.terrain);
     if (separation?.correctedUnitIds.length > 0) {
       const correctedUnitIds = new Set(separation.correctedUnitIds);
@@ -924,6 +980,7 @@ export class GameApp {
     }
     this.combat.update(delta);
     this.support.update(delta);
+    this.pruneUncontrollableSelections();
   }
 
   advanceSpotting(delta) {

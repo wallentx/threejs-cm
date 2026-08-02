@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { CommandSystem } from '../src/game/CommandSystem.js';
+import { GameApp } from '../src/app/GameApp.js';
 import { StaticCollisionWorld } from '../src/simulation/collision/StaticCollisionWorld.js';
 import { Unit as TestUnit } from './helpers/France1940TestUnit.js';
 
@@ -587,10 +588,37 @@ test('completed queues start from the live position and unsupported movers retai
   assert.equal(completed.waypoints.length, 1, 'Unit.addWaypoint cleanup remains authoritative');
   assert.deepEqual(completed.waypoints[0].position.toArray(), [7, 4, 6]);
 
-  const vehicle = createUnit({ type: 'tank', collisionWorld: { getNavigationPath() { throw new Error('must not plan vehicles'); } } });
+  const vehicle = new TestUnit({
+    id: 'reverse-panzer',
+    faction: 'german',
+    type: 'vehicle',
+    vehicleId: 'PANZER_III_D',
+    position: new THREE.Vector3(0, 0, 0)
+  });
   issueMove(commands, vehicle, new THREE.Vector3(3, 2, 4), 'MOVE_REVERSE');
   assert.equal(vehicle.waypoints.length, 1);
   assert.deepEqual(vehicle.waypoints[0].position.toArray(), [3, 2, 4]);
+  assert.equal(vehicle.waypoints[0].orderType, 'REVERSE');
+});
+
+test('mixed selection dispatches REVERSE only to vehicles', () => {
+  const infantry = createUnit({ position: new THREE.Vector3(0, 0, 0) });
+  const vehicle = new TestUnit({
+    id: 'mixed-reverse-panzer',
+    faction: 'german',
+    type: 'vehicle',
+    vehicleId: 'PANZER_III_D',
+    position: new THREE.Vector3(2, 0, 0)
+  });
+  const commands = new CommandSystem(new THREE.Scene(), {
+    isSetupPhase: () => false
+  });
+  commands.setActiveUnits([infantry, vehicle], vehicle);
+  commands.setCommandMode('MOVE_REVERSE');
+
+  assert.equal(commands.handleMapClick(new THREE.Vector3(2, 0, -8)), true);
+  assert.deepEqual(infantry.waypoints, []);
+  assert.equal(vehicle.waypoints.length, 1);
   assert.equal(vehicle.waypoints[0].orderType, 'REVERSE');
 });
 
@@ -635,4 +663,81 @@ test('setup movement and infantry without a graph preserve their direct behavior
   const ordinaryCommands = new CommandSystem(new THREE.Scene(), { isSetupPhase: () => false });
   issueMove(ordinaryCommands, noGraphUnit, new THREE.Vector3(6, 4, 7));
   assert.deepEqual(noGraphUnit.waypoints[0].position.toArray(), [6, 4, 7]);
+});
+
+test('consumed waypoints are omitted from CommandSystem overlay rendering', () => {
+  const scene = new THREE.Scene();
+  const commands = new CommandSystem(scene);
+  const unit = createUnit({
+    position: new THREE.Vector3(0, 0, 0),
+    waypoints: [
+      { position: new THREE.Vector3(10, 0, 0), orderType: 'QUICK' },
+      { position: new THREE.Vector3(20, 0, 0), orderType: 'QUICK' }
+    ],
+    currentWaypointIndex: 0
+  });
+
+  commands.setActiveUnit(unit);
+  assert.equal(commands.pathLinesGroup.children.length, 3); // 1 Line + 2 Node Spheres
+
+  // Advance to waypoint index 1: waypoint 0 is reached, only 1 remaining waypoint rendered
+  unit.currentWaypointIndex = 1;
+  commands.renderOverlays();
+  assert.equal(commands.pathLinesGroup.children.length, 2); // 1 Line + 1 Node Sphere
+
+  // Final waypoint reached: currentWaypointIndex = 2 >= 2
+  unit.currentWaypointIndex = 2;
+  commands.renderOverlays();
+  assert.equal(commands.pathLinesGroup.children.length, 0); // No overlay line or sphere nodes
+});
+
+test('realtime simulation refreshes selected path overlays only when waypoint progress changes', () => {
+  const selected = {
+    id: 'selected',
+    faction: 'blue',
+    type: 'bunker',
+    position: new THREE.Vector3(),
+    waypoints: [{ position: new THREE.Vector3(1, 0, 0), orderType: 'MOVE' }],
+    currentWaypointIndex: 0,
+    update() {
+      this.currentWaypointIndex++;
+    },
+    isCombatEffective: () => false
+  };
+  let overlayRefreshes = 0;
+  const app = Object.create(GameApp.prototype);
+  Object.assign(app, {
+    units: [selected],
+    movedUnitIds: new Set(),
+    selectedUnits: [],
+    selectedUnit: null,
+    commands: {
+      activeUnits: [selected],
+      activeUnit: selected,
+      renderOverlays() { overlayRefreshes++; }
+    },
+    factionRoster: {
+      opposingUnitsFor: () => [],
+      unitsFor: () => [selected]
+    },
+    factionOrder: ['blue'],
+    spotting: {
+      canPrecisionTarget: () => false,
+      advance() {}
+    },
+    spottingStepper: { advance: () => ({ steps: 0 }) },
+    terrain: {},
+    buildingInteraction: { advance() {} },
+    syncBuildingInteriorPresentation() {},
+    combat: { update() {} },
+    support: { update() {} }
+  });
+
+  app.simulateStep(1 / 30);
+  assert.equal(selected.currentWaypointIndex, 1);
+  assert.equal(overlayRefreshes, 1);
+
+  selected.update = () => {};
+  app.simulateStep(1 / 30);
+  assert.equal(overlayRefreshes, 1);
 });

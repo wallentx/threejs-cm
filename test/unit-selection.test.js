@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { GameApp } from '../src/app/GameApp.js';
+import { Unit } from './helpers/France1940TestUnit.js';
 
 function unit(id, faction = 'blue') {
   return {
@@ -130,4 +131,88 @@ test('selection is friendly-only, additive, camera-neutral, and group-command aw
     if (previousDocument === undefined) delete globalThis.document;
     else globalThis.document = previousDocument;
   }
+});
+
+test('dead or incapacitated units lose controllability and are pruned from selection and overlays', () => {
+  const previousDocument = globalThis.document;
+  globalThis.document = { body: { dataset: {} } };
+
+  try {
+    const livingInfantry = {
+      id: 'infantry-live',
+      faction: 'blue',
+      position: new THREE.Vector3(0, 0, 0),
+      currentWaypointIndex: 0,
+      waypoints: [{ position: new THREE.Vector3(10, 0, 0), orderType: 'QUICK' }],
+      soldierAI: {
+        getLivingAgents() {
+          return [{ id: 's1', status: 'OK', health: 100 }];
+        }
+      },
+      mesh: { userData: { selectionDisc: { visible: false } } },
+      isControllable() { return true; }
+    };
+
+    const deadInfantry = {
+      id: 'infantry-dead',
+      faction: 'blue',
+      position: new THREE.Vector3(5, 0, 5),
+      currentWaypointIndex: 0,
+      waypoints: [{ position: new THREE.Vector3(15, 0, 5), orderType: 'QUICK' }],
+      soldierAI: {
+        getLivingAgents() {
+          return [];
+        }
+      },
+      mesh: { userData: { selectionDisc: { visible: false } } },
+      isControllable() { return false; }
+    };
+
+    const app = Object.create(GameApp.prototype);
+    app.playerFactionId = 'blue';
+    app.units = [livingInfantry, deadInfantry];
+    app.selectedUnit = null;
+    app.selectedUnits = [];
+    app.buildingInteraction = { getInteriorPresenceCounts() { return {}; } };
+    app.buildingSystem = { getBuildingIds() { return []; } };
+    app.terrain = { setBuildingInteriorPresence() {} };
+    app.commands = {
+      setActiveUnits() {}
+    };
+    app.cameraManager = { followUnit: null, focusTarget() {} };
+    app.ui = { updateUnitHUD() {}, clearUnitHUD() {}, renderCommandGrid() {} };
+
+    // Dead unit cannot be selected
+    assert.equal(app.selectUnit(deadInfantry), false);
+    assert.deepEqual(app.selectedUnits, []);
+
+    // Living unit selects cleanly
+    assert.equal(app.selectUnit(livingInfantry), true);
+    assert.deepEqual(app.selectedUnits, [livingInfantry]);
+
+    // Prune test: if living unit becomes uncontrollable (dead), pruneUncontrollableSelections clears selection
+    livingInfantry.isControllable = () => false;
+    app.pruneUncontrollableSelections();
+    assert.deepEqual(app.selectedUnits, []);
+    assert.equal(app.selectedUnit, null);
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  }
+});
+
+test('intact crewless structures remain controllable while destroyed structures do not', () => {
+  const bunker = new Unit({
+    id: 'bunker-live',
+    type: 'bunker',
+    faction: 'german',
+    position: new THREE.Vector3(0, 0, 0)
+  });
+
+  assert.deepEqual(bunker.roster, []);
+  assert.equal(bunker.structureState.destroyed, false);
+  assert.equal(bunker.isControllable(), true);
+
+  bunker.structureState.destroyed = true;
+  assert.equal(bunker.isControllable(), false);
 });

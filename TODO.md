@@ -9,6 +9,168 @@ Status:
 - `[x]` completed
 - `~~strikethrough~~` intentionally dropped
 
+## 2026-08-02 playtest feedback intake
+
+This intake preserves every reported item before it is split into bounded
+implementation packets. Checked children below remain the authoritative record
+even when a matching broader parent exists elsewhere in this file.
+
+### Gameplay bugs and controls
+
+- [x] Fix current direct-visibility loss after a spotted vehicle is hit by a
+  mortar, damaged by direct fire, or continues firing/tracking in clear LOS;
+  smoke or dust may obscure only when an authoritative obscurant actually
+  exists, and damage must not silently revoke observation.
+- [x] Make a unit with no living controllable people non-selectable and unable
+  to accept or project movement orders; remove a dead mortar team's abandoned
+  mortar from unit-token movement authority.
+- [x] Remove each completed movement waypoint marker as the unit reaches it,
+  including the final marker, without requiring Clear.
+- [ ] Let an ordinary movement command leave an occupied building through its
+  authorized local exit route; do not require a building-specific Dismount
+  command.
+- [ ] Reserve Mount/Dismount for modeled vehicle passengers and historically
+  permitted tank riders, with individual capacity, transit, casualty, and
+  capture/restore behavior.
+- [ ] Show Char B1 bis hull-gun ammunition/status on the same bottom `AMMO:`
+  summary line as the turret main-gun ammunition while retaining the
+  individual weapon cards above.
+- [ ] Move the WEGO versus realtime selector into a compact top menu/bar and
+  reclaim the current persistent mode panel's footprint for the 3D viewport;
+  retain both modes, mobile access, keyboard/pointer usability, and current
+  deterministic mode semantics.
+- [x] Reserve desktop `W`/`A`/`S`/`D` for planar camera movement and `Q`/`E`
+  for camera up/down; remove every conflicting command hotkey, including mortar
+  deploy/pack, while retaining pointer/mobile access to those commands.
+
+### Environment and effects
+
+- [ ] Reduce excessive distance fog while retaining intentional atmospheric
+  depth and low-tier performance.
+- [ ] Brighten the battlefield lighting/material response without washing out
+  faction, terrain, shadow, damage, or UI readability.
+- [ ] Replace the weak smoking-engine presentation with a bounded,
+  state-driven WebGPU/TSL effect that distinguishes damage severity without
+  becoming simulation authority; upgrade catastrophic tank fire and smoke effects to be punchy and responsive during turret-off explosions.
+  - [x] Live fire presentation slice: replace the former single smoke/flame cards with
+    preallocated phase-driven TSL sprite clusters; project dense black fuel-fire
+    smoke, fast flame jets from labeled approximate openings/seams, and a
+    vehicle-scale ammunition-cookoff fireball/debris burst.
+    - [x] Implementation and automated resource/presentation contracts pass.
+    - [x] Live-calibrated in a ready realtime battle on the WebGL2 fallback:
+      smoke sheets dissolve before wrapping, ammunition venting builds like a
+      bottle rocket with an intensifying turret-ring spark shower into a
+      momentary full-pressure jet, ordinary flames loft a lighter ember drift,
+      cookoff launches the turret, and the 30-second post-blast fire sheds layers
+      one at a time before the final sheet shrinks away.
+  - [ ] Replace the labeled approximate vent locations with vehicle-authored
+    opening/seam markers and add component-specific fire/cookoff audio.
+- [ ] Replace floating black AP penetration spheres with surface-aligned,
+  textured penetration marks projected from the resolved impact point and
+  normal; first fix any armor-volume/model mismatch that places authoritative
+  impacts outside the visible hull.
+- [ ] Replace the blue map-edge void with a map-family horizon treatment:
+  preferably cheap continuation terrain/vegetation and atmospheric blending
+  beyond playable bounds, with no collision or simulation authority outside
+  the map.
+
+### German vehicle visual audit
+
+- [ ] Migrate every German tracked vehicle from legacy oval/capsule track
+  presentation to vehicle-owned sprocket, idler, road-wheel, return-roller, and
+  solved tight-track supports shared by detailed and proxy LODs.
+- [ ] Audit moving-track presentation for Panzer II, Panzer III, Panzer IV,
+  Panzer 35(t), and Panzer 38(t): forward, reverse, stop, track damage, LOD
+  changes, and rollback must follow authoritative displacement.
+- [x] Remove or source-identify the unexplained circular hoop on the Panzer IV
+  D1 rear-right deck.
+- [x] Seat the Panzer IV D1 cupola on the turret roof instead of floating.
+- [x] Seat the Panzer III D1 and D2 cupolas on their turret roofs instead of
+  floating.
+- [x] Re-register Panzer III and Panzer IV hull-machine-gun axes at their
+  source-backed ball mounts; fix the Panzer IV D1 barrel/ball vertical mismatch.
+- [ ] Preserve historically sharp plate corners and hard edges across every
+  armored vehicle and LOD; audit normals, smoothing groups, bevel policy, and
+  material response rather than rounding silhouettes accidentally.
+- [ ] Give every armored vehicle's sprockets, idlers, road wheels, return
+  rollers, and related running gear an appropriate bounded material/texture
+  treatment without duplicating per-wheel GPU resources.
+
+### Logistics, morale, crew, and AI
+
+- [ ] Give historically appropriate trucks such as the Laffly and Opel bounded
+  ammunition cargo records for MG ammunition, mortar bombs, grenades, and other
+  supported stores; let eligible nearby units resupply through deterministic
+  individual/weapon ammunition ownership.
+- [ ] Add scenario objectives as plain map/scenario data with deterministic
+  scoring and victory state: hold a zone for time, destroy the enemy, capture a
+  house or zone, capture all zones, hold a bridge crossing, or cross a bridge.
+- [ ] Give enemy AI a deterministic setup plan and ongoing objective-aware
+  movement, positioning, fire, defense, withdrawal, and victory behavior.
+- [ ] Add morale routing: sufficiently broken enemy or friendly units flee
+  without accepting player commands until their individual/unit state recovers.
+- [ ] Add conditional individual vehicle-crew bailout. Crew may remain at a
+  viable post; combat-ineffective, burning, routed, or commander-abandoned
+  vehicles prompt appropriate hatch egress and survival movement.
+- [x] Ensure catastrophic vehicle explosions (e.g., secondary explosion / turret pop-off) incapacitate or kill all internal crew members, marking the entire crew as casualties instead of leaving living survivors in a destroyed hull.
+- [ ] Add historically distinct French and German tank-crew uniforms,
+  equipment, roles, and sparse personal weapons.
+
+### Maps and historical infantry weapons
+
+- [ ] Add tactically meaningful authored cover, positions, terrain detail, and
+  objective context to the enemy side of the Bridge map.
+- [ ] Add rifle grenades, including the French Tromblon VB ownership, loading,
+  ammunition, firing, projectile, blast, animation, and AI-use slice.
+- [ ] Author a detailed, correctly handed Mousqueton Mle 1892 M16 8 mm model
+  with the same grip, muzzle, LOD, silhouette, and accuracy standard as the
+  MAS-36.
+- [ ] Author detailed Lebel Mle 1886 M93 8 mm infantry and APX Mle 1921
+  optical-sight variants with the same grip, muzzle, LOD, silhouette, and
+  accuracy standard as the MAS-36.
+- [ ] Split French small-arms issue into historically labeled 7.5 mm and 8 mm
+  formations: modern FM 24/29 units use MAS-36 rifles; eligible non-FM units
+  use Lebel rifles for riflemen, leaders, VB grenadiers, sharpshooters, and APX
+  snipers; short-arm drivers, scouts/recon, engineers, ammunition bearers,
+  support crews, and appropriate HQ equipment carriers use the Mle 1892 M16.
+
+### Individual POV, observation, and precision optics
+
+- [ ] Add an eye control to every living squad-roster and vehicle-crew card
+  that enters a stable-person-ID ride-along POV without taking over that
+  person's ordinary movement, pose, weapon, crew task, or tactical AI.
+  - [ ] Attach infantry POV to an authored eye/head marker and vehicle POV to
+    the selected crew station's visor, periscope, cupola, or gun-optic marker;
+    preserve building floors, prone/casualty poses, recoil, turret traverse,
+    hatch state, LOD changes, and camera collision without camera authority
+    leaking into simulation.
+  - [ ] Constrain free head-look to historically plausible local yaw/pitch and
+    return behavior instead of rotating the body or allowing 360-degree view.
+    Keep free replay/camera look presentation-only; provide a separate
+    deterministic LOOK/observation-bias order when the player intends head
+    direction to affect that person's authoritative FOV, captured at fixed
+    simulation ticks for WEGO replay and realtime equivalence.
+  - [ ] In individual POV, project only that person's direct observation and
+    identification state rather than borrowing perfect live models from
+    squad/C2 contacts; preserve physically occluded terrain/buildings and show
+    last-known or relayed information only through an explicitly different UI
+    treatment.
+  - [ ] Keep the selected unit's action menu usable in POV. Movement, FACE,
+    building, target, and special commands still create ordinary authoritative
+    orders; exiting POV must not cancel them or recenter the strategic camera.
+  - [ ] Add vehicle-specific historical optic records: station/role, marker,
+    magnification steps, true FOV, reticle/mask, traverse relationship, damaged
+    optics behavior, and buttoned/unbuttoned availability. A dead gunner or
+    disabled optic cannot provide its sight.
+  - [ ] Let gunner-optic POV issue a precise target order from the sight ray:
+    store stable target ID plus a model-local requested aim point/region, then
+    let existing traverse, aim time, dispersion, projectile flight, armor, and
+    component damage decide the result. Clicking a rendered triangle must
+    never directly cause a hit or bypass muzzle/projectile simulation.
+  - [ ] Add clear enter/exit, next/previous-person, zoom, reticle, selected-role,
+    and unavailable-station feedback for desktop and mobile, with Escape and
+    loss-of-person/vehicle restoring the previous camera safely.
+
 ## Work queue and routing
 
 This short queue controls dispatch; the detailed checkboxes below remain the
@@ -296,10 +458,16 @@ authorized.
     - [x] Add staggered fire-and-movement buddy bounds for HUNT and ASSAULT orders: teams stagger movement into paired mover and coverer elements, coverers assume covering stance (KNEELING/PRONE) to provide covering fire support and observation, movers advance up to 6m before roles swap deterministically at boundary, and preserve WEGO/realtime and rollback parity.
       - [x] Revision 06 accepted: prove live `GameApp.simulateStep` contact-halted HUNT movement; keep the squad anchor and coverer stationary while the active mover advances one bounded local contact line; retain ordinary covering-fire eligibility, exact role swap, casualty reconciliation, final reform, building/explicit-order precedence, and restored fixed-step parity.
 - [ ] Improve vehicle AI: hull-down positioning, turret-first observation, threat facing, reverse movement, and damaged-vehicle behavior.
-  - [x] Add vehicle threat facing and turret-first orientation: idle or moving vehicles align turret and hull front armor toward highest-priority threat or contact position, prioritizing turret traverse while moving and hull rotation when idle, exposing inspectable tactical decision fields (threatFacingActive, turretAngle, hullAngle, frontArmorAligned), and preserving WEGO/realtime and rollback parity.
-  - [x] Add tactical reverse movement: under REVERSE order or heavy threat, vehicles execute reverse gear movement keeping front armor locked toward threat position, exposing reverse velocity vectors and inspectable tactical decision fields (isReversing: true, reverseVector, reason: 'tactical-reverse'), and preserving WEGO/realtime and rollback parity.
-  - [x] Add vehicle damage AI adaptation: component and crew damage (mobility impairment, optics damage, driver/gunner availability) adapt vehicle tactics into pillbox mode when immobilized, reducing spotting range for damaged optics, halting movement orders, and exposing inspectable tactical decision fields (isPillbox, mobilityDisabled, opticsDamaged, spottingModifier, gunnerAvailable, driverAvailable), preserving WEGO/realtime and rollback parity.
-  - [x] Add vehicle hull-down positioning: under HULL_DOWN order or terrain crest micro-relief evaluation, vehicles position behind micro-relief to mask hull exposure, applying a reduced target exposure modifier (0.45), exposing inspectable decision fields (hullDownActive: true, exposureModifier: 0.45, reason: 'hull-down-defense'), and preserving WEGO/realtime and rollback parity.
+  - [ ] Add vehicle threat facing and turret-first orientation toward the highest-priority directly observed threat.
+    - [x] First live slice: stable direct-contact snapshots drive moving turret traverse and stopped hull alignment without leaking hidden target transforms; decision state is rollback-owned.
+    - [ ] Finish the reviewed inspectable field contract and broader tactical behavior.
+  - [ ] Add tactical reverse movement under explicit reverse orders or a validated heavy-threat withdrawal plan.
+    - [x] First live slice: explicit reverse waypoints use signed rearward kinematics, collision resolution, and track travel while preserving the forward hull orientation.
+    - [ ] Add an authoritative heavy-threat retreat destination and the remaining reverse decision telemetry.
+  - [ ] Add vehicle damage AI adaptation for mobility, optics, crew roles, and combat abandonment.
+    - [x] First live slice: component/crew state produces inspectable damage decisions, disabled mobility remains authoritative, and burning or secondary-exploding vehicles abandon all weapon combat intent.
+    - [ ] Apply optics impairment to authoritative spotting and finish tactical pillbox/withdrawal behavior.
+  - [ ] Add vehicle hull-down positioning behind validated terrain cover, with authoritative exposure consumed by hit resolution.
 - [ ] Add deterministic movement collision and tactical navigation.
   - [x] First static-world slice: renderer-neutral oriented collider records for terrain-conforming walls, the village building, bridge parapets and abutments, river exclusion, and bunker/rubble; swept vehicle capsules and soldier circles prevent tunneling, retain stand-off, stop-and-slide, route cross-river orders through the bridge, use bridge deck height, and survive WEGO capture/restore without a physics dependency.
   - [x] Harden static movement: collide the infantry squad anchor, wait for living soldiers to finish their individual routes, bind split teams, route near-bank destinations from actual river exclusions, and run live/seek simulation through the same fixed 30 Hz steps.
@@ -368,6 +536,16 @@ authorized.
   - [x] Bound combat presentation churn: cached WebAudio noise buffers, capped/released audio voices, shared projectile resources, and capped reusable impact/explosion visuals.
   - [x] Catastrophic-damage physics slice: make an authoritative ammunition secondary explosion launch a turret with dimension-derived impulse, gravity, bounded substeps, bounce, friction, settlement, event provenance, deep rollback state, LOD-aware presentation, and removal of the former attached turret armor/internal volumes.
   - [ ] Add authoritative progressive fuel fires and staged ammunition cookoff, broken/shed tracks, dent/hole decals aligned to armor normals, damaged wheels, deformed engine/gun/turret variants, leaking fuel, crew bailout visuals, persistent wreck smoke lifecycle, and component-specific sounds.
+    - [x] First authoritative fire/cookoff slice: accepted fuel-module ignition
+      progresses through fuel, spreading, ammunition-venting, burnout, and
+      detonation phases with deterministic sampled timing, component damage,
+      actual remaining cannon-ammunition gating, deep capture/restore,
+      partition-stable outcomes, total internal-crew loss on cookoff, store
+      destruction, downstream turret separation, bounded 30-second post-blast
+      fire-layer burnout, and gradual brown-rust wreck presentation. Typed
+      per-round cookoff, explicit heat/fuel quantities, crew escape, full
+      persistent wreck lifecycle, authored vent markers, leaking fuel, and audio
+      remain.
 - [ ] Continue battlefield scale and environmental-fidelity pass.
   - [x] Define one metre-scale contract and normalize authored infantry to a 1.75 m standing reference.
   - [x] Replace oversized wall slabs with 72 closed, terrain-conforming masonry segments and matching collision bounds.
@@ -491,6 +669,7 @@ authorized.
 - [x] Size the portrait Unit Soft Factors panel to its content, give the remaining left-column height to Actions, and enlarge its tabs while preserving the existing total HUD height and right-column roster/map split.
 - [x] Enforce complete friendly and enemy unit footprints inside their command-phase deployment boxes.
 - [ ] Add pre-match route planning: a destination inside the friendly deployment box immediately repositions the complete unit, while destinations beyond it queue visible round-start orders from the deployed position; support appended mixed FAST, SNEAK, ASSAULT, building-entry, and requested-floor stages through match start with the same deterministic movement/building transitions used after deployment.
+  - [x] First slice: setup destinations inside the deployment zone reposition the unit and its individual soldiers immediately; destinations outside the zone retain the selected order type as visible round-start waypoints. Mixed appended orders and building-floor stages remain.
 - [x] Make initial setup-area overlays terrain-conforming, raycast-inert, and removable at match start; relocate valid full unit footprints immediately during the opening command phase.
 - [x] Allow new movement orders after turn one by pruning completed waypoint queues.
 - [x] Add automated coverage for individual ammunition, ballistics, armor, crews, muzzle origins, LOD, realtime, and subsequent-turn orders.

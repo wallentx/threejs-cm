@@ -281,9 +281,9 @@ function createVehicleDamageResources() {
     }), 'vehicle-damage-scorch')
   });
   const capacities = Object.freeze({
-    smoke: 9,
-    flame: 7,
-    spark: 14,
+    smoke: 8,
+    flame: 12,
+    spark: 24,
     scorch: 8
   });
   let disposed = false;
