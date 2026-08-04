@@ -80,7 +80,7 @@ function createGameDefinition(selection) {
 }
 
 installGameErrorHandlers();
-window.addEventListener('DOMContentLoaded', () => {
+function startBrowserApp() {
   const urlParams = new URLSearchParams(window.location.search);
   const isDebugMode = urlParams.get('debug') === 'true'
     || urlParams.get('mode') === 'debug'
@@ -119,4 +119,10 @@ window.addEventListener('DOMContentLoaded', () => {
     }
   });
   screen.mount();
-});
+}
+
+if (document.readyState === 'loading') {
+  window.addEventListener('DOMContentLoaded', startBrowserApp, { once: true });
+} else {
+  startBrowserApp();
+}

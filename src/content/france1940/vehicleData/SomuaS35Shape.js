@@ -27,6 +27,33 @@ export const SOMUA_S35_TURRET_STATIONS = freezeRecords([
   { y: 0.72, halfWidth: 0.48, frontZ: 0.52, rearZ: 0.59 }
 ]);
 
+export const SOMUA_S35_WEAPON_INSTALLATION = Object.freeze({
+  main: Object.freeze({
+    axisLocalX: 0.04,
+    axisLocalY: 0.42,
+    barrelBaseLocalZ: 0.78,
+    barrelLength: 1.20,
+    muzzleLocalZ: 1.98
+  }),
+  mantlet: Object.freeze({
+    centerLocalZ: 0.76,
+    depth: 0.17,
+    radiusTop: 0.24,
+    radiusBottom: 0.28
+  }),
+  coax: Object.freeze({
+    axisLocalX: -0.18,
+    axisLocalY: 0.43,
+    barrelBaseLocalZ: 0.83,
+    barrelLength: 0.46,
+    muzzleLocalZ: 1.29,
+    mountSide: 'right',
+    mantletOverlapMeters: 0.015
+  }),
+  dataQuality:
+    'user visual correction constrained by the registered APX 1 CE turret envelope; coax side is museum-corroborated, while exact mount offsets remain renderer inference'
+});
+
 const TURRET_PIVOT = Object.freeze([0, 1.55, 0.55]);
 const HULL_RING_SIZE = 8;
 const TURRET_SEGMENTS = 20;
@@ -239,8 +266,16 @@ export function createSomuaS35ArmorCollision(armorMm, referenceUrl) {
         part: 'mantlet',
         exitArmorPolicy: 'none',
         center: TURRET_PIVOT,
-        offset: [0.04, 0.48, 0.82],
-        halfExtents: [0.28, 0.24, 0.10],
+        offset: [
+          SOMUA_S35_WEAPON_INSTALLATION.main.axisLocalX,
+          SOMUA_S35_WEAPON_INSTALLATION.main.axisLocalY,
+          SOMUA_S35_WEAPON_INSTALLATION.mantlet.centerLocalZ
+        ],
+        halfExtents: [
+          SOMUA_S35_WEAPON_INSTALLATION.mantlet.radiusBottom,
+          SOMUA_S35_WEAPON_INSTALLATION.mantlet.radiusBottom,
+          SOMUA_S35_WEAPON_INSTALLATION.mantlet.depth * 0.5
+        ],
         followsTurret: true,
         faceZones: namedFaces('mantlet'),
         fallbackZones: namedFallback('turret_front'),
@@ -248,7 +283,8 @@ export function createSomuaS35ArmorCollision(armorMm, referenceUrl) {
         thicknessSourceZone: 'turret_front',
         thicknessDataQuality: 'mantlet treated as nominal turret-front thickness; overlap unavailable',
         thicknessReferenceUrl: referenceUrl,
-        geometryQuality: 'authored mantlet envelope'
+        geometryQuality:
+          'authored mantlet envelope shared with the corrected renderer installation'
       },
       {
         id: 'commander-cupola',

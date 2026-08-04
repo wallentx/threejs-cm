@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { createPanhard178Mesh } from '../src/world/vehicles/index.js';
+import { assertClosedConsistentWinding } from './helpers/GeometryTopologyAssertions.js';
 
 const EXPECTED = Object.freeze({
   length: 4.79,
@@ -94,6 +95,10 @@ test('Panhard 178 APX 3, gun axis, and muzzle use registered profile datums', ()
   assert.equal(turret.userData.profileRole, 'asymmetric-apx3-shell');
   assert.equal(turret.userData.profileLevelCount, 4);
   assert.ok(meshSignedVolume(turret) > 0, 'APX 3 closed shell must face outward');
+  assertClosedConsistentWinding(turret.geometry, turret.name);
+  const proxyTurret = vehicle.getObjectByName('AuthoredProxy_Panhard178_APX3_Turret');
+  assert.ok(proxyTurret, 'authored APX 3 proxy must exist');
+  assertClosedConsistentWinding(proxyTurret.geometry, proxyTurret.name);
 
   vehicle.updateMatrixWorld(true);
   const muzzleWorld = muzzle.getWorldPosition(new THREE.Vector3());

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { createSdKfz231Mesh } from '../src/world/vehicles/SdKfz231.js';
+import { assertClosedConsistentWinding } from './helpers/GeometryTopologyAssertions.js';
 
 const EXPECTED = Object.freeze({
   length: 5.57,
@@ -99,6 +100,12 @@ test('Sd.Kfz. 231 6-Rad registered hull and horseshoe turret face outward', () =
       mesh.geometry.getAttribute('uv').count,
       mesh.geometry.getAttribute('position').count
     );
+  }
+  for (const mesh of [
+    turret,
+    vehicle.getObjectByName('SdKfz231_6Rad_ProxyTurret')
+  ]) {
+    assertClosedConsistentWinding(mesh.geometry, mesh.name);
   }
 });
 

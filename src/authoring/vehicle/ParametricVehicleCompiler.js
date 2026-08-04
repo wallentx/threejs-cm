@@ -78,6 +78,19 @@ function validateStation(station, index) {
     ],
     `hull station ${index} levels`
   );
+  const hasFenderHalfWidth = station.fenderHalfWidth != null;
+  const hasFenderY = station.fenderY != null;
+  if (hasFenderHalfWidth !== hasFenderY) {
+    throw new TypeError(
+      `hull station ${index} must define fenderHalfWidth and fenderY together`
+    );
+  }
+  if (hasFenderHalfWidth) {
+    finitePositive(station.fenderHalfWidth, `hull station ${index}.fenderHalfWidth`);
+    if (!Number.isFinite(station.fenderY)) {
+      throw new TypeError(`hull station ${index}.fenderY must be finite`);
+    }
+  }
 }
 
 function validateIndices(indices, length, label) {
@@ -151,6 +164,16 @@ export function validateParametricVehicleDefinition(definition) {
   );
   if (!Number.isInteger(turret.segments) || turret.segments < 8) {
     throw new TypeError('geometry.turret.segments must be an integer >= 8');
+  }
+  if (turret.race != null) {
+    const race = dictionary(turret.race, 'geometry.turret.race');
+    finitePositive(race.radius, 'geometry.turret.race.radius');
+    if (!Number.isFinite(race.bottomY) || !Number.isFinite(race.topY)) {
+      throw new TypeError('geometry.turret.race bottomY/topY must be finite');
+    }
+    if (!(race.topY > race.bottomY)) {
+      throw new RangeError('geometry.turret.race topY must exceed bottomY');
+    }
   }
   finiteVector(turret.cupola.center, 3, 'geometry.turret.cupola.center');
   finitePositive(turret.cupola.radius, 'geometry.turret.cupola.radius');
@@ -290,15 +313,23 @@ function finalizeClosedGeometry(geometry, name) {
 }
 
 function createHullRing(station) {
+  const rightFender = station.fenderHalfWidth == null
+    ? []
+    : [[station.fenderHalfWidth, station.fenderY]];
+  const leftFender = station.fenderHalfWidth == null
+    ? []
+    : [[-station.fenderHalfWidth, station.fenderY]];
   return [
     [-station.bottomHalfWidth, station.bottomY],
     [station.bottomHalfWidth, station.bottomY],
     [station.lowerHalfWidth, station.lowerY],
     [station.halfWidth, station.shoulderY],
+    ...rightFender,
     [station.upperHalfWidth, station.upperY],
     [station.deckHalfWidth, station.deckY],
     [-station.deckHalfWidth, station.deckY],
     [-station.upperHalfWidth, station.upperY],
+    ...leftFender,
     [-station.halfWidth, station.shoulderY],
     [-station.lowerHalfWidth, station.lowerY]
   ];
@@ -658,6 +689,35 @@ export function createParametricVehicleMesh(
   turretGroup.position.set(...geometry.turret.center);
   turretGroup.userData.articulated = true;
   root.add(turretGroup);
+
+  const raceData = geometry.turret.race;
+  if (raceData) {
+    const raceHeight = raceData.topY - raceData.bottomY;
+    const createRaceGeometry = (segments, name) => finalizeClosedGeometry(
+      new THREE.CylinderGeometry(
+        raceData.radius,
+        raceData.radius,
+        raceHeight,
+        segments
+      ),
+      name
+    );
+    const race = tag(new THREE.Mesh(
+      createRaceGeometry(geometry.turret.segments, `${definition.designation}TurretRaceGeometry`),
+      materials.secondaryPaint
+    ), 'core', `${prefix}_TurretRace`);
+    race.position.y = (raceData.bottomY + raceData.topY) * 0.5;
+    race.userData.parametricRole = raceData.kind;
+    turretGroup.add(race);
+
+    const proxyRace = tag(new THREE.Mesh(
+      createRaceGeometry(10, `${definition.designation}ProxyTurretRaceGeometry`),
+      materials.secondaryPaint
+    ), 'proxy', `${prefix}_ProxyTurretRace`);
+    proxyRace.position.y = race.position.y;
+    proxyRace.userData.parametricRole = raceData.kind;
+    turretGroup.add(proxyRace);
+  }
 
   const turret = tag(new THREE.Mesh(
     createEllipticRingLoftGeometry(

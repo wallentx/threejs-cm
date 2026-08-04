@@ -245,6 +245,7 @@ test('Three-VFX battlefield runtime layers combat, building, smoke, and fire par
     fireVentProgress: 0,
     firePostBlastProgress: 0,
     blastPosition: [2, 2.8, -4],
+    turretRingPosition: [2.15, 2.45, -4.2],
     vents: [{ position: [2, 2.5, -4], direction: [0, 1, 0] }],
     lowDetail: false,
     detonationTransition: true
@@ -254,6 +255,26 @@ test('Three-VFX battlefield runtime layers combat, building, smoke, and fire par
   assert.equal(byRole.explosion.spawns.length, priorExplosions + 1);
   assert.equal(byRole.explosion.spawns.at(-1).count, 100);
   assert.equal(byRole.impact.spawns.at(-1).count, 130);
+  const earlyRingFlames = byRole.flame.spawns.filter(spawn =>
+    spawn.position.every((value, index) => value === detonation.turretRingPosition[index]));
+  assert.ok(earlyRingFlames.length > 0);
+  const earlyRingMaximumSize = Math.max(
+    ...earlyRingFlames.map(spawn => spawn.overrides.size[1])
+  );
+
+  const lateRingStart = byRole.flame.spawns.length;
+  for (let step = 0; step < 10; step++) {
+    runtime.emitVehicleDamageState({
+      ...detonation,
+      firePostBlastProgress: 0.99,
+      detonationTransition: false
+    });
+  }
+  const lateRingFlames = byRole.flame.spawns.slice(lateRingStart).filter(spawn =>
+    spawn.position.every((value, index) => value === detonation.turretRingPosition[index]));
+  assert.ok(lateRingFlames.length > 0, 'turret-ring flames must persist through 29.7 seconds');
+  assert.ok(lateRingFlames.every(spawn =>
+    spawn.overrides.size[1] < earlyRingMaximumSize));
 
   const camera = new THREE.PerspectiveCamera();
   runtime.update(0.5, camera);

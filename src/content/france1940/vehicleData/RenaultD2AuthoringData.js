@@ -122,6 +122,24 @@ const TRACK_PATH = deepFreeze({
   maximumSegmentMeters: 0.065
 });
 
+const MUDGUARD_DECK_SOURCE_PIXELS = deepFreeze([
+  [14, 352], [112, 333], [210, 337], [420, 342], [650, 342],
+  [820, 344], [904, 361], [949, 381]
+]);
+
+const profilePixelYAt = (points, pixelX) => {
+  if (pixelX <= points[0][0]) return points[0][1];
+  if (pixelX >= points.at(-1)[0]) return points.at(-1)[1];
+  for (let index = 1; index < points.length; index++) {
+    const [rightX, rightY] = points[index];
+    if (pixelX > rightX) continue;
+    const [leftX, leftY] = points[index - 1];
+    const progress = (pixelX - leftX) / (rightX - leftX);
+    return leftY + (rightY - leftY) * progress;
+  }
+  throw new RangeError(`source profile does not cover pixel ${pixelX}`);
+};
+
 const HULL_SOURCE_STATIONS = Object.freeze([
   {
     pixelX: 924,
@@ -214,6 +232,10 @@ const HULL_SOURCE_STATIONS = Object.freeze([
 
 const HULL_STATIONS = HULL_SOURCE_STATIONS.map(source => {
   const deckY = sidePixelToY(source.deckPixelY);
+  const fenderPixelY = profilePixelYAt(
+    MUDGUARD_DECK_SOURCE_PIXELS,
+    source.pixelX
+  );
   const [
     bottomHalfWidth,
     lowerHalfWidth,
@@ -240,11 +262,14 @@ const HULL_STATIONS = HULL_SOURCE_STATIONS.map(source => {
     lowerY,
     halfWidth,
     shoulderY,
+    fenderHalfWidth: DIMENSIONS_METERS.width * 0.5,
+    fenderY: sidePixelToY(fenderPixelY),
     upperHalfWidth,
     upperY,
     deckHalfWidth,
     deckY,
     sourcePixels: Object.freeze([source.pixelX, source.deckPixelY]),
+    fenderSourcePixels: Object.freeze([source.pixelX, fenderPixelY]),
     sourceQuality:
       'side contour registered; cross-section widths constrained from front/top views and remain LLM inference'
   });
@@ -296,8 +321,7 @@ const TURRET_RINGS = deepFreeze([
 ]);
 
 const MUDGUARD_SOURCE_PIXELS = deepFreeze([
-  [14, 352], [112, 333], [210, 337], [420, 342], [650, 342],
-  [820, 344], [904, 361], [949, 381], [946, 398], [885, 380],
+  ...MUDGUARD_DECK_SOURCE_PIXELS, [946, 398], [885, 380],
   [715, 365], [420, 363], [180, 359], [55, 381], [14, 376]
 ]);
 
@@ -549,6 +573,14 @@ export const RENAULT_D2_AUTHORING_DATA = deepFreeze({
       kind: 'asymmetric-elliptic-section-loft',
       center: [0, TURRET_DECK_Y, TURRET_CENTER_Z],
       rings: TURRET_RINGS,
+      race: {
+        kind: 'vehicle-installation-turret-race',
+        radius: 0.64,
+        bottomY: -0.01,
+        topY: TURRET_RINGS[0].y + 0.01,
+        sourceQuality:
+          'source-visible ring seat fills the registered deck-to-casting interval; 10 mm endpoint overlaps prevent raster seams and the radius is front/top constrained inference'
+      },
       proxyRingIndices: [0, 2, 4],
       segments: 18,
       sourceQuality:
@@ -696,6 +728,7 @@ export const RENAULT_D2_AUTHORING_DATA = deepFreeze({
     requiredLodBands: ['high', 'medium', 'core', 'proxy'],
     requiredParts: [
       'D2_PrimaryHull',
+      'D2_TurretRace',
       'D2_Turret',
       'D2_Mantlet',
       'D2_MainGun',
@@ -703,13 +736,16 @@ export const RENAULT_D2_AUTHORING_DATA = deepFreeze({
       'D2_SuspensionSkirt_Left',
       'D2_SuspensionSkirt_Right',
       'D2_ProxyHull',
+      'D2_ProxyTurretRace',
       'D2_ProxyTurret'
     ],
     closedParts: [
       'D2_PrimaryHull',
+      'D2_TurretRace',
       'D2_Turret',
       'D2_Mantlet',
       'D2_ProxyHull',
+      'D2_ProxyTurretRace',
       'D2_ProxyTurret'
     ],
     acceptedToleranceMeters: 0.04,

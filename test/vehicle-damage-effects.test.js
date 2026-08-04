@@ -150,6 +150,10 @@ test('vehicle damage effects translate authoritative component state into persis
 
 test('post-cookoff fire rolls down while the wreck oxidizes gradually', () => {
   const unit = createVehicle();
+  const turret = new THREE.Group();
+  turret.position.set(0.15, 1.45, -0.2);
+  unit.mesh.add(turret);
+  unit.mesh.userData.turret = turret;
   const originalBodyMaterial = unit.mesh.userData.testBody.material;
   unit.vehicleComponents = {
     hull: { health: 0, status: 'DESTROYED' },
@@ -174,6 +178,7 @@ test('post-cookoff fire rolls down while the wreck oxidizes gradually', () => {
 
   effects.update(1 / 30, [unit], []);
   const record = effects.records.get(unit.id);
+  assert.deepEqual(record.turretRingLocal.toArray(), turret.position.toArray());
   assert.equal(record.flames.userData.layerCount, 7);
   assert.ok(record.flames.children.some(sprite =>
     sprite.visible && sprite.material.opacity > 0.2));
@@ -291,6 +296,10 @@ test('vehicle damage effects retain bounded impact scars and lower far-LOD parti
 
 test('Three-VFX runtime owns transient vehicle smoke, flame, sparks, and blasts', () => {
   const unit = createVehicle();
+  const turret = new THREE.Group();
+  turret.position.set(0.15, 1.45, -0.2);
+  unit.mesh.add(turret);
+  unit.mesh.userData.turret = turret;
   unit.vehicleComponents = {
     hull: { health: 0, status: 'DESTROYED' },
     engine: { health: 0, status: 'BURNING' }
@@ -334,6 +343,10 @@ test('Three-VFX runtime owns transient vehicle smoke, flame, sparks, and blasts'
   assert.ok(emissions[0].vents.every(vent => vent.position.isVector3));
   assert.ok(emissions[0].vents.every(vent => vent.direction.isVector3));
   assert.ok(emissions[0].blastPosition.y > emissions[0].position.y);
+  assert.deepEqual(
+    emissions[0].turretRingPosition.toArray(),
+    turret.position.toArray()
+  );
   assert.equal(emissions[0].fireVentProgress, 0);
   assert.equal(emissions[0].firePostBlastProgress, 0);
 

@@ -170,6 +170,45 @@ test('Renault D2 emits source-defined parts, positive closed winding, and all LO
   assert.ok(triangleCounts.proxy < triangleCounts.core);
 });
 
+test('Renault D2 seats both turret LODs on the deck and joins the track shoulders', () => {
+  const definition = RENAULT_D2_AUTHORING_DATA;
+  const model = createParametricVehicleMesh(definition);
+  model.updateMatrixWorld(true);
+  const deckY = definition.geometry.turret.center[1];
+  const innerTrackX = (
+    definition.geometry.runningGear.trackCenterX
+    - definition.geometry.runningGear.trackWidth * 0.5
+  );
+
+  for (const [lod, hullName, turretName] of [
+    ['core', 'D2_PrimaryHull', 'D2_Turret'],
+    ['proxy', 'D2_ProxyHull', 'D2_ProxyTurret']
+  ]) {
+    const hullBounds = new THREE.Box3().setFromObject(
+      model.getObjectByName(hullName)
+    );
+    const turretBounds = new THREE.Box3().setFromObject(
+      model.getObjectByName(turretName)
+    );
+    const raceBounds = new THREE.Box3().setFromObject(
+      model.getObjectByName(lod === 'core' ? 'D2_TurretRace' : 'D2_ProxyTurretRace')
+    );
+
+    assert.ok(
+      raceBounds.min.y <= deckY - 0.005,
+      `${lod} turret race bottom ${raceBounds.min.y} must overlap deck ${deckY}`
+    );
+    assert.ok(
+      raceBounds.max.y >= turretBounds.min.y + 0.005,
+      `${lod} turret race top ${raceBounds.max.y} must overlap casting ${turretBounds.min.y}`
+    );
+    assert.ok(
+      hullBounds.max.x >= innerTrackX,
+      `${lod} hull shoulder ${hullBounds.max.x} must reach inner track edge ${innerTrackX}`
+    );
+  }
+});
+
 test('Renault D2 rigid envelope and ground contact stay tied to published dimensions', () => {
   const model = createParametricVehicleMesh(RENAULT_D2_AUTHORING_DATA);
   const expected = RENAULT_D2_AUTHORING_DATA.dimensionsMeters;

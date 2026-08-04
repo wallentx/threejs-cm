@@ -52,6 +52,19 @@ even when a matching broader parent exists elsewhere in this file.
   - [x] First fill-light pass: raise neutral ambient, sky, ground-bounce, and sun
     response so dark vehicle paint remains readable while retaining the existing
     single directional-shadow owner; live backend comparison remains.
+- [ ] Add bounded terrain-following grass, weeds, and sparse flowers using the
+  installed EZ-Tree demo assets as optional source art rather than treating its
+  app-only `Grass` class as a production API.
+  - [ ] Implement seeded clump placement and rooted wind with TSL/node materials
+    compatible with the production WebGPU renderer and direct WebGL2 fallback;
+    do not copy the demo's `Math.random()`, `MeshPhongMaterial`, or
+    `onBeforeCompile` path.
+  - [ ] Conform blade roots to authoritative terrain height, exclude roads,
+    buildings, rivers, and authored bare-ground areas, and provide distance
+    density reduction plus a bounded low/mobile tier.
+  - [ ] Keep grass presentation-only with explicit resource disposal; do not let
+    decorative blades or flowers become collision, movement, cover, or LOS
+    authority.
 - [ ] Replace the weak smoking-engine presentation with a bounded,
   state-driven WebGPU/TSL effect that distinguishes damage severity without
   becoming simulation authority; upgrade catastrophic tank fire and smoke effects to be punchy and responsive during turret-off explosions.
@@ -87,6 +100,10 @@ even when a matching broader parent exists elsewhere in this file.
       launch speeds and bounded weighted terrain bounces; move ordinary fuel
       and spreading fires into a separate `fire.png`-masked flame pool so their
       silhouette is irregular flame rather than radial particle dots.
+    - [x] Turret-ring fire follow-up: anchor a separate large flame plume to the
+      attached turret's original pivot after cookoff, retain it through the
+      full 30-second post-blast interval, and continuously reduce its emission
+      rate, scale, speed, and lifetime while engine-deck fire remains active.
     - [ ] Live-tune and accept or reject the experiment on working WebGPU and
       WebGL2 backends, including hit readability, muzzle direction, smoke/fire
       density, mobile cost, and the dependency's presentation-only randomness.
@@ -106,6 +123,63 @@ even when a matching broader parent exists elsewhere in this file.
   preferably cheap continuation terrain/vegetation and atmospheric blending
   beyond playable bounds, with no collision or simulation authority outside
   the map.
+
+### All-vehicle geometry integrity audit
+
+- [ ] Repair the floating parts and exposed open faces recorded in
+  `docs/vehicle-authoring/vehicle-geometry-integrity-audit-2026-08-04.md`.
+  - [x] Audit all 15 production vehicle factories at high/medium/core/proxy LOD
+    from fixed front/side/top views, combine projected-connectivity evidence
+    with welded topology/winding checks, and preserve the existing reviewed
+    silhouette baseline for separate drift review.
+  - [x] First repair slice: correct H39 detailed/proxy hull, turret, and
+    track-guard cap winding; seat the S35 rear engine deck to its interpolated
+    cast-hull roof; correct detailed/proxy Panhard APX 3 turret caps; and repair
+    the same proven cap-winding defect in Panzer 38(t) hulls/turrets and
+    Sd.Kfz. 231 turrets, with closed-edge and deck-contact regressions.
+  - [x] H39 screenshot follow-up: lower the cast-hull belly from the track-top
+    region to a museum-photo-constrained road-wheel-axis datum, preserve the
+    exposed running gear across all four LODs, and cover the corrected lower
+    silhouette with a behavioral geometry regression.
+  - [x] D2 screenshot follow-up: fill the source-visible deck-to-turret interval
+    with a closed installation-owned turret race and extend source-profiled
+    hull shoulders to the inner track edges at detailed and proxy LOD, removing
+    the large turret, side, and running-gear silhouette islands.
+  - [x] S35 armament follow-up: lower the SA 35 mantlet and complete gun axis
+    60 mm into the registered APX 1 CE turret envelope, seat the MAC 31 barrel
+    15 mm into the mantlet face, and share the corrected installation datums
+    with the authoritative mantlet collision volume; retain the mantlet at core
+    LOD and add its proxy so the main barrel remains seated at every tier.
+  - [ ] P0: seat the Char B1 bis cupola; repair Laffly wheel/roller/fender and
+    Opel bumper/fender gaps; reconnect the remaining Panzer III and Panzer 38(t)
+    core/proxy parts; support the H39 running-gear islands.
+  - [ ] P1: repair the remaining AMC 35, R35, Panzer II, Panzer 35(t), Panzer
+    IV, and Sd.Kfz. 231 findings; validate every changed mesh with directed-edge
+    winding checks and front-face culling from oblique views as well as all 12
+    fixed LOD/view combinations.
+
+### French shared turret families
+
+- [ ] Represent historically shared APX turret families as family-owned
+  components instead of unrelated vehicle-local approximations.
+  - [ ] Verify and record APX 1, APX 1A, APX 1 CE, APX 4, APX-R/APX-R1, and
+    APX 5 identity, ring, armor, crew, armament, sight, cupola/hatch, and vehicle
+    fit from primary or official-museum evidence before canonicalizing the
+    user-supplied vehicle mapping.
+  - [ ] Add a stable `turretFamilyId` plus installation/variant ID to applicable
+    France 1940 vehicle records. Keep the shared casting and armor definition
+    separate from vehicle-owned ring seating, gun/ammunition fit, mantlet,
+    coaxial weapon, sight, muzzle/recoil markers, crew IDs, and stowage.
+  - [ ] Reconcile the independently authored Renault R35 and Hotchkiss H39
+    APX-R meshes against common registered turret evidence, then make one
+    reviewed shared detailed/proxy casting feed both installations without
+    changing their distinct SA 18/SA 38 configurations.
+  - [ ] Reconcile Renault D2 APX 1/APX 1A, SOMUA S35 APX 1 CE, and Char B1 bis
+    APX 4 ownership without treating related variants as interchangeable; fix
+    the D2 secondary raster's misleading `APX-4` filename/title association
+    only after the represented turret is source-identified.
+  - [ ] Keep APX 5 and vehicles not currently in the production catalog as
+    verified future content rather than adding placeholder runtime records.
 
 ### German vehicle visual audit
 
@@ -316,6 +390,10 @@ authorized.
 - [ ] Complete measured runtime optimization on representative desktop and mobile hardware.
   - [x] First bounded render/main-thread pass: reduce default high-tier pixel work from a 2.0 to 1.5 device-pixel-ratio cap, reduce its directional shadow map from 2048 to 1024, retain the previous settings as explicit `quality=ultra`, limit shadow casters to authored core/proxy silhouettes, exclude blended/UI meshes, replace visibility projection's nested target/observer/unit scan with indexed observation traversal, cache projection between authoritative spotting steps, and bound floating badges to 30 Hz and the minimap to 10 Hz.
   - [x] Realtime/VFX pass: sample authoritative observation at a rollback-owned deterministic 10 Hz, avoid rebuilding unchanged building LOS colliders, and replace CPU-stacked vehicle fire/smoke plus pooled impact/explosion/muzzle-flash meshes with bounded WebGPU TSL sprite effects while preserving simulation-owned hits, damage, and muzzle origins.
+    - [x] Bootstrap the optional `GPUShaderStage` constants before importing
+      `vanilla-vfx`, preserving native browser values while allowing Firefox
+      without WebGPU to reach the required WebGL2 renderer fallback instead of
+      failing during module evaluation.
     - [x] Correct TSL explosion sprite presentation after the geometry-to-sprite migration: preserve metre-scale blast visibility and lift the centered sprite above its authoritative ground-impact position instead of leaving a sub-metre, terrain-occluded flash.
     - [x] Repair the r185 invisible-VFX regression: resolve renderer, node-material, and TSL imports to one Three.js singleton; replace non-finite JavaScript shader-node subtraction with TSL arithmetic; reject divergent Vite identities and non-finite VFX graphs; and confirm a live WebGL2-fallback explosion renders visible pixels without TSL, shader, or page errors.
   - [x] Add an on-demand top-bar profiling panel with rolling FPS, average/p95 frame time, renderer backend, draw calls, submitted triangles, geometry/texture counts, and active LOD counts; add independent FOV, infantry/vehicle hit-volume, vehicle-component, vehicle-crew, and formation-AI overlays that project the live authoritative mechanisms and dispose their GPU resources.

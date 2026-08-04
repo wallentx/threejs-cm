@@ -12,22 +12,28 @@ const H39_DIMENSIONS_METERS = deepFreeze({
   height: 2.15
 });
 
+// The official Saumur survivor photograph shows the lower cast hull descending
+// to approximately the road-wheel axle line between the tracks. This remains a
+// renderer inference until a source drawing is accepted and pixel-registered.
+const H39_ROAD_WHEEL_Y = 0.36;
+const H39_HULL_BELLY_Y = H39_ROAD_WHEEL_Y;
+
 const H39_GEOMETRY = deepFreeze({
   hullRearZ: -2.11,
   hullFrontZ: 2.11,
   hullStations: [
     // z, half-width, underside, crown, upper-side shoulder, crown edge
-    { z: -2.11, halfWidth: 0.60, bottomY: 0.58, topY: 0.88, shoulderY: 0.74, topWidthRatio: 0.62 },
-    { z: -1.93, halfWidth: 0.76, bottomY: 0.53, topY: 1.04, shoulderY: 0.84, topWidthRatio: 0.68 },
-    { z: -1.55, halfWidth: 0.84, bottomY: 0.76, topY: 1.28, shoulderY: 1.01, topWidthRatio: 0.74 },
-    { z: -0.88, halfWidth: 0.865, bottomY: 0.81, topY: 1.34, shoulderY: 1.07, topWidthRatio: 0.77 },
-    { z: -0.28, halfWidth: 0.87, bottomY: 0.83, topY: 1.38, shoulderY: 1.10, topWidthRatio: 0.76 },
-    { z: 0.28, halfWidth: 0.87, bottomY: 0.83, topY: 1.39, shoulderY: 1.11, topWidthRatio: 0.75 },
-    { z: 0.74, halfWidth: 0.855, bottomY: 0.81, topY: 1.34, shoulderY: 1.08, topWidthRatio: 0.73 },
-    { z: 1.22, halfWidth: 0.82, bottomY: 0.77, topY: 1.24, shoulderY: 1.03, topWidthRatio: 0.69 },
-    { z: 1.67, halfWidth: 0.74, bottomY: 0.62, topY: 0.98, shoulderY: 0.83, topWidthRatio: 0.63 },
-    { z: 2.00, halfWidth: 0.59, bottomY: 0.53, topY: 0.79, shoulderY: 0.69, topWidthRatio: 0.55 },
-    { z: 2.11, halfWidth: 0.45, bottomY: 0.59, topY: 0.70, shoulderY: 0.65, topWidthRatio: 0.50 }
+    { z: -2.11, halfWidth: 0.60, bottomY: H39_HULL_BELLY_Y, topY: 0.88, shoulderY: 0.74, topWidthRatio: 0.62 },
+    { z: -1.93, halfWidth: 0.76, bottomY: H39_HULL_BELLY_Y, topY: 1.04, shoulderY: 0.84, topWidthRatio: 0.68 },
+    { z: -1.55, halfWidth: 0.84, bottomY: H39_HULL_BELLY_Y, topY: 1.28, shoulderY: 1.01, topWidthRatio: 0.74 },
+    { z: -0.88, halfWidth: 0.865, bottomY: H39_HULL_BELLY_Y, topY: 1.34, shoulderY: 1.07, topWidthRatio: 0.77 },
+    { z: -0.28, halfWidth: 0.87, bottomY: H39_HULL_BELLY_Y, topY: 1.38, shoulderY: 1.10, topWidthRatio: 0.76 },
+    { z: 0.28, halfWidth: 0.87, bottomY: H39_HULL_BELLY_Y, topY: 1.39, shoulderY: 1.11, topWidthRatio: 0.75 },
+    { z: 0.74, halfWidth: 0.855, bottomY: H39_HULL_BELLY_Y, topY: 1.34, shoulderY: 1.08, topWidthRatio: 0.73 },
+    { z: 1.22, halfWidth: 0.82, bottomY: H39_HULL_BELLY_Y, topY: 1.24, shoulderY: 1.03, topWidthRatio: 0.69 },
+    { z: 1.67, halfWidth: 0.74, bottomY: H39_HULL_BELLY_Y, topY: 0.98, shoulderY: 0.83, topWidthRatio: 0.63 },
+    { z: 2.00, halfWidth: 0.59, bottomY: H39_HULL_BELLY_Y, topY: 0.79, shoulderY: 0.69, topWidthRatio: 0.55 },
+    { z: 2.11, halfWidth: 0.45, bottomY: H39_HULL_BELLY_Y, topY: 0.70, shoulderY: 0.65, topWidthRatio: 0.50 }
   ],
   runningGear: {
     trackWidth: 0.27,
@@ -37,6 +43,7 @@ const H39_GEOMETRY = deepFreeze({
     // Includes link and cleat depth so the current detailed tracks touch y=0.
     trackCenterY: 0.4494,
     roadWheelRadius: 0.205,
+    roadWheelY: H39_ROAD_WHEEL_Y,
     roadWheelCentersZ: [-0.94, -0.66, 0.04, 0.32, 1.02, 1.30],
     model: 'legacy-capsule-v1',
     quality:
@@ -108,6 +115,10 @@ const H39_BLUEPRINT = deepFreeze({
     trackCenterY: {
       value: H39_GEOMETRY.runningGear.trackCenterY,
       quality: 'geometry-derived ground-contact approximation'
+    },
+    hullBellyY: {
+      value: H39_HULL_BELLY_Y,
+      quality: 'official museum survivor photo-constrained renderer inference aligned to the road-wheel axle line'
     },
     roadWheelCentersZ: {
       value: H39_GEOMETRY.runningGear.roadWheelCentersZ,

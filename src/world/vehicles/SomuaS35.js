@@ -4,7 +4,8 @@ import {
 } from '../../content/france1940/vehicleData/CommanderStations.js';
 import {
   SOMUA_S35_HULL_STATIONS as HULL_STATIONS,
-  SOMUA_S35_TURRET_STATIONS as TURRET_STATIONS
+  SOMUA_S35_TURRET_STATIONS as TURRET_STATIONS,
+  SOMUA_S35_WEAPON_INSTALLATION as WEAPON_INSTALLATION
 } from '../../game/vehicleData/SomuaS35Shape.js';
 import { lateralX } from '../LocalFrame.js';
 import {
@@ -31,9 +32,7 @@ const S35 = Object.freeze({
   rearSprocketZ: -1.99,
   returnRollerZ: Object.freeze([0.78, -0.76]),
   turretRingY: 1.55,
-  turretCenterZ: 0.55,
-  gunAxisLocalY: 0.48,
-  gunMuzzleLocalZ: 1.98
+  turretCenterZ: 0.55
 });
 
 export const SOMUA_S35_BLUEPRINT_CALIBRATION = Object.freeze({
@@ -114,9 +113,9 @@ export const SOMUA_S35_BLUEPRINT_CALIBRATION = Object.freeze({
       rearSprocketZ: S35.rearSprocketZ,
       turretRing: Object.freeze([0, S35.turretRingY, S35.turretCenterZ]),
       gunAxis: Object.freeze([
-        0.04,
-        S35.turretRingY + S35.gunAxisLocalY,
-        S35.turretCenterZ + 0.74
+        WEAPON_INSTALLATION.main.axisLocalX,
+        S35.turretRingY + WEAPON_INSTALLATION.main.axisLocalY,
+        S35.turretCenterZ + WEAPON_INSTALLATION.mantlet.centerLocalZ
       ]),
       quality: 'hand-registered illustration landmarks; not claimed as factory measurements'
     })
@@ -438,15 +437,23 @@ export function createSomuaS35Mesh() {
     );
   }
 
+  // Source-registered renderer inference: the deck's lower rear/front edges
+  // follow the interpolated cast-hull roof instead of hovering above it.
+  const engineDeckCenterY = 1.532;
+  const engineDeckRotationX = -0.10;
   const engineDeck = addMesh(
     root,
     new THREE.BoxGeometry(1.45, 0.055, 2.10),
     castOchre,
     'S35_SlopingEngineDeck',
     'medium',
-    { position: [0, 1.68, -1.40], rotation: [-0.075, 0, 0] }
+    {
+      position: [0, engineDeckCenterY, -1.40],
+      rotation: [engineDeckRotationX, 0, 0]
+    }
   );
   engineDeck.userData.registeredOutlinePart = 'long-low-rear-engine-deck';
+  engineDeck.userData.contactSurface = 'S35_CastPrimaryHull';
   for (let index = 0; index < 8; index++) {
     addMesh(
       root,
@@ -455,8 +462,8 @@ export function createSomuaS35Mesh() {
       `S35_EngineLouvre_${index + 1}`,
       'high',
       {
-        position: [0, 1.76 - index * 0.018, -0.58 - index * 0.22],
-        rotation: [-0.075, 0, 0]
+        position: [0, engineDeckCenterY + 0.08 - index * 0.018, -0.58 - index * 0.22],
+        rotation: [engineDeckRotationX, 0, 0]
       }
     );
   }
@@ -486,15 +493,28 @@ export function createSomuaS35Mesh() {
 
   const mantlet = addMesh(
     turretGroup,
-    new THREE.CylinderGeometry(0.24, 0.28, 0.17, 12),
+    new THREE.CylinderGeometry(
+      WEAPON_INSTALLATION.mantlet.radiusTop,
+      WEAPON_INSTALLATION.mantlet.radiusBottom,
+      WEAPON_INSTALLATION.mantlet.depth,
+      12
+    ),
     darkGreen,
     'S35_SA35_Mantlet',
-    'medium',
-    { position: [0.04, S35.gunAxisLocalY, 0.76], rotation: [Math.PI / 2, 0, 0] }
+    'core',
+    {
+      position: [
+        WEAPON_INSTALLATION.main.axisLocalX,
+        WEAPON_INSTALLATION.main.axisLocalY,
+        WEAPON_INSTALLATION.mantlet.centerLocalZ
+      ],
+      rotation: [Math.PI / 2, 0, 0]
+    }
   );
   mantlet.userData.articulatedPart = 'gun-mantlet';
+  mantlet.userData.placementQuality = WEAPON_INSTALLATION.dataQuality;
 
-  const barrelLength = 1.20;
+  const barrelLength = WEAPON_INSTALLATION.main.barrelLength;
   const barrel = addMesh(
     turretGroup,
     new THREE.CylinderGeometry(0.038, 0.055, barrelLength, 10),
@@ -502,7 +522,11 @@ export function createSomuaS35Mesh() {
     'S35_SA35_Barrel',
     'core',
     {
-      position: [0.04, S35.gunAxisLocalY, 0.78 + barrelLength * 0.5],
+      position: [
+        WEAPON_INSTALLATION.main.axisLocalX,
+        WEAPON_INSTALLATION.main.axisLocalY,
+        WEAPON_INSTALLATION.main.barrelBaseLocalZ + barrelLength * 0.5
+      ],
       rotation: [Math.PI / 2, 0, 0],
       envelopeRole: 'weaponProjection'
     }
@@ -514,12 +538,16 @@ export function createSomuaS35Mesh() {
 
   const muzzle = new THREE.Object3D();
   muzzle.name = 'S35_SA35_Muzzle';
-  muzzle.position.set(0.04, S35.gunAxisLocalY, S35.gunMuzzleLocalZ);
+  muzzle.position.set(
+    WEAPON_INSTALLATION.main.axisLocalX,
+    WEAPON_INSTALLATION.main.axisLocalY,
+    WEAPON_INSTALLATION.main.muzzleLocalZ
+  );
   muzzle.userData.forwardAxis = '+Z';
   muzzle.userData.envelopeRole = 'weaponProjection';
   turretGroup.add(muzzle);
 
-  const coaxLength = 0.46;
+  const coaxLength = WEAPON_INSTALLATION.coax.barrelLength;
   const coax = addMesh(
     turretGroup,
     new THREE.CylinderGeometry(0.014, 0.022, coaxLength, 7),
@@ -527,24 +555,32 @@ export function createSomuaS35Mesh() {
     'S35_MAC31_Coax',
     'high',
     {
-      position: [lateralX('right', 0.18), 0.43, 0.90 + coaxLength * 0.5],
+      position: [
+        WEAPON_INSTALLATION.coax.axisLocalX,
+        WEAPON_INSTALLATION.coax.axisLocalY,
+        WEAPON_INSTALLATION.coax.barrelBaseLocalZ + coaxLength * 0.5
+      ],
       rotation: [Math.PI / 2, 0, 0],
       envelopeRole: 'weaponProjection'
     }
   );
   coax.userData.weaponMountId = 'coax';
-  coax.userData.mountSide = 'right';
-  coax.userData.placementQuality = 'blueprint-registered and museum-corroborated';
+  coax.userData.mountSide = WEAPON_INSTALLATION.coax.mountSide;
+  coax.userData.placementQuality = WEAPON_INSTALLATION.dataQuality;
   coax.userData.referenceUrl = 'https://museedesblindes.fr/les_chars/somua-s35/';
   const coaxMuzzle = new THREE.Object3D();
   coaxMuzzle.name = 'coax_muzzle';
-  coaxMuzzle.position.set(lateralX('right', 0.18), 0.43, 0.90 + coaxLength);
+  coaxMuzzle.position.set(
+    WEAPON_INSTALLATION.coax.axisLocalX,
+    WEAPON_INSTALLATION.coax.axisLocalY,
+    WEAPON_INSTALLATION.coax.muzzleLocalZ
+  );
   coaxMuzzle.userData = {
     weaponMountId: 'coax',
     forwardAxis: '+Z',
     envelopeRole: 'weaponProjection',
-    mountSide: 'right',
-    placementQuality: 'blueprint-registered and museum-corroborated',
+    mountSide: WEAPON_INSTALLATION.coax.mountSide,
+    placementQuality: WEAPON_INSTALLATION.dataQuality,
     referenceUrl: 'https://museedesblindes.fr/les_chars/somua-s35/'
   };
   turretGroup.add(coaxMuzzle);
@@ -635,6 +671,11 @@ export function createSomuaS35Mesh() {
   proxyGroup.add(proxyRunningGear);
   root.add(proxyGroup);
   const proxyTurret = cloneProxyMesh(turret, 'S35_ProxyAPXTurret', turretGroup);
+  const proxyMantlet = cloneProxyMesh(
+    mantlet,
+    'S35_ProxySA35Mantlet',
+    turretGroup
+  );
   const proxyBarrel = cloneProxyMesh(barrel, 'S35_ProxySA35Barrel', turretGroup);
   const proxyCupola = cloneProxyMesh(
     cupola,
@@ -653,6 +694,7 @@ export function createSomuaS35Mesh() {
   root.userData.weaponMuzzles = { coax: coaxMuzzle };
   root.userData.authoredHull = hull;
   root.userData.proxyTurret = proxyTurret;
+  root.userData.proxyMantlet = proxyMantlet;
   root.userData.proxyBarrel = proxyBarrel;
   root.userData.proxyCupola = proxyCupola;
   root.userData.proxyCupolaRoof = proxyCupolaRoof;

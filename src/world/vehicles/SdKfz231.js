@@ -329,9 +329,9 @@ function createTurretGeometry(levels, name) {
     }
   }
   for (let point = 1; point < ringSize - 1; point++) {
-    indices.push(0, point + 1, point);
+    indices.push(0, point, point + 1);
     const roof = (levels.length - 1) * ringSize;
-    indices.push(roof, roof + point, roof + point + 1);
+    indices.push(roof, roof + point + 1, roof + point);
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));

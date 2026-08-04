@@ -6,6 +6,7 @@ import { createPanzer38tMesh } from '../src/world/vehicles/index.js';
 import {
   PANZER_38T_BLUEPRINT_CALIBRATION
 } from '../src/world/vehicles/Panzer38t.js';
+import { assertClosedConsistentWinding } from './helpers/GeometryTopologyAssertions.js';
 
 const TOLERANCE = 0.002;
 
@@ -77,9 +78,17 @@ test('Panzer 38(t) station hulls and faceted turret are closed and outward-wound
   assert.equal(lowerHull.userData.profileStationCount, 6);
   assert.equal(upperHull.userData.profileStationCount, 7);
   assert.equal(turret.userData.profilePlanPointCount, 10);
-  for (const mesh of [lowerHull, upperHull, turret]) {
+  for (const mesh of [
+    lowerHull,
+    upperHull,
+    turret,
+    vehicle.getObjectByName('Panzer38t_ProxyPrimaryHull'),
+    vehicle.getObjectByName('Panzer38t_ProxyUpperHull'),
+    vehicle.getObjectByName('Panzer38t_ProxyTurret')
+  ]) {
     assert.equal(mesh.geometry.userData.outwardWindingAudited, true);
     assert.ok(signedVolume(mesh.geometry) > 0, mesh.name);
+    assertClosedConsistentWinding(mesh.geometry, mesh.name);
   }
 });
 

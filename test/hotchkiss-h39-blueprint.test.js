@@ -10,6 +10,7 @@ import {
 import {
   HOTCHKISS_H39_VISUAL_DATA
 } from '../src/content/france1940/vehicleData/HotchkissH39VisualData.js';
+import { assertClosedConsistentWinding } from './helpers/GeometryTopologyAssertions.js';
 
 function assertDeeplyFrozen(value, seen = new Set()) {
   if (!value || typeof value !== 'object' || seen.has(value)) return;
@@ -103,6 +104,51 @@ test('H39 cast hull and APX-R turret lofts are outward-wound and inspectable', (
   assert.equal(turret.geometry.userData.outwardWindingAudited, true);
   assert.ok(signedVolume(hull.geometry) > 0);
   assert.ok(signedVolume(turret.geometry) > 0);
+  for (const name of [
+    'H39_CastHull',
+    'H39_APXR_Turret',
+    'H39_RightTrackGuard',
+    'H39_LeftTrackGuard',
+    'H39_SourceProxyHull',
+    'H39_SourceProxyTurret'
+  ]) {
+    const mesh = vehicle.getObjectByName(name);
+    assert.ok(mesh, `${name} must exist`);
+    assertClosedConsistentWinding(mesh.geometry, name);
+  }
+});
+
+test('H39 lower cast hull descends between the tracks instead of ending at the upper run', () => {
+  const vehicle = createHotchkissH39Mesh();
+  const hull = vehicle.getObjectByName('H39_CastHull');
+  const positions = hull.geometry.attributes.position;
+  const stations = HOTCHKISS_H39_VISUAL_DATA.geometry.hullStations;
+  const { trackCenterY, trackHeight } = HOTCHKISS_H39_VISUAL_DATA.geometry.runningGear;
+
+  for (const [stationIndex, station] of stations.entries()) {
+    const stationVertices = [];
+    for (let vertexIndex = 0; vertexIndex < positions.count; vertexIndex++) {
+      if (Math.abs(positions.getZ(vertexIndex) - station.z) < 1e-5) {
+        stationVertices.push({
+          x: positions.getX(vertexIndex),
+          y: positions.getY(vertexIndex)
+        });
+      }
+    }
+    const centerBellyY = Math.min(...stationVertices.map(vertex => vertex.y));
+    const lowerSideY = Math.min(...stationVertices
+      .filter(vertex => Math.abs(vertex.x) >= station.halfWidth * 0.9)
+      .map(vertex => vertex.y));
+
+    assert.ok(
+      centerBellyY <= trackCenterY,
+      `station ${stationIndex} belly ${centerBellyY} must reach the track centerline ${trackCenterY}`
+    );
+    assert.ok(
+      lowerSideY < trackCenterY + trackHeight * 0.3,
+      `station ${stationIndex} lower side must fill the void above the road wheels`
+    );
+  }
 });
 
 test('H39 preserves rigid envelope, ground contact, and bounded SA 38 projection', () => {

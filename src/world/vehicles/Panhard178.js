@@ -171,9 +171,9 @@ function createApx3TurretGeometry(levels) {
   }
 
   for (let edge = 1; edge < ringSize - 1; edge++) {
-    indices.push(0, edge + 1, edge);
+    indices.push(0, edge, edge + 1);
     const roof = (levels.length - 1) * ringSize;
-    indices.push(roof, roof + edge, roof + edge + 1);
+    indices.push(roof, roof + edge + 1, roof + edge);
   }
 
   if (signedVolume(positions, indices) < 0) {

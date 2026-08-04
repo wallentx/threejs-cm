@@ -8,6 +8,7 @@ import {
   normalizeRenderQualityTier,
   resolveMeshShadowPolicy
 } from '../src/engine/Renderer.js';
+import { installWebGpuGlobalCompat } from '../src/engine/WebGpuGlobalCompat.js';
 
 async function read(relativePath) {
   return readFile(new URL(relativePath, import.meta.url), 'utf8');
@@ -41,6 +42,19 @@ test('browser build uses Three r185 WebGPURenderer with explicit initialization 
   assert.match(viteSource, /import\.meta\.resolve\('three\/webgpu'\)/);
   assert.match(viteSource, /find:\s*\/\^three\$\/,\s*replacement:\s*threeWebGPUPath/);
   assert.match(markup, /<title>[^<]+WebGPU PoC<\/title>/);
+  assert.match(markup, /src="\.\/src\/bootstrap\.js"/);
+});
+
+test('browser bootstrap supplies only the missing WebGPU shader-stage constants', () => {
+  const missingWebGpuGlobal = {};
+  const fallback = installWebGpuGlobalCompat(missingWebGpuGlobal);
+  assert.deepEqual(fallback, { VERTEX: 1, FRAGMENT: 2, COMPUTE: 4 });
+  assert.equal(Object.isFrozen(fallback), true);
+
+  const nativeStages = { VERTEX: 11, FRAGMENT: 22, COMPUTE: 44 };
+  const nativeWebGpuGlobal = { GPUShaderStage: nativeStages };
+  assert.equal(installWebGpuGlobalCompat(nativeWebGpuGlobal), nativeStages);
+  assert.equal(nativeWebGpuGlobal.GPUShaderStage, nativeStages);
 });
 
 test('render profiles bound pixel and shadow cost with explicit ultra opt-in', () => {

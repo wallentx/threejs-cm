@@ -237,8 +237,8 @@ function createStationLoftGeometry(stations, name) {
   const front = (stations.length - 1) * ringSize;
   for (let edge = 0; edge < ringSize; edge++) {
     const following = (edge + 1) % ringSize;
-    indices.push(rearCenter, following, edge);
-    indices.push(frontCenter, front + edge, front + following);
+    indices.push(rearCenter, edge, following);
+    indices.push(frontCenter, front + following, front + edge);
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
@@ -285,8 +285,8 @@ function createTurretGeometry(segments = TURRET_PLAN.length) {
   const top = (rings.length - 1) * segments;
   for (let point = 0; point < segments; point++) {
     const following = (point + 1) % segments;
-    indices.push(bottomCenter, following, point);
-    indices.push(topCenter, top + point, top + following);
+    indices.push(bottomCenter, point, following);
+    indices.push(topCenter, top + following, top + point);
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));

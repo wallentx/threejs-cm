@@ -109,8 +109,8 @@ function createCastHullGeometry(stations) {
   const frontStart = (stations.length - 1) * ringSize;
   for (let ring = 0; ring < ringSize; ring++) {
     const following = (ring + 1) % ringSize;
-    indices.push(rearCenter, following, ring);
-    indices.push(frontCenter, frontStart + ring, frontStart + following);
+    indices.push(rearCenter, ring, following);
+    indices.push(frontCenter, frontStart + following, frontStart + ring);
   }
 
   const geometry = new THREE.BufferGeometry();
@@ -158,8 +158,8 @@ function createTurretGeometry(rings, segments = 16) {
   const topStart = (rings.length - 1) * segments;
   for (let segment = 0; segment < segments; segment++) {
     const following = (segment + 1) % segments;
-    indices.push(bottomCenter, following, segment);
-    indices.push(topCenter, topStart + segment, topStart + following);
+    indices.push(bottomCenter, segment, following);
+    indices.push(topCenter, topStart + following, topStart + segment);
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
@@ -206,9 +206,9 @@ function createFenderGeometry(side) {
       );
     }
   }
-  indices.push(0, 2, 1, 0, 3, 2);
+  indices.push(0, 1, 2, 0, 2, 3);
   const end = (stations.length - 1) * 4;
-  indices.push(end, end + 1, end + 2, end, end + 2, end + 3);
+  indices.push(end, end + 2, end + 1, end, end + 3, end + 2);
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
@@ -326,7 +326,7 @@ export function createHotchkissH39Mesh() {
     centerY: H39.trackCenterY,
     roadWheelRadius: H39.roadWheelRadius,
     roadWheelCount: PROFILE.roadWheelsPerSide,
-    roadWheelY: 0.36,
+    roadWheelY: H39.roadWheelY,
     roadWheelZStart: H39.roadWheelCentersZ[0],
     roadWheelSpacing: 0.45,
     sprocketRadius: 0.30,

@@ -804,6 +804,7 @@ export class ThreeVfxBattlefieldRuntime {
     unitId,
     position,
     blastPosition = position,
+    turretRingPosition = blastPosition,
     vents = null,
     dimensions,
     delta,
@@ -835,6 +836,14 @@ export class ThreeVfxBattlefieldRuntime {
     const postBlastEnvelope = firePhase === 'DETONATED'
       ? 1 - smoothstepValue(0.18, 1, Number(firePostBlastProgress) || 0)
       : 1;
+    const postBlastProgress = THREE.MathUtils.clamp(
+      Number(firePostBlastProgress) || 0,
+      0,
+      1
+    );
+    const turretRingPoint = finiteTriplet(turretRingPosition)
+      ?? finiteTriplet(blastPosition)
+      ?? finiteTriplet(position);
     const availableVents = Array.isArray(vents) ? vents : [];
     const ventCount = Math.max(1, availableVents.length);
     const ventAt = index => availableVents[index % ventCount] ?? null;
@@ -843,11 +852,13 @@ export class ThreeVfxBattlefieldRuntime {
     const state = this.vehicleEmission.get(unitId) ?? {
       smokeBudget: 0,
       flameBudget: 0,
+      turretFlameBudget: 0,
       sparkBudget: 0,
       smokeCursor: 0,
       flameCursor: 0,
       sparkCursor: 0
     };
+    state.turretFlameBudget ??= 0;
 
     if (shouldSmoke) {
       const rate = (lowDetail ? 5 : 12) + intensity * (lowDetail ? 4 : 12);
@@ -934,8 +945,46 @@ export class ThreeVfxBattlefieldRuntime {
           });
         }
       }
+
+      if (firePhase === 'DETONATED' && turretRingPoint) {
+        // The exposed ring is a separate event layer: a dense central plume
+        // survives the full authoritative post-blast interval while its rate,
+        // scale, speed, and lifetime decay together. Existing engine-deck fire
+        // remains independent around the hull.
+        const decay = 1 - smoothstepValue(0.05, 1, postBlastProgress);
+        const strength = 0.18 + decay * 0.82;
+        const rate = (lowDetail ? 7 : 22) * (0.35 + strength * 0.65);
+        state.turretFlameBudget += boundedDelta * rate;
+        const turretFlameCount = Math.min(
+          lowDetail ? 3 : 7,
+          Math.floor(state.turretFlameBudget)
+        );
+        if (turretFlameCount > 0) {
+          state.turretFlameBudget -= turretFlameCount;
+          for (let index = 0; index < turretFlameCount; index++) {
+            this.spawn('flame', turretRingPoint, 1, {
+              direction: directionRange([0, 1, 0], 0.12 + (1 - strength) * 0.12),
+              size: [
+                width * (0.15 + strength * 0.12),
+                width * (0.32 + strength * 0.42)
+              ],
+              speed: [
+                1.05 + strength * 0.75,
+                2.5 + strength * 3.3
+              ],
+              lifetime: [
+                0.42,
+                0.66 + strength * 0.59
+              ]
+            });
+          }
+        }
+      } else {
+        state.turretFlameBudget = 0;
+      }
     } else {
       state.flameBudget = 0;
+      state.turretFlameBudget = 0;
       state.sparkBudget = 0;
     }
 

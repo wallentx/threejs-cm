@@ -456,6 +456,17 @@ function effectAnchor(dimensions) {
   );
 }
 
+function resolveTurretRingLocal(mesh, turret, dimensions) {
+  if (!turret) {
+    return new THREE.Vector3(0, dimensions.height * 0.72, 0);
+  }
+  mesh.updateWorldMatrix(true, true);
+  scratchPosition.set(0, 0, 0);
+  turret.localToWorld(scratchPosition);
+  mesh.worldToLocal(scratchPosition);
+  return scratchPosition.clone();
+}
+
 function createRuntimeFireVents(dimensions) {
   return APPROXIMATE_FIRE_VENTS.map((vent, index) => ({
     id: `generic-envelope-fire-vent-${index + 1}`,
@@ -526,6 +537,8 @@ export class VehicleDamageEffects {
 
     const dimensions = unit.mesh.userData.modelMetadata?.dimensionsMeters
       ?? { length: 4.8, width: 2.2, height: 2.2 };
+    const turret = unit.mesh.userData.turret ?? null;
+    const turretRingLocal = resolveTurretRingLocal(unit.mesh, turret, dimensions);
     const root = new THREE.Group();
     root.name = `${unit.id}_VehicleDamageEffects`;
     root.userData.effectOwner = unit.id;
@@ -605,6 +618,8 @@ export class VehicleDamageEffects {
       blastMaterial,
       dimensions,
       anchor: effectAnchor(dimensions),
+      turretRingLocal,
+      runtimeTurretRingPosition: new THREE.Vector3(),
       runtimeBlastLocal: new THREE.Vector3(0, dimensions.height * 0.72, 0),
       runtimeBlastPosition: new THREE.Vector3(),
       runtimeFireVents: createRuntimeFireVents(dimensions),
@@ -618,9 +633,9 @@ export class VehicleDamageEffects {
       lastDestroyed: false,
       lastSecondaryExplosion: false,
       barrelRestRotationX: unit.mesh.userData.barrel?.rotation.x ?? 0,
-      turret: unit.mesh.userData.turret ?? null,
-      turretRestPosition: unit.mesh.userData.turret?.position.clone() ?? null,
-      turretRestQuaternion: unit.mesh.userData.turret?.quaternion.clone() ?? null,
+      turret,
+      turretRestPosition: turret?.position.clone() ?? null,
+      turretRestQuaternion: turret?.quaternion.clone() ?? null,
       externalProxyTurretParts: [],
       turretWasSeparated: false,
       rustMaterials: null,
@@ -749,6 +764,8 @@ export class VehicleDamageEffects {
       record.mesh.localToWorld(scratchPosition);
       record.runtimeBlastPosition.copy(record.runtimeBlastLocal);
       record.mesh.localToWorld(record.runtimeBlastPosition);
+      record.runtimeTurretRingPosition.copy(record.turretRingLocal);
+      record.mesh.localToWorld(record.runtimeTurretRingPosition);
       record.mesh.getWorldQuaternion(scratchWorldQuaternion);
       for (const vent of record.runtimeFireVents) {
         vent.position.copy(vent.localPosition);
@@ -761,6 +778,7 @@ export class VehicleDamageEffects {
         unitId: record.unit.id,
         position: scratchPosition,
         blastPosition: record.runtimeBlastPosition,
+        turretRingPosition: record.runtimeTurretRingPosition,
         vents: record.runtimeFireVents,
         dimensions: record.dimensions,
         delta,
@@ -842,7 +860,7 @@ export class VehicleDamageEffects {
         : legacyFlameCount;
       const count = setSpriteClusterCount(record.flames, presentedFlameCount);
       if (damage.firePhase === 'DETONATED') {
-        const postFireEnvelope = smoothstepValue(0, 0.08, damage.firePostBlastProgress);
+        const postFireEnvelope = smoothstepValue(0, 0.012, damage.firePostBlastProgress);
         const finalLayerScale = count === 1
           ? 1 - smoothstepValue(0.86, 1, damage.firePostBlastProgress)
           : 1;
@@ -854,9 +872,11 @@ export class VehicleDamageEffects {
           setSpriteParticle(
             record.flames,
             index,
-            Math.sin(index * 2.17) * record.dimensions.width * 0.24,
-            record.dimensions.height * (0.42 + phase * 0.72),
-            Math.cos(index * 1.83) * record.dimensions.length * 0.08,
+            record.turretRingLocal.x
+              + Math.sin(index * 2.17) * record.dimensions.width * 0.24,
+            record.turretRingLocal.y + record.dimensions.height * phase * 0.72,
+            record.turretRingLocal.z
+              + Math.cos(index * 1.83) * record.dimensions.width * 0.12,
             record.dimensions.width * (0.58 + phase * 0.5) * pulse * finalLayerScale,
             record.dimensions.height * (1.35 + phase * 1.1) * pulse * finalLayerScale,
             Math.sin(index * 1.37) * 0.11,
