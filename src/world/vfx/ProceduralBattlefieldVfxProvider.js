@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import {
   createProceduralSpriteMaterial
 } from './ProceduralVfxNodes.js';
+import {
+  createThreeVfxBattlefieldRuntime
+} from './ThreeVfxBattlefieldRuntime.js';
 
 export const PROCEDURAL_BATTLEFIELD_VFX_IMPLEMENTATION_ID =
   'procedural-battlefield-vfx-v2';
@@ -11,6 +14,28 @@ function markResource(resource, role) {
   resource.userData.vfxImplementationId =
     PROCEDURAL_BATTLEFIELD_VFX_IMPLEMENTATION_ID;
   return resource;
+}
+
+function createImpactMarkGeometry() {
+  const radius = 0.13;
+  const geometry = new THREE.CircleGeometry(radius, 18);
+  const positions = geometry.getAttribute('position');
+  const colors = new Float32Array(positions.count * 3);
+  for (let index = 0; index < positions.count; index++) {
+    const normalizedRadius = THREE.MathUtils.clamp(
+      Math.hypot(positions.getX(index), positions.getY(index)) / radius,
+      0,
+      1
+    );
+    // A dark recessed center and lighter irregular-looking rim read as a
+    // shallow perforation/dent without modifying authoritative model geometry.
+    const value = THREE.MathUtils.lerp(0.08, 1, normalizedRadius ** 0.72);
+    colors[index * 3] = value;
+    colors[index * 3 + 1] = value;
+    colors[index * 3 + 2] = value;
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return geometry;
 }
 
 // Renderer-only gameplay approximations. These colors, lifetimes, scales, and
@@ -247,7 +272,7 @@ function createVehicleDamageResources() {
       'vehicle-damage-spark'
     ),
     scorch: markResource(
-      new THREE.SphereGeometry(0.13, 7, 5),
+      createImpactMarkGeometry(),
       'vehicle-damage-scorch'
     ),
     blast: markResource(
@@ -272,12 +297,15 @@ function createVehicleDamageResources() {
       depthWrite: false,
       blending: THREE.AdditiveBlending
     }), 'vehicle-damage-spark'),
-    scorch: markResource(new THREE.MeshStandardMaterial({
-      color: 0x15130f,
-      roughness: 1,
-      metalness: 0,
+    scorch: markResource(new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      vertexColors: true,
       transparent: true,
-      opacity: 0.88
+      opacity: 0.94,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2
     }), 'vehicle-damage-scorch')
   });
   const capacities = Object.freeze({
@@ -312,5 +340,8 @@ export const PROCEDURAL_BATTLEFIELD_VFX_PROVIDER = Object.freeze({
   id: PROCEDURAL_BATTLEFIELD_VFX_IMPLEMENTATION_ID,
   kind: 'battlefield-vfx-provider',
   createCombatResources,
-  createVehicleDamageResources
+  createVehicleDamageResources,
+  createRuntime(options) {
+    return createThreeVfxBattlefieldRuntime(options);
+  }
 });

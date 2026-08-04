@@ -140,6 +140,31 @@ export function setVehicleComponentHealth(components, id, health) {
   return component;
 }
 
+export function destroyVehicleComponentsFromCookoff(components, damageState) {
+  if (!components || !damageState) {
+    throw new TypeError('vehicle cookoff destruction requires components and damage state');
+  }
+  const results = [];
+  for (const componentId of Object.keys(components).sort()) {
+    const component = components[componentId];
+    if (!component?.installed || component.health <= 0) continue;
+    const previousStatus = component.status;
+    setVehicleComponentHealth(components, componentId, 0);
+    const result = {
+      id: component.id,
+      previousStatus,
+      status: component.status,
+      health: component.health,
+      cause: 'ammunition_cookoff',
+      dataQuality: VEHICLE_FIRE_MODEL.dataQuality
+    };
+    results.push(result);
+    recordVehicleEvent(damageState, 'component_damage', result);
+  }
+  damageState.destroyed = true;
+  return results;
+}
+
 export function createVehicleDamageState(saved = null) {
   const savedFire = saved?.fire;
   const savedPhase = VEHICLE_FIRE_PHASES.has(savedFire?.phase)
@@ -359,12 +384,9 @@ export function advanceVehicleFireState({
     }
 
     if (phase === 'AMMUNITION_VENTING') {
-      for (const componentId of ['ammunition', 'fuel', 'engine', 'hull']) {
-        damageComponentFromFire(components, componentId, 0);
-      }
       damageState.secondaryExplosion = true;
       damageState.burning = true;
-      damageState.destroyed = true;
+      destroyVehicleComponentsFromCookoff(components, damageState);
       transitionVehicleFire(damageState, 'DETONATED', {
         source: 'ammunition'
       });

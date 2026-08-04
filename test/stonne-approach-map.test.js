@@ -127,6 +127,35 @@ test('Stonne builds rolling ground, five buildings, and four foliage instances',
   assert.ok(Math.max(...samples) - Math.min(...samples) > 3);
 });
 
+test('family foliage template replaces fallback geometry without losing instance ownership', async () => {
+  const { scene, terrain } = createTerrain();
+  const fallbackInstances = terrain.foliageInstances;
+  const fallbackGeometries = new Set(fallbackInstances.map(mesh => mesh.geometry));
+  const disposed = new Set();
+  for (const geometry of fallbackGeometries) {
+    geometry.addEventListener('dispose', () => disposed.add(geometry));
+  }
+  terrain.foliageTemplateProvider = {
+    createTemplate: async () => ({
+      generator: 'test-template',
+      branchGeometry: new THREE.BoxGeometry(1, 11, 1).translate(0, 5.5, 0),
+      leafGeometry: new THREE.BoxGeometry(5, 6, 5).translate(0, 8, 0),
+      dataQuality: 'test template'
+    })
+  };
+
+  const instances = await terrain.upgradeInstancedFoliageWithTemplate(
+    fallbackInstances
+  );
+
+  assert.equal(instances.length, 2);
+  assert.ok(instances.every(mesh => mesh.count === 152));
+  assert.ok(instances.every(mesh => mesh.userData.generator === 'test-template'));
+  assert.equal(scene.getObjectByName('MatureTreeCrownsWest'), undefined);
+  assert.equal(scene.getObjectByName('MatureTreeCrownsEast'), undefined);
+  assert.equal(disposed.size, fallbackGeometries.size);
+});
+
 test('configured forces fit Stonne deployment bands and face the crossroads', () => {
   const scenario = createConfiguredBattleScenario({
     mapDescriptor: STONNE_APPROACH_1940_MAP,

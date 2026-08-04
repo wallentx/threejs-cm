@@ -602,7 +602,8 @@ export class TerrainBuilder {
     mapDescriptor,
     buildingSystem = null,
     structureAdapters = {},
-    terrainSurfaceProvider
+    terrainSurfaceProvider,
+    foliageTemplateProvider = null
   } = {}) {
     if (!mapDescriptor?.id || !mapDescriptor?.dimensions) {
       throw new Error('TerrainBuilder requires a validated mapDescriptor');
@@ -612,6 +613,12 @@ export class TerrainBuilder {
       || typeof terrainSurfaceProvider.create !== 'function'
     ) {
       throw new Error('TerrainBuilder requires an injected terrain surface provider');
+    }
+    if (
+      foliageTemplateProvider != null
+      && typeof foliageTemplateProvider.createTemplate !== 'function'
+    ) {
+      throw new Error('TerrainBuilder foliage template provider requires createTemplate');
     }
     this.scene = scene;
     this.mapDescriptor = mapDescriptor;
@@ -641,8 +648,11 @@ export class TerrainBuilder {
     this.buildingSystem = buildingSystem;
     this.structureAdapters = structureAdapters;
     this.terrainSurfaceProvider = terrainSurfaceProvider;
+    this.foliageTemplateProvider = foliageTemplateProvider;
     this.surfaceAssets = null;
     this.fenceMeshesByRunId = new Map();
+    this.foliageInstances = [];
+    this.foliageReady = Promise.resolve(this.foliageInstances);
     this.destructibleLinearObstacles = new DestructibleLinearObstacleSystem({
       onSegmentChanged: (state, segment) => {
         this.syncDestructibleFenceSegment(state, segment);
@@ -1793,6 +1803,9 @@ export class TerrainBuilder {
           scale: 0.76
         })
       ];
+      this.foliageReady = typeof document === 'undefined' || !this.foliageTemplateProvider
+        ? Promise.resolve(this.foliageInstances)
+        : this.upgradeInstancedFoliageWithTemplate(this.foliageInstances);
       return this.foliageInstances;
     }
 
@@ -1834,6 +1847,42 @@ export class TerrainBuilder {
       };
       this.scene.add(tree);
     });
+    this.foliageReady = Promise.resolve([]);
+  }
+
+  async upgradeInstancedFoliageWithTemplate(expectedInstances) {
+    try {
+      const template = await this.foliageTemplateProvider.createTemplate({
+        profileId: 'mature-tree',
+        seed: 12345
+      });
+      if (!template) return expectedInstances;
+      if (this.foliageInstances !== expectedInstances) {
+        template.branchGeometry.dispose();
+        template.leafGeometry.dispose();
+        return this.foliageInstances;
+      }
+
+      const [branches, leaves, ...obsoleteCrowns] = expectedInstances;
+      const obsoleteGeometries = new Set(expectedInstances.map(mesh => mesh.geometry));
+      for (const mesh of obsoleteCrowns) this.scene.remove(mesh);
+
+      branches.geometry = template.branchGeometry;
+      branches.name = 'MatureTreeTemplateBranches';
+      branches.userData.generator = template.generator;
+      branches.userData.dataQuality = template.dataQuality;
+      leaves.geometry = template.leafGeometry;
+      leaves.name = 'MatureTreeTemplateLeaves';
+      leaves.userData.generator = template.generator;
+      leaves.userData.dataQuality = template.dataQuality;
+      this.foliageInstances = [branches, leaves];
+
+      for (const geometry of obsoleteGeometries) geometry.dispose();
+      return this.foliageInstances;
+    } catch (error) {
+      console.warn('[WARN] EZ-Tree template generation failed; retaining bounded fallback foliage:', error);
+      return expectedInstances;
+    }
   }
 
   buildSetupZones() {

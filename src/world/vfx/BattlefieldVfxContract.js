@@ -17,6 +17,16 @@ const VEHICLE_MATERIAL_ROLES = Object.freeze([
   'spark',
   'scorch'
 ]);
+const RUNTIME_METHODS = Object.freeze([
+  'emitImpact',
+  'emitExplosion',
+  'emitMuzzleFlash',
+  'emitBuildingDebris',
+  'emitVehicleDamageState',
+  'update',
+  'clear',
+  'dispose'
+]);
 
 function positiveInteger(value) {
   return Number.isInteger(value) && value > 0;
@@ -112,4 +122,16 @@ export function validateBattlefieldVfxProvider(provider) {
     );
   }
   return provider;
+}
+
+export function validateBattlefieldVfxRuntime(runtime) {
+  if (!runtime || typeof runtime !== 'object') {
+    throw new TypeError('battlefield VFX runtime must be an object');
+  }
+  for (const method of RUNTIME_METHODS) {
+    if (typeof runtime[method] !== 'function') {
+      throw new TypeError(`battlefield VFX runtime requires ${method}`);
+    }
+  }
+  return runtime;
 }

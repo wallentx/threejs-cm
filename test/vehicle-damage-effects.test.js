@@ -220,8 +220,11 @@ test('vehicle damage effects retain bounded impact scars and lower far-LOD parti
     id: 7,
     kind: 'vehicle',
     targetId: unit.id,
-    impactPosition: [0.7, 1.2, 1.5],
-    penetrated: true
+    impactPosition: [0.7, 0.2, 1.8],
+    impactVelocity: [0, 0, -220],
+    impactNormal: [0, 0, 1],
+    penetrated: true,
+    ricocheted: false
   };
 
   effects.update(1 / 30, [unit], [impact]);
@@ -231,14 +234,47 @@ test('vehicle damage effects retain bounded impact scars and lower far-LOD parti
   assert.equal(record.flames.userData.layerCount, 0);
   assert.equal(record.flames.visible, false);
   assert.equal(record.scorch.count, 1);
+  assert.deepEqual(record.impactMarkTypes[0], {
+    type: 'penetration',
+    projectedToVisualSurface: true
+  });
+  const markMatrix = new THREE.Matrix4();
+  const markPosition = new THREE.Vector3();
+  record.scorch.getMatrixAt(0, markMatrix);
+  markPosition.setFromMatrixPosition(markMatrix);
+  assert.ok(Math.abs(markPosition.z - 1.508) < 1e-5);
   assert.ok(record.impactTimer > 0);
 
   effects.processImpacts([{
     ...impact,
     impactId: 2,
-    impactPosition: [0.8, 1.2, 1.4]
+    impactPosition: [0.8, 0.2, 1.8],
+    penetrated: false,
+    ricocheted: true
   }]);
   assert.equal(record.scorch.count, 2, 'one projectile may author multiple ricochet impacts');
+  assert.equal(record.impactMarkTypes[1].type, 'ricochet');
+
+  effects.processImpacts([{
+    ...impact,
+    impactId: 3,
+    impactPosition: [0.2, 0.1, 1.8],
+    penetrated: false
+  }, {
+    ...impact,
+    impactId: 4,
+    impactPosition: [-0.2, 0.1, 1.8],
+    penetrated: false,
+    explosiveEffect: { kind: 'vehicle_explosive_direct' }
+  }]);
+  assert.equal(record.impactMarkTypes[2].type, 'stopped');
+  assert.equal(record.impactMarkTypes[3].type, 'heBlast');
+  const markColors = Array.from({ length: 4 }, (_, index) => {
+    const color = new THREE.Color();
+    record.scorch.getColorAt(index, color);
+    return color.getHex();
+  });
+  assert.equal(new Set(markColors).size, 4);
 
   for (let index = 0; index < 20; index++) {
     effects.processImpacts([{
@@ -250,6 +286,60 @@ test('vehicle damage effects retain bounded impact scars and lower far-LOD parti
   }
   assert.equal(record.scorch.count, 8);
 
+  effects.dispose();
+});
+
+test('Three-VFX runtime owns transient vehicle smoke, flame, sparks, and blasts', () => {
+  const unit = createVehicle();
+  unit.vehicleComponents = {
+    hull: { health: 0, status: 'DESTROYED' },
+    engine: { health: 0, status: 'BURNING' }
+  };
+  unit.vehicleDamageState = {
+    burning: true,
+    destroyed: true,
+    secondaryExplosion: false,
+    fire: { phase: 'SPREADING_FIRE' }
+  };
+  const emissions = [];
+  const runtime = {
+    emitImpact() { return true; },
+    emitExplosion() { return true; },
+    emitMuzzleFlash() { return true; },
+    emitBuildingDebris() { return true; },
+    emitVehicleDamageState(payload) {
+      emissions.push(payload);
+      return true;
+    },
+    update() { return true; },
+    clear() {},
+    dispose() {}
+  };
+  const effects = new VehicleDamageEffects({
+    vfxProvider: TEST_VFX_PROVIDER,
+    vfxRuntime: runtime
+  });
+
+  effects.update(1 / 30, [unit], []);
+  const record = effects.records.get(unit.id);
+  assert.equal(record.runtimeOwnsTransient, true);
+  assert.equal(record.smoke.userData.layerCount, 0);
+  assert.equal(record.flames.userData.layerCount, 0);
+  assert.equal(record.sparks.count, 0);
+  assert.equal(record.blast.visible, false);
+  assert.equal(emissions.length, 1);
+  assert.equal(emissions[0].ignitionTransition, true);
+  assert.equal(emissions[0].destructionTransition, true);
+  assert.equal(emissions[0].vents.length, 7);
+  assert.ok(emissions[0].vents.every(vent => vent.position.isVector3));
+  assert.ok(emissions[0].vents.every(vent => vent.direction.isVector3));
+  assert.ok(emissions[0].blastPosition.y > emissions[0].position.y);
+  assert.equal(emissions[0].fireVentProgress, 0);
+  assert.equal(emissions[0].firePostBlastProgress, 0);
+
+  effects.update(1 / 30, [unit], []);
+  assert.equal(emissions[1].ignitionTransition, false);
+  assert.equal(emissions[1].destructionTransition, false);
   effects.dispose();
 });
 

@@ -110,7 +110,7 @@ export class Renderer {
     ));
     graphicsRenderer.outputColorSpace = THREE.SRGBColorSpace;
     graphicsRenderer.toneMapping = THREE.ACESFilmicToneMapping;
-    graphicsRenderer.toneMappingExposure = 0.72;
+    graphicsRenderer.toneMappingExposure = 0.84;
     graphicsRenderer.shadowMap.enabled = this.renderProfile.shadowMapSize > 0;
     graphicsRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
     const reportDeviceLost = graphicsRenderer.onDeviceLost.bind(graphicsRenderer);
@@ -156,16 +156,20 @@ export class Renderer {
 
   setupLighting() {
     // Soft fill preserves readable silhouettes without flattening the scene.
-    const ambient = new THREE.AmbientLight('#dbeafe', 0.45);
+    const ambient = new THREE.AmbientLight('#e7f0fb', 0.68);
+    ambient.name = 'BattlefieldAmbientFill';
     this.scene.add(ambient);
 
-    // Hemisphere Light
-    const hemiLight = new THREE.HemisphereLight('#cfe8f3', '#47552f', 1.0);
+    // Brighter sky/ground fill keeps dark painted armor readable while
+    // preserving directional sunlight and contact shadows.
+    const hemiLight = new THREE.HemisphereLight('#d8edf4', '#667052', 1.28);
+    hemiLight.name = 'BattlefieldHemisphereFill';
     hemiLight.position.set(0, 60, 0);
     this.scene.add(hemiLight);
 
     // One bounded directional shadow covers the 240 m scenario map.
-    this.sunLight = new THREE.DirectionalLight('#fff1d6', 2.3);
+    this.sunLight = new THREE.DirectionalLight('#fff1d6', 2.55);
+    this.sunLight.name = 'BattlefieldSun';
     this.sunLight.position.set(85, 140, 60);
     this.sunLight.castShadow = this.renderProfile.shadowMapSize > 0;
     const shadowSize = Math.max(1, this.renderProfile.shadowMapSize);

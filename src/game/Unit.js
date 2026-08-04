@@ -15,6 +15,7 @@ import {
   createVehicleComponents,
   createVehicleDamageState,
   createVehicleMountState,
+  destroyVehicleComponentsFromCookoff,
   recordVehicleEvent,
   setVehicleComponentHealth,
   vehicleDamageReport
@@ -343,7 +344,7 @@ export class Unit {
     this.vehicleWeapon = this.vehicleSpec?.mainGun ? this.initVehicleWeapon(config.vehicleWeapon) : null;
     this.vehicleMounts = this.initVehicleMounts(config.vehicleMounts);
     if (this.vehicleWeapon) this.vehicleMounts.main = this.vehicleWeapon;
-    if (this.vehicleDamageState.secondaryExplosion) this.destroyVehicleAmmunitionStores();
+    if (this.vehicleDamageState.secondaryExplosion) this.applyVehicleCookoffConsequences();
     this.syncLegacyVehicleDamage();
     this.structureState = createStructureState(this.structureSpec, config.structureState);
     this.currentLOD = null;
@@ -1504,6 +1505,20 @@ export class Unit {
     }
   }
 
+  applyVehicleCookoffConsequences() {
+    if (!this.vehicleSpec || !this.vehicleDamageState?.secondaryExplosion) return false;
+    destroyVehicleComponentsFromCookoff(
+      this.vehicleComponents,
+      this.vehicleDamageState
+    );
+    if (this.getLivingCrew().length > 0) {
+      this.incapacitateVehicleCrewFromCookoff();
+    }
+    this.destroyVehicleAmmunitionStores();
+    this.vehicleCrewPosture = 'BUTTONED';
+    return true;
+  }
+
   getVehicleMovementFactor() {
     if (!this.vehicleSpec || !this.hasOperationalDriver()) return this.vehicleSpec ? 0 : 1;
     if (this.vehicleDamageState?.burning || this.vehicleDamageState?.secondaryExplosion) return 0;
@@ -1649,11 +1664,7 @@ export class Unit {
       this.abandonVehicleCombatIntent('VEHICLE_BURNING');
     }
     if (this.vehicleDamageState.secondaryExplosion) {
-      if (this.getLivingCrew().length > 0) {
-        this.incapacitateVehicleCrewFromCookoff();
-      }
-      this.destroyVehicleAmmunitionStores();
-      this.vehicleCrewPosture = 'BUTTONED';
+      this.applyVehicleCookoffConsequences();
     }
     const crewTaskStep = advanceVehicleCrewTaskStep(
       this.vehicleCrewTasks,
@@ -2649,7 +2660,7 @@ export class Unit {
     if (state.vehicleWeapon) this.vehicleWeapon = this.initVehicleWeapon(state.vehicleWeapon);
     this.vehicleMounts = this.initVehicleMounts(state.vehicleMounts);
     if (this.vehicleWeapon) this.vehicleMounts.main = this.vehicleWeapon;
-    if (this.vehicleDamageState.secondaryExplosion) this.destroyVehicleAmmunitionStores();
+    if (this.vehicleDamageState.secondaryExplosion) this.applyVehicleCookoffConsequences();
     this.currentLOD = null;
     if (this.soldierAI) {
       // Read-only migration compatibility for legacy snapshots storing dangerMapState on roster[0]

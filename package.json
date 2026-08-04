@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host",
+    "debug": "vite --mode debug --host",
     "calibrate": "vite --host 127.0.0.1",
     "build": "vite build",
     "audit:silhouettes": "node scripts/audit-vehicle-silhouettes.mjs",
@@ -17,7 +18,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "three": "^0.185.0"
+    "@dgreenheck/ez-tree": "1.1.0",
+    "three": "^0.185.0",
+    "vanilla-vfx": "^0.6.0"
   },
   "devDependencies": {
     "vite": "^8.1.5"

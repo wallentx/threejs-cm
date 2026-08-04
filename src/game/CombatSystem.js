@@ -5,6 +5,7 @@ import {
   worldToLocalPoint
 } from '../simulation/buildings/BuildingTransforms.js';
 import {
+  validateBattlefieldVfxRuntime,
   validateBattlefieldVfxProvider,
   validateCombatVfxResourceSet
 } from '../world/vfx/BattlefieldVfxContract.js';
@@ -348,6 +349,9 @@ export class CombatSystem {
     this.vfxProvider = validateBattlefieldVfxProvider(
       options.vfxProvider
     );
+    this.vfxRuntime = options.vfxRuntime
+      ? validateBattlefieldVfxRuntime(options.vfxRuntime)
+      : null;
     this.vfxResources = validateCombatVfxResourceSet(
       this.vfxProvider.createCombatResources()
     );
@@ -518,7 +522,7 @@ export class CombatSystem {
     this.projectiles.push(projectile);
     this.telemetry.shotsFired++;
     attacker.recordAuthoritativeShot?.();
-    this.createMuzzleFlashEffect(fromPos, weapon);
+    this.createMuzzleFlashEffect(fromPos, weapon, velocity);
 
     if (this.onAuditoryEvent) {
       this.onAuditoryEvent(createWeaponReportEvent({
@@ -918,7 +922,14 @@ export class CombatSystem {
         this.createArmorSparkEffect(
           impact.point,
           result.penetrated ? 0xff5a36 : 0xe8f0ff,
-          isSmallArmsWeapon(weapon) ? 0.32 : 0.72
+          isSmallArmsWeapon(weapon) ? 0.32 : 0.72,
+          {
+            impactVelocity: result.impactVelocity,
+            postImpactVelocity: result.postImpactVelocity,
+            impactNormal: result.impactNormal,
+            ricocheted: result.ricocheted,
+            penetrated: result.penetrated
+          }
         );
       }
       return this.applyProjectileContinuation(projectile, impact, result);
@@ -1228,15 +1239,21 @@ export class CombatSystem {
 
   createImpactEffect(pos, color = null) {
     const style = this.vfxResources.styles.impact;
-    this.startEffect('impact', pos, {
+    if (this.vfxRuntime?.emitImpact({ position: pos, scale: 0.45 })) return null;
+    return this.startEffect('impact', pos, {
       color: color ?? style.color,
       scale: 1,
       maxLife: style.maxLife
     });
   }
 
-  createArmorSparkEffect(pos, color = 0xe8f0ff, scale = 0.4) {
+  createArmorSparkEffect(pos, color = 0xe8f0ff, scale = 0.4, impact = {}) {
     const style = this.vfxResources.styles.impact;
+    if (this.vfxRuntime?.emitImpact({
+      position: pos,
+      scale,
+      ...impact
+    })) return null;
     return this.startEffect('impact', pos, {
       color,
       scale,
@@ -1247,6 +1264,7 @@ export class CombatSystem {
 
   createExplosionEffect(pos, scale = 1) {
     this.sound?.playExplosion?.({ scale });
+    if (this.vfxRuntime?.emitExplosion({ position: pos, scale })) return null;
     const style = this.vfxResources.styles.explosion;
     const visualScale = scale * style.initialScale;
     const effect = this.startEffect('explosion', pos, {
@@ -1263,7 +1281,7 @@ export class CombatSystem {
     return effect;
   }
 
-  createMuzzleFlashEffect(pos, weapon) {
+  createMuzzleFlashEffect(pos, weapon, direction = null) {
     const style = this.vfxResources.styles.muzzleFlash;
     const cannon = String(weapon?.kind ?? '').startsWith('cannon');
     const automatic = [
@@ -1274,6 +1292,12 @@ export class CombatSystem {
     const caliberScale = cannon
       ? THREE.MathUtils.clamp((weapon?.caliberMm ?? 20) / 24, 0.8, 2.6)
       : automatic ? 0.42 : 0.34;
+    if (this.vfxRuntime?.emitMuzzleFlash({
+      position: pos,
+      direction,
+      caliberMm: weapon?.caliberMm ?? 7.5,
+      automatic
+    })) return null;
     return this.startEffect('muzzleFlash', pos, {
       color: style.color,
       scale: caliberScale,
@@ -1294,6 +1318,11 @@ export class CombatSystem {
     const position = finitePointArray(event?.worldPosition);
     if (!position) return null;
     scratchDebrisPosition.fromArray(position);
+    if (this.vfxRuntime?.emitBuildingDebris({
+      position: scratchDebrisPosition,
+      style,
+      severity: event.severity
+    })) return null;
     return this.startEffect('buildingDebris', scratchDebrisPosition, {
       color: style.color,
       scale: style.initialScale,

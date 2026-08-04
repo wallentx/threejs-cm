@@ -7,7 +7,7 @@ const MAX_TURRET_BOUNCES = 2;
 const MAX_TURRET_SUBSTEP_SECONDS = 1 / 60;
 
 export const VEHICLE_PHYSICS_MODEL =
-  'terrain-support-and-catastrophic-turret-separation-v1';
+  'terrain-support-and-catastrophic-turret-separation-v2';
 
 export const VEHICLE_PHYSICS_DATA_QUALITY =
   'deterministic gameplay approximation derived from the vehicle rigid envelope; '
@@ -212,7 +212,7 @@ function beginTurretSeparation(turret, dimensions, damageEventVersion, baseYaw) 
   const height = Math.max(1, finite(dimensions?.height, 2));
   const width = Math.max(1, finite(dimensions?.width, 2));
   const length = Math.max(1, finite(dimensions?.length, 4));
-  const targetRise = height * 0.72;
+  const targetRise = height * 1.15;
   const verticalSpeed = Math.sqrt(
     2 * GRAVITY_METERS_PER_SECOND_SQUARED * targetRise
   );
@@ -225,9 +225,9 @@ function beginTurretSeparation(turret, dimensions, damageEventVersion, baseYaw) 
   turret.status = 'AIRBORNE';
   turret.offset = [0, 0, 0];
   turret.velocity = [
-    lateralSign * width * 0.72 / flightSeconds,
+    lateralSign * width * 1.08 / flightSeconds,
     verticalSpeed,
-    length * 0.22 / flightSeconds
+    length * 0.34 / flightSeconds
   ];
   turret.rotation = [0, 0, 0];
   turret.angularVelocity = [

@@ -61,6 +61,14 @@ test('vehicle terrain supports derive hull pitch, roll, and ride height from the
 });
 
 test('ammunition cookoff launches, bounces, and settles a deterministic turret body', () => {
+  const launch = createVehiclePhysicsState();
+  let peakHeight = 0;
+  for (let step = 0; step < 90; step++) {
+    advanceCookoff(launch, [1 / 60]);
+    peakHeight = Math.max(peakHeight, launch.turret.offset[1]);
+  }
+  assert.ok(peakHeight > DIMENSIONS.height);
+
   const coarse = advanceCookoff(
     createVehiclePhysicsState(),
     Array.from({ length: 240 }, () => 1 / 30)
@@ -108,6 +116,9 @@ test('Unit capture and restore preserve terrain pose and turret separation autho
 
   assert.equal(source.vehiclePhysics.modelVersion, VEHICLE_PHYSICS_MODEL);
   assert.equal(source.vehiclePhysics.turret.status, 'AIRBORNE');
+  assert.ok(source.vehiclePhysics.turret.velocity[1] > 6.5);
+  assert.ok(Math.abs(source.vehiclePhysics.turret.velocity[0]) > 1.6);
+  assert.ok(source.vehiclePhysics.turret.velocity[2] > 1.05);
   assert.equal(
     source.vehicleDamageState.events.at(-1).type,
     'turret_separated'

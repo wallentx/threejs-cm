@@ -81,6 +81,24 @@ function createGameDefinition(selection) {
 
 installGameErrorHandlers();
 window.addEventListener('DOMContentLoaded', () => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const isDebugMode = urlParams.get('debug') === 'true'
+    || urlParams.get('mode') === 'debug'
+    || urlParams.get('mode') === 'sandbox'
+    || import.meta.env.MODE === 'debug';
+
+  if (isDebugMode) {
+    import('./debug/VehicleDebugSandboxApp.js').then(({ VehicleDebugSandboxApp }) => {
+      new VehicleDebugSandboxApp();
+    }).catch(error => {
+      const message = error instanceof Error ? error.message : String(error);
+      document.body.dataset.gameStatus = 'error';
+      document.body.dataset.gameError = message;
+      console.error('[VehicleDebugSandbox]', error);
+    });
+    return;
+  }
+
   const root = document.getElementById('battle-setup-root');
   const screen = new BattleSetupScreen({
     root,

@@ -49,6 +49,9 @@ even when a matching broader parent exists elsewhere in this file.
   depth and low-tier performance.
 - [ ] Brighten the battlefield lighting/material response without washing out
   faction, terrain, shadow, damage, or UI readability.
+  - [x] First fill-light pass: raise neutral ambient, sky, ground-bounce, and sun
+    response so dark vehicle paint remains readable while retaining the existing
+    single directional-shadow owner; live backend comparison remains.
 - [ ] Replace the weak smoking-engine presentation with a bounded,
   state-driven WebGPU/TSL effect that distinguishes damage severity without
   becoming simulation authority; upgrade catastrophic tank fire and smoke effects to be punchy and responsive during turret-off explosions.
@@ -63,12 +66,42 @@ even when a matching broader parent exists elsewhere in this file.
       momentary full-pressure jet, ordinary flames loft a lighter ember drift,
       cookoff launches the turret, and the 30-second post-blast fire sheds layers
       one at a time before the final sheet shrinks away.
+  - [ ] Evaluate Three-VFX as the shared battlefield-particle layer without
+    changing authoritative combat or damage ownership.
+    - [x] Implementation experiment: route real impact, ricochet, explosion,
+      muzzle, building-debris/dust, persistent smoke, flame, spark, and cookoff
+      events into nine bounded, renderer-owned `vanilla-vfx` particle pools
+      shared by the production game and vehicle sandbox; make accepted emissions
+      primary while retaining the existing TSL presentation as a fallback, and
+      cover lifecycle, capacity, event routing, and rate bounds behaviorally.
+    - [x] Screenshot-corrected implementation: replace the mistakenly selected
+      `Boom.tsx` smoke-sheet preset with the deployed landing page's `fire.png`,
+      30x HDR orange envelope, 100-card fireball, 130-spark core, and bounded
+      multi-arc ballistic stream choreography; retain white-hot/orange rather
+      than blue tank sparks, seven vehicle-relative fire vents, post-blast
+      roll-down, gravity, terrain bounce, and friction without feeding
+      presentation state back into combat.
+    - [x] Feedback-isolation pass: preserve the accepted cookoff explosion,
+      smoke, debris, vent-flame, and post-blast parameters while moving round
+      hits into a dedicated gold/orange elongated-spark pool with 18-58 m/s
+      launch speeds and bounded weighted terrain bounces; move ordinary fuel
+      and spreading fires into a separate `fire.png`-masked flame pool so their
+      silhouette is irregular flame rather than radial particle dots.
+    - [ ] Live-tune and accept or reject the experiment on working WebGPU and
+      WebGL2 backends, including hit readability, muzzle direction, smoke/fire
+      density, mobile cost, and the dependency's presentation-only randomness.
   - [ ] Replace the labeled approximate vent locations with vehicle-authored
     opening/seam markers and add component-specific fire/cookoff audio.
 - [ ] Replace floating black AP penetration spheres with surface-aligned,
   textured penetration marks projected from the resolved impact point and
   normal; first fix any armor-volume/model mismatch that places authoritative
   impacts outside the visible hull.
+  - [x] First presentation pass: replace the sphere with bounded flat marks,
+    project them along the authoritative shot path onto visible armor without
+    feeding back into simulation, align them to the rendered surface normal,
+    and distinguish penetration holes, ricochet scrapes, stopped-round dents,
+    and HE blast scorch. Textured crater detail and the remaining 13 vehicle
+    plate conversions remain.
 - [ ] Replace the blue map-edge void with a map-family horizon treatment:
   preferably cheap continuation terrain/vegetation and atmospheric blending
   beyond playable bounds, with no collision or simulation authority outside
@@ -113,6 +146,10 @@ even when a matching broader parent exists elsewhere in this file.
   viable post; combat-ineffective, burning, routed, or commander-abandoned
   vehicles prompt appropriate hatch egress and survival movement.
 - [x] Ensure catastrophic vehicle explosions (e.g., secondary explosion / turret pop-off) incapacitate or kill all internal crew members, marking the entire crew as casualties instead of leaving living survivors in a destroyed hull.
+  - [x] Cookoff completion now also destroys every installed vehicle component,
+    empties every weapon feed/store, and launches a deterministic detached
+    turret above one hull height with stronger lateral velocity; capture/restore
+    and frame-partition behavior remain authoritative.
 - [ ] Add historically distinct French and German tank-crew uniforms,
   equipment, roles, and sparse personal weapons.
 
@@ -310,6 +347,8 @@ authorized.
     - [x] Keep the initial Create Battle header nation-neutral and remove the redundant numbered step bubbles; show the actual selected matchup only in the final force review.
   - [x] Add a separately selectable `Stonne` map from the supplied aerial reference: rolling 300 m terrain, north-south and eastern crossroads, five reused enterable rural structures, orchard fencing, crop/pasture/woodland surface composition, 152 deterministic trees rendered in four instanced submissions, opposing setup bands, and no invented river or bridge.
     - [x] Reduce shared mature-tree crown geometry from detail-1 to detail-0 icosahedra and trunk radial segments from eight to six while preserving the same instanced placements and tree dimensions.
+    - [x] Add a bounded EZ-Tree oak-broadleaf renderer approximation: generate one deterministic 11 m family-owned template, discard the dependency's WebGL-only materials and unused texture payload, instance branches and leaves in two submissions across the existing 152 placements, retain the four-submission fallback on generation failure, and await the owned template before game-ready state.
+    - [ ] Replace the provisional oak-broadleaf profile with source-backed 1940 Stonne species composition and authored near/medium/far foliage representations; visually validate the live browser result on a working WebGPU or WebGL2 backend.
   - [ ] Replace Stonne's screenshot-registered approximation with georeferenced contours, road widths and grades, field/wood boundaries, exact building footprints, and source-backed 1940 terrain evidence; connect woodland and crop records to authoritative concealment, movement cost, and vehicle-access policy instead of leaving foliage presentation-only.
   - [ ] Expand battle setup beyond the first slice with additional registered maps and game families, saved force presets, historically sourced formation hierarchies, scenario budgets/availability rules, objectives/weather, and AI policies beyond existing experience and leadership soft factors.
   - [x] Extract the Stonne roster, placements, setup zones, seed, initial selection, and camera target into a plain-data scenario descriptor.
@@ -351,6 +390,10 @@ authorized.
           - [x] External-model service foundation: add a format-neutral injected fetch, source-release, parse, clone, instance-dispose, template-dispose pipeline; retain strict request identity and explicit fallback policy; bound template ownership with clone leases and deferred LRU disposal; aggregate cleanup failures; and cancel late work on shutdown. Concrete family model records, format adapters, and live unit/structure binding remain.
 - [ ] Move browser lifecycle and simulation orchestration from `main.js` into a narrow application/runtime facade.
   - [x] Extract browser startup, renderer/system construction, scenario loading, fixed-step orchestration, rollback hooks, interaction, and diagnostics into injected `GameApp`; keep `main.js` composition-only; remove concrete faction, weapon, and mesh-name assumptions from the facade; and isolate deterministic faction scheduling in a browser-free tested index.
+  - [ ] Provide a dedicated vehicle diagnostic sandbox for component hitboxes, damage state, ballistics, and VFX iteration.
+    - [x] Replace the provisional damage-injection controls with a responsive non-overlapping dock, selectable armed-vehicle 1v1 duels driven by normal vehicle combat, and a single-target gun mode with selectable canonical gun/ammunition, range, orbit-selected firing aspect, tapped local aim point, real projectile/armor/internal damage resolution, authoritative armor/component/crew overlays, trajectory and impact telemetry, and no sandbox-owned damage mutation.
+    - [x] Refine gun mode with camera-plane-normal shot origins at full camera elevation, one selector entry per distinct canonical main-gun or auxiliary-cannon ammunition record with compatible vehicles, mount identity, and ballistic differences exposed, live crew health/casualty reporting, canonical Char B1 bis 75 mm hull-gun HE/APHE discovery, and explicitly sandbox-only sourced 8.8 cm Flak 18/36 AP and HE calibration records that still use the shared projectile, armor, explosive, internal-path, crew, and component damage systems.
+    - [ ] Validate both sandbox modes visually on a working WebGPU or WebGL2 browser backend; automated headless Chromium on the current Termux device cannot create a GPU context.
   - [x] Replace full-`GameApp` UI/editor access with frozen explicit query, command, and building-event ports; route selected-unit actions through named commands; inject family presentation and map dimensions into the HUD/minimap; and restrict editor world mutation to an explicit authoring port.
   - [ ] Refresh a single Three.js devtools proxy tab and confirm the extracted runtime reaches `data-game-status="ready"`; automated tests and production build pass, but the current MCP bridge has no connected browser tab.
 - [ ] Replace spherical vehicle hit volumes with mesh-accurate armor plates and named collision zones.

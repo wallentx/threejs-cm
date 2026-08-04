@@ -1,5 +1,6 @@
 import {
   validateBattlefieldVfxProvider,
+  validateBattlefieldVfxRuntime,
   validateCombatVfxResourceSet,
   validateVehicleDamageVfxResourceSet
 } from '../../../world/vfx/BattlefieldVfxContract.js';
@@ -98,6 +99,14 @@ export function createFrance1940VfxProvider(
     },
     createVehicleDamageResources() {
       return bindVehicleDamageResources(provider, assetBinding);
+    },
+    async createRuntime(options) {
+      if (typeof provider.createRuntime !== 'function') return null;
+      const runtime = validateBattlefieldVfxRuntime(
+        await provider.createRuntime(options)
+      );
+      runtime.assetBinding = assetBinding;
+      return runtime;
     }
   });
 }

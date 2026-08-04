@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
   validateBattlefieldVfxProvider,
+  validateBattlefieldVfxRuntime,
   validateVehicleDamageVfxResourceSet
 } from './vfx/BattlefieldVfxContract.js';
 import {
@@ -19,8 +20,23 @@ const scratchScale = new THREE.Vector3();
 const scratchTurretYaw = new THREE.Quaternion();
 const scratchTurretRotation = new THREE.Quaternion();
 const scratchTurretEuler = new THREE.Euler();
+const scratchImpactDirection = new THREE.Vector3();
+const scratchImpactNormal = new THREE.Vector3();
+const scratchImpactQuaternion = new THREE.Quaternion();
+const scratchWorldQuaternion = new THREE.Quaternion();
+const scratchImpactScale = new THREE.Vector3();
+const scratchImpactColor = new THREE.Color();
+const scratchRaycaster = new THREE.Raycaster();
 const UP = new THREE.Vector3(0, 1, 0);
+const FORWARD = new THREE.Vector3(0, 0, 1);
 const WRECK_RUST_COLOR = new THREE.Color(0x6f3b24);
+
+const IMPACT_MARK_STYLES = Object.freeze({
+  penetration: Object.freeze({ color: 0x120b08, scale: [1.08, 1.08, 1] }),
+  ricochet: Object.freeze({ color: 0xa18f72, scale: [1.72, 0.48, 1] }),
+  stopped: Object.freeze({ color: 0x4b4036, scale: [0.82, 0.82, 1] }),
+  heBlast: Object.freeze({ color: 0x2b211a, scale: [3.1, 2.65, 1] })
+});
 
 const FIRE_PHASE_INTENSITY = Object.freeze({
   NONE: 0,
@@ -349,9 +365,87 @@ function setSpriteParticle(
 
 function setInstance(mesh, index, x, y, z, scale, quaternion = IDENTITY_QUATERNION) {
   scratchPosition.set(x, y, z);
-  scratchScale.setScalar(scale);
+  if (scale?.isVector3) scratchScale.copy(scale);
+  else scratchScale.setScalar(scale);
   scratchMatrix.compose(scratchPosition, quaternion, scratchScale);
   mesh.setMatrixAt(index, scratchMatrix);
+}
+
+function objectIsVisuallyActive(object, excludedRoot) {
+  for (let current = object; current; current = current.parent) {
+    if (current === excludedRoot) return false;
+    if (current.visible === false) return false;
+  }
+  return object.userData?.lodBand !== 'ui'
+    && object.userData?.presentationOnly !== true;
+}
+
+function classifyImpactMark(impact) {
+  if (impact.explosiveEffect) return 'heBlast';
+  if (impact.ricocheted) return 'ricochet';
+  if (impact.penetrated) return 'penetration';
+  return 'stopped';
+}
+
+function resolveVisibleImpact(record, impact) {
+  record.mesh.updateWorldMatrix(true, true);
+  const authoritativePoint = scratchPosition.fromArray(impact.impactPosition);
+  const incoming = impact.impactVelocity;
+  if (Array.isArray(incoming) && incoming.length >= 3) {
+    scratchImpactDirection.fromArray(incoming);
+  } else if (Array.isArray(impact.impactNormal) && impact.impactNormal.length >= 3) {
+    scratchImpactDirection.fromArray(impact.impactNormal).negate();
+  } else {
+    scratchImpactDirection.set(0, 0, -1);
+  }
+  if (scratchImpactDirection.lengthSq() <= 1e-9) scratchImpactDirection.set(0, 0, -1);
+  scratchImpactDirection.normalize();
+
+  const projectionDistance = Math.max(
+    record.dimensions.length,
+    record.dimensions.width,
+    record.dimensions.height,
+    1
+  );
+  scratchRaycaster.near = 0;
+  scratchRaycaster.far = projectionDistance * 2.5;
+  scratchRaycaster.set(
+    scratchImpactNormal.copy(authoritativePoint)
+      .addScaledVector(scratchImpactDirection, -projectionDistance),
+    scratchImpactDirection
+  );
+  const visualHit = scratchRaycaster.intersectObject(record.mesh, true).find(hit =>
+    hit.object?.isMesh
+    && objectIsVisuallyActive(hit.object, record.root)
+  );
+
+  let projected = false;
+  if (visualHit?.face) {
+    scratchPosition.copy(visualHit.point);
+    scratchImpactNormal.copy(visualHit.face.normal)
+      .transformDirection(visualHit.object.matrixWorld)
+      .normalize();
+    projected = true;
+  } else {
+    scratchPosition.copy(authoritativePoint);
+    if (Array.isArray(impact.impactNormal) && impact.impactNormal.length >= 3) {
+      scratchImpactNormal.fromArray(impact.impactNormal).normalize();
+    } else {
+      scratchImpactNormal.copy(scratchImpactDirection).negate();
+    }
+  }
+
+  // Lift the flat indicator just off the visible armor to avoid z-fighting.
+  scratchPosition.addScaledVector(scratchImpactNormal, 0.008);
+  record.mesh.worldToLocal(scratchPosition);
+  record.mesh.getWorldQuaternion(scratchWorldQuaternion).invert();
+  scratchImpactNormal.applyQuaternion(scratchWorldQuaternion).normalize();
+  scratchImpactQuaternion.setFromUnitVectors(FORWARD, scratchImpactNormal);
+  return {
+    position: scratchPosition,
+    quaternion: scratchImpactQuaternion,
+    projected
+  };
 }
 
 function effectAnchor(dimensions) {
@@ -360,6 +454,21 @@ function effectAnchor(dimensions) {
     Math.max(0.75, dimensions.height * 0.56),
     -dimensions.length * 0.31
   );
+}
+
+function createRuntimeFireVents(dimensions) {
+  return APPROXIMATE_FIRE_VENTS.map((vent, index) => ({
+    id: `generic-envelope-fire-vent-${index + 1}`,
+    dataQuality: 'RENDERER_APPROXIMATION',
+    localPosition: new THREE.Vector3(
+      vent.origin[0] * dimensions.width,
+      vent.origin[1] * dimensions.height,
+      vent.origin[2] * dimensions.length
+    ),
+    localDirection: new THREE.Vector3(...vent.direction).normalize(),
+    position: new THREE.Vector3(),
+    direction: new THREE.Vector3()
+  }));
 }
 
 function isDescendantOf(object, ancestor) {
@@ -392,11 +501,14 @@ function applyObjectLodVisibility(root, level) {
 }
 
 export class VehicleDamageEffects {
-  constructor({ vfxProvider } = {}) {
+  constructor({ vfxProvider, vfxRuntime = null } = {}) {
     this.records = new Map();
     this.processedImpacts = new Set();
     this.elapsedSeconds = 0;
     this.vfxProvider = validateBattlefieldVfxProvider(vfxProvider);
+    this.vfxRuntime = vfxRuntime
+      ? validateBattlefieldVfxRuntime(vfxRuntime)
+      : null;
     this.vfxResources = validateVehicleDamageVfxResourceSet(
       this.vfxProvider.createVehicleDamageResources()
     );
@@ -493,7 +605,11 @@ export class VehicleDamageEffects {
       blastMaterial,
       dimensions,
       anchor: effectAnchor(dimensions),
+      runtimeBlastLocal: new THREE.Vector3(0, dimensions.height * 0.72, 0),
+      runtimeBlastPosition: new THREE.Vector3(),
+      runtimeFireVents: createRuntimeFireVents(dimensions),
       scorchCursor: 0,
+      impactMarkTypes: Array(this.capacities.scorch).fill(null),
       impactTimer: 0,
       explosionTimer: 0,
       explosionKind: null,
@@ -508,7 +624,8 @@ export class VehicleDamageEffects {
       externalProxyTurretParts: [],
       turretWasSeparated: false,
       rustMaterials: null,
-      rustMaterialAssignments: null
+      rustMaterialAssignments: null,
+      runtimeOwnsTransient: false
     };
     if (record.turret) {
       unit.mesh.traverse(object => {
@@ -544,25 +661,33 @@ export class VehicleDamageEffects {
   }
 
   addImpact(record, impact) {
-    record.mesh.updateWorldMatrix(true, true);
-    record.impactLocal.fromArray(impact.impactPosition);
-    record.mesh.worldToLocal(record.impactLocal);
+    const visibleImpact = resolveVisibleImpact(record, impact);
+    record.impactLocal.copy(visibleImpact.position);
     const slot = record.scorchCursor % record.scorch.instanceMatrix.count;
-    const scale = impact.penetrated ? 1.35 : 0.85;
+    const markType = classifyImpactMark(impact);
+    const style = IMPACT_MARK_STYLES[markType];
+    scratchImpactScale.fromArray(style.scale);
     setInstance(
       record.scorch,
       slot,
       record.impactLocal.x,
       record.impactLocal.y,
       record.impactLocal.z,
-      scale
+      scratchImpactScale,
+      visibleImpact.quaternion
     );
+    record.scorch.setColorAt(slot, scratchImpactColor.setHex(style.color));
+    record.impactMarkTypes[slot] = Object.freeze({
+      type: markType,
+      projectedToVisualSurface: visibleImpact.projected
+    });
     record.scorchCursor++;
     record.scorch.count = Math.min(
       record.scorch.instanceMatrix.count,
       Math.max(record.scorch.count, slot + 1)
     );
     record.scorch.instanceMatrix.needsUpdate = true;
+    record.scorch.instanceColor.needsUpdate = true;
     record.impactTimer = impact.penetrated ? 0.42 : 0.2;
   }
 
@@ -613,9 +738,51 @@ export class VehicleDamageEffects {
                   ? Math.min(3, flameCapacity)
                   : Math.max(1, Math.ceil(flameCapacity * damage.fireIntensity)))));
 
+    const ignitionTransition = damage.burning && !record.lastBurning;
+    const destructionTransition = damage.destroyed && !record.lastDestroyed;
+    const detonationTransition = damage.secondaryExplosion
+      && !record.lastSecondaryExplosion;
+    let runtimeOwnsTransient = false;
+    if (this.vfxRuntime) {
+      record.mesh.updateWorldMatrix(true, false);
+      scratchPosition.copy(record.anchor);
+      record.mesh.localToWorld(scratchPosition);
+      record.runtimeBlastPosition.copy(record.runtimeBlastLocal);
+      record.mesh.localToWorld(record.runtimeBlastPosition);
+      record.mesh.getWorldQuaternion(scratchWorldQuaternion);
+      for (const vent of record.runtimeFireVents) {
+        vent.position.copy(vent.localPosition);
+        record.mesh.localToWorld(vent.position);
+        vent.direction.copy(vent.localDirection)
+          .applyQuaternion(scratchWorldQuaternion)
+          .normalize();
+      }
+      runtimeOwnsTransient = this.vfxRuntime.emitVehicleDamageState({
+        unitId: record.unit.id,
+        position: scratchPosition,
+        blastPosition: record.runtimeBlastPosition,
+        vents: record.runtimeFireVents,
+        dimensions: record.dimensions,
+        delta,
+        shouldSmoke,
+        burning: damage.burning,
+        fireIntensity: damage.fireIntensity,
+        firePhase: damage.firePhase,
+        fireVentProgress: damage.fireVentProgress,
+        firePostBlastProgress: damage.firePostBlastProgress,
+        lowDetail,
+        ignitionTransition,
+        destructionTransition,
+        detonationTransition
+      });
+    }
+    record.runtimeOwnsTransient = runtimeOwnsTransient;
+    const legacySmokeCount = runtimeOwnsTransient ? 0 : smokeCount;
+    const legacyFlameCount = runtimeOwnsTransient ? 0 : flameCount;
+
     if (record.smoke.userData.isSpriteCluster) {
-      if (smokeCount > 0) ensureIndependentSpriteMaterials(record.smoke);
-      const count = setSpriteClusterCount(record.smoke, smokeCount);
+      if (legacySmokeCount > 0) ensureIndependentSpriteMaterials(record.smoke);
+      const count = setSpriteClusterCount(record.smoke, legacySmokeCount);
       const smokeRate = damage.firePhase === 'AMMUNITION_VENTING' ? 0.34 : 0.19;
       for (let index = 0; index < count; index++) {
         const phase = (this.elapsedSeconds * smokeRate + index / count) % 1;
@@ -647,9 +814,9 @@ export class VehicleDamageEffects {
         );
       }
     } else {
-      record.smoke.count = smokeCount;
-      for (let index = 0; index < smokeCount; index++) {
-        const phase = (this.elapsedSeconds * 0.29 + index / smokeCount) % 1;
+      record.smoke.count = legacySmokeCount;
+      for (let index = 0; index < legacySmokeCount; index++) {
+        const phase = (this.elapsedSeconds * 0.29 + index / legacySmokeCount) % 1;
         const spread = 0.13 + phase * 0.42;
         setInstance(
           record.smoke,
@@ -660,17 +827,19 @@ export class VehicleDamageEffects {
           0.45 + phase * 1.35
         );
       }
-      if (smokeCount > 0) record.smoke.instanceMatrix.needsUpdate = true;
+      if (legacySmokeCount > 0) record.smoke.instanceMatrix.needsUpdate = true;
     }
 
     if (record.flames.userData.isSpriteCluster) {
-      if (flameCount > 0) ensureIndependentSpriteMaterials(record.flames);
+      if (legacyFlameCount > 0) ensureIndependentSpriteMaterials(record.flames);
       const layerRemoval = damage.firePhase === 'DETONATED'
         ? smoothstepValue(0.28, 0.86, damage.firePostBlastProgress)
         : 0;
-      const presentedFlameCount = damage.firePhase === 'DETONATED'
-        ? Math.max(1, 1 + Math.floor((flameCount - 1) * (1 - layerRemoval)))
-        : flameCount;
+      const presentedFlameCount = legacyFlameCount === 0
+        ? 0
+        : damage.firePhase === 'DETONATED'
+        ? Math.max(0, 1 + Math.floor((legacyFlameCount - 1) * (1 - layerRemoval)))
+        : legacyFlameCount;
       const count = setSpriteClusterCount(record.flames, presentedFlameCount);
       if (damage.firePhase === 'DETONATED') {
         const postFireEnvelope = smoothstepValue(0, 0.08, damage.firePostBlastProgress);
@@ -678,7 +847,7 @@ export class VehicleDamageEffects {
           ? 1 - smoothstepValue(0.86, 1, damage.firePostBlastProgress)
           : 1;
         for (let index = 0; index < count; index++) {
-          const phase = (this.elapsedSeconds * 1.65 + index / flameCount) % 1;
+          const phase = (this.elapsedSeconds * 1.65 + index / legacyFlameCount) % 1;
           const fadeIn = smoothstepValue(0, 0.12, phase);
           const fadeOut = 1 - smoothstepValue(0.68, 1, phase);
           const pulse = 0.82 + Math.sin(this.elapsedSeconds * 17 + index * 2.3) * 0.16;
@@ -734,8 +903,8 @@ export class VehicleDamageEffects {
         }
       }
     } else {
-      record.flames.count = flameCount;
-      for (let index = 0; index < flameCount; index++) {
+      record.flames.count = legacyFlameCount;
+      for (let index = 0; index < legacyFlameCount; index++) {
         const phase = (this.elapsedSeconds * (2.1 + index * 0.07) + index * 0.17) % 1;
         setInstance(
           record.flames,
@@ -746,18 +915,18 @@ export class VehicleDamageEffects {
           0.58 + (1 - phase) * 0.72
         );
       }
-      if (flameCount > 0) record.flames.instanceMatrix.needsUpdate = true;
+      if (legacyFlameCount > 0) record.flames.instanceMatrix.needsUpdate = true;
     }
 
-    if (damage.burning && !record.lastBurning) {
+    if (ignitionTransition) {
       record.explosionTimer = 0.55;
       record.explosionKind = 'IGNITION';
     }
-    if (damage.destroyed && !record.lastDestroyed) {
+    if (destructionTransition) {
       record.explosionTimer = 1.05;
       record.explosionKind = 'DESTRUCTION';
     }
-    if (damage.secondaryExplosion && !record.lastSecondaryExplosion) {
+    if (detonationTransition) {
       record.explosionTimer = 1.8;
       record.explosionKind = 'COOKOFF';
     }
@@ -824,6 +993,13 @@ export class VehicleDamageEffects {
   updateBurst(record, damage, delta) {
     record.impactTimer = Math.max(0, record.impactTimer - delta);
     record.explosionTimer = Math.max(0, record.explosionTimer - delta);
+    if (record.runtimeOwnsTransient) {
+      record.sparks.count = 0;
+      record.blast.visible = false;
+      record.blastMaterial.opacity = 0;
+      setProceduralVfxProgress(record.blastMaterial, 1);
+      return;
+    }
     const explosionDuration = record.explosionKind === 'COOKOFF'
       ? 1.8
       : (record.explosionKind === 'IGNITION' ? 0.55 : 1.05);
@@ -971,6 +1147,7 @@ export class VehicleDamageEffects {
 
   resetTransient() {
     this.processedImpacts.clear();
+    this.vfxRuntime?.clear();
     for (const record of this.records.values()) {
       record.impactTimer = 0;
       record.explosionTimer = 0;
@@ -981,6 +1158,7 @@ export class VehicleDamageEffects {
       setProceduralVfxProgress(record.blastMaterial, 1);
       record.scorch.count = 0;
       record.scorchCursor = 0;
+      record.impactMarkTypes.fill(null);
       // Restore establishes a new presentation baseline. Persistent smoke,
       // flame, and scars rebuild from restored state/telemetry on update, but
       // transition-only blasts must not replay for damage already in that
@@ -989,6 +1167,7 @@ export class VehicleDamageEffects {
       record.lastBurning = damage.burning;
       record.lastDestroyed = damage.destroyed;
       record.lastSecondaryExplosion = damage.secondaryExplosion;
+      record.runtimeOwnsTransient = false;
       this.syncTurretPhysics(record);
     }
   }

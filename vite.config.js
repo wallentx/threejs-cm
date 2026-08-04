@@ -6,8 +6,33 @@ import { fileURLToPath } from 'node:url';
 const threeWebGPUPath = fileURLToPath(
   new URL('../src/Three.WebGPU.js', import.meta.resolve('three/webgpu'))
 );
+const ezTreeGeometryPath = fileURLToPath(
+  new URL('./node_modules/@dgreenheck/ez-tree/src/lib/tree.js', import.meta.url)
+);
+const ezTreeTextureStubPath = fileURLToPath(
+  new URL(
+    './src/content/france1940/render/EzTreeTextureStubs.js',
+    import.meta.url
+  )
+);
 
 export default defineConfig({
+  plugins: [{
+    name: 'ez-tree-geometry-only',
+    enforce: 'pre',
+    resolveId(source, importer) {
+      if (source === 'virtual:ez-tree-geometry') return ezTreeGeometryPath;
+      if (
+        (source === './textures' || source === './textures.js')
+        && importer?.replaceAll('\\', '/').includes(
+          '/@dgreenheck/ez-tree/src/lib/tree.js'
+        )
+      ) {
+        return ezTreeTextureStubPath;
+      }
+      return null;
+    }
+  }],
   resolve: {
     alias: [
       { find: /^three\/webgpu$/, replacement: threeWebGPUPath },

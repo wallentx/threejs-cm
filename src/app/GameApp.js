@@ -227,6 +227,22 @@ export class GameApp {
       await this.renderer.initialize();
       this.scene = this.renderer.scene;
       this.camera = this.renderer.camera;
+      this.vfxRuntime = null;
+      if (typeof this.visualFactories.vfxProvider.createRuntime === 'function') {
+        try {
+          this.vfxRuntime = await this.visualFactories.vfxProvider.createRuntime({
+            renderer: this.renderer.graphicsRenderer,
+            scene: this.scene,
+            getGroundHeightAt: (x, z) => this.terrain?.getHeightAt?.(x, z) ?? 0
+          });
+          log('Three-VFX battlefield experiment initialized.', 'info');
+        } catch (error) {
+          console.warn(
+            '[WARN] Three-VFX battlefield experiment unavailable; retaining procedural fallback:',
+            error
+          );
+        }
+      }
 
       // 2. Camera Manager
       log('Creating Camera Manager...', 'info');
@@ -248,9 +264,11 @@ export class GameApp {
         mapDescriptor: this.mapDescriptor,
         buildingSystem: this.buildingSystem,
         structureAdapters: this.structureAdapters,
-        terrainSurfaceProvider: this.visualFactories.terrainSurfaceProvider
+        terrainSurfaceProvider: this.visualFactories.terrainSurfaceProvider,
+        foliageTemplateProvider: this.visualFactories.foliageTemplateProvider
       });
       this.terrain.buildScenarioMap();
+      await this.terrain.foliageReady;
 
       // 4. Game Systems
       this.units = [];
@@ -305,10 +323,12 @@ export class GameApp {
           this.terrain.syncBuildingRuntime(buildingId);
           this.spotting.invalidateBuildingColliders();
         },
-        vfxProvider: this.visualFactories.vfxProvider
+        vfxProvider: this.visualFactories.vfxProvider,
+        vfxRuntime: this.vfxRuntime
       });
       this.vehicleDamageEffects = new VehicleDamageEffects({
-        vfxProvider: this.visualFactories.vfxProvider
+        vfxProvider: this.visualFactories.vfxProvider,
+        vfxRuntime: this.vfxRuntime
       });
       this.shotTrajectoryOverlay = new ShotTrajectoryOverlay(this.scene);
       this.debugOverlay = new DebugOverlaySystem(this.scene);
@@ -404,6 +424,9 @@ export class GameApp {
       document.body.dataset.enemyFactionId = this.enemyFactionId;
       document.body.dataset.enemyAiDifficulty = this.enemyAiDifficulty;
       document.body.dataset.rendererBackend = this.renderer.backendName;
+      document.body.dataset.vfxRuntime = this.vfxRuntime
+        ? this.vfxRuntime.getDiagnostics().implementationId
+        : 'procedural-fallback';
       const audioBinding = this.sound.assetBinding;
       document.body.dataset.audioProvider = audioBinding
         ? `${audioBinding.logicalId}:${audioBinding.sourcePackId}:${audioBinding.implementationId}`
@@ -418,6 +441,7 @@ export class GameApp {
         this.shotTrajectoryOverlay?.dispose();
         this.lastKnownContactMarkers?.dispose();
         this.unitHoverPreview?.dispose();
+        this.vfxRuntime?.dispose();
       }, { once: true });
       requestAnimationFrame(timestamp => this.animate(timestamp));
 
@@ -1309,6 +1333,7 @@ export class GameApp {
         this.units,
         this.combat.telemetry.impacts
       );
+      this.vfxRuntime?.update(delta, this.camera);
       this.ui.render(this.units, this.cameraManager, timestamp);
       this.renderer.render();
 
@@ -1318,7 +1343,8 @@ export class GameApp {
           frame: this.frameProfiler.snapshot(),
           renderer: this.renderer.getDiagnostics(),
           overlays: debugOverlayStats,
-          lod: { ...lodCounts }
+          lod: { ...lodCounts },
+          vfx: this.vfxRuntime?.getDiagnostics() ?? null
         };
         this.lastDebugMetricsUpdate = now;
       }

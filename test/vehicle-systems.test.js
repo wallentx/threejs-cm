@@ -527,6 +527,21 @@ test('fuel fire spreads, vents live ammunition, and deterministically cooks off'
   assert.equal(panzer.vehicleMounts.coax.reserveAmmo, 0);
   assert.equal(panzer.vehicleMounts.hull_mg.feedAmmo, 0);
   assert.equal(panzer.vehicleMounts.hull_mg.reserveAmmo, 0);
+  for (const component of Object.values(panzer.vehicleComponents)) {
+    if (!component.installed) continue;
+    assert.equal(component.health, 0, component.id);
+    assert.equal(component.status, 'DESTROYED', component.id);
+    assert.equal(component.operational, false, component.id);
+  }
+  assert.ok(report.events.some(event =>
+    event.type === 'component_damage'
+      && event.id === 'main_gun'
+      && event.cause === 'ammunition_cookoff'));
+  assert.ok(report.events.some(event =>
+    event.type === 'component_damage'
+      && event.id === 'optics'
+      && event.cause === 'ammunition_cookoff'));
+  assert.deepEqual(partitioned.vehicleComponents, panzer.vehicleComponents);
   assert.deepEqual(
     partitioned.captureState().vehicleDamageState,
     panzer.captureState().vehicleDamageState

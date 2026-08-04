@@ -4,6 +4,31 @@ import * as THREE from 'three';
 import { CombatSystem } from '../src/game/CombatSystem.js';
 import { TEST_VFX_PROVIDER } from './helpers/TestVfxProvider.js';
 
+function createOwningRuntime(calls) {
+  return {
+    emitImpact(payload) {
+      calls.push(['impact', payload]);
+      return true;
+    },
+    emitExplosion(payload) {
+      calls.push(['explosion', payload]);
+      return true;
+    },
+    emitMuzzleFlash(payload) {
+      calls.push(['muzzleFlash', payload]);
+      return true;
+    },
+    emitBuildingDebris(payload) {
+      calls.push(['buildingDebris', payload]);
+      return true;
+    },
+    emitVehicleDamageState() { return true; },
+    update() { return true; },
+    clear() {},
+    dispose() {}
+  };
+}
+
 test('combat impact and explosion visuals stay within reusable bounded pools', () => {
   const scene = new THREE.Scene();
   const combat = new CombatSystem(scene, {}, () => 0.5, {
@@ -45,5 +70,37 @@ test('combat impact and explosion visuals stay within reusable bounded pools', (
   const priorImpactMesh = combat.effectPools.impact[0].mesh;
   combat.createImpactEffect(point);
   assert.equal(combat.effectPools.impact[0].mesh, priorImpactMesh);
+  combat.dispose();
+});
+
+test('Three-VFX runtime is the primary combat presentation when it accepts an emission', () => {
+  const calls = [];
+  const combat = new CombatSystem(new THREE.Scene(), {}, () => 0.5, {
+    vfxProvider: TEST_VFX_PROVIDER,
+    vfxRuntime: createOwningRuntime(calls)
+  });
+  const point = new THREE.Vector3(2, 0.4, -3);
+
+  assert.equal(combat.createImpactEffect(point), null);
+  assert.equal(combat.createExplosionEffect(point, 1.3), null);
+  assert.equal(combat.createMuzzleFlashEffect(
+    point,
+    { kind: 'cannon', caliberMm: 75 },
+    [0, 0, 1]
+  ), null);
+  assert.equal(combat.createBuildingDebrisEffect({
+    worldPosition: point.toArray(),
+    materialLabel: 'masonry',
+    severity: 'breached'
+  }), null);
+
+  assert.deepEqual(calls.map(([kind]) => kind), [
+    'impact',
+    'explosion',
+    'muzzleFlash',
+    'buildingDebris'
+  ]);
+  assert.equal(combat.effects.length, 0);
+  assert.ok(Object.values(combat.effectPools).every(pool => pool.length === 0));
   combat.dispose();
 });
