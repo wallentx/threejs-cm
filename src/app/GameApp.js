@@ -1327,6 +1327,7 @@ export class GameApp {
         });
       }
       this.unitHoverPreview.update();
+      this.commands.updateTargetOverlays();
       const debugOverlayStats = this.debugOverlay.getStats();
       this.vehicleDamageEffects.update(
         delta,

@@ -17,6 +17,40 @@ const H39_DIMENSIONS_METERS = deepFreeze({
 // renderer inference until a source drawing is accepted and pixel-registered.
 const H39_ROAD_WHEEL_Y = 0.36;
 const H39_HULL_BELLY_Y = H39_ROAD_WHEEL_Y;
+const H39_ROAD_WHEEL_CENTERS_Z = deepFreeze([-0.94, -0.66, 0.04, 0.32, 1.02, 1.30]);
+const H39_RETURN_ROLLER_CENTERS_Z = deepFreeze([-0.52, 0.52]);
+
+const H39_TRACK_PATH = deepFreeze({
+  model: 'wheel-supported-quasi-static-v1',
+  quality:
+    'support centers preserve the registered-profile approximation; track physical values are renderer approximations pending accepted orthographic registration',
+  pathRadiusPolicy:
+    'renderer pitch radii fit the visible end supports; the lower-run road-wheel contact radius preserves the prior ground datum pending accepted orthographic registration',
+  driveSprocket: {
+    id: 'front-drive-sprocket', kind: 'driveSprocket',
+    centerY: 0.4494, centerZ: 1.57, radius: 0.30, pathRadius: 0.248
+  },
+  idlerWheel: {
+    id: 'rear-idler', kind: 'idlerWheel',
+    centerY: 0.4494, centerZ: -1.57, radius: 0.28, pathRadius: 0.228
+  },
+  roadWheels: H39_ROAD_WHEEL_CENTERS_Z.map((centerZ, index) => ({
+    id: `road-wheel-${index + 1}`, kind: 'roadWheel',
+    centerY: H39_ROAD_WHEEL_Y, centerZ, radius: 0.205,
+    pathRadius: 0.288
+  })),
+  returnRollers: H39_RETURN_ROLLER_CENTERS_Z.map((centerZ, index) => ({
+    id: `return-roller-${index + 1}`, kind: 'returnRoller',
+    centerY: 0.79, centerZ, radius: 0.085, pathRadius: 0.033
+  })),
+  linkThickness: 0.04,
+  cleatHeight: 0.012,
+  linearMassKgPerMeter: 42,
+  tensionNewtons: 18000,
+  maximumSegmentMeters: 0.065,
+  rendererApproximation:
+    'road-wheel track-contact radius, sprocket and idler radii, link dimensions, linear mass, static tension, and gravity sag are presentation-only approximations'
+});
 
 const H39_GEOMETRY = deepFreeze({
   hullRearZ: -2.11,
@@ -44,10 +78,11 @@ const H39_GEOMETRY = deepFreeze({
     trackCenterY: 0.4494,
     roadWheelRadius: 0.205,
     roadWheelY: H39_ROAD_WHEEL_Y,
-    roadWheelCentersZ: [-0.94, -0.66, 0.04, 0.32, 1.02, 1.30],
-    model: 'legacy-capsule-v1',
+    roadWheelCentersZ: H39_ROAD_WHEEL_CENTERS_Z,
+    trackPath: H39_TRACK_PATH,
+    model: 'wheel-supported-quasi-static-v1',
     quality:
-      'current renderer approximation pending vehicle-owned support-point migration; not blueprint-calibration evidence'
+      'vehicle-owned support points preserve the registered-profile approximation; not blueprint-calibration evidence'
   },
   turret: {
     ringY: 1.38,

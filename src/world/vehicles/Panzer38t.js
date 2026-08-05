@@ -36,6 +36,45 @@ const PANZER_38T = Object.freeze({
   cupolaCenterZ: -0.14
 });
 
+const PANZER_38T_TRACK_PATH = Object.freeze({
+  model: 'wheel-supported-quasi-static-v1',
+  quality:
+    'road-wheel and return-roller centers are registered side-elevation approximations; sprocket, idler, and track physical values are renderer approximations',
+  pathRadiusPolicy:
+    'renderer pitch radii are derived from visible wheel radii minus the authored link-and-cleat envelope',
+  driveSprocket: Object.freeze({
+    id: 'front-drive-sprocket', kind: 'driveSprocket',
+    centerY: PANZER_38T.trackCenterY, centerZ: 1.54,
+    radius: 0.37, pathRadius: 0.318
+  }),
+  idlerWheel: Object.freeze({
+    id: 'rear-idler', kind: 'idlerWheel',
+    centerY: PANZER_38T.trackCenterY, centerZ: -1.54,
+    radius: 0.31, pathRadius: 0.258
+  }),
+  roadWheels: Object.freeze(PANZER_38T.roadWheelCentersZ.map((centerZ, index) => Object.freeze({
+    id: `road-wheel-${index + 1}`, kind: 'roadWheel',
+    centerY: PANZER_38T.roadWheelY,
+    centerZ,
+    radius: PANZER_38T.roadWheelRadius,
+    pathRadius: 0.372
+  }))),
+  returnRollers: Object.freeze(PANZER_38T.returnRollerCentersZ.map((centerZ, index) => Object.freeze({
+    id: `return-roller-${index + 1}`, kind: 'returnRoller',
+    centerY: PANZER_38T.returnRollerY,
+    centerZ,
+    radius: PANZER_38T.returnRollerRadius,
+    pathRadius: 0.063
+  }))),
+  linkThickness: 0.04,
+  cleatHeight: 0.012,
+  linearMassKgPerMeter: 44,
+  tensionNewtons: 19000,
+  maximumSegmentMeters: 0.06,
+  rendererApproximation:
+    'sprocket and idler centers and radii, link dimensions, linear mass, static tension, and gravity sag are presentation-only approximations'
+});
+
 // Registered against the E-G multi-view drawing for shared chassis/profile
 // proportions, then checked against the Czech museum's surviving LT vz. 38.
 // Scenario identity remains an early 1940 Ausf. B-D, hence its hull MG.
@@ -308,34 +347,6 @@ function makeMesh(name, geometry, material, lodBand, parent) {
   return mesh;
 }
 
-function addReturnRollers(parent, wheelMaterial) {
-  for (const side of [-1, 1]) {
-    const semanticSide = side < 0 ? 'Right' : 'Left';
-    PANZER_38T.returnRollerCentersZ.forEach((z, index) => {
-      const roller = makeMesh(
-        `Panzer38t_${semanticSide}ReturnRoller_${index + 1}`,
-        new THREE.CylinderGeometry(
-          PANZER_38T.returnRollerRadius,
-          PANZER_38T.returnRollerRadius,
-          PANZER_38T.trackWidth * 0.48,
-          12
-        ),
-        wheelMaterial,
-        'medium',
-        parent
-      );
-      roller.rotation.z = Math.PI / 2;
-      roller.position.set(
-        side * (PANZER_38T.trackCenterX + PANZER_38T.trackWidth * 0.07),
-        PANZER_38T.returnRollerY,
-        z
-      );
-      roller.userData.runningGearPart = 'return-roller';
-      roller.userData.semanticSide = semanticSide.toLowerCase();
-    });
-  }
-}
-
 function addCoreWheelSilhouette(parent, wheelMaterial) {
   const geometry = new THREE.CylinderGeometry(
     PANZER_38T.roadWheelRadius,
@@ -495,7 +506,9 @@ function addProxyModels({
     // Proxy belt has no outward cleat offset, so radius alone reaches ground.
     centerY: PANZER_38T.trackHeight / 2,
     roadWheelRadius: PANZER_38T.roadWheelRadius,
-    roadWheelCount: 4
+    roadWheelCount: 4,
+    linkPitch: 0.20,
+    trackPath: PANZER_38T_TRACK_PATH
   });
   proxyGroup.add(proxyRunningGear);
 
@@ -679,12 +692,12 @@ export function createPanzer38tMesh() {
     roadWheelSpacing: 0.82,
     sprocketRadius: 0.37,
     idlerRadius: 0.31,
-    linkPitch: 0.145
+    linkPitch: 0.145,
+    trackPath: PANZER_38T_TRACK_PATH
   });
   tankGroup.add(runningGear);
   tankGroup.userData.runningGear = runningGear;
   addCoreWheelSilhouette(tankGroup, wheelMat);
-  addReturnRollers(tankGroup, wheelMat);
   for (const side of [-1, 1]) {
     addLeafSpringPack(tankGroup, side, -0.82, 1, bodyMat, metalMat);
     addLeafSpringPack(tankGroup, side, 0.82, 2, bodyMat, metalMat);

@@ -40,7 +40,7 @@ export const FRANCE_1940_ASSET_MANIFEST = defineAssetManifest({
       kind: 'terrain-surface-provider',
       source: {
         type: 'procedural',
-        generatorId: 'france-1940-procedural-terrain-surfaces-v2'
+        generatorId: 'france-1940-procedural-terrain-surfaces-v3'
       },
       provenance: 'deterministic procedural battlefield surface approximation',
       metadata: {

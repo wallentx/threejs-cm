@@ -100,6 +100,37 @@ const ROAD_WHEEL_Z = Object.freeze([
 
 const RETURN_ROLLER_Z = Object.freeze([1.18, 0.28, -0.66, -1.57]);
 
+const PANZER_35T_TRACK_PATH = Object.freeze({
+  model: 'wheel-supported-quasi-static-v1',
+  quality:
+    'sprocket, idler, and road-wheel centers are inferred from the registered published side elevation; return rollers and track physical values are renderer approximations',
+  pathRadiusPolicy:
+    'renderer pitch radii are derived from visible wheel radii minus the authored link-and-cleat envelope',
+  driveSprocket: Object.freeze({
+    id: 'rear-drive-sprocket', kind: 'driveSprocket',
+    centerY: 0.63, centerZ: -2.12, radius: 0.31, pathRadius: 0.258
+  }),
+  idlerWheel: Object.freeze({
+    id: 'front-idler', kind: 'idlerWheel',
+    centerY: 0.63, centerZ: 2.11, radius: 0.29, pathRadius: 0.238
+  }),
+  roadWheels: Object.freeze(ROAD_WHEEL_Z.map((centerZ, index) => Object.freeze({
+    id: `road-wheel-${index + 1}`, kind: 'roadWheel',
+    centerY: 0.31, centerZ, radius: 0.20, pathRadius: 0.148
+  }))),
+  returnRollers: Object.freeze(RETURN_ROLLER_Z.map((centerZ, index) => Object.freeze({
+    id: `return-roller-${index + 1}`, kind: 'returnRoller',
+    centerY: 0.92, centerZ, radius: 0.105, pathRadius: 0.053
+  }))),
+  linkThickness: 0.04,
+  cleatHeight: 0.012,
+  linearMassKgPerMeter: 46,
+  tensionNewtons: 20000,
+  maximumSegmentMeters: 0.06,
+  rendererApproximation:
+    'return-roller centers, link dimensions, linear mass, static tension, and gravity sag are presentation-only approximations'
+});
+
 const LOWER_HULL_STATIONS = Object.freeze([
   { z: -2.42, floorHalf: 0.59, floorY: 0.58, sideHalf: 0.72, shoulderY: 0.88, deckHalf: 0.65, roofY: 1.02 },
   { z: -2.12, floorHalf: 0.72, floorY: 0.54, sideHalf: 0.84, shoulderY: 0.94, deckHalf: 0.76, roofY: 1.10 },
@@ -285,40 +316,6 @@ function addRivetLine(parent, material, {
   return rivets;
 }
 
-function repositionRunningGear(runningGear) {
-  const { roadWheels, sprockets, idlers } = runningGear.userData.trackParts;
-  for (let side = 0; side < 2; side++) {
-    for (let index = 0; index < ROAD_WHEEL_Z.length; index++) {
-      roadWheels[side * ROAD_WHEEL_Z.length + index].position.z = ROAD_WHEEL_Z[index];
-    }
-    sprockets[side].position.z = -2.12;
-    idlers[side].position.z = 2.11;
-  }
-  runningGear.userData.blueprintAxleZ = {
-    roadWheels: [...ROAD_WHEEL_Z],
-    rearSprocket: -2.12,
-    frontIdler: 2.11
-  };
-}
-
-function repositionProxyWheels(proxy) {
-  const wheels = proxy.getObjectByName('ProxyRoadWheels');
-  const matrix = new THREE.Matrix4();
-  const quaternion = new THREE.Quaternion().setFromEuler(
-    new THREE.Euler(0, 0, Math.PI / 2)
-  );
-  const scale = new THREE.Vector3(1, 1, 1);
-  let instance = 0;
-  for (const side of [-1, 1]) {
-    for (const z of ROAD_WHEEL_Z) {
-      matrix.compose(new THREE.Vector3(side * 0.88, 0.31, z), quaternion, scale);
-      wheels.setMatrixAt(instance++, matrix);
-    }
-  }
-  wheels.instanceMatrix.needsUpdate = true;
-  wheels.userData.blueprintAxleZ = [...ROAD_WHEEL_Z];
-}
-
 function addBogieSuspension(parent, bodyMaterial, metalMaterial) {
   const twinCenters = [
     (ROAD_WHEEL_Z[0] + ROAD_WHEEL_Z[1]) * 0.5,
@@ -363,19 +360,6 @@ function addBogieSuspension(parent, bodyMaterial, metalMaterial) {
       }
     }
 
-    for (let index = 0; index < RETURN_ROLLER_Z.length; index++) {
-      mesh(
-        new THREE.CylinderGeometry(0.105, 0.105, 0.13, 10),
-        bodyMaterial,
-        `${side < 0 ? 'Right' : 'Left'}ReturnRoller_${index + 1}`,
-        'medium',
-        parent,
-        {
-          position: [side * 0.89, 0.92, RETURN_ROLLER_Z[index]],
-          rotation: [0, 0, Math.PI / 2]
-        }
-      );
-    }
   }
 }
 
@@ -476,9 +460,9 @@ export function createPanzer35tMesh() {
     roadWheelSpacing: 0.48,
     sprocketRadius: 0.31,
     idlerRadius: 0.29,
-    linkPitch: 0.095
+    linkPitch: 0.095,
+    trackPath: PANZER_35T_TRACK_PATH
   });
-  repositionRunningGear(runningGear);
   tankGroup.add(runningGear);
   tankGroup.userData.runningGear = runningGear;
   addBogieSuspension(tankGroup, turretMat, metalMat);
@@ -683,9 +667,10 @@ export function createPanzer35tMesh() {
     beltHeight: 1.0,
     centerY: 0.58,
     roadWheelRadius: 0.20,
-    roadWheelCount: 8
+    roadWheelCount: 8,
+    linkPitch: 0.19,
+    trackPath: PANZER_35T_TRACK_PATH
   });
-  repositionProxyWheels(proxyRunningGear);
   proxyGroup.add(proxyRunningGear);
   tankGroup.add(proxyGroup);
 

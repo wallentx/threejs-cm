@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { CombatSystem } from '../src/game/CombatSystem.js';
+import {
+  calculateExplosionVisualScale,
+  CombatSystem
+} from '../src/game/CombatSystem.js';
 import { TEST_VFX_PROVIDER } from './helpers/TestVfxProvider.js';
 
 function createOwningRuntime(calls) {
@@ -28,6 +31,29 @@ function createOwningRuntime(calls) {
     dispose() {}
   };
 }
+
+test('HE visual envelope scales with the actual round', () => {
+  const light = calculateExplosionVisualScale({
+    caliberMm: 20,
+    explosiveFillKg: 0.01,
+    explosiveRadius: 2
+  }, 0.6);
+  const medium = calculateExplosionVisualScale({
+    caliberMm: 75,
+    explosiveFillKg: 0.65,
+    explosiveRadius: 6
+  }, 0.6);
+  const heavy = calculateExplosionVisualScale({
+    caliberMm: 88,
+    explosiveFillKg: 0.993,
+    explosiveRadius: 11.5
+  }, 0.6);
+
+  assert.ok(light < medium && medium < heavy);
+  assert.ok(light >= 0.2 && heavy <= 3.5);
+  assert.equal(calculateExplosionVisualScale(null, 1.3), 1.3,
+    'non-round presentation callers retain their explicit scale');
+});
 
 test('combat impact and explosion visuals stay within reusable bounded pools', () => {
   const scene = new THREE.Scene();
@@ -82,7 +108,12 @@ test('Three-VFX runtime is the primary combat presentation when it accepts an em
   const point = new THREE.Vector3(2, 0.4, -3);
 
   assert.equal(combat.createImpactEffect(point), null);
-  assert.equal(combat.createExplosionEffect(point, 1.3), null);
+  const weapon = {
+    caliberMm: 88,
+    explosiveFillKg: 0.993,
+    explosiveRadius: 11.5
+  };
+  assert.equal(combat.createExplosionEffect(point, 1.3, weapon), null);
   assert.equal(combat.createMuzzleFlashEffect(
     point,
     { kind: 'cannon', caliberMm: 75 },
@@ -101,6 +132,10 @@ test('Three-VFX runtime is the primary combat presentation when it accepts an em
     'buildingDebris'
   ]);
   assert.equal(combat.effects.length, 0);
+  assert.equal(
+    calls.find(([kind]) => kind === 'explosion')[1].scale,
+    calculateExplosionVisualScale(weapon, 1.3)
+  );
   assert.ok(Object.values(combat.effectPools).every(pool => pool.length === 0));
   combat.dispose();
 });

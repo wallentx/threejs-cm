@@ -3,6 +3,9 @@ import { isPositionInsideDeploymentZone } from '../scenario/DeploymentRules.js';
 import {
   createVehicleLocalAimPoint
 } from '../simulation/combat/VehicleTargeting.js';
+import {
+  selectVehicleTargetWeapons
+} from '../simulation/combat/VehicleWeaponSelection.js';
 
 const INFANTRY_ONLY_MOVE_ORDERS = new Set([
   'SNEAK',
@@ -43,6 +46,30 @@ function canUnitUseCommandMode(unit, mode) {
     return Boolean(unit?.mortarTeamConfig?.smokeWeaponId);
   }
   return true;
+}
+
+function resolveTargetOverlayOrigin(unit) {
+  if (unit?.vehicleSpec) {
+    const weaponSelection = selectVehicleTargetWeapons({
+      mode: unit.targetMode,
+      target: unit.targetUnit,
+      vehicleSpec: unit.vehicleSpec
+    });
+    const mountId = weaponSelection.fireMainGun
+      ? 'main'
+      : (weaponSelection.mountIds?.[0] ?? null);
+    const mountMuzzle = mountId
+      ? unit.getVehicleMountMuzzleWorldPosition?.(mountId)
+      : null;
+    if (mountMuzzle?.isVector3) return { point: mountMuzzle, mountId };
+  }
+
+  const muzzle = unit?.getMuzzleWorldPosition?.();
+  if (muzzle?.isVector3) return { point: muzzle, mountId: null };
+  return {
+    point: unit.position.clone().add(new THREE.Vector3(0, 1.5, 0)),
+    mountId: null
+  };
 }
 
 export class CommandSystem {
@@ -466,9 +493,11 @@ export class CommandSystem {
 
       // 2. Render Target Vector
       if (unit.targetPos && (typeof unit.isControllable !== 'function' || unit.isControllable())) {
+        const targetPoint = unit.targetPos.clone();
+        const targetOrigin = resolveTargetOverlayOrigin(unit);
         const points = [
-          unit.position.clone().add(new THREE.Vector3(0, 1.5, 0)),
-          unit.targetPos.clone().add(new THREE.Vector3(0, 1.0, 0))
+          targetOrigin.point,
+          targetPoint
         ];
         const geo = new THREE.BufferGeometry().setFromPoints(points);
         const mat = new THREE.LineBasicMaterial({
@@ -476,7 +505,23 @@ export class CommandSystem {
           linewidth: 2
         });
         const line = new THREE.Line(geo, mat);
+        line.name = 'TargetOrderLine';
+        line.userData.originMountId = targetOrigin.mountId;
+        line.userData.targetOrderUnit = unit;
         this.targetLinesGroup.add(line);
+
+        if (unit.targetAimIntent) {
+          const marker = new THREE.Mesh(
+            new THREE.SphereGeometry(0.07, 10, 8),
+            new THREE.MeshBasicMaterial({
+              color: this.colors[unit.targetMode] || this.colors.TARGET
+            })
+          );
+          marker.name = 'VehicleTargetAimPoint';
+          marker.position.copy(targetPoint);
+          marker.userData.presentationOnly = true;
+          this.targetLinesGroup.add(marker);
+        }
       }
       if (unit.mortarTargetOrder) {
         this.addAreaTargetCircle({
@@ -490,6 +535,25 @@ export class CommandSystem {
     }
     if (this.areaTargetPreview) {
       this.addAreaTargetCircle(this.areaTargetPreview);
+    }
+  }
+
+  updateTargetOverlays() {
+    for (const line of this.targetLinesGroup.children) {
+      if (line.name !== 'TargetOrderLine') continue;
+      const unit = line.userData.targetOrderUnit;
+      const positions = line.geometry?.attributes?.position;
+      if (!unit?.targetPos || !positions || positions.count < 2) continue;
+      const targetOrigin = resolveTargetOverlayOrigin(unit);
+      positions.setXYZ(
+        0,
+        targetOrigin.point.x,
+        targetOrigin.point.y,
+        targetOrigin.point.z
+      );
+      positions.setXYZ(1, unit.targetPos.x, unit.targetPos.y, unit.targetPos.z);
+      positions.needsUpdate = true;
+      line.userData.originMountId = targetOrigin.mountId;
     }
   }
 

@@ -20,7 +20,15 @@ function configureBroadleafTemplate(tree, ezTree, seed) {
   Object.assign(tree.options.branch.children, { 0: 5, 1: 4, 2: 3 });
   Object.assign(tree.options.branch.sections, { 0: 8, 1: 6, 2: 4, 3: 3 });
   Object.assign(tree.options.branch.segments, { 0: 6, 1: 5, 2: 4, 3: 3 });
-  tree.options.leaves.count = 1;
+  // The source texture represents a small oak spray rather than one solid
+  // leaf. Five bounded placements per terminal branch close the large holes
+  // left by the former one-card performance proxy without returning to the
+  // preset's expensive 18-card canopy.
+  tree.options.leaves.count = 5;
+  tree.options.leaves.start = 0.18;
+  tree.options.leaves.angle = 38;
+  tree.options.leaves.size = 2.3;
+  tree.options.leaves.sizeVariance = 0.45;
 }
 
 function disposeGeneratedTree(tree) {

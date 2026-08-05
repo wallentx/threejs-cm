@@ -116,7 +116,7 @@ test('GameApp projects every direct frozen contact and real Unit threat classes'
   assert.equal(selectPrimaryThreat(observer, projected).id, 'armor_1');
 });
 
-test('completed waypoint history does not make a stopped vehicle perpetually moving', () => {
+test('stationary turreted tanks preserve hull heading while laying the turret', () => {
   const unit = createRealVehicleUnit('PANZER_III_D', { rotation: 0 });
   unit.waypoints = [{ position: new THREE.Vector3(0, 0, 5), orderType: 'MOVE' }];
   unit.currentWaypointIndex = unit.waypoints.length;
@@ -127,8 +127,9 @@ test('completed waypoint history does not make a stopped vehicle perpetually mov
     deltaSeconds: 1
   });
 
-  assert.equal(decision.reason, 'threat-hull-align');
-  assert.ok(decision.nextHullYaw > 0);
+  assert.equal(decision.reason, 'threat-turret-traverse');
+  assert.equal(decision.nextHullYaw, 0);
+  assert.ok(decision.nextTurretYaw > 0);
   assert.equal(unit.rotation, 0, 'renderer-neutral evaluator must not mutate the unit');
 });
 
@@ -150,14 +151,15 @@ test('an active movement waypoint preserves path hull yaw while the turret trave
   assert.equal(unit.vehicleWeapon.turretYaw, initialTurretYaw);
 });
 
-test('evaluateVehicleThreatFacing respects driver and gunner operational gates', () => {
+test('threat facing never commandeers the driver and respects the gunner gate', () => {
   const unit = createRealVehicleUnit('PANZER_III_D', { rotation: 0 });
   const threatPos = new THREE.Vector3(10, 0, 0); // East (angle = Math.PI/2)
 
-  // Driver operational & stopped: hull rotates toward threat
+  // A stopped turreted tank lays its turret without rotating the hull.
   const decision = evaluateVehicleThreatFacing({ unit, threatPosition: threatPos, deltaSeconds: 1.0 });
   assert.equal(decision.threatFacingActive, true);
-  assert.ok(decision.nextHullYaw > 0, 'Hull intent must step toward threat');
+  assert.equal(decision.nextHullYaw, 0);
+  assert.ok(decision.nextTurretYaw > 0, 'Turret intent must step toward threat');
 
   // Immobilized / Driver knocked out: hull rotation inhibited (pillbox mode)
   const knockedOutDriverUnit = createRealVehicleUnit('PANZER_III_D', { rotation: 0 });
@@ -193,6 +195,7 @@ test('Char B1 hull-gun target order owns hull facing while autonomous turret int
     deltaSeconds: 1
   });
 
+  assert.equal(decision.reason, 'hull-gun-laying');
   assert.equal(decision.nextHullYaw, 0);
   assert.ok(decision.nextTurretYaw > initialTurretYaw);
   assert.equal(unit.rotation, 0);

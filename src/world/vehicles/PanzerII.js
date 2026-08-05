@@ -5,7 +5,6 @@ import {
   createTrackedRunningGearProxy
 } from './TrackedRunningGear.js';
 
-const X_AXIS = new THREE.Vector3(1, 0, 0);
 const Z_AXIS = new THREE.Vector3(0, 0, 1);
 
 // Panzerkampfwagen II Ausf. C rigid dimensions. Weapon projections and aerials
@@ -114,24 +113,37 @@ const BLUEPRINT_CALIBRATION = Object.freeze({
   ])
 });
 
-// Side-elevation link-center path. Unlike a generic capsule it preserves the
-// unequal drive-sprocket/idler radii and the short upward-sloping end runs.
-// Points wind rear-bottom -> front-bottom -> front-top -> rear-top.
-const TRACK_PATH_YZ = Object.freeze([
-  Object.freeze([0.075, -1.84]),
-  Object.freeze([0.075, 1.57]),
-  Object.freeze([0.14, 1.90]),
-  Object.freeze([0.35, 2.20]),
-  Object.freeze([0.62, 2.31]),
-  Object.freeze([0.86, 2.22]),
-  Object.freeze([1.045, 2.04]),
-  Object.freeze([1.045, -1.72]),
-  Object.freeze([0.97, -2.02]),
-  Object.freeze([0.78, -2.21]),
-  Object.freeze([0.52, -2.19]),
-  Object.freeze([0.28, -2.08]),
-  Object.freeze([0.10, -1.84])
-]);
+const PANZER_II_TRACK_PATH = Object.freeze({
+  model: 'wheel-supported-quasi-static-v1',
+  quality:
+    'support centers are inferred from the registered Ausf. C side elevation; track physical values are renderer approximations',
+  pathRadiusPolicy:
+    'renderer pitch radii are derived from visible wheel radii minus the authored link-and-cleat envelope',
+  driveSprocket: Object.freeze({
+    id: 'front-drive-sprocket', kind: 'driveSprocket',
+    centerY: 0.63, centerZ: 1.93, radius: 0.39, pathRadius: 0.335
+  }),
+  idlerWheel: Object.freeze({
+    id: 'rear-idler', kind: 'idlerWheel',
+    centerY: 0.63, centerZ: -1.84, radius: 0.39, pathRadius: 0.335
+  }),
+  roadWheels: Object.freeze(D.roadWheelZ.map((centerZ, index) => Object.freeze({
+    id: `road-wheel-${index + 1}`, kind: 'roadWheel',
+    centerY: D.roadWheelY, centerZ,
+    radius: D.roadWheelRadius, pathRadius: 0.20
+  }))),
+  returnRollers: Object.freeze(D.returnRollerZ.map((centerZ, index) => Object.freeze({
+    id: `return-roller-${index + 1}`, kind: 'returnRoller',
+    centerY: 0.82, centerZ, radius: 0.105, pathRadius: 0.05
+  }))),
+  linkThickness: 0.04,
+  cleatHeight: 0.015,
+  linearMassKgPerMeter: 45,
+  tensionNewtons: 19000,
+  maximumSegmentMeters: 0.065,
+  rendererApproximation:
+    'link dimensions, linear mass, static tension, and gravity sag are presentation-only approximations'
+});
 
 const LOWER_HULL_STATIONS = Object.freeze([
   { z: -2.405, halfWidth: 0.76, floorY: 0.49, shoulderY: 0.70, roofHalfWidth: 0.77, roofY: 0.82 },
@@ -307,30 +319,6 @@ function createBeamBetween(start, end, width, height, material, name, band) {
   return beam;
 }
 
-function addReturnRollers(parent, material) {
-  const group = new THREE.Group();
-  group.name = 'ReturnRollers';
-  for (const side of [-1, 1]) {
-    for (let index = 0; index < D.returnRollerZ.length; index++) {
-      const roller = addMesh(
-        group,
-        new THREE.CylinderGeometry(0.105, 0.105, 0.16, 10),
-        material,
-        `${side < 0 ? 'Right' : 'Left'}ReturnRoller_${index + 1}`,
-        'medium',
-        {
-          trackPart: 'returnRoller',
-          semanticSide: side < 0 ? 'right' : 'left'
-        }
-      );
-      roller.rotation.z = Math.PI / 2;
-      roller.position.set(side * 1.025, 0.82, D.returnRollerZ[index]);
-    }
-  }
-  parent.add(group);
-  return group;
-}
-
 function addLeafSpringSuspension(parent, material) {
   const group = new THREE.Group();
   group.name = 'FiveWheelLeafSpringSuspension';
@@ -368,87 +356,6 @@ function addLeafSpringSuspension(parent, material) {
   }
   parent.add(group);
   return group;
-}
-
-function trackPathSegments() {
-  const segments = [];
-  let totalLength = 0;
-  for (let index = 0; index < TRACK_PATH_YZ.length; index++) {
-    const start = TRACK_PATH_YZ[index];
-    const end = TRACK_PATH_YZ[(index + 1) % TRACK_PATH_YZ.length];
-    const dy = end[0] - start[0];
-    const dz = end[1] - start[1];
-    const length = Math.hypot(dy, dz);
-    segments.push({ start, dy, dz, length, distance: totalLength });
-    totalLength += length;
-  }
-  return { segments, totalLength };
-}
-
-const TRACK_PATH = trackPathSegments();
-
-function sampleTrackPath(distance) {
-  const wrapped = ((distance % TRACK_PATH.totalLength) + TRACK_PATH.totalLength)
-    % TRACK_PATH.totalLength;
-  const segment = TRACK_PATH.segments.find(candidate => (
-    wrapped <= candidate.distance + candidate.length
-  )) ?? TRACK_PATH.segments.at(-1);
-  const t = segment.length > 0 ? (wrapped - segment.distance) / segment.length : 0;
-  return {
-    y: segment.start[0] + segment.dy * t,
-    z: segment.start[1] + segment.dz * t,
-    dy: segment.dy / segment.length,
-    dz: segment.dz / segment.length
-  };
-}
-
-function refitTrackLinksToBlueprint(runningGear) {
-  const position = new THREE.Vector3();
-  const cleatPosition = new THREE.Vector3();
-  const quaternion = new THREE.Quaternion();
-  const scale = new THREE.Vector3(1, 1, 1);
-  const matrix = new THREE.Matrix4();
-  const cleatOffset = Math.min(0.055, D.trackWidth * 0.16);
-
-  for (const belt of runningGear.userData.trackParts.tracks) {
-    const { links, cleats, count } = belt;
-    const side = links.userData.side;
-    const instancePath = [];
-    for (let index = 0; index < count; index++) {
-      const path = sampleTrackPath(index / count * TRACK_PATH.totalLength);
-      const rotationX = -Math.atan2(path.dy, path.dz);
-      position.set(side * D.trackCenterX, path.y, path.z);
-      quaternion.setFromAxisAngle(X_AXIS, rotationX);
-      matrix.compose(position, quaternion, scale);
-      links.setMatrixAt(index, matrix);
-
-      // Right-hand normal for the counter-clockwise Y/Z path points outside.
-      cleatPosition.set(
-        side * D.trackCenterX,
-        path.y - path.dz * cleatOffset,
-        path.z + path.dy * cleatOffset
-      );
-      matrix.compose(cleatPosition, quaternion, scale);
-      cleats.setMatrixAt(index, matrix);
-      instancePath.push({
-        distance: index / count * TRACK_PATH.totalLength,
-        position: position.toArray(),
-        quaternion: quaternion.toArray()
-      });
-    }
-    links.instanceMatrix.needsUpdate = true;
-    cleats.instanceMatrix.needsUpdate = true;
-    links.computeBoundingBox();
-    links.computeBoundingSphere();
-    cleats.computeBoundingBox();
-    cleats.computeBoundingSphere();
-    links.userData.instancePath = instancePath;
-    cleats.userData.instancePath = instancePath;
-    links.userData.pathSource = 'registered-Ausf-C-side-elevation';
-    cleats.userData.pathSource = 'registered-Ausf-C-side-elevation';
-  }
-  runningGear.userData.runningGearType = 'blueprint-refit-closed-track-belt';
-  runningGear.userData.trackPathYZ = TRACK_PATH_YZ.map(point => [...point]);
 }
 
 function addDetailParts(root, upperHull, turretGroup, materials) {
@@ -572,36 +479,16 @@ function createProxyAssembly(root, materials) {
     id: 'PanzerIICRunningGearProxy',
     trackMaterial: materials.track,
     wheelMaterial: materials.turret,
-    trackCenterX: 0.94,
+    trackCenterX: D.trackCenterX,
     trackWidth: D.trackWidth,
     beltLength: 4.50,
     beltHeight: D.trackHeight,
     centerY: D.trackCenterY,
     roadWheelRadius: D.roadWheelRadius,
-    roadWheelCount: 5
+    roadWheelCount: 5,
+    linkPitch: 0.30,
+    trackPath: PANZER_II_TRACK_PATH
   });
-  for (const beltName of ['ProxyLeftTrackBelt', 'ProxyRightTrackBelt']) {
-    proxyGear.getObjectByName(beltName).position.z = 0.045;
-  }
-  const proxyWheels = proxyGear.getObjectByName('ProxyRoadWheels');
-  const wheelQuaternion = new THREE.Quaternion()
-    .setFromEuler(new THREE.Euler(0, 0, Math.PI / 2));
-  const wheelMatrix = new THREE.Matrix4();
-  let wheelInstance = 0;
-  for (const side of [-1, 1]) {
-    for (const z of D.roadWheelZ) {
-      wheelMatrix.compose(
-        new THREE.Vector3(side * 0.94, D.roadWheelY, z),
-        wheelQuaternion,
-        new THREE.Vector3(1, 1, 1)
-      );
-      proxyWheels.setMatrixAt(wheelInstance++, wheelMatrix);
-    }
-  }
-  proxyWheels.instanceMatrix.needsUpdate = true;
-  proxyWheels.computeBoundingBox();
-  proxyWheels.computeBoundingSphere();
-  proxyWheels.userData.positionSource = 'registered-Ausf-C-side-elevation';
   proxy.add(proxyGear);
 
   const proxyTurret = addMesh(
@@ -717,17 +604,9 @@ export function createPanzerIIMesh() {
     roadWheelSpacing: D.roadWheelZ[1] - D.roadWheelZ[0],
     sprocketRadius: 0.39,
     idlerRadius: 0.39,
-    linkPitch: 0.15
+    linkPitch: 0.15,
+    trackPath: PANZER_II_TRACK_PATH
   });
-  refitTrackLinksToBlueprint(runningGear);
-  for (const sprocket of runningGear.userData.trackParts.sprockets) {
-    sprocket.position.y = 0.63;
-    sprocket.position.z = 1.93;
-  }
-  for (const idler of runningGear.userData.trackParts.idlers) {
-    idler.position.y = 0.63;
-    idler.position.z = -1.84;
-  }
   tankGroup.add(runningGear);
   tankGroup.userData.runningGear = runningGear;
   runningGear.userData.calibrationDatums = {
@@ -737,7 +616,7 @@ export function createPanzerIIMesh() {
     idlerZ: -1.84,
     quality: 'profile-derived; inferred'
   };
-  tankGroup.userData.returnRollers = addReturnRollers(tankGroup, materials.turret);
+  tankGroup.userData.returnRollers = runningGear.getObjectByName('ReturnRollers');
   tankGroup.userData.leafSpringSuspension = addLeafSpringSuspension(tankGroup, materials.metal);
 
   const turretGroup = new THREE.Group();

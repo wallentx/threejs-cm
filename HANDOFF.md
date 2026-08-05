@@ -2192,8 +2192,9 @@ the exact native-WebGPU far-camera measurement.
 - `npm run build` passed with Vite 8.1.5, 768 modules transformed, in 182 ms.
   The known chunk-size warning remains; the largest emitted game chunk was
   506.31 kB minified. No dependency was added.
-- `git diff --check` passed with no output. `graft build` completed with 3,605
-  nodes and 9,334 edges. The intentionally dirty worktree was preserved; no
+- `git diff --check` passed with no output. The then-current repository context
+  graph refresh completed with 3,605 nodes and 9,334 edges. The intentionally
+  dirty worktree was preserved; no
   unrelated file was reset, reverted, broadly formatted, committed, branched,
   or pushed.
 - Behavioral coverage proves matrix equivalence after standing, movement,
@@ -4142,8 +4143,10 @@ Read completely before editing:
   ownership example only, never a numeric source;
 - every focused test named below.
 
-Use `graft` before opening implementation spans. Inspect the current diff for
-every allowed file and layer changes onto Packet B. Then reproduce:
+Use the Panoptes MCP tools before opening implementation spans: `find` for
+ranked context, `grep` for exhaustive occurrences, `callers` for blast radius,
+and `skeleton` for file APIs. Inspect the current diff for every allowed file
+and layer changes onto Packet B. Then reproduce:
 
 ```sh
 sha256sum /tmp/char-b1bis-onwar.jpg

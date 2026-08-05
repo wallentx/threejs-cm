@@ -582,7 +582,15 @@ export class Unit {
   }
 
   applySuppression(amount) {
-    this.suppression = Math.min(100, this.suppression + amount);
+    // Gameplay approximation: an enclosed armored fighting compartment
+    // attenuates shock and near-miss suppression before it reaches the crew.
+    // This changes crew morale pressure only; penetrations and component
+    // damage remain owned by armor and terminal-effects resolution.
+    const suppressionAmount = this.vehicleSpec?.explosiveProtection?.class
+      === 'armored_enclosed'
+      ? amount * 0.65
+      : amount;
+    this.suppression = Math.min(100, this.suppression + suppressionAmount);
     if (this.type === 'infantry_squad') {
       this.morale = classifyInfantryUnitMorale(
         this.suppression,
@@ -1914,7 +1922,15 @@ export class Unit {
       return false;
     }
     const target = context.target;
-    const allowPointTarget = !this.targetUnit;
+    const targetReference = target ?? this.targetUnit;
+    const targetReferenceId = targetReference?.id ?? null;
+    const targetStillPlausible = !this.targetUnit
+      || this.targetUnit.isCombatEffective?.() !== false;
+    // A manually ordered vehicle target retains the last precise world point
+    // when its direct-contact projection briefly drops. The projectile is
+    // still fired spatially with no preselected target, so a moved enemy is
+    // missed and ordinary swept collision remains authoritative.
+    const allowPointTarget = Boolean(this.targetPos && targetStillPlausible);
     const mainTarget = this.resolveVehicleChannelTarget(
       target,
       this.vehicleWeapon,
@@ -1942,7 +1958,7 @@ export class Unit {
     const targetPosition = mainTarget.position;
     const weaponSelection = selectVehicleTargetWeapons({
       mode: this.targetMode,
-      target,
+      target: targetReference,
       vehicleSpec: this.vehicleSpec
     });
     const selectedMountIds = weaponSelection.mountIds ?? [];
@@ -1980,7 +1996,7 @@ export class Unit {
       desiredTurretYaw - (this.vehicleWeapon?.turretYaw ?? currentTurretYaw)
     );
     const targetKey = createFireControlTargetKey({
-      targetUnitId: target?.id ?? null,
+      targetUnitId: targetReferenceId,
       targetSoldierId: targetSoldier?.id ?? null,
       targetPosition
     });
@@ -1995,7 +2011,7 @@ export class Unit {
       && this.vehicleSpec.mainGun
       && this.vehicleWeapon
     ) {
-      this.vehicleWeapon.targetUnitId = target?.id ?? null;
+      this.vehicleWeapon.targetUnitId = targetReferenceId;
       this.vehicleWeapon.targetPos = targetPosition.toArray();
       this.vehicleWeapon.targetMode = this.targetMode;
       const desiredAmmoType = weaponSelection.mainAmmoType;
@@ -2080,7 +2096,7 @@ export class Unit {
         }
       }
     } else if (includeMain && this.vehicleWeapon) {
-      this.vehicleWeapon.targetUnitId = target?.id ?? null;
+      this.vehicleWeapon.targetUnitId = targetReferenceId;
       this.vehicleWeapon.targetPos = targetPosition.toArray();
       this.vehicleWeapon.targetMode = this.targetMode;
       this.vehicleWeapon.fireState = 'HOLD_FIRE';
@@ -2104,7 +2120,7 @@ export class Unit {
         if (selectedMountIds.includes(mount.id)) continue;
         const state = this.vehicleMounts[mount.id];
         if (!state) continue;
-        state.targetUnitId = target?.id ?? null;
+        state.targetUnitId = targetReferenceId;
         state.targetPos = targetPosition.toArray();
         state.targetMode = this.targetMode;
         state.fireState = 'HOLD_FIRE';
@@ -2168,12 +2184,12 @@ export class Unit {
         alignmentError = wrapAngle(desiredWorldYaw - this.rotation);
       }
       const targetKey = createFireControlTargetKey({
-        targetUnitId: aiming.target?.id ?? null,
+        targetUnitId: aiming.target?.id ?? this.targetUnit?.id ?? null,
         targetSoldierId: mountTarget.soldier?.id ?? null,
         targetPosition
       });
       const trueRangeMeters = this.position.distanceTo(targetPosition);
-      state.targetUnitId = aiming.target?.id ?? null;
+      state.targetUnitId = aiming.target?.id ?? this.targetUnit?.id ?? null;
       state.targetPos = targetPosition.toArray();
       state.targetMode = this.targetMode;
       const crewBusy = aiming.occupiedCrewRoles?.some(role => mount.crewRoles.includes(role));

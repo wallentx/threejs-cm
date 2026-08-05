@@ -350,6 +350,8 @@ test('Stonne map owns immutable terrain, surface, feature, structure, and deploy
   });
   assert.equal(Object.isFrozen(STONNE_1940_MAP.structures[1]), true);
   assert.equal(STONNE_1940_MAP.foliage.length, 5);
+  assert.equal(STONNE_1940_MAP.foliageRendering.mode, 'instanced');
+  assert.match(STONNE_1940_MAP.foliageRendering.dataQuality, /EZ-Tree/);
   assert.ok(STONNE_1940_MAP.surfaces.layers.every(layer => layer.visualOnly));
   assert.deepEqual(
     STONNE_1940_MAP.surfaces.layers.map(layer => layer.id),

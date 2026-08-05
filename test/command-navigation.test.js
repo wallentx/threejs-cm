@@ -480,6 +480,69 @@ test('AP, HE, and MG target tools persist their explicit mode on the order', () 
   }
 });
 
+test('vehicle target overlay runs from the selected weapon muzzle to the exact armor point', () => {
+  const commands = new CommandSystem(new THREE.Scene());
+  const unit = createUnit({ position: new THREE.Vector3(1, 0, 2) });
+  const muzzlePositions = {
+    main: new THREE.Vector3(2.5, 2.125, 3.25),
+    hull_75mm: new THREE.Vector3(1.5, 1.125, 3)
+  };
+  unit.vehicleSpec = {
+    mainGun: { ap: 'main_ap', he: 'main_he' },
+    weaponMounts: [{
+      id: 'hull_75mm',
+      kind: 'cannon',
+      targetModes: ['TARGET_HULL_HE'],
+      weapons: { he: 'hull_he' }
+    }]
+  };
+  unit.getVehicleMountMuzzleWorldPosition = mountId =>
+    muzzlePositions[mountId]?.clone() ?? null;
+  unit.targetPos = new THREE.Vector3(4.25, 1.75, 6.5);
+  unit.targetAimIntent = {
+    modelVersion: 'vehicle-local-aim-v1',
+    point: [0.25, 1.75, 0.5]
+  };
+  unit.targetMode = 'TARGET_AP';
+
+  commands.setActiveUnit(unit);
+
+  const line = commands.targetLinesGroup.getObjectByName('TargetOrderLine');
+  const marker = commands.targetLinesGroup.getObjectByName('VehicleTargetAimPoint');
+  assert.ok(line);
+  assert.ok(marker);
+  assert.deepEqual(
+    Array.from(line.geometry.attributes.position.array.slice(0, 3)),
+    muzzlePositions.main.toArray(),
+    'Target AP must begin at the main-gun muzzle'
+  );
+  assert.equal(line.userData.originMountId, 'main');
+  assert.deepEqual(
+    Array.from(line.geometry.attributes.position.array.slice(-3)),
+    unit.targetPos.toArray(),
+    'the command line must not add a presentation offset to the selected point'
+  );
+  assert.deepEqual(marker.position.toArray(), unit.targetPos.toArray());
+
+  muzzlePositions.main.set(3, 2.5, 4);
+  commands.updateTargetOverlays();
+  assert.deepEqual(
+    Array.from(line.geometry.attributes.position.array.slice(0, 3)),
+    muzzlePositions.main.toArray(),
+    'the overlay must follow the muzzle as the gun traverses'
+  );
+
+  unit.targetMode = 'TARGET_HULL_HE';
+  commands.renderOverlays();
+  const hullLine = commands.targetLinesGroup.getObjectByName('TargetOrderLine');
+  assert.deepEqual(
+    Array.from(hullLine.geometry.attributes.position.array.slice(0, 3)),
+    muzzlePositions.hull_75mm.toArray(),
+    'Target Hull HE must begin at the hull-gun muzzle'
+  );
+  assert.equal(hullLine.userData.originMountId, 'hull_75mm');
+});
+
 test('multi-selection preserves move formation offsets and shares target orders', () => {
   const first = createUnit({
     position: new THREE.Vector3(0, 0, 0)

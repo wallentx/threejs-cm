@@ -203,8 +203,8 @@ test('hold fire gates individual and vehicle weapons and survives rollback', () 
   vehicle.targetPos = hiddenTarget.position.clone();
 
   vehicle.updateVehicleCombat(3, { target: null, combat });
-  assert.equal(shots, 0);
-  assert.equal(vehicle.vehicleWeapon.targetPos, null);
+  assert.equal(shots, 1);
+  assert.deepEqual(vehicle.vehicleWeapon.targetPos, [0, 0, 80]);
 
   const app = Object.create(GameApp.prototype);
   app.random = () => 0;

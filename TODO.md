@@ -17,6 +17,17 @@ even when a matching broader parent exists elsewhere in this file.
 
 ### Gameplay bugs and controls
 
+- [x] Preserve the exact clicked vehicle surface point for `Target AP`,
+  `Target HE`, and related direct-fire orders; draw the live command line from
+  the selected main, hull, or auxiliary weapon's modeled muzzle and terminate
+  it with a small aim marker at that armor point while normal fire-control
+  dispersion, projectile flight, and armor resolution remain authoritative.
+- [x] Keep ordinary turreted vehicles from commandeering the driver to slew the
+  hull while aiming; preserve whole-hull gun laying only for a selected fixed
+  cannon such as the Char B1 bis 75 mm. Retain an ordered direct-fire aim point
+  through a brief precision-contact dropout so a traversing turret does not
+  silently refuse to fire, while the spatial projectile can still miss a moved
+  target or strike intervening cover.
 - [x] Fix current direct-visibility loss after a spotted vehicle is hit by a
   mortar, damaged by direct fire, or continues firing/tracking in clear LOS;
   smoke or dust may obscure only when an authoritative obscurant actually
@@ -45,6 +56,10 @@ even when a matching broader parent exists elsewhere in this file.
 
 ### Environment and effects
 
+- [x] Retheme the vehicle debug sandbox ground as a dark green-teal virtual
+  space with a bright neon green grid inspired by Metal Gear Solid: VR
+  Missions, without changing production battlefield terrain.
+
 - [ ] Reduce excessive distance fog while retaining intentional atmospheric
   depth and low-tier performance.
 - [ ] Brighten the battlefield lighting/material response without washing out
@@ -52,6 +67,15 @@ even when a matching broader parent exists elsewhere in this file.
   - [x] First fill-light pass: raise neutral ambient, sky, ground-bounce, and sun
     response so dark vehicle paint remains readable while retaining the existing
     single directional-shadow owner; live backend comparison remains.
+- [x] Restore the Bridge map to the shared EZ-Tree instancing path; keep each
+  generated trunk and canopy on one terrain-rooted transform; and replace the
+  visibly regular Stonne woodland/tree-line coordinates with bounded,
+  deterministic natural variation plus per-tree scale and rotation variation.
+  - [x] Replace the flat green EZ-Tree leaf cards with the package's MIT-licensed
+    oak-spray color/alpha texture, family-owned double-sided alpha-tested
+    materials, and a bounded five-spray terminal-branch canopy shared by every
+    instance; retain depth writing, disposal ownership, and WebGL2/WebGPU
+    material compatibility.
 - [ ] Add bounded terrain-following grass, weeds, and sparse flowers using the
   installed EZ-Tree demo assets as optional source art rather than treating its
   app-only `Grass` class as a production API.
@@ -83,7 +107,7 @@ even when a matching broader parent exists elsewhere in this file.
     changing authoritative combat or damage ownership.
     - [x] Implementation experiment: route real impact, ricochet, explosion,
       muzzle, building-debris/dust, persistent smoke, flame, spark, and cookoff
-      events into nine bounded, renderer-owned `vanilla-vfx` particle pools
+      events into bounded, renderer-owned `vanilla-vfx` particle pools
       shared by the production game and vehicle sandbox; make accepted emissions
       primary while retaining the existing TSL presentation as a fallback, and
       cover lifecycle, capacity, event routing, and rate bounds behaviorally.
@@ -95,7 +119,7 @@ even when a matching broader parent exists elsewhere in this file.
       roll-down, gravity, terrain bounce, and friction without feeding
       presentation state back into combat.
     - [x] Feedback-isolation pass: preserve the accepted cookoff explosion,
-      smoke, debris, vent-flame, and post-blast parameters while moving round
+      smoke, debris, and post-blast parameters while moving round
       hits into a dedicated gold/orange elongated-spark pool with 18-58 m/s
       launch speeds and bounded weighted terrain bounces; move ordinary fuel
       and spreading fires into a separate `fire.png`-masked flame pool so their
@@ -104,9 +128,47 @@ even when a matching broader parent exists elsewhere in this file.
       attached turret's original pivot after cookoff, retain it through the
       full 30-second post-blast interval, and continuously reduce its emission
       rate, scale, speed, and lifetime while engine-deck fire remains active.
+    - [x] Persistent-effects layering follow-up: replace vehicle-damage smoke
+      dots with a dense 16x16 dark animated smoke flipbook plus a full-rate
+      broader haze layer; keep visible fire smoke cohesive and low-drift,
+      delaying outward motion until fade-out while retaining localized,
+      billowing non-burning engine smoke; originate burning smoke within the
+      upper flame volume (including the exposed turret ring after cookoff),
+      inherit the same source, direction, speed, gravity, and friction as that
+      flame at the attachment point, then bias angled smoke buoyantly upward
+      while retaining the flame's motion rate; cycle smoke across every active
+      fire vent plus the exposed turret ring; begin as a thin translucent
+      transition before rapidly expanding and darkening; give every source's
+      visible smoke sheets one shared stream velocity, minimal early turbulent
+      drift, and sufficient overlap so no card separates until its opacity is
+      already fading away; after the cohesive lower plume forms, progressively
+      reduce its travel speed and allow mild accumulated turbulent dispersion
+      without continuous flame-strength upward acceleration: exhaust most of
+      the vertical impulse while the upper smoke is still dense, remove any
+      continuous upward acceleration, let that smoke
+      linger and spread, then bring movement and opacity to zero together; and
+      retain each smoke card until a continuous opacity tail reaches exact zero
+      instead of recycling still-visible cards from an undersized particle pool;
+      build ordinary engine/fuel fire from three overlapping texture-masked
+      sheets around a hot core while retaining the accepted large post-turret
+      plume.
+    - [x] Add a dense bounded layer of millimetre-scale red embers that drafts
+      upward from every active fire source and fades to zero; accelerate only ordinary
+      HE fireballs, sparks, and debris into a sub-second burst; derive each HE
+      envelope from the round's caliber, explosive fill, and effect radius; and
+      preserve the accepted cookoff/turret-pop profile.
+    - [x] Pre-cookoff cleanup: remove the legacy gradient-sphere flame pool from
+      ammunition venting, retain a texture-masked vent flame, and emit one
+      bounded flash of 960 pinprick sparks (320 at low detail) from the
+      turret ring at the final vent threshold without changing the turret
+      launch or detonation explosion.
     - [ ] Live-tune and accept or reject the experiment on working WebGPU and
       WebGL2 backends, including hit readability, muzzle direction, smoke/fire
       density, mobile cost, and the dependency's presentation-only randomness.
+      - [x] Desktop renderer slice: persistent smoke/fire, ordinary flame
+        continuity, and pre-cookoff flash initialize without console errors on
+        WebGPU and the direct WebGL2 fallback; mobile cost and the remaining
+        shared battlefield effects still require acceptance.
   - [ ] Replace the labeled approximate vent locations with vehicle-authored
     opening/seam markers and add component-specific fire/cookoff audio.
 - [ ] Replace floating black AP penetration spheres with surface-aligned,
@@ -119,6 +181,11 @@ even when a matching broader parent exists elsewhere in this file.
     and distinguish penetration holes, ricochet scrapes, stopped-round dents,
     and HE blast scorch. Textured crater detail and the remaining 13 vehicle
     plate conversions remain.
+  - [x] Procedural crater/scorch follow-up: shrink every vehicle hit mark,
+    replace solid circles with an irregular alpha-faded crater lip and recessed
+    center, keep stopped/ricochet marks pale like exposed steel, give
+    penetrations a dark hole with a metal rim, and render HE as diffuse brown
+    burn scoring rather than a large black dot.
 - [ ] Replace the blue map-edge void with a map-family horizon treatment:
   preferably cheap continuation terrain/vegetation and atmospheric blending
   beyond playable bounds, with no collision or simulation authority outside
@@ -126,8 +193,16 @@ even when a matching broader parent exists elsewhere in this file.
 
 ### All-vehicle geometry integrity audit
 
+- [x] Preserve wheel silhouettes for every current wheeled vehicle at both
+  core and proxy distance tiers; Panhard 178 and Sd.Kfz. 231 tires now survive
+  the core tier alongside the already-authored Laffly and Opel wheels.
+
 - [ ] Repair the floating parts and exposed open faces recorded in
   `docs/vehicle-authoring/vehicle-geometry-integrity-audit-2026-08-04.md`.
+  - [x] Replace the remaining SOMUA S35, Hotchkiss H39, AMC 35, Panzer II,
+    Panzer III, Panzer IV, Panzer 35(t), and Panzer 38(t) oval/capsule tracks
+    with vehicle-owned wheel-supported paths shared by detailed and proxy LODs;
+    all 11 production tanks now use the solved support-path presentation.
   - [x] Audit all 15 production vehicle factories at high/medium/core/proxy LOD
     from fixed front/side/top views, combine projected-connectivity evidence
     with welded topology/winding checks, and preserve the existing reviewed
@@ -183,10 +258,10 @@ even when a matching broader parent exists elsewhere in this file.
 
 ### German vehicle visual audit
 
-- [ ] Migrate every German tracked vehicle from legacy oval/capsule track
+- [x] Migrate every German tracked vehicle from legacy oval/capsule track
   presentation to vehicle-owned sprocket, idler, road-wheel, return-roller, and
   solved tight-track supports shared by detailed and proxy LODs.
-- [ ] Audit moving-track presentation for Panzer II, Panzer III, Panzer IV,
+- [x] Audit moving-track presentation for Panzer II, Panzer III, Panzer IV,
   Panzer 35(t), and Panzer 38(t): forward, reverse, stop, track damage, LOD
   changes, and rollback must follow authoritative displacement.
 - [x] Remove or source-identify the unexplained circular hoop on the Panzer IV
@@ -204,6 +279,10 @@ even when a matching broader parent exists elsewhere in this file.
   treatment without duplicating per-wheel GPU resources.
 
 ### Logistics, morale, crew, and AI
+
+- [x] Give intact enclosed armor a labeled first-order 35% reduction in crew
+  morale/suppression pressure without changing penetration, component damage,
+  fire, casualty, or weapon-operability authority.
 
 - [ ] Give historically appropriate trucks such as the Laffly and Opel bounded
   ammunition cargo records for MG ammunition, mortar bombs, grenades, and other
@@ -338,7 +417,7 @@ authoritative scope and completion record.
   mortars, vehicles, mounted guns, and bunkers.
 - **QUEUED / P1:** give vehicles bounded, vehicle-specific steering/traverse
   rates through route corners instead of snapping hull facing to each leg.
-- **QUEUED / P1:** animate tracks from authoritative vehicle displacement and
+- **FIX NOW / P1 — completed:** animate tracks from authoritative vehicle displacement and
   solved track-path length across runtime LODs; stop, reverse, and damage-limit
   motion consistently without frame-time-only texture scrolling.
 - **QUEUED / P1:** expand individual infantry animation coverage and blending

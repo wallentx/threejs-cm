@@ -252,6 +252,57 @@ test('Char B1 bis APHE order reloads and consumes one of seven hull rounds', () 
   assert.equal(attacker.vehicleMounts.hull_main.ammunition.aphe, 6);
 });
 
+test('ordered AP fire uses the retained aim point through a brief precision-contact drop', () => {
+  const attacker = new Unit({
+    id: 'retained-aim-attacker',
+    faction: 'german',
+    type: 'vehicle',
+    vehicleId: 'PANZER_III_D',
+    position: new THREE.Vector3()
+  });
+  const target = new Unit({
+    id: 'retained-aim-target',
+    faction: 'french',
+    type: 'vehicle',
+    vehicleId: 'SOMUA_S35',
+    position: new THREE.Vector3(10, 0, 45)
+  });
+  attacker.targetMode = VEHICLE_TARGET_MODES.AP;
+  attacker.targetUnit = target;
+  attacker.targetPos = target.position.clone();
+  attacker.vehicleWeapon.loadedType = 'ap';
+  attacker.vehicleWeapon.feedAmmo = 1;
+  attacker.applySuppression(100);
+  assert.equal(attacker.suppression, 65);
+  assert.equal(attacker.morale, 'Pinned');
+
+  const shots = [];
+  for (let step = 0; step < 360 && shots.length === 0; step++) {
+    attacker.updateVehicleSystems(1 / 30);
+    attacker.updateVehicleCombat(1 / 30, {
+      target: null,
+      shooterMoving: false,
+      targetMoving: false,
+      combat: {
+        fireWeapon(_attacker, resolvedTarget, position, options) {
+          shots.push({
+            resolvedTarget,
+            position: position.toArray(),
+            options
+          });
+          return true;
+        }
+      }
+    });
+  }
+
+  assert.equal(shots.length, 1);
+  assert.equal(shots[0].resolvedTarget, null);
+  assert.deepEqual(shots[0].position, target.position.toArray());
+  assert.equal(shots[0].options.mountId, 'main');
+  assert.equal(attacker.rotation, 0, 'turreted AP fire must not rotate the hull');
+});
+
 test('Char B1 bis Naeder laying stops movement and traverses the hull before firing', () => {
   const attacker = new Unit({
     id: 'char-naeder-aim',

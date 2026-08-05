@@ -23,6 +23,23 @@ const RIVER_BANK_SURFACE_OFFSET = 0.03;
 const RIVER_BANK_RENDERER_APPROXIMATION =
   'renderer-only bounded terrain samples and surface offset to prevent z-fighting';
 
+function deterministicFoliageUnit(id, channel) {
+  let hash = 2166136261;
+  const value = `${id}:${channel}`;
+  for (let index = 0; index < value.length; index++) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) / 0xffffffff;
+}
+
+function foliagePresentation(entry) {
+  return {
+    rotationY: deterministicFoliageUnit(entry.id, 'rotation') * Math.PI * 2,
+    scale: 0.88 + deterministicFoliageUnit(entry.id, 'scale') * 0.24
+  };
+}
+
 function uniqueSortedCoordinates(values) {
   return [...new Set(values.map(value => Number(value.toFixed(9))))]
     .sort((left, right) => left - right);
@@ -1754,13 +1771,23 @@ export class TerrainBuilder {
         entries.forEach((entry, index) => {
           const [x, z] = entry.position;
           const groundY = this.getHeightAt(x, z);
+          const presentation = foliagePresentation(entry);
+          const instanceScale = scale * presentation.scale;
+          const cosine = Math.cos(presentation.rotationY);
+          const sine = Math.sin(presentation.rotationY);
+          const localX = (
+            localPosition[0] * cosine + localPosition[2] * sine
+          ) * instanceScale;
+          const localZ = (
+            -localPosition[0] * sine + localPosition[2] * cosine
+          ) * instanceScale;
           dummy.position.set(
-            x + localPosition[0],
-            groundY + localPosition[1],
-            z + localPosition[2]
+            x + localX,
+            groundY + localPosition[1] * instanceScale,
+            z + localZ
           );
-          dummy.rotation.set(0, 0, 0);
-          dummy.scale.setScalar(scale);
+          dummy.rotation.set(0, presentation.rotationY, 0);
+          dummy.scale.setScalar(instanceScale);
           dummy.updateMatrix();
           mesh.setMatrixAt(index, dummy.matrix);
         });
@@ -1875,6 +1902,19 @@ export class TerrainBuilder {
       leaves.name = 'MatureTreeTemplateLeaves';
       leaves.userData.generator = template.generator;
       leaves.userData.dataQuality = template.dataQuality;
+      const dummy = new THREE.Object3D();
+      this.mapDescriptor.foliage.forEach((entry, index) => {
+        const [x, z] = entry.position;
+        const presentation = foliagePresentation(entry);
+        dummy.position.set(x, this.getHeightAt(x, z), z);
+        dummy.rotation.set(0, presentation.rotationY, 0);
+        dummy.scale.setScalar(presentation.scale);
+        dummy.updateMatrix();
+        branches.setMatrixAt(index, dummy.matrix);
+        leaves.setMatrixAt(index, dummy.matrix);
+      });
+      branches.instanceMatrix.needsUpdate = true;
+      leaves.instanceMatrix.needsUpdate = true;
       this.foliageInstances = [branches, leaves];
 
       for (const geometry of obsoleteGeometries) geometry.dispose();

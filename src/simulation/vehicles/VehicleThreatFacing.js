@@ -1,4 +1,4 @@
-import { wrapVehicleYaw, planVehicleKinematicStep } from './VehicleKinematics.js';
+import { wrapVehicleYaw } from './VehicleKinematics.js';
 
 function round4(val) {
   return typeof val === 'number' && Number.isFinite(val)
@@ -159,14 +159,6 @@ export function evaluateVehicleThreatFacing({ unit, contacts = [], threatPositio
   const dz = tPos[2] - unit.position.z;
   const desiredWorldYaw = Math.atan2(dx, dz);
 
-  const isMoving = Boolean(
-    unit.isMoving
-    || (
-      Array.isArray(unit.waypoints)
-      && Number.isInteger(unit.currentWaypointIndex)
-      && unit.currentWaypointIndex < unit.waypoints.length
-    )
-  );
   const hullGunOwnsFacing = Boolean(
     (unit.targetUnit || unit.targetPos)
     && (unit.vehicleSpec?.weaponMounts ?? []).some(mount =>
@@ -175,31 +167,13 @@ export function evaluateVehicleThreatFacing({ unit, contacts = [], threatPositio
       && mount.targetModes?.includes(unit.targetMode)
     )
   );
-  let frontArmorAligned = false;
-  let nextHullYaw = unit.rotation;
-
-  // Hull rotation (if stopped and driver operational)
-  if (!isPillbox && !isMoving && !hullGunOwnsFacing) {
-    if (unit.vehicleSpec?.mobility) {
-      const plan = planVehicleKinematicStep({
-        vehicleSpec: unit.vehicleSpec,
-        currentYaw: unit.rotation,
-        desiredYaw: desiredWorldYaw,
-        speedMetersPerSecond: 0,
-        targetDistanceMeters: 0,
-        deltaSeconds: dt
-      });
-      nextHullYaw = plan.yaw;
-    } else {
-      const turnRate = unit.hullTurnRate ?? 0.35;
-      const hullDiff = wrapVehicleYaw(desiredWorldYaw - unit.rotation);
-      const hullStep = Math.sign(hullDiff) * Math.min(Math.abs(hullDiff), turnRate * dt);
-      nextHullYaw = wrapVehicleYaw(unit.rotation + hullStep);
-    }
-  }
-
+  // Threat observation may lay a turret, but it must not commandeer the
+  // driver's hull heading. Movement orders own ordinary hull rotation. A
+  // selected fixed cannon owns its separate whole-hull laying path in Unit's
+  // mounted-weapon combat step (currently the Char B1 bis 75 mm).
+  const nextHullYaw = unit.rotation;
   const hullError = Math.abs(wrapVehicleYaw(desiredWorldYaw - nextHullYaw));
-  frontArmorAligned = hullError < 0.20;
+  const frontArmorAligned = hullError < 0.20;
 
   // Turret rotation (if vehicle has turret & gunner operational)
   const turretTraverseRate = unit.vehicleSpec?.turretTraverseRadPerSecond
@@ -215,9 +189,9 @@ export function evaluateVehicleThreatFacing({ unit, contacts = [], threatPositio
     nextTurretYaw = wrapVehicleYaw(currentTurretYaw + turretStep);
   }
 
-  const reason = (isMoving || hullGunOwnsFacing)
-    ? 'threat-turret-traverse'
-    : (frontArmorAligned ? 'front-armor-aligned' : 'threat-hull-align');
+  const reason = hullGunOwnsFacing
+    ? 'hull-gun-laying'
+    : 'threat-turret-traverse';
 
   return {
     reason,

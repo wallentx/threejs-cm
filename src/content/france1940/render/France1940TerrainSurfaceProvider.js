@@ -1,7 +1,12 @@
 import * as THREE from 'three';
 
 export const FRANCE_1940_TERRAIN_SURFACE_IMPLEMENTATION_ID =
-  'france-1940-procedural-terrain-surfaces-v2';
+  'france-1940-procedural-terrain-surfaces-v3';
+
+const EZ_TREE_OAK_LEAF_TEXTURE_URL = new URL(
+  '../../../../node_modules/@dgreenheck/ez-tree/src/lib/assets/leaves/oak_color.png',
+  import.meta.url
+).href;
 
 function createCanvas(width, height) {
   if (typeof document === 'undefined') return null;
@@ -143,6 +148,26 @@ function createFenceCardTexture() {
   return texture;
 }
 
+function createFoliageLeafTexture() {
+  const canLoadImage = typeof Image !== 'undefined'
+    && typeof document?.createElementNS === 'function';
+  const texture = canLoadImage
+    ? new THREE.TextureLoader().load(EZ_TREE_OAK_LEAF_TEXTURE_URL)
+    : new THREE.Texture();
+  texture.name = 'EzTreeOakLeafCutout';
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = true;
+  texture.premultiplyAlpha = true;
+  texture.userData.source = '@dgreenheck/ez-tree oak_color.png';
+  texture.userData.license = 'MIT';
+  texture.needsUpdate = true;
+  return texture;
+}
+
 function markMaterial(material, role) {
   material.userData.terrainSurfaceRole = role;
   material.userData.terrainSurfaceImplementationId =
@@ -157,6 +182,7 @@ function createSurfaceSet(surfaces) {
   const groundTexture = createGroundTexture(surfaces);
   const masonryTextures = createMasonryTextures();
   const fenceCardTexture = createFenceCardTexture();
+  const foliageLeafTexture = createFoliageLeafTexture();
   const materials = Object.freeze({
     ground: markMaterial(new THREE.MeshStandardMaterial({
       map: groundTexture,
@@ -205,11 +231,35 @@ function createSurfaceSet(surfaces) {
       'foliage-trunk'
     ),
     foliageLeaves: markMaterial(
-      new THREE.MeshLambertMaterial({ color: '#28723b' }),
+      new THREE.MeshStandardMaterial({
+        color: '#d5e0c6',
+        map: foliageLeafTexture,
+        alphaTest: 0.42,
+        transparent: false,
+        depthWrite: true,
+        roughness: 0.92,
+        metalness: 0,
+        side: THREE.DoubleSide,
+        shadowSide: THREE.DoubleSide,
+        alphaToCoverage: true,
+        dithering: true
+      }),
       'foliage-leaves'
     ),
     foliageLeavesDark: markMaterial(
-      new THREE.MeshLambertMaterial({ color: '#1f5e33' }),
+      new THREE.MeshStandardMaterial({
+        color: '#aabf99',
+        map: foliageLeafTexture,
+        alphaTest: 0.42,
+        transparent: false,
+        depthWrite: true,
+        roughness: 0.94,
+        metalness: 0,
+        side: THREE.DoubleSide,
+        shadowSide: THREE.DoubleSide,
+        alphaToCoverage: true,
+        dithering: true
+      }),
       'foliage-leaves-dark'
     )
   });
@@ -217,7 +267,8 @@ function createSurfaceSet(surfaces) {
     groundTexture,
     masonryTextures.color,
     masonryTextures.bump,
-    fenceCardTexture
+    fenceCardTexture,
+    foliageLeafTexture
   ].filter(Boolean);
   let disposed = false;
   return Object.freeze({

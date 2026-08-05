@@ -35,6 +35,40 @@ const S35 = Object.freeze({
   turretCenterZ: 0.55
 });
 
+const S35_TRACK_PATH = Object.freeze({
+  model: 'wheel-supported-quasi-static-v1',
+  quality:
+    'support centers are hand-registered illustration landmarks; link mass and static tension are renderer approximations',
+  pathRadiusPolicy:
+    'renderer pitch radii are derived from visible wheel radii minus the authored link-and-cleat envelope',
+  driveSprocket: Object.freeze({
+    id: 'rear-drive-sprocket', kind: 'driveSprocket',
+    centerY: S35.beltCenterY, centerZ: S35.rearSprocketZ,
+    radius: 0.39, pathRadius: 0.354
+  }),
+  idlerWheel: Object.freeze({
+    id: 'front-idler', kind: 'idlerWheel',
+    centerY: S35.beltCenterY, centerZ: S35.frontIdlerZ,
+    radius: 0.34, pathRadius: 0.304
+  }),
+  roadWheels: Object.freeze(S35.roadWheelZ.map((centerZ, index) => Object.freeze({
+    id: `road-wheel-${index + 1}`, kind: 'roadWheel',
+    centerY: S35.roadWheelY, centerZ,
+    radius: S35.roadWheelRadius, pathRadius: 0.184
+  }))),
+  returnRollers: Object.freeze(S35.returnRollerZ.map((centerZ, index) => Object.freeze({
+    id: `return-roller-${index + 1}`, kind: 'returnRoller',
+    centerY: 0.90, centerZ, radius: 0.09, pathRadius: 0.054
+  }))),
+  linkThickness: 0.028,
+  cleatHeight: 0.008,
+  linearMassKgPerMeter: 52,
+  tensionNewtons: 21000,
+  maximumSegmentMeters: 0.07,
+  rendererApproximation:
+    'link thickness, cleat height, linear mass, static tension, and gravity sag are presentation-only approximations'
+});
+
 export const SOMUA_S35_BLUEPRINT_CALIBRATION = Object.freeze({
   version: 'somua-s35-registered-multiview-v1',
   coordinateFrame: '+Y up, +Z forward, -X vehicle right',
@@ -266,17 +300,14 @@ function addMesh(parent, geometry, material, name, lodBand, {
   return mesh;
 }
 
-function repositionRunningGear(runningGear) {
+function labelRunningGear(runningGear) {
   const { roadWheels, sprockets, idlers } = runningGear.userData.trackParts;
   for (let side = 0; side < 2; side++) {
     for (let index = 0; index < S35.roadWheelZ.length; index++) {
       const wheel = roadWheels[side * S35.roadWheelZ.length + index];
-      wheel.position.z = S35.roadWheelZ[index];
       wheel.name = `${side === 0 ? 'Right' : 'Left'}S35RoadWheel_${index + 1}`;
     }
-    sprockets[side].position.z = S35.rearSprocketZ;
     sprockets[side].name = `${side === 0 ? 'Right' : 'Left'}S35RearDriveSprocket`;
-    idlers[side].position.z = S35.frontIdlerZ;
     idlers[side].name = `${side === 0 ? 'Right' : 'Left'}S35FrontIdler`;
   }
   runningGear.userData.blueprintAxleZ = {
@@ -284,26 +315,6 @@ function repositionRunningGear(runningGear) {
     rearSprocket: S35.rearSprocketZ,
     frontIdler: S35.frontIdlerZ
   };
-}
-
-function repositionProxyWheels(proxy) {
-  const wheels = proxy.getObjectByName('ProxyRoadWheels');
-  const matrix = new THREE.Matrix4();
-  const quaternion = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, Math.PI / 2));
-  const scale = new THREE.Vector3(1, 1, 1);
-  let instance = 0;
-  for (const side of [-1, 1]) {
-    for (const z of S35.roadWheelZ) {
-      matrix.compose(
-        new THREE.Vector3(side * 0.9192, S35.roadWheelY, z),
-        quaternion,
-        scale
-      );
-      wheels.setMatrixAt(instance++, matrix);
-    }
-  }
-  wheels.instanceMatrix.needsUpdate = true;
-  wheels.userData.blueprintAxleZ = [...S35.roadWheelZ];
 }
 
 function cloneProxyMesh(source, name, parent) {
@@ -347,19 +358,6 @@ function addSuspensionDetails(root, bodyMaterial, metalMaterial) {
           }
         );
       }
-    }
-    for (let index = 0; index < S35.returnRollerZ.length; index++) {
-      addMesh(
-        root,
-        new THREE.CylinderGeometry(0.09, 0.09, 0.13, 10),
-        bodyMaterial,
-        `${side < 0 ? 'Right' : 'Left'}S35ReturnRoller_${index + 1}`,
-        'medium',
-        {
-          position: [side * 0.97, 0.90, S35.returnRollerZ[index]],
-          rotation: [0, 0, Math.PI / 2]
-        }
-      );
     }
   }
 }
@@ -419,9 +417,10 @@ export function createSomuaS35Mesh() {
     roadWheelSpacing: -0.38,
     sprocketRadius: 0.39,
     idlerRadius: 0.34,
-    linkPitch: 0.135
+    linkPitch: 0.135,
+    trackPath: S35_TRACK_PATH
   });
-  repositionRunningGear(runningGear);
+  labelRunningGear(runningGear);
   root.add(runningGear);
   root.userData.runningGear = runningGear;
   addSuspensionDetails(root, darkGreen, metalMaterial);
@@ -665,9 +664,10 @@ export function createSomuaS35Mesh() {
     beltHeight: S35.beltHeight,
     centerY: S35.beltCenterY,
     roadWheelRadius: S35.roadWheelRadius,
-    roadWheelCount: 9
+    roadWheelCount: 9,
+    linkPitch: 0.27,
+    trackPath: S35_TRACK_PATH
   });
-  repositionProxyWheels(proxyRunningGear);
   proxyGroup.add(proxyRunningGear);
   root.add(proxyGroup);
   const proxyTurret = cloneProxyMesh(turret, 'S35_ProxyAPXTurret', turretGroup);

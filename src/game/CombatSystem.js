@@ -182,6 +182,39 @@ export function calculateBuildingBlastDamage(weapon) {
   );
 }
 
+export function calculateExplosionVisualScale(weapon, contactScale = 1) {
+  const fallback = THREE.MathUtils.clamp(Number(contactScale) || 1, 0.2, 4);
+  const caliberMm = Math.max(0, Number(weapon?.caliberMm) || 0);
+  const explosiveRadius = Math.max(0, Number(weapon?.explosiveRadius) || 0);
+  const explosiveFillKg = Math.max(0, Number(weapon?.explosiveFillKg) || 0);
+  if (caliberMm <= 0 && explosiveRadius <= 0 && explosiveFillKg <= 0) {
+    return fallback;
+  }
+
+  // Renderer-only visual envelope. Caliber controls the body of the burst,
+  // while cube-root fill mass and square-root effect radius keep unusually
+  // energetic rounds larger without making visual diameter grow linearly with
+  // blast area. A 75 mm, roughly 0.65 kg-fill shell is the unit reference.
+  const caliberScale = THREE.MathUtils.clamp(caliberMm / 75, 0.2, 2.5);
+  const fillScale = explosiveFillKg > 0
+    ? Math.cbrt(explosiveFillKg / 0.65)
+    : caliberScale;
+  const radiusScale = explosiveRadius > 0
+    ? Math.sqrt(explosiveRadius / 6)
+    : caliberScale;
+  const roundScale = THREE.MathUtils.clamp(
+    caliberScale * 0.5 + fillScale * 0.3 + radiusScale * 0.2,
+    0.2,
+    3
+  );
+  const contactFactor = THREE.MathUtils.lerp(
+    0.92,
+    1.08,
+    THREE.MathUtils.clamp(fallback / 1.2, 0, 1)
+  );
+  return THREE.MathUtils.clamp(roundScale * contactFactor, 0.2, 3.5);
+}
+
 function buildingDamageChanged(result) {
   return Boolean(
     result?.results?.some(record => record.applied > 0 || record.collapsed || record.breached)
@@ -867,7 +900,7 @@ export class CombatSystem {
       this.recordImpact(projectile, impact);
       if (weapon.explosiveRadius > 0) {
         this.applyBlast(impact.point, weapon, projectile.attacker);
-        this.createExplosionEffect(impact.point, 0.7);
+        this.createExplosionEffect(impact.point, 0.7, weapon);
       } else {
         this.createImpactEffect(impact.point, 0xffc266);
       }
@@ -895,7 +928,7 @@ export class CombatSystem {
       });
       if (weapon.explosiveRadius > 0) {
         this.applyBlast(impact.point, weapon, projectile.attacker);
-        this.createExplosionEffect(impact.point, 0.7);
+        this.createExplosionEffect(impact.point, 0.7, weapon);
       } else {
         this.createImpactEffect(impact.point, 0xffc266);
       }
@@ -917,7 +950,7 @@ export class CombatSystem {
       this.recordImpact(projectile, impact, result);
       if (weapon.explosiveRadius > 0) {
         this.applyBlast(impact.point, weapon, projectile.attacker);
-        this.createExplosionEffect(impact.point, 0.55);
+        this.createExplosionEffect(impact.point, 0.55, weapon);
       } else {
         this.createArmorSparkEffect(
           impact.point,
@@ -944,7 +977,7 @@ export class CombatSystem {
       this.recordImpact(projectile, impact, result);
       if (weapon.explosiveRadius > 0) {
         this.applyBlast(impact.point, weapon, projectile.attacker);
-        this.createExplosionEffect(impact.point, 0.65);
+        this.createExplosionEffect(impact.point, 0.65, weapon);
       } else {
         this.createImpactEffect(impact.point, result.penetrated ? 0xff7b46 : 0xcbd5e1);
       }
@@ -965,7 +998,7 @@ export class CombatSystem {
       );
       if (weapon.explosiveRadius > 0) {
         this.applyBlast(impact.point, weapon, projectile.attacker);
-        this.createExplosionEffect(impact.point, 0.65);
+        this.createExplosionEffect(impact.point, 0.65, weapon);
       } else {
         this.createImpactEffect(impact.point, result.penetrated ? 0xff7b46 : 0xd6b36a);
       }
@@ -975,7 +1008,7 @@ export class CombatSystem {
     this.recordImpact(projectile, impact);
     if (weapon.explosiveRadius > 0) {
       this.applyBlast(impact.point, weapon, projectile.attacker);
-      this.createExplosionEffect(impact.point, 0.6);
+      this.createExplosionEffect(impact.point, 0.6, weapon);
     } else {
       this.createImpactEffect(impact.point, 0xd6b36a);
     }
@@ -1262,11 +1295,12 @@ export class CombatSystem {
     });
   }
 
-  createExplosionEffect(pos, scale = 1) {
-    this.sound?.playExplosion?.({ scale });
-    if (this.vfxRuntime?.emitExplosion({ position: pos, scale })) return null;
+  createExplosionEffect(pos, scale = 1, weapon = null) {
+    const roundScale = calculateExplosionVisualScale(weapon, scale);
+    this.sound?.playExplosion?.({ scale: roundScale });
+    if (this.vfxRuntime?.emitExplosion({ position: pos, scale: roundScale })) return null;
     const style = this.vfxResources.styles.explosion;
-    const visualScale = scale * style.initialScale;
+    const visualScale = roundScale * style.initialScale;
     const effect = this.startEffect('explosion', pos, {
       color: style.color,
       scale: visualScale,

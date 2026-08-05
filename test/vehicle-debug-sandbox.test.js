@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {
   DEBUG_VEHICLE_SEPARATION_METERS,
+  VEHICLE_SANDBOX_VR_PALETTE,
   VehicleDebugSandboxApp,
   VehicleDebugSandboxSimulation,
   createVehicleDebugVehicles,
@@ -27,6 +28,25 @@ function advance(simulation, seconds) {
 
 test('vehicle debug sandbox exports its browser app constructor', () => {
   assert.equal(typeof VehicleDebugSandboxApp, 'function');
+});
+
+test('vehicle debug sandbox ground uses the neon green VR training palette', () => {
+  const app = Object.create(VehicleDebugSandboxApp.prototype);
+  app.scene = new THREE.Scene();
+  app.scene.background = new THREE.Color(VEHICLE_SANDBOX_VR_PALETTE.backdrop);
+  app.setupVrMissionGround();
+
+  assert.equal(app.scene.background.getHex(), VEHICLE_SANDBOX_VR_PALETTE.backdrop);
+  assert.equal(app.ground.material.color.getHex(), VEHICLE_SANDBOX_VR_PALETTE.ground);
+  assert.equal(app.grid.position.y, 0.01);
+  const gridColors = app.grid.geometry.getAttribute('color');
+  assert.ok(gridColors.array.some(value => value > 0.9),
+    'VR grid must retain a bright neon channel over the dark ground');
+
+  app.ground.geometry.dispose();
+  app.ground.material.dispose();
+  app.grid.geometry.dispose();
+  app.grid.material.dispose();
 });
 
 test('sandbox selectors deduplicate shared guns and identify compatible vehicles and the sandbox Flak 88', () => {

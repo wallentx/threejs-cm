@@ -82,6 +82,18 @@ test('Stonne owns reference-guided rural terrain without fake river features', (
   assert.equal(map.structures.length, 5);
   assert.equal(map.foliage.length, 152);
   assert.equal(map.foliageRendering.mode, 'instanced');
+  const firstWoodRow = map.foliage
+    .filter(entry => entry.id.startsWith('northwest-wood-1-'))
+    .map(entry => entry.position[0]);
+  const woodSpacings = firstWoodRow.slice(1).map(
+    (position, index) => Number((position - firstWoodRow[index]).toFixed(3))
+  );
+  assert.ok(new Set(woodSpacings).size > 2, 'woodland tree centers must not form a regular grid');
+  const orchard = map.foliage.filter(entry => entry.id.startsWith('west-orchard-'));
+  assert.ok(
+    new Set(orchard.map(entry => entry.position[0])).size > 7,
+    'orchard rows retain bounded natural placement variation'
+  );
   assert.ok(Object.isFrozen(map));
   assert.ok(Object.isFrozen(map.foliage));
 });
@@ -151,6 +163,20 @@ test('family foliage template replaces fallback geometry without losing instance
   assert.equal(instances.length, 2);
   assert.ok(instances.every(mesh => mesh.count === 152));
   assert.ok(instances.every(mesh => mesh.userData.generator === 'test-template'));
+  const branchMatrix = new THREE.Matrix4();
+  const leafMatrix = new THREE.Matrix4();
+  instances[0].getMatrixAt(0, branchMatrix);
+  instances[1].getMatrixAt(0, leafMatrix);
+  assert.deepEqual(branchMatrix.elements, leafMatrix.elements);
+  const position = new THREE.Vector3();
+  const rotation = new THREE.Quaternion();
+  const scale = new THREE.Vector3();
+  branchMatrix.decompose(position, rotation, scale);
+  const [treeX, treeZ] = STONNE_APPROACH_1940_MAP.foliage[0].position;
+  assert.ok(Math.abs(position.x - treeX) < 1e-6);
+  assert.ok(Math.abs(position.y - terrain.getHeightAt(treeX, treeZ)) < 1e-6);
+  assert.ok(Math.abs(position.z - treeZ) < 1e-6);
+  assert.ok(scale.x >= 0.88 && scale.x <= 1.12);
   assert.equal(scene.getObjectByName('MatureTreeCrownsWest'), undefined);
   assert.equal(scene.getObjectByName('MatureTreeCrownsEast'), undefined);
   assert.equal(disposed.size, fallbackGeometries.size);

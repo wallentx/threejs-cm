@@ -174,7 +174,8 @@ test('default Stonne surface creation draws every polygon and disposes all resou
       surfaceSet.materials.ground.map,
       surfaceSet.materials.masonry.map,
       surfaceSet.materials.masonry.bumpMap,
-      surfaceSet.materials.fenceCard.map
+      surfaceSet.materials.fenceCard.map,
+      surfaceSet.materials.foliageLeaves.map
     ];
     assert.ok(resources.every(Boolean));
     assert.equal(surfaceSet.materials.fenceCard.transparent, false);
@@ -185,6 +186,18 @@ test('default Stonne surface creation draws every polygon and disposes all resou
       surfaceSet.materials.fenceCard.map.name,
       'WoodPicketFenceCutout'
     );
+    assert.equal(
+      surfaceSet.materials.foliageLeaves.map.name,
+      'EzTreeOakLeafCutout'
+    );
+    assert.equal(
+      surfaceSet.materials.foliageLeaves.map,
+      surfaceSet.materials.foliageLeavesDark.map
+    );
+    assert.equal(surfaceSet.materials.foliageLeaves.alphaTest, 0.42);
+    assert.equal(surfaceSet.materials.foliageLeaves.transparent, false);
+    assert.equal(surfaceSet.materials.foliageLeaves.depthWrite, true);
+    assert.equal(surfaceSet.materials.foliageLeaves.side, THREE.DoubleSide);
     const disposalCounts = new Map(resources.map(resource => [resource, 0]));
     for (const resource of resources) {
       resource.addEventListener('dispose', () => {

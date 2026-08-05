@@ -143,12 +143,13 @@ test('replacement terrain surface provider reaches live ground, riverbank, river
     terrain.fenceCardRuns[0].material.userData.replacementRole,
     'fenceCard'
   );
-  const tree = scene.getObjectByName('MatureTree');
-  assert.ok(
-    tree.children.some(child => child.material?.userData.replacementRole === 'foliageTrunk')
+  assert.equal(
+    scene.getObjectByName('MatureTreeTrunks').material.userData.replacementRole,
+    'foliageTrunk'
   );
-  assert.ok(
-    tree.children.some(child => child.material?.userData.replacementRole === 'foliageLeaves')
+  assert.equal(
+    scene.getObjectByName('MatureTreeCrownsPrimary').material.userData.replacementRole,
+    'foliageLeaves'
   );
   assert.deepEqual(terrain.terrainMesh.userData.assetBindings.terrainSurface, {
     logicalId: FRANCE_1940_ASSET_IDS.terrainSurfaceProvider,

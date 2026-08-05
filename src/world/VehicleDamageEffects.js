@@ -32,10 +32,10 @@ const FORWARD = new THREE.Vector3(0, 0, 1);
 const WRECK_RUST_COLOR = new THREE.Color(0x6f3b24);
 
 const IMPACT_MARK_STYLES = Object.freeze({
-  penetration: Object.freeze({ color: 0x120b08, scale: [1.08, 1.08, 1] }),
-  ricochet: Object.freeze({ color: 0xa18f72, scale: [1.72, 0.48, 1] }),
-  stopped: Object.freeze({ color: 0x4b4036, scale: [0.82, 0.82, 1] }),
-  heBlast: Object.freeze({ color: 0x2b211a, scale: [3.1, 2.65, 1] })
+  penetration: Object.freeze({ color: 0x9a8a73, scale: [0.76, 0.76, 1] }),
+  ricochet: Object.freeze({ color: 0xd2c6b5, scale: [1.4, 0.4, 1] }),
+  stopped: Object.freeze({ color: 0xb8aa96, scale: [0.72, 0.64, 1] }),
+  heBlast: Object.freeze({ color: 0x4b2c1d, scale: [1.6, 1.25, 1] })
 });
 
 const FIRE_PHASE_INTENSITY = Object.freeze({
@@ -589,6 +589,14 @@ export class VehicleDamageEffects {
     scorch.name = 'ArmorScorchMarks';
     scorch.count = 0;
 
+    const heScorch = disableRaycast(new THREE.InstancedMesh(
+      this.geometries.heScorch,
+      this.materials.heScorch,
+      this.capacities.heScorch
+    ));
+    heScorch.name = 'ArmorHeScorchMarks';
+    heScorch.count = 0;
+
     const blastMaterial = this.vfxResources.createBlastMaterial();
     if (!blastMaterial?.isMaterial) {
       throw new TypeError('vehicle-damage VFX blast material must be a Three.js material');
@@ -602,7 +610,7 @@ export class VehicleDamageEffects {
     blast.position.copy(effectAnchor(dimensions));
     blast.visible = false;
 
-    root.add(smoke, flames, sparks, scorch, blast);
+    root.add(smoke, flames, sparks, scorch, heScorch, blast);
     unit.mesh.add(root);
     unit.mesh.userData.damageEffects = root;
 
@@ -614,6 +622,7 @@ export class VehicleDamageEffects {
       flames,
       sparks,
       scorch,
+      heScorch,
       blast,
       blastMaterial,
       dimensions,
@@ -624,7 +633,11 @@ export class VehicleDamageEffects {
       runtimeBlastPosition: new THREE.Vector3(),
       runtimeFireVents: createRuntimeFireVents(dimensions),
       scorchCursor: 0,
-      impactMarkTypes: Array(this.capacities.scorch).fill(null),
+      heScorchCursor: 0,
+      impactCursor: 0,
+      impactMarkTypes: Array(
+        this.capacities.scorch + this.capacities.heScorch
+      ).fill(null),
       impactTimer: 0,
       explosionTimer: 0,
       explosionKind: null,
@@ -678,12 +691,14 @@ export class VehicleDamageEffects {
   addImpact(record, impact) {
     const visibleImpact = resolveVisibleImpact(record, impact);
     record.impactLocal.copy(visibleImpact.position);
-    const slot = record.scorchCursor % record.scorch.instanceMatrix.count;
     const markType = classifyImpactMark(impact);
     const style = IMPACT_MARK_STYLES[markType];
+    const markMesh = markType === 'heBlast' ? record.heScorch : record.scorch;
+    const cursorName = markType === 'heBlast' ? 'heScorchCursor' : 'scorchCursor';
+    const slot = record[cursorName] % markMesh.instanceMatrix.count;
     scratchImpactScale.fromArray(style.scale);
     setInstance(
-      record.scorch,
+      markMesh,
       slot,
       record.impactLocal.x,
       record.impactLocal.y,
@@ -691,18 +706,20 @@ export class VehicleDamageEffects {
       scratchImpactScale,
       visibleImpact.quaternion
     );
-    record.scorch.setColorAt(slot, scratchImpactColor.setHex(style.color));
-    record.impactMarkTypes[slot] = Object.freeze({
+    markMesh.setColorAt(slot, scratchImpactColor.setHex(style.color));
+    const metadataSlot = record.impactCursor % record.impactMarkTypes.length;
+    record.impactMarkTypes[metadataSlot] = Object.freeze({
       type: markType,
       projectedToVisualSurface: visibleImpact.projected
     });
-    record.scorchCursor++;
-    record.scorch.count = Math.min(
-      record.scorch.instanceMatrix.count,
-      Math.max(record.scorch.count, slot + 1)
+    record[cursorName]++;
+    record.impactCursor++;
+    markMesh.count = Math.min(
+      markMesh.instanceMatrix.count,
+      Math.max(markMesh.count, slot + 1)
     );
-    record.scorch.instanceMatrix.needsUpdate = true;
-    record.scorch.instanceColor.needsUpdate = true;
+    markMesh.instanceMatrix.needsUpdate = true;
+    markMesh.instanceColor.needsUpdate = true;
     record.impactTimer = impact.penetrated ? 0.42 : 0.2;
   }
 
@@ -1161,7 +1178,8 @@ export class VehicleDamageEffects {
         || damage.destroyed
         || record.impactTimer > 0
         || record.explosionTimer > 0
-        || record.scorch.count > 0;
+        || record.scorch.count > 0
+        || record.heScorch.count > 0;
     }
   }
 
@@ -1178,6 +1196,9 @@ export class VehicleDamageEffects {
       setProceduralVfxProgress(record.blastMaterial, 1);
       record.scorch.count = 0;
       record.scorchCursor = 0;
+      record.heScorch.count = 0;
+      record.heScorchCursor = 0;
+      record.impactCursor = 0;
       record.impactMarkTypes.fill(null);
       // Restore establishes a new presentation baseline. Persistent smoke,
       // flame, and scars rebuild from restored state/telemetry on update, but

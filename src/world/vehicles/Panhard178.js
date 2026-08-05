@@ -291,7 +291,7 @@ export function createPanhard178Mesh() {
       const wheel = tag(new THREE.Mesh(
         new THREE.CylinderGeometry(wheelRadius, wheelRadius, PANHARD_178_SHAPE.tireWidth, 20),
         rubberMat
-      ), 'medium', `Panhard178_Wheel_${side}_${z}`);
+      ), 'core', `Panhard178_Wheel_${side}_${z}`);
       wheel.rotation.z = Math.PI / 2;
       wheel.position.set(side * wheelX, wheelRadius, z);
       carGroup.add(wheel);

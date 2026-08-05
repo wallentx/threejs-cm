@@ -379,7 +379,7 @@ function addDetailedRunningGear(group, rubberMaterial, metalMaterial) {
       rubberMaterial,
       x,
       z,
-      'medium',
+      'core',
       partName
     );
     wheel.userData.profileSource = 'registered-side-elevation';

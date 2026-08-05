@@ -14,6 +14,16 @@ function tree(id, x, z) {
   };
 }
 
+function deterministicOffset(key, axis, amplitude) {
+  let hash = 2166136261;
+  const value = `${key}:${axis}`;
+  for (let index = 0; index < value.length; index++) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return ((hash >>> 0) / 0xffffffff * 2 - 1) * amplitude;
+}
+
 function treeGrid(
   prefix,
   {
@@ -27,15 +37,14 @@ function treeGrid(
   const entries = [];
   for (let row = 0; row < rows; row++) {
     for (let column = 0; column < columns; column++) {
-      const jitterX = ordered
-        ? 0
-        : (((row * 3 + column * 5) % 5) - 2) * 0.65;
-      const jitterZ = ordered
-        ? 0
-        : (((row * 7 + column * 2) % 5) - 2) * 0.55;
+      const key = `${prefix}-${row + 1}-${column + 1}`;
+      const amplitude = ordered ? 0.85 : Math.min(spacing[0], spacing[1]) * 0.28;
+      const staggerX = ordered ? 0 : (row % 2) * spacing[0] * 0.22;
+      const jitterX = deterministicOffset(key, 'x', amplitude);
+      const jitterZ = deterministicOffset(key, 'z', amplitude);
       entries.push(tree(
-        `${prefix}-${row + 1}-${column + 1}`,
-        origin[0] + column * spacing[0] + jitterX,
+        key,
+        origin[0] + column * spacing[0] + staggerX + jitterX,
         origin[1] + row * spacing[1] + jitterZ
       ));
     }
@@ -46,11 +55,16 @@ function treeGrid(
 function treeLine(prefix, start, end, count) {
   return Array.from({ length: count }, (_, index) => {
     const progress = count === 1 ? 0 : index / (count - 1);
-    const offset = (index % 3 - 1) * 0.7;
+    const key = `${prefix}-${index + 1}`;
+    const dx = end[0] - start[0];
+    const dz = end[1] - start[1];
+    const length = Math.hypot(dx, dz) || 1;
+    const along = deterministicOffset(key, 'along', 1.25);
+    const across = deterministicOffset(key, 'across', 2.15);
     return tree(
-      `${prefix}-${index + 1}`,
-      start[0] + (end[0] - start[0]) * progress + offset,
-      start[1] + (end[1] - start[1]) * progress - offset * 0.4
+      key,
+      start[0] + dx * progress + dx / length * along - dz / length * across,
+      start[1] + dz * progress + dz / length * along + dx / length * across
     );
   });
 }

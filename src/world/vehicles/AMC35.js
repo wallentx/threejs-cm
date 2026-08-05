@@ -63,6 +63,44 @@ const AMC35_BLUEPRINT = Object.freeze({
   })
 });
 
+const AMC35_RETURN_ROLLER_Z = Object.freeze([1.42, 0.70, -0.08, -0.82, -1.48]);
+const AMC35_TRACK_PATH = Object.freeze({
+  model: 'wheel-supported-quasi-static-v1',
+  quality:
+    'sprocket, idler, and road-wheel centers are drawing-inferred; return rollers and track physical values are renderer approximations',
+  pathRadiusPolicy:
+    'renderer pitch radii are derived from visible wheel radii minus the authored link-and-cleat envelope',
+  driveSprocket: Object.freeze({
+    id: 'front-drive-sprocket', kind: 'driveSprocket',
+    centerY: AMC35_BLUEPRINT.datumsMeters.frontSprocket.y,
+    centerZ: AMC35_BLUEPRINT.datumsMeters.frontSprocket.z,
+    radius: 0.43, pathRadius: 0.375
+  }),
+  idlerWheel: Object.freeze({
+    id: 'rear-idler', kind: 'idlerWheel',
+    centerY: AMC35_BLUEPRINT.datumsMeters.rearIdler.y,
+    centerZ: AMC35_BLUEPRINT.datumsMeters.rearIdler.z,
+    radius: 0.36, pathRadius: 0.305
+  }),
+  roadWheels: Object.freeze(
+    AMC35_BLUEPRINT.datumsMeters.roadWheelCentersZ.value.map((centerZ, index) => Object.freeze({
+      id: `road-wheel-${index + 1}`, kind: 'roadWheel',
+      centerY: 0.31, centerZ, radius: 0.255, pathRadius: 0.20
+    }))
+  ),
+  returnRollers: Object.freeze(AMC35_RETURN_ROLLER_Z.map((centerZ, index) => Object.freeze({
+    id: `return-roller-${index + 1}`, kind: 'returnRoller',
+    centerY: 0.94, centerZ, radius: 0.105, pathRadius: 0.05
+  }))),
+  linkThickness: 0.04,
+  cleatHeight: 0.015,
+  linearMassKgPerMeter: 58,
+  tensionNewtons: 22000,
+  maximumSegmentMeters: 0.07,
+  rendererApproximation:
+    'return-roller registration, link dimensions, linear mass, static tension, and gravity sag are presentation-only approximations'
+});
+
 const LOWER_HULL_STATIONS = Object.freeze([
   { id: 'rear-tip', z: -2.275, width: 1.76, deckWidth: 1.48, bottomY: 0.45, shoulderY: 0.82, topY: 1.08 },
   { id: 'rear-slope', z: -1.93, width: 2.08, deckWidth: 1.90, bottomY: 0.38, shoulderY: 0.69, topY: 1.10 },
@@ -236,21 +274,6 @@ function tagMesh(mesh, lodBand, name) {
   return mesh;
 }
 
-function addReturnRollers(parent, material) {
-  const centersZ = [1.42, 0.70, -0.08, -0.82, -1.48];
-  for (const side of [-1, 1]) {
-    for (let index = 0; index < centersZ.length; index++) {
-      const roller = tagMesh(new THREE.Mesh(
-        new THREE.CylinderGeometry(0.105, 0.105, 0.13, 10),
-        material
-      ), 'medium', `${side < 0 ? 'Right' : 'Left'}ReturnRoller_${index + 1}`);
-      roller.rotation.z = Math.PI / 2;
-      roller.position.set(side * 0.935, 0.94, centersZ[index]);
-      parent.add(roller);
-    }
-  }
-}
-
 function addSuspensionDetails(parent, bodyMaterial, metalMaterial) {
   const centersZ = AMC35_BLUEPRINT.datumsMeters.roadWheelCentersZ.value;
   for (const side of [-1, 1]) {
@@ -400,7 +423,9 @@ function createProxyGroup(bodyMaterial, turretMaterial, trackMaterial, metalMate
     beltHeight: 1.00,
     centerY: 0.5762,
     roadWheelRadius: 0.255,
-    roadWheelCount: 5
+    roadWheelCount: 5,
+    linkPitch: 0.30,
+    trackPath: AMC35_TRACK_PATH
   }));
 
   const turret = tagMesh(new THREE.Mesh(
@@ -484,24 +509,12 @@ export function createAMC35Mesh() {
     roadWheelSpacing: -0.625,
     sprocketRadius: 0.43,
     idlerRadius: 0.36,
-    linkPitch: 0.15
+    linkPitch: 0.15,
+    trackPath: AMC35_TRACK_PATH
   });
   runningGear.userData.blueprintDatums = AMC35_BLUEPRINT.datumsMeters;
-  const wheelDatums = AMC35_BLUEPRINT.datumsMeters.roadWheelCentersZ.value;
-  for (let index = 0; index < runningGear.userData.trackParts.roadWheels.length; index++) {
-    runningGear.userData.trackParts.roadWheels[index].position.z = wheelDatums[index % wheelDatums.length];
-  }
-  for (const sprocket of runningGear.userData.trackParts.sprockets) {
-    sprocket.position.y = AMC35_BLUEPRINT.datumsMeters.frontSprocket.y;
-    sprocket.position.z = AMC35_BLUEPRINT.datumsMeters.frontSprocket.z;
-  }
-  for (const idler of runningGear.userData.trackParts.idlers) {
-    idler.position.y = AMC35_BLUEPRINT.datumsMeters.rearIdler.y;
-    idler.position.z = AMC35_BLUEPRINT.datumsMeters.rearIdler.z;
-  }
   tankGroup.add(runningGear);
   tankGroup.userData.runningGear = runningGear;
-  addReturnRollers(tankGroup, turretMat);
   addSuspensionDetails(tankGroup, bodyMat, metalMat);
   addHullDetails(tankGroup, bodyMat, metalMat);
 

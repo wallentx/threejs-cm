@@ -16,26 +16,77 @@ function markResource(resource, role) {
   return resource;
 }
 
-function createImpactMarkGeometry() {
-  const radius = 0.13;
-  const geometry = new THREE.CircleGeometry(radius, 18);
-  const positions = geometry.getAttribute('position');
-  const colors = new Float32Array(positions.count * 3);
-  for (let index = 0; index < positions.count; index++) {
-    const normalizedRadius = THREE.MathUtils.clamp(
-      Math.hypot(positions.getX(index), positions.getY(index)) / radius,
-      0,
-      1
-    );
-    // A dark recessed center and lighter irregular-looking rim read as a
-    // shallow perforation/dent without modifying authoritative model geometry.
-    const value = THREE.MathUtils.lerp(0.08, 1, normalizedRadius ** 0.72);
-    colors[index * 3] = value;
-    colors[index * 3 + 1] = value;
-    colors[index * 3 + 2] = value;
+function createRadialMarkGeometry(radius, rings) {
+  const segments = 28;
+  const positions = [];
+  const colors = [];
+  const indices = [];
+
+  for (let ringIndex = 0; ringIndex < rings.length; ringIndex++) {
+    const ring = rings[ringIndex];
+    for (let segment = 0; segment < segments; segment++) {
+      const angle = segment / segments * Math.PI * 2;
+      const irregularity = ringIndex === 0
+        ? 1
+        : 1
+          + Math.sin(angle * 3 + ringIndex * 1.7) * 0.055
+          + Math.cos(angle * 7 - ringIndex * 0.9) * 0.035;
+      positions.push(
+        Math.cos(angle) * radius * ring.radius * irregularity,
+        Math.sin(angle) * radius * ring.radius * irregularity,
+        0
+      );
+      colors.push(ring.value, ring.value, ring.value, ring.alpha);
+    }
   }
-  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  for (let ringIndex = 0; ringIndex < rings.length - 1; ringIndex++) {
+    const innerStart = ringIndex * segments;
+    const outerStart = (ringIndex + 1) * segments;
+    for (let segment = 0; segment < segments; segment++) {
+      const next = (segment + 1) % segments;
+      indices.push(
+        innerStart + segment,
+        outerStart + segment,
+        outerStart + next,
+        innerStart + segment,
+        outerStart + next,
+        innerStart + next
+      );
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute(positions, 3)
+  );
+  geometry.setAttribute(
+    'color',
+    new THREE.Float32BufferAttribute(colors, 4)
+  );
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
   return geometry;
+}
+
+function createImpactMarkGeometry() {
+  return createRadialMarkGeometry(0.055, Object.freeze([
+    { radius: 0, value: 0.06, alpha: 0.98 },
+    { radius: 0.28, value: 0.12, alpha: 0.98 },
+    { radius: 0.48, value: 1, alpha: 0.9 },
+    { radius: 0.76, value: 0.34, alpha: 0.42 },
+    { radius: 1, value: 0.1, alpha: 0 }
+  ]));
+}
+
+function createHeScorchGeometry() {
+  return createRadialMarkGeometry(0.07, Object.freeze([
+    { radius: 0, value: 0.42, alpha: 0.28 },
+    { radius: 0.24, value: 0.24, alpha: 0.48 },
+    { radius: 0.58, value: 0.62, alpha: 0.34 },
+    { radius: 0.82, value: 0.28, alpha: 0.18 },
+    { radius: 1, value: 0.12, alpha: 0 }
+  ]));
 }
 
 // Renderer-only gameplay approximations. These colors, lifetimes, scales, and
@@ -275,6 +326,10 @@ function createVehicleDamageResources() {
       createImpactMarkGeometry(),
       'vehicle-damage-scorch'
     ),
+    heScorch: markResource(
+      createHeScorchGeometry(),
+      'vehicle-damage-he-scorch'
+    ),
     blast: markResource(
       new THREE.IcosahedronGeometry(1, 2),
       'vehicle-damage-blast'
@@ -306,13 +361,24 @@ function createVehicleDamageResources() {
       polygonOffset: true,
       polygonOffsetFactor: -2,
       polygonOffsetUnits: -2
-    }), 'vehicle-damage-scorch')
+    }), 'vehicle-damage-scorch'),
+    heScorch: markResource(new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.72,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2
+    }), 'vehicle-damage-he-scorch')
   });
   const capacities = Object.freeze({
     smoke: 8,
     flame: 12,
     spark: 24,
-    scorch: 8
+    scorch: 8,
+    heScorch: 8
   });
   let disposed = false;
   return Object.freeze({

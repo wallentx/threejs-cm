@@ -1,19 +1,6 @@
-The `fire.png` file in this directory was retrieved from the deployed
-mustache-dev Three-VFX landing page at `https://three-vfx.vercel.app/fire.png`
-on 2026-08-04. Its SHA-256 is
-`8a948b802750f7863c0f66454de2c321f1f9de8ce5ba7dae1089e9cb098758f3`.
-
-The `smoke.png` flipbook in this directory is a 1024-pixel, alpha-extracted
-derivative of `examples/r3f/public/2.png` in the local Three-VFX repository.
-Its SHA-256 is
-`21764d9ec5609326656c830293f44e9a0bccaee414620e5aab9af6068d3f3e91`.
-
-The explosion parameters consuming it are based on the deployed landing-page
-bundle served on that date. The upstream Three-VFX project is MIT licensed:
-
 MIT License
 
-Copyright (c) 2026 r3f-vfx authors
+Copyright (c) 2024 Daniel Greenheck
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

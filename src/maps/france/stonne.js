@@ -428,6 +428,11 @@ export const STONNE_1940_MAP = defineMapDescriptor({
       visualOnly: true
     }
   ],
+  foliageRendering: {
+    mode: 'instanced',
+    dataQuality:
+      'renderer-only deterministic EZ-Tree instancing of authored tree centers; no collision, concealment, or forestry survey authority'
+  },
   deploymentZones: {
     french: {
       minX: -80,

@@ -9,6 +9,7 @@ import {
 } from 'vanilla-vfx';
 
 const THREE_VFX_FIRE_TEXTURE_PATH = '/assets/vfx/three-vfx/fire.png';
+const THREE_VFX_SMOKE_TEXTURE_PATH = '/assets/vfx/three-vfx/smoke.png';
 const WEIGHTED_FRAGMENT_CAPACITY = 160;
 const WEIGHTED_FRAGMENT_STEP_SECONDS = 1 / 60;
 const WEIGHTED_FRAGMENT_SAMPLE_SECONDS = 1 / 30;
@@ -119,25 +120,150 @@ const SYSTEM_DEFINITIONS = Object.freeze({
     emitterRadius: [0, 0.2],
     renderOrder: 24
   }),
-  flame: Object.freeze({
-    maxParticles: 720,
+  vehicleSmoke: Object.freeze({
+    // A peak single-vehicle cookoff emits 200 sheets/second. Keep enough
+    // slots for the full maximum lifetime so an opaque sheet is never
+    // overwritten merely because the circular particle pool wrapped.
+    maxParticles: 1536,
     autoStart: false,
-    size: [0.16, 0.52],
-    colorStart: ['#ffffff', '#fff4c2', '#ffcc00', '#ff6600'],
-    colorEnd: ['#ff3300', '#531208'],
-    fadeSize: [0.72, 0.08],
+    size: [0.48, 1.18],
+    colorStart: ['#090a09', '#11120f', '#1b1b17'],
+    colorEnd: ['#080908', '#141510'],
+    fadeSize: [0.22, 2.1],
+    fadeSizeCurve: {
+      points: [
+        { pos: [0, 0.18] },
+        { pos: [0.02, 0.5] },
+        { pos: [0.04, 0.88] },
+        { pos: [0.1, 1.08] },
+        { pos: [0.6, 1.45] },
+        { pos: [0.78, 1.9] },
+        { pos: [1, 2.1] }
+      ]
+    },
+    fadeOpacity: [0.98, 0],
+    fadeOpacityCurve: {
+      points: [
+        { pos: [0, 0.05] },
+        { pos: [0.02, 0.5] },
+        { pos: [0.05, 0.98] },
+        { pos: [0.55, 0.9] },
+        { pos: [0.68, 0.62] },
+        { pos: [0.78, 0.28] },
+        { pos: [0.9, 0.08] },
+        { pos: [0.98, 0.005] },
+        { pos: [1, 0] }
+      ]
+    },
+    velocityCurve: {
+      points: [
+        { pos: [0, 1] },
+        { pos: [0.06, 1] },
+        { pos: [0.18, 0.68] },
+        { pos: [0.32, 0.38] },
+        { pos: [0.48, 0.18] },
+        { pos: [0.62, 0.08] },
+        { pos: [0.68, 0.05] },
+        { pos: [0.78, 0.02] },
+        { pos: [0.84, 0.008] },
+        { pos: [1, 0] }
+      ]
+    },
+    gravity: [0, 0.16, 0],
+    lifetime: [3.6, 6.8],
+    speed: [0.12, 0.38],
+    friction: { intensity: 0.045, easing: 'easeOut' },
+    turbulence: { intensity: 0.14, frequency: 0.46, speed: 0.12 },
+    rotation: [[0, 0], [0, 0], [-Math.PI, Math.PI]],
+    rotationSpeed: [[0, 0], [0, 0], [-0.34, 0.34]],
+    appearance: Appearance.DEFAULT,
+    intensity: 0.86,
+    blending: Blending.NORMAL,
+    lighting: Lighting.BASIC,
+    emitterShape: EmitterShape.SPHERE,
+    emitterRadius: [0, 0.18],
+    renderOrder: 24
+  }),
+  vehicleSmokeHaze: Object.freeze({
+    maxParticles: 1536,
+    autoStart: false,
+    size: [0.7, 1.48],
+    colorStart: ['#171814', '#24241e'],
+    colorEnd: ['#0c0d0b', '#1b1c17'],
+    fadeSize: [0.18, 2.5],
+    fadeSizeCurve: {
+      points: [
+        { pos: [0, 0.14] },
+        { pos: [0.02, 0.46] },
+        { pos: [0.045, 0.84] },
+        { pos: [0.11, 1.08] },
+        { pos: [0.6, 1.55] },
+        { pos: [0.78, 2.25] },
+        { pos: [1, 2.5] }
+      ]
+    },
+    fadeOpacity: [0.56, 0],
+    fadeOpacityCurve: {
+      points: [
+        { pos: [0, 0.03] },
+        { pos: [0.025, 0.38] },
+        { pos: [0.06, 0.82] },
+        { pos: [0.55, 0.72] },
+        { pos: [0.68, 0.5] },
+        { pos: [0.78, 0.22] },
+        { pos: [0.9, 0.06] },
+        { pos: [0.98, 0.004] },
+        { pos: [1, 0] }
+      ]
+    },
+    velocityCurve: {
+      points: [
+        { pos: [0, 1] },
+        { pos: [0.06, 1] },
+        { pos: [0.18, 0.68] },
+        { pos: [0.32, 0.38] },
+        { pos: [0.48, 0.18] },
+        { pos: [0.62, 0.08] },
+        { pos: [0.68, 0.05] },
+        { pos: [0.78, 0.02] },
+        { pos: [0.84, 0.008] },
+        { pos: [1, 0] }
+      ]
+    },
+    gravity: [0, 0.1, 0],
+    lifetime: [4.2, 7.6],
+    speed: [0.08, 0.3],
+    friction: { intensity: 0.045, easing: 'easeOut' },
+    turbulence: { intensity: 0.1, frequency: 0.38, speed: 0.1 },
+    rotation: [[0, 0], [0, 0], [-Math.PI, Math.PI]],
+    rotationSpeed: [[0, 0], [0, 0], [-0.2, 0.2]],
+    appearance: Appearance.DEFAULT,
+    intensity: 0.62,
+    blending: Blending.NORMAL,
+    lighting: Lighting.BASIC,
+    emitterShape: EmitterShape.SPHERE,
+    emitterRadius: [0, 0.28],
+    renderOrder: 23
+  }),
+  cookoffFlashSpark: Object.freeze({
+    maxParticles: 1024,
+    autoStart: false,
+    size: [0.003, 0.012],
+    colorStart: ['#ffffff', '#fff7c2', '#ffd447'],
+    colorEnd: ['#ff8a00', '#d93600'],
+    fadeSize: [1, 0.12],
     fadeOpacity: [1, 0],
-    gravity: [0, 1.25, 0],
-    lifetime: [0.24, 0.78],
-    speed: [0.45, 2.35],
-    friction: { intensity: 0.04, easing: 'easeOut' },
-    turbulence: { intensity: 0.42, frequency: 1.2, speed: 0.75 },
-    appearance: Appearance.GRADIENT,
-    intensity: 6,
+    gravity: [0, -5.2, 0],
+    lifetime: [0.08, 0.3],
+    speed: [1.8, 5.6],
+    friction: { intensity: 0.035, easing: 'easeOut' },
+    appearance: Appearance.CIRCULAR,
+    intensity: 14,
     blending: Blending.ADDITIVE,
     lighting: Lighting.BASIC,
-    emitterShape: EmitterShape.POINT,
-    renderOrder: 33
+    emitterShape: EmitterShape.SPHERE,
+    emitterRadius: [0, 0.018],
+    renderOrder: 35
   }),
   engineFlame: Object.freeze({
     maxParticles: 720,
@@ -158,6 +284,50 @@ const SYSTEM_DEFINITIONS = Object.freeze({
     lighting: Lighting.BASIC,
     emitterShape: EmitterShape.POINT,
     renderOrder: 33
+  }),
+  persistentFireCore: Object.freeze({
+    maxParticles: 480,
+    autoStart: false,
+    size: [0.12, 0.42],
+    colorStart: ['#fff4c2'],
+    colorEnd: ['#ff5b00', '#7b1204'],
+    fadeSize: [0.48, 0.94],
+    fadeOpacity: [1, 0],
+    gravity: [0, 1.3, 0],
+    lifetime: [0.24, 0.68],
+    speed: [0.85, 3.8],
+    friction: { intensity: 0.035, easing: 'easeOut' },
+    turbulence: { intensity: 0.42, frequency: 1.6, speed: 0.95 },
+    appearance: Appearance.DEFAULT,
+    intensity: 1,
+    blending: Blending.ADDITIVE,
+    lighting: Lighting.BASIC,
+    emitterShape: EmitterShape.POINT,
+    stretchBySpeed: { factor: 0.055, maxStretch: 1.85 },
+    renderOrder: 34
+  }),
+  fireEmber: Object.freeze({
+    // Embers are intentionally pinprick-sized, so the stream needs enough
+    // simultaneous points to read as a shower instead of occasional sparks.
+    maxParticles: 1024,
+    autoStart: false,
+    size: [0.002, 0.012],
+    colorStart: ['#ff2d08', '#ef1404', '#c90802'],
+    colorEnd: ['#810702', '#310100'],
+    fadeSize: [1, 0.18],
+    fadeOpacity: [0.96, 0],
+    gravity: [0, 0, 0],
+    lifetime: [0.65, 1.55],
+    speed: [0.45, 1.6],
+    friction: { intensity: 0.08, easing: 'easeOut' },
+    turbulence: { intensity: 0.22, frequency: 1.15, speed: 0.48 },
+    appearance: Appearance.CIRCULAR,
+    intensity: 20,
+    blending: Blending.ADDITIVE,
+    lighting: Lighting.BASIC,
+    emitterShape: EmitterShape.SPHERE,
+    emitterRadius: [0, 0.025],
+    renderOrder: 35
   }),
   debris: Object.freeze({
     maxParticles: 960,
@@ -240,6 +410,17 @@ function createHitSparkColorNode() {
   );
 }
 
+function createCookoffFlashSparkColorNode() {
+  const whiteHot = color('#ffffff').mul(90);
+  const gold = color('#ffd447').mul(54);
+  const orange = color('#ff6a00').mul(28);
+  return ({ progress }) => mix(
+    mix(whiteHot, gold, progress.smoothstep(0, 0.2)),
+    orange,
+    progress.smoothstep(0.38, 1)
+  );
+}
+
 function createEngineFlameColorNode(fireTexture) {
   const ignition = color('#fff0a6').mul(15);
   const body = color('#ff7100').mul(11);
@@ -249,6 +430,23 @@ function createEngineFlameColorNode(fireTexture) {
       mix(ignition, body, progress.smoothstep(0.04, 0.42)),
       cooling,
       progress.smoothstep(0.62, 0.98)
+    );
+    return vec4(
+      burningColor,
+      texture(fireTexture).a.mul(progress.oneMinus())
+    );
+  };
+}
+
+function createPersistentFireCoreColorNode(fireTexture) {
+  const whiteHot = color('#fff4c2').mul(24);
+  const orange = color('#ff7100').mul(16);
+  const ember = color('#8f1704').mul(4);
+  return ({ progress }) => {
+    const burningColor = mix(
+      mix(whiteHot, orange, progress.smoothstep(0.02, 0.34)),
+      ember,
+      progress.smoothstep(0.58, 0.96)
     );
     return vec4(
       burningColor,
@@ -297,6 +495,17 @@ function directionRange(direction, spread = 0.2) {
   ];
 }
 
+function buoyantSmokeDirection(direction, upwardBias = 0.78) {
+  const vector = normalizedDirection(direction);
+  const bias = THREE.MathUtils.clamp(upwardBias, 0, 1);
+  const x = vector.x * (1 - bias);
+  const y = vector.y * (1 - bias) + bias;
+  const z = vector.z * (1 - bias);
+  const magnitude = Math.hypot(x, y, z);
+  if (magnitude <= 1e-8) return [0, 1, 0];
+  return [x / magnitude, y / magnitude, z / magnitude];
+}
+
 function resolveImpactDirection({
   impactVelocity,
   postImpactVelocity,
@@ -337,6 +546,21 @@ function particleCount(base, scale, maximum) {
 function smoothstepValue(edge0, edge1, value) {
   const progress = THREE.MathUtils.clamp((value - edge0) / (edge1 - edge0), 0, 1);
   return progress * progress * (3 - 2 * progress);
+}
+
+function offsetAlongDirection(position, direction, distance) {
+  const point = finiteTriplet(position);
+  const vector = finiteTriplet(direction);
+  if (!point) return null;
+  if (!vector || !(distance > 0)) return point;
+  const magnitude = Math.hypot(vector[0], vector[1], vector[2]);
+  if (!(magnitude > 1e-8)) return point;
+  const scale = distance / magnitude;
+  return [
+    point[0] + vector[0] * scale,
+    point[1] + vector[1] * scale,
+    point[2] + vector[2] * scale
+  ];
 }
 
 function colorString(value, fallback = '#8c6f52') {
@@ -382,6 +606,7 @@ export class ThreeVfxBattlefieldRuntime {
     this.fragmentSequence = 0;
     this.fragmentBounceCount = 0;
     this.explosionTexture = null;
+    this.smokeTexture = null;
     this.hitSparkGeometry = new THREE.BoxGeometry(0.018, 0.018, 0.16);
     this.hitSparkGeometry.name = 'ThreeVfx_hitSparkGeometry';
     this.initialized = false;
@@ -400,6 +625,13 @@ export class ThreeVfxBattlefieldRuntime {
       this.explosionTexture.minFilter = THREE.NearestFilter;
       this.explosionTexture.magFilter = THREE.NearestFilter;
       this.explosionTexture.generateMipmaps = false;
+      this.smokeTexture = await this.loadTexture(THREE_VFX_SMOKE_TEXTURE_PATH);
+      if (!this.smokeTexture?.isTexture) {
+        throw new TypeError('Three-VFX smoke texture loader returned an invalid texture');
+      }
+      this.smokeTexture.minFilter = THREE.LinearMipmapLinearFilter;
+      this.smokeTexture.magFilter = THREE.LinearFilter;
+      this.smokeTexture.generateMipmaps = true;
       for (const name of REQUIRED_SYSTEMS) {
         const options = { ...SYSTEM_DEFINITIONS[name] };
         if (name === 'explosion') {
@@ -411,10 +643,19 @@ export class ThreeVfxBattlefieldRuntime {
         } else if (name === 'hitSpark') {
           options.colorNode = createHitSparkColorNode();
           options.geometry = this.hitSparkGeometry;
+        } else if (name === 'cookoffFlashSpark') {
+          options.colorNode = createCookoffFlashSparkColorNode();
         } else if (name === 'engineFlame') {
           options.colorNode = createEngineFlameColorNode(
             this.explosionTexture
           );
+        } else if (name === 'persistentFireCore') {
+          options.colorNode = createPersistentFireCoreColorNode(
+            this.explosionTexture
+          );
+        } else if (name === 'vehicleSmoke' || name === 'vehicleSmokeHaze') {
+          options.alphaMap = this.smokeTexture;
+          options.flipbook = { rows: 16, columns: 16 };
         }
         const system = this.createParticleSystem(
           this.renderer,
@@ -711,30 +952,47 @@ export class ThreeVfxBattlefieldRuntime {
     const cookoff = profile === 'cookoff';
     const fireball = this.spawn('explosion', position, cookoff ? 100 : 64, {
       emitterShape: EmitterShape.SPHERE,
-      emitterRadius: [0, 0.27 * intensity],
-      size: [0.52 * intensity, 1.44 * intensity],
-      speed: [0.1 * Math.sqrt(intensity), 0.82 * Math.sqrt(intensity)],
-      lifetime: [1, 2]
+      emitterRadius: [0, (cookoff ? 0.27 : 0.16) * intensity],
+      size: cookoff
+        ? [0.52 * intensity, 1.44 * intensity]
+        : [0.32 * intensity, 0.88 * intensity],
+      speed: cookoff
+        ? [0.1 * Math.sqrt(intensity), 0.82 * Math.sqrt(intensity)]
+        : [5.5 * Math.sqrt(intensity), 15 * Math.sqrt(intensity)],
+      lifetime: cookoff ? [1, 2] : [0.1, 0.3]
     });
     const sparks = this.spawn('impact', position, cookoff ? 130 : 52, {
       direction: [[-1, 1], [-1, 1], [-1, 1]],
-      gravity: [0, -0.5, 0],
-      speed: [0.1, 2],
+      gravity: cookoff ? [0, -0.5, 0] : [0, -11, 0],
+      speed: cookoff
+        ? [0.1, 2]
+        : [18 * Math.sqrt(intensity), 48 * Math.sqrt(intensity)],
       size: [0.0025 * intensity, 0.012 * intensity],
-      lifetime: [1, cookoff ? 4.5 : 2.8]
+      lifetime: cookoff ? [1, 4.5] : [0.08, 0.38]
     });
-    const weightedSparks = this.queueLandingPageArcs({
-      position,
-      scale: intensity,
-      count: cookoff ? 8 : 4
-    });
+    const weightedSparks = cookoff
+      ? this.queueLandingPageArcs({ position, scale: intensity, count: 8 })
+      : this.queueWeightedFragments({
+          position,
+          direction: [0, 1, 0],
+          count: particleCount(12, Math.sqrt(intensity), 28),
+          kind: 'spark',
+          speed: [16, 38 * Math.sqrt(intensity)],
+          lifetime: [0.18, 0.58],
+          size: Math.min(1.3, intensity),
+          bounce: 0.42,
+          friction: 0.68,
+          maximumBounces: 2
+        });
     const weightedDebris = this.queueWeightedFragments({
       position,
       direction: [0, 1, 0],
       count: particleCount(cookoff ? 18 : 8, Math.sqrt(intensity), 42),
       kind: 'debris',
-      speed: [3.6, 7.8 * Math.sqrt(intensity)],
-      lifetime: [1.1, cookoff ? 2.25 : 1.65],
+      speed: cookoff
+        ? [3.6, 7.8 * Math.sqrt(intensity)]
+        : [14, 32 * Math.sqrt(intensity)],
+      lifetime: cookoff ? [1.1, 2.25] : [0.3, 0.82],
       size: Math.min(2.4, intensity),
       bounce: 0.32,
       friction: 0.58,
@@ -841,6 +1099,14 @@ export class ThreeVfxBattlefieldRuntime {
       0,
       1
     );
+    const venting = firePhase === 'AMMUNITION_VENTING';
+    const detonated = firePhase === 'DETONATED';
+    const postBlastDecay = detonated
+      ? 1 - smoothstepValue(0.05, 1, postBlastProgress)
+      : 0;
+    const postBlastStrength = detonated
+      ? 0.18 + postBlastDecay * 0.82
+      : 0;
     const turretRingPoint = finiteTriplet(turretRingPosition)
       ?? finiteTriplet(blastPosition)
       ?? finiteTriplet(position);
@@ -849,36 +1115,168 @@ export class ThreeVfxBattlefieldRuntime {
     const ventAt = index => availableVents[index % ventCount] ?? null;
     const ventPosition = vent => finiteTriplet(vent?.position) ? vent.position : position;
     const ventDirection = vent => finiteTriplet(vent?.direction) ?? [0, 1, 0];
+    const activeFireVentCount = venting
+      ? ventCount
+      : (firePhase === 'SPREADING_FIRE'
+          ? Math.min(5, ventCount)
+          : Math.min(detonated ? 2 : 3, ventCount));
+    const ventFlameSpeed = venting
+      ? [1.1 + ventBuild * 1.5, 2.3 + ventBuild * 2.2]
+      : detonated
+        ? [0.35, 1.8 + intensity * 0.6]
+        : [0.45, 1.8 + intensity * 0.8];
+    const ventFlameLifetime = venting
+      ? [0.22, 0.62]
+      : (detonated ? [0.32, 0.92] : [0.42, 1.02]);
+    const ringFlameSpeed = [
+      1.05 + postBlastStrength * 0.75,
+      2.5 + postBlastStrength * 3.3
+    ];
+    const ringFlameLifetime = [
+      0.42,
+      0.66 + postBlastStrength * 0.59
+    ];
     const state = this.vehicleEmission.get(unitId) ?? {
       smokeBudget: 0,
       flameBudget: 0,
       turretFlameBudget: 0,
       sparkBudget: 0,
+      emberBudget: 0,
       smokeCursor: 0,
       flameCursor: 0,
-      sparkCursor: 0
+      sparkCursor: 0,
+      emberCursor: 0
     };
     state.turretFlameBudget ??= 0;
+    state.emberBudget ??= 0;
+    state.emberCursor ??= 0;
+    state.cookoffFlashEmitted ??= false;
 
     if (shouldSmoke) {
-      const rate = (lowDetail ? 5 : 12) + intensity * (lowDetail ? 4 : 12);
+      const fireSmoke = Boolean(burning);
+      // The post-cookoff ring is a wide source, so keep three slots for its
+      // plume while still cycling through every simultaneously burning vent.
+      const turretRingSmokeWeight = fireSmoke && detonated ? 3 : 0;
+      const smokeActiveSourceCount = activeFireVentCount + turretRingSmokeWeight;
+      const baselineRate = fireSmoke
+        ? (lowDetail ? 10 : 20) + intensity * (lowDetail ? 8 : 16)
+        : (lowDetail ? 7 : 16);
+      const rate = fireSmoke
+        ? Math.max(
+            baselineRate,
+            smokeActiveSourceCount * (lowDetail ? 10 : 20)
+          )
+        : baselineRate;
       state.smokeBudget += boundedDelta * rate;
-      const count = Math.min(5, Math.floor(state.smokeBudget));
+      const count = Math.min(
+        Math.max(5, smokeActiveSourceCount),
+        Math.floor(state.smokeBudget)
+      );
       if (count > 0) {
         state.smokeBudget -= count;
         for (let index = 0; index < count; index++) {
-          const vent = ventAt(state.smokeCursor++ % Math.min(3, ventCount));
-          const direction = ventDirection(vent);
-          this.spawn('smoke', ventPosition(vent), 1, {
-            direction: [
-              [direction[0] * 0.22 - 0.12, direction[0] * 0.22 + 0.12],
-              [Math.max(0.55, direction[1] * 0.55), 1],
-              [direction[2] * 0.22 - 0.12, direction[2] * 0.22 + 0.12]
-            ],
-            emitterRadius: [0, width * 0.055],
-            size: [width * 0.09, width * (0.2 + intensity * 0.11)],
-            lifetime: [2.5, 4.2 + intensity * 1.6],
-            speed: [0.35, 0.8 + intensity * 0.72]
+          const smokeOrdinal = state.smokeCursor++;
+          const smokeSourceIndex = smokeOrdinal % smokeActiveSourceCount;
+          const smokeFromTurretRing = turretRingSmokeWeight > 0
+            && smokeSourceIndex >= activeFireVentCount;
+          const vent = ventAt(smokeSourceIndex % activeFireVentCount);
+          const flameDirection = smokeFromTurretRing
+            ? [0, 1, 0]
+            : ventDirection(vent);
+          const smokeDirection = fireSmoke
+            ? buoyantSmokeDirection(flameDirection)
+            : flameDirection;
+          const flameBasePosition = smokeFromTurretRing
+            ? turretRingPoint
+            : ventPosition(vent);
+          const flameSpeed = smokeFromTurretRing
+            ? (venting ? ventFlameSpeed : ringFlameSpeed)
+            : ventFlameSpeed;
+          const flameLifetime = smokeFromTurretRing
+            ? (venting ? ventFlameLifetime : ringFlameLifetime)
+            : ventFlameLifetime;
+          const meanFlameSpeed = (flameSpeed[0] + flameSpeed[1]) * 0.5;
+          const meanFlameLifetime = (flameLifetime[0] + flameLifetime[1]) * 0.5;
+          const attachmentTravelFraction = smokeFromTurretRing
+            ? 0.42
+            : (venting ? 0.14 : 0.28);
+          const flameTopOffset = !fireSmoke
+            ? 0
+            : meanFlameSpeed * meanFlameLifetime * attachmentTravelFraction
+              + width * (smokeFromTurretRing
+                  ? 0.12 + postBlastStrength * 0.08
+                  : venting
+                    ? 0.02 + intensity * 0.01
+                    : 0.04 + intensity * 0.025);
+          const sourcePosition = offsetAlongDirection(
+            flameBasePosition,
+            flameDirection,
+            flameTopOffset
+          );
+          const sheetCount = lowDetail ? 1 : 2;
+          const smokeCoreColors = venting
+            ? ['#71695e', '#5b554c', '#46433d']
+            : intensity >= 0.4
+              ? ['#51483e', '#37342e', '#24241f']
+            : ['#343630', '#474942', '#5a5c55'];
+          const smokeEdgeColors = venting
+            ? ['#888076', '#6e6961']
+            : intensity >= 0.4
+              ? ['#675e52', '#4a4740']
+            : ['#555750', '#686a62'];
+          const streamDirection = fireSmoke
+            ? directionRange(
+              smokeDirection,
+              smokeFromTurretRing ? 0.05 : 0.06
+            )
+            : directionRange(smokeDirection, 0.075);
+          // One velocity per fire stream prevents faster cards from peeling
+          // away into isolated puffs. Its value is the source flame's mean,
+          // so the joined smoke column retains the flame's visible rise rate.
+          const streamSpeed = fireSmoke
+            ? [meanFlameSpeed, meanFlameSpeed]
+            : [0.1, 0.28];
+          const smokeLifetime = !fireSmoke
+            ? [3.6, 5.4]
+            : venting
+              ? [0.8, 1.3]
+              : smokeFromTurretRing
+                ? [4.2, 6.6 + intensity * 0.5]
+                : [3.6, 5.4 + intensity * 0.5];
+          const hazeLifetime = !fireSmoke
+            ? [4.2, 6]
+            : venting
+              ? [1, 1.5]
+              : smokeFromTurretRing
+                ? [4.6, 7 + intensity * 0.5]
+                : [4, 5.8 + intensity * 0.5];
+          this.spawn('vehicleSmoke', sourcePosition, sheetCount, {
+            colorStart: smokeCoreColors,
+            colorEnd: intensity >= 0.4 ? ['#080908', '#141510'] : ['#242621', '#363832'],
+            direction: streamDirection,
+            gravity: fireSmoke ? [0, 0, 0] : [0, 0.16, 0],
+            emitterRadius: [0, width * (fireSmoke ? 0.018 : 0.04)],
+            size: fireSmoke
+              ? smokeFromTurretRing
+                ? [width * 0.25, width * (0.5 + postBlastStrength * 0.08)]
+                : [width * (0.16 + intensity * 0.025), width * (0.32 + intensity * 0.08)]
+              : [width * 0.18, width * 0.4],
+            lifetime: smokeLifetime,
+            speed: streamSpeed
+          });
+          this.spawn('vehicleSmokeHaze', sourcePosition, sheetCount, {
+            colorStart: smokeEdgeColors,
+            colorEnd: intensity >= 0.4 ? ['#0c0d0b', '#1b1c17'] : ['#33352f', '#484a43'],
+            direction: streamDirection,
+            gravity: fireSmoke ? [0, 0, 0] : [0, 0.1, 0],
+            emitterRadius: [0, width * (fireSmoke ? 0.026 : 0.05)],
+            size: fireSmoke
+              ? smokeFromTurretRing
+                ? [width * 0.32, width * (0.62 + postBlastStrength * 0.1)]
+                : [width * (0.2 + intensity * 0.025), width * (0.4 + intensity * 0.08)]
+              : [width * 0.25, width * 0.48],
+            lifetime: hazeLifetime,
+            speed: fireSmoke ? streamSpeed : [0.08, 0.24]
           });
         }
       }
@@ -887,38 +1285,101 @@ export class ThreeVfxBattlefieldRuntime {
     }
 
     if (burning) {
-      const venting = firePhase === 'AMMUNITION_VENTING';
-      const cookoffFlame = venting || firePhase === 'DETONATED';
-      const flameSystem = cookoffFlame ? 'flame' : 'engineFlame';
+      const flameSystem = 'engineFlame';
       const rate = ((lowDetail ? 8 : 24) + intensity * (lowDetail ? 7 : 24))
         * postBlastEnvelope;
       state.flameBudget += boundedDelta * rate;
       const count = Math.min(lowDetail ? 5 : 10, Math.floor(state.flameBudget));
       if (count > 0) {
         state.flameBudget -= count;
-        const activeVentCount = venting
-          ? ventCount
-          : (firePhase === 'SPREADING_FIRE' ? Math.min(5, ventCount) : Math.min(3, ventCount));
         for (let index = 0; index < count; index++) {
-          const vent = ventAt(state.flameCursor++ % activeVentCount);
+          const vent = ventAt(state.flameCursor++ % activeFireVentCount);
           const direction = ventDirection(vent);
           const spread = venting ? 0.055 : 0.15;
-          this.spawn(flameSystem, ventPosition(vent), 1, {
-            direction: directionRange(direction, spread),
-            size: venting
-              ? [width * (0.045 + ventBuild * 0.025), width * (0.11 + ventBuild * 0.12)]
-              : cookoffFlame
-                ? [width * 0.052, width * (0.14 + intensity * 0.075)]
-                : [width * 0.085, width * (0.24 + intensity * 0.12)],
-            speed: venting
-              ? [1.4 + ventBuild * 2.4, 3.2 + ventBuild * 5.6]
-              : cookoffFlame
-                ? [0.8, 2.8 + intensity * 1.8]
-                : [0.9, 3.1 + intensity * 1.7],
-            lifetime: venting
-              ? [0.22, 0.62]
-              : (cookoffFlame ? [0.32, 0.92] : [0.42, 1.02])
+          const size = venting
+            ? [width * (0.045 + ventBuild * 0.025), width * (0.11 + ventBuild * 0.12)]
+            : detonated
+              ? [width * 0.052, width * (0.14 + intensity * 0.075)]
+              : [width * 0.085, width * (0.24 + intensity * 0.12)];
+          const speed = ventFlameSpeed;
+          const lifetime = ventFlameLifetime;
+          const sourcePosition = ventPosition(vent);
+          const directionOverride = directionRange(direction, spread);
+          this.spawn(flameSystem, sourcePosition, lowDetail ? 1 : 2, {
+            direction: directionOverride,
+            size,
+            speed,
+            lifetime
           });
+          if (venting) {
+            this.spawn('persistentFireCore', sourcePosition, 1, {
+              direction: directionOverride,
+              size: [size[0] * 0.48, size[1] * 0.62],
+              speed: [speed[0] * 0.82, speed[1] * 0.86],
+              lifetime: [lifetime[0] * 0.72, lifetime[1] * 0.82]
+            });
+            if (!lowDetail) {
+              this.spawn('engineFlame', sourcePosition, 2, {
+                direction: directionRange(direction, spread * 1.16),
+                size: [size[0] * 0.9, size[1] * 0.95],
+                speed: [speed[0] * 0.28, speed[1] * 0.34],
+                lifetime: [lifetime[0] * 1.16, lifetime[1] * 1.48]
+              });
+            }
+          } else {
+            this.spawn('persistentFireCore', sourcePosition, 1, {
+              direction: directionOverride,
+              size: [size[0] * 0.52, size[1] * 0.68],
+              speed: [speed[0] * 1.08, speed[1] * 1.12],
+              lifetime: [lifetime[0] * 0.64, lifetime[1] * 0.72]
+            });
+            if (!lowDetail || state.flameCursor % 2 === 0) {
+              this.spawn('engineFlame', sourcePosition, 1, {
+                direction: directionRange(direction, spread * 1.24),
+                size: [size[0] * 0.88, size[1] * 0.94],
+                speed: [speed[0] * 0.3, speed[1] * 0.34],
+                lifetime: [lifetime[0] * 1.12, lifetime[1] * 1.5]
+              });
+            }
+            if (!lowDetail) {
+              this.spawn('engineFlame', sourcePosition, 1, {
+                direction: directionRange(direction, spread * 1.12),
+                size: [size[0] * 0.84, size[1] * 0.91],
+                speed: [speed[0] * 0.58, speed[1] * 0.62],
+                lifetime: [lifetime[0], lifetime[1] * 1.26]
+              });
+            }
+          }
+        }
+      }
+
+      const emberRate = (
+        (lowDetail ? 16 : 108) + intensity * (lowDetail ? 16 : 84)
+      ) * postBlastEnvelope;
+      state.emberBudget += boundedDelta * emberRate;
+      const emberCount = Math.min(
+        lowDetail ? 8 : 32,
+        Math.floor(state.emberBudget)
+      );
+      if (emberCount > 0) {
+        state.emberBudget -= emberCount;
+        const emberSourceCount = activeFireVentCount + (detonated ? 1 : 0);
+        for (let index = 0; index < emberCount; index++) {
+          const sourceIndex = state.emberCursor++ % emberSourceCount;
+          const fromTurretRing = detonated && sourceIndex >= activeFireVentCount;
+          const vent = ventAt(sourceIndex % activeFireVentCount);
+          this.spawn(
+            'fireEmber',
+            fromTurretRing ? turretRingPoint : ventPosition(vent),
+            1,
+            {
+              direction: directionRange([0, 1, 0], 0.16),
+              emitterRadius: [0, width * 0.012],
+              size: [width * 0.001, width * 0.005],
+              speed: [0.45, 1.25 + intensity * 0.8],
+              lifetime: [0.65, 1.55]
+            }
+          );
         }
       }
 
@@ -946,13 +1407,35 @@ export class ThreeVfxBattlefieldRuntime {
         }
       }
 
+      const ventProgress = THREE.MathUtils.clamp(
+        Number(fireVentProgress) || 0,
+        0,
+        1
+      );
+      if (venting && ventProgress >= 0.93 && !state.cookoffFlashEmitted) {
+        this.spawn(
+          'cookoffFlashSpark',
+          turretRingPoint,
+          lowDetail ? 320 : 960,
+          {
+            direction: [[-1, 1], [0.08, 1], [-1, 1]],
+            emitterRadius: [0, width * 0.012],
+            size: [width * 0.0012, width * 0.0048],
+            speed: [1.8, 4.8 + width * 0.3],
+            lifetime: [0.08, 0.28]
+          }
+        );
+        state.cookoffFlashEmitted = true;
+      } else if (!venting && firePhase !== 'DETONATED') {
+        state.cookoffFlashEmitted = false;
+      }
+
       if (firePhase === 'DETONATED' && turretRingPoint) {
         // The exposed ring is a separate event layer: a dense central plume
         // survives the full authoritative post-blast interval while its rate,
         // scale, speed, and lifetime decay together. Existing engine-deck fire
         // remains independent around the hull.
-        const decay = 1 - smoothstepValue(0.05, 1, postBlastProgress);
-        const strength = 0.18 + decay * 0.82;
+        const strength = postBlastStrength;
         const rate = (lowDetail ? 7 : 22) * (0.35 + strength * 0.65);
         state.turretFlameBudget += boundedDelta * rate;
         const turretFlameCount = Math.min(
@@ -962,20 +1445,27 @@ export class ThreeVfxBattlefieldRuntime {
         if (turretFlameCount > 0) {
           state.turretFlameBudget -= turretFlameCount;
           for (let index = 0; index < turretFlameCount; index++) {
-            this.spawn('flame', turretRingPoint, 1, {
-              direction: directionRange([0, 1, 0], 0.12 + (1 - strength) * 0.12),
-              size: [
-                width * (0.15 + strength * 0.12),
-                width * (0.32 + strength * 0.42)
-              ],
-              speed: [
-                1.05 + strength * 0.75,
-                2.5 + strength * 3.3
-              ],
-              lifetime: [
-                0.42,
-                0.66 + strength * 0.59
-              ]
+            const direction = directionRange(
+              [0, 1, 0],
+              0.12 + (1 - strength) * 0.12
+            );
+            const size = [
+              width * (0.15 + strength * 0.12),
+              width * (0.32 + strength * 0.42)
+            ];
+            const speed = ringFlameSpeed;
+            const lifetime = ringFlameLifetime;
+            this.spawn('engineFlame', turretRingPoint, lowDetail ? 1 : 2, {
+              direction,
+              size,
+              speed,
+              lifetime
+            });
+            this.spawn('persistentFireCore', turretRingPoint, 1, {
+              direction,
+              size: [size[0] * 0.55, size[1] * 0.72],
+              speed: [speed[0] * 1.1, speed[1] * 1.12],
+              lifetime: [lifetime[0] * 0.64, lifetime[1] * 0.74]
             });
           }
         }
@@ -986,6 +1476,7 @@ export class ThreeVfxBattlefieldRuntime {
       state.flameBudget = 0;
       state.turretFlameBudget = 0;
       state.sparkBudget = 0;
+      state.emberBudget = 0;
     }
 
     if (detonationTransition) {
@@ -1052,6 +1543,8 @@ export class ThreeVfxBattlefieldRuntime {
     for (const fragment of this.weightedFragments) fragment.active = false;
     this.explosionTexture?.dispose?.();
     this.explosionTexture = null;
+    this.smokeTexture?.dispose?.();
+    this.smokeTexture = null;
     this.hitSparkGeometry?.dispose?.();
     this.hitSparkGeometry = null;
     this.initialized = false;

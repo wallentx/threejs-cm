@@ -179,7 +179,6 @@ test('each tracked factory exposes named, vehicle-configured running gear', () =
     assert.ok(motionBinding, `${name} must expose track-motion presentation`);
     assert.ok(motionBinding.pathBindingCount >= 2);
     assert.ok(motionBinding.wheelBindingCount >= 6);
-    motionBinding.apply({ leftTrackMeters: 0.35, rightTrackMeters: 0.2 });
     assert.equal(gear.userData.articulated, true);
     assert.equal(gear.userData.trackParts.roadWheels.length, wheelsPerSide * 2);
     assert.equal(gear.userData.trackParts.sprockets.length, 2);
@@ -191,39 +190,63 @@ test('each tracked factory exposes named, vehicle-configured running gear', () =
     assert.ok(gear.userData.trackParts.tracks.every(track => track.count >= 18));
 
     const supportedPath = gear.userData.trackPath;
-    const proxyLeft = vehicle.getObjectByName(
-      supportedPath ? 'ProxyLeftTrackLinks' : 'ProxyLeftTrackBelt'
+    assert.ok(supportedPath, `${name} must derive its track from wheel supports`);
+    assert.equal(supportedPath.model, 'wheel-supported-quasi-static-v1');
+    assert.ok(
+      supportedPath.supports.length >= wheelsPerSide + 2,
+      `${name} supported path must include its road wheels, sprocket, and idler`
     );
-    const proxyRight = vehicle.getObjectByName(
-      supportedPath ? 'ProxyRightTrackLinks' : 'ProxyRightTrackBelt'
-    );
+    const proxyLeft = vehicle.getObjectByName('ProxyLeftTrackLinks');
+    const proxyRight = vehicle.getObjectByName('ProxyRightTrackLinks');
     const proxyWheels = vehicle.getObjectByName('ProxyRoadWheels');
     assert.ok(proxyLeft, `${name} must preserve a shaped left-track silhouette at far LOD`);
     assert.ok(proxyRight, `${name} must preserve a shaped right-track silhouette at far LOD`);
-    if (supportedPath) {
-      assert.equal(
-        gear.userData.runningGearType,
-        'wheel-supported-quasi-static-track'
-      );
-      assert.equal(proxyLeft.geometry.name, 'SupportedProxyTrackLinkGeometry');
-      assert.equal(proxyRight.geometry.name, 'SupportedProxyTrackLinkGeometry');
-      assert.equal(
-        proxyLeft.userData.trackPathMode,
-        'wheel-supported-quasi-static-v1'
-      );
-      assert.ok(proxyLeft.userData.instancePath.every(link => link.position[0] > 0));
-      assert.ok(proxyRight.userData.instancePath.every(link => link.position[0] < 0));
-    } else {
-      assert.equal(proxyLeft.geometry.name, 'ProxyTrackBeltGeometry');
-      assert.equal(proxyRight.geometry.name, 'ProxyTrackBeltGeometry');
-      assert.equal(proxyLeft.geometry.userData.closedTrackBelt, true);
-      assert.equal(proxyRight.geometry.userData.closedTrackBelt, true);
-      assert.ok(proxyLeft.position.x > 0, `${name} left track must use +X`);
-      assert.ok(proxyRight.position.x < 0, `${name} right track must use -X`);
-      assert.notEqual(proxyLeft.geometry.type, 'BoxGeometry');
-      assert.notEqual(proxyRight.geometry.type, 'BoxGeometry');
-    }
+    assert.equal(gear.userData.runningGearType, 'wheel-supported-quasi-static-track');
+    assert.equal(proxyLeft.parent.userData.trackPathConfig, gear.userData.trackPathConfig);
+    assert.equal(proxyLeft.geometry.name, 'SupportedProxyTrackLinkGeometry');
+    assert.equal(proxyRight.geometry.name, 'SupportedProxyTrackLinkGeometry');
+    assert.equal(proxyLeft.userData.trackPathMode, 'wheel-supported-quasi-static-v1');
+    assert.ok(proxyLeft.userData.instancePath.every(link => link.position[0] > 0));
+    assert.ok(proxyRight.userData.instancePath.every(link => link.position[0] < 0));
     assert.equal(proxyWheels.isInstancedMesh, true);
     assert.equal(proxyWheels.count, wheelsPerSide * 2);
+
+    const detailedLeft = gear.getObjectByName('LeftTrackLinks');
+    const detailedWheel = gear.userData.trackParts.roadWheels.at(-1);
+    const initialDetailed = new THREE.Matrix4();
+    const initialProxy = new THREE.Matrix4();
+    const initialProxyWheel = new THREE.Matrix4();
+    detailedLeft.getMatrixAt(0, initialDetailed);
+    proxyLeft.getMatrixAt(0, initialProxy);
+    proxyWheels.getMatrixAt(proxyWheels.count - 1, initialProxyWheel);
+    const initialWheel = detailedWheel.quaternion.clone();
+
+    motionBinding.apply({ leftTrackMeters: 0.35, rightTrackMeters: 0.2 });
+    const forwardDetailed = new THREE.Matrix4();
+    const forwardProxy = new THREE.Matrix4();
+    const forwardProxyWheel = new THREE.Matrix4();
+    detailedLeft.getMatrixAt(0, forwardDetailed);
+    proxyLeft.getMatrixAt(0, forwardProxy);
+    proxyWheels.getMatrixAt(proxyWheels.count - 1, forwardProxyWheel);
+    assert.notDeepEqual(forwardDetailed.elements, initialDetailed.elements, `${name} detailed links must advance`);
+    assert.notDeepEqual(forwardProxy.elements, initialProxy.elements, `${name} proxy links must advance`);
+    assert.notDeepEqual(forwardProxyWheel.elements, initialProxyWheel.elements, `${name} proxy wheels must rotate`);
+    assert.notDeepEqual(detailedWheel.quaternion.toArray(), initialWheel.toArray(), `${name} detailed wheels must rotate`);
+
+    motionBinding.apply({ leftTrackMeters: 0.35, rightTrackMeters: 0.2 });
+    const stoppedDetailed = new THREE.Matrix4();
+    const stoppedProxy = new THREE.Matrix4();
+    detailedLeft.getMatrixAt(0, stoppedDetailed);
+    proxyLeft.getMatrixAt(0, stoppedProxy);
+    assert.deepEqual(stoppedDetailed.elements, forwardDetailed.elements, `${name} detailed links must stop with travel`);
+    assert.deepEqual(stoppedProxy.elements, forwardProxy.elements, `${name} proxy links must stop with travel`);
+
+    motionBinding.apply({ leftTrackMeters: -0.15, rightTrackMeters: -0.1 });
+    const reverseDetailed = new THREE.Matrix4();
+    const reverseProxy = new THREE.Matrix4();
+    detailedLeft.getMatrixAt(0, reverseDetailed);
+    proxyLeft.getMatrixAt(0, reverseProxy);
+    assert.notDeepEqual(reverseDetailed.elements, forwardDetailed.elements, `${name} detailed links must reverse`);
+    assert.notDeepEqual(reverseProxy.elements, forwardProxy.elements, `${name} proxy links must reverse`);
   }
 });

@@ -33,6 +33,44 @@ const PANZER_III_D = Object.freeze({
   gunMuzzleLocalZ: 2.34
 });
 
+const PANZER_III_TRACK_PATH = Object.freeze({
+  model: 'wheel-supported-quasi-static-v1',
+  quality:
+    'wheel and roller centers are inferred from the registered Ausf. D orthographic drawing; track physical values are renderer approximations',
+  pathRadiusPolicy:
+    'renderer pitch radii are derived from visible wheel radii minus the authored link-and-cleat envelope',
+  driveSprocket: Object.freeze({
+    id: 'front-drive-sprocket', kind: 'driveSprocket',
+    centerY: PANZER_III_D.beltCenterY,
+    centerZ: PANZER_III_D.frontSprocketZ,
+    radius: 0.39, pathRadius: 0.345
+  }),
+  idlerWheel: Object.freeze({
+    id: 'rear-idler', kind: 'idlerWheel',
+    centerY: PANZER_III_D.beltCenterY,
+    centerZ: PANZER_III_D.rearIdlerZ,
+    radius: 0.36, pathRadius: 0.315
+  }),
+  roadWheels: Object.freeze(PANZER_III_D.roadWheelZ.map((centerZ, index) => Object.freeze({
+    id: `road-wheel-${index + 1}`, kind: 'roadWheel',
+    centerY: PANZER_III_D.roadWheelY,
+    centerZ,
+    radius: PANZER_III_D.roadWheelRadius,
+    pathRadius: 0.190
+  }))),
+  returnRollers: Object.freeze(PANZER_III_D.returnRollerZ.map((centerZ, index) => Object.freeze({
+    id: `return-roller-${index + 1}`, kind: 'returnRoller',
+    centerY: 0.91, centerZ, radius: 0.105, pathRadius: 0.060
+  }))),
+  linkThickness: 0.035,
+  cleatHeight: 0.010,
+  linearMassKgPerMeter: 48,
+  tensionNewtons: 21000,
+  maximumSegmentMeters: 0.065,
+  rendererApproximation:
+    'link dimensions, linear mass, static tension, and gravity sag are presentation-only approximations'
+});
+
 export const PANZER_III_D_BLUEPRINT_CALIBRATION = Object.freeze({
   version: 'panzer3-ausfd-registered-multiview-v1',
   coordinateFrame: '+Y up, +Z forward, -X vehicle right',
@@ -342,49 +380,6 @@ function createCommanderHatches(parent, material) {
   return pivots;
 }
 
-function repositionRunningGear(runningGear) {
-  const { roadWheels, sprockets, idlers } = runningGear.userData.trackParts;
-  for (let side = 0; side < 2; side++) {
-    for (let index = 0; index < PANZER_III_D.roadWheelZ.length; index++) {
-      roadWheels[side * PANZER_III_D.roadWheelZ.length + index].position.z =
-        PANZER_III_D.roadWheelZ[index];
-    }
-    sprockets[side].position.z = PANZER_III_D.frontSprocketZ;
-    idlers[side].position.z = PANZER_III_D.rearIdlerZ;
-  }
-  runningGear.userData.blueprintAxleZ = {
-    roadWheels: [...PANZER_III_D.roadWheelZ],
-    frontSprocket: PANZER_III_D.frontSprocketZ,
-    rearIdler: PANZER_III_D.rearIdlerZ
-  };
-}
-
-function repositionProxyWheels(proxy) {
-  const wheels = proxy.getObjectByName('ProxyRoadWheels');
-  const matrix = new THREE.Matrix4();
-  const rotation = new THREE.Quaternion().setFromEuler(
-    new THREE.Euler(0, 0, Math.PI / 2)
-  );
-  const scale = new THREE.Vector3(1, 1, 1);
-  let instance = 0;
-  for (const side of [-1, 1]) {
-    for (const z of PANZER_III_D.roadWheelZ) {
-      matrix.compose(
-        new THREE.Vector3(
-          side * (PANZER_III_D.trackCenterX + PANZER_III_D.trackWidth * 0.08),
-          PANZER_III_D.roadWheelY,
-          z
-        ),
-        rotation,
-        scale
-      );
-      wheels.setMatrixAt(instance++, matrix);
-    }
-  }
-  wheels.instanceMatrix.needsUpdate = true;
-  wheels.userData.blueprintAxleZ = [...PANZER_III_D.roadWheelZ];
-}
-
 function addLeafSpringSuspension(parent, bodyMaterial, metalMaterial) {
   for (const side of [-1, 1]) {
     for (let pair = 0; pair < 4; pair++) {
@@ -410,19 +405,6 @@ function addLeafSpringSuspension(parent, bodyMaterial, metalMaterial) {
           { position: [side * 1.31, 0.67 + leaf * 0.024, z] }
         );
       }
-    }
-    for (let index = 0; index < PANZER_III_D.returnRollerZ.length; index++) {
-      addMesh(
-        parent,
-        new THREE.CylinderGeometry(0.105, 0.105, 0.145, 10),
-        bodyMaterial,
-        `${side < 0 ? 'Right' : 'Left'}PanzerIIIReturnRoller_${index + 1}`,
-        'medium',
-        {
-          position: [side * 1.285, 0.91, PANZER_III_D.returnRollerZ[index]],
-          rotation: [0, 0, Math.PI / 2]
-        }
-      );
     }
   }
 }
@@ -524,9 +506,9 @@ export function createPanzerIIIMesh() {
     roadWheelSpacing: 0.47,
     sprocketRadius: 0.39,
     idlerRadius: 0.36,
-    linkPitch: 0.12
+    linkPitch: 0.12,
+    trackPath: PANZER_III_TRACK_PATH
   });
-  repositionRunningGear(runningGear);
   tankGroup.add(runningGear);
   tankGroup.userData.runningGear = runningGear;
   addLeafSpringSuspension(tankGroup, turretMat, metalMat);
@@ -770,9 +752,10 @@ export function createPanzerIIIMesh() {
     beltHeight: PANZER_III_D.beltHeight,
     centerY: PANZER_III_D.beltCenterY,
     roadWheelRadius: PANZER_III_D.roadWheelRadius,
-    roadWheelCount: 8
+    roadWheelCount: 8,
+    linkPitch: 0.24,
+    trackPath: PANZER_III_TRACK_PATH
   });
-  repositionProxyWheels(proxyRunningGear);
   proxyGroup.add(proxyRunningGear);
   tankGroup.add(proxyGroup);
 

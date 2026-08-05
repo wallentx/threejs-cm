@@ -9,13 +9,15 @@ const VEHICLE_GEOMETRY_ROLES = Object.freeze([
   'flame',
   'spark',
   'scorch',
+  'heScorch',
   'blast'
 ]);
 const VEHICLE_MATERIAL_ROLES = Object.freeze([
   'smoke',
   'flame',
   'spark',
-  'scorch'
+  'scorch',
+  'heScorch'
 ]);
 const RUNTIME_METHODS = Object.freeze([
   'emitImpact',

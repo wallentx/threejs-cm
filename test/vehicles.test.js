@@ -278,6 +278,30 @@ test('blueprint-calibrated vehicles preserve measured envelopes and running-gear
   }
 });
 
+test('wheeled vehicles retain silhouette wheels at core and proxy distance tiers', () => {
+  for (const [label, create, corePattern, proxyPattern] of [
+    ['Panhard 178', createPanhard178Mesh, /^Panhard178_Wheel_/, /^AuthoredProxyWheel_/],
+    ['Laffly S20TL', createLafflyS20TLMesh, /^S20TL_Wheel_/, /^S20TL_ProxyWheel_/],
+    ['Sd.Kfz. 231', createSdKfz231Mesh, /^(?:SdKfz231_6Rad_Wheel_|SdKfz231_6Rad_DualTire_)/, /^SdKfz231_6Rad_ProxyWheel_/],
+    ['Opel Blitz', createOpelBlitzMesh, /^OpelBlitz_(?:Front|Rear)Wheel_/, /^OpelBlitz_ProxyWheel_/]
+  ]) {
+    const vehicle = create();
+    const coreWheels = [];
+    const proxyWheels = [];
+    vehicle.traverse(object => {
+      if (!object.isMesh) return;
+      if (object.userData.lodBand === 'core' && corePattern.test(object.name)) {
+        coreWheels.push(object);
+      }
+      if (object.userData.lodBand === 'proxy' && proxyPattern.test(object.name)) {
+        proxyWheels.push(object);
+      }
+    });
+    assert.ok(coreWheels.length >= 4, `${label} needs core-distance wheels`);
+    assert.ok(proxyWheels.length >= 4, `${label} needs far proxy wheels`);
+  }
+});
+
 test('Renault R35 matches the registered tail-less production configuration', () => {
   const mesh = createRenaultR35Mesh();
   const namedParts = [];

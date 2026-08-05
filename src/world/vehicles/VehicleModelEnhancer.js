@@ -472,7 +472,8 @@ function addTrackedProxy(
     beltHeight: trackHeight,
     centerY,
     roadWheelRadius,
-    roadWheelCount
+    roadWheelCount,
+    trackPath: sourceRunningGear?.userData?.trackPathConfig ?? null
   });
   if (sourceRunningGear) {
     runningGearProxy.position.copy(sourceRunningGear.position);

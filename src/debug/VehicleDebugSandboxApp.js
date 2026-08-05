@@ -23,6 +23,13 @@ export {
   listDebugVehicleOptions
 } from './VehicleDebugSandboxSimulation.js';
 
+export const VEHICLE_SANDBOX_VR_PALETTE = Object.freeze({
+  backdrop: 0x021815,
+  ground: 0x063b32,
+  gridMajor: 0x66ffb2,
+  gridMinor: 0x15966f
+});
+
 const CONTROL_STYLE = 'width:100%;box-sizing:border-box;padding:7px;background:#0f172a;color:#f8fafc;border:1px solid #475569;border-radius:4px;';
 
 function optionMarkup(options, selectedId = null) {
@@ -81,7 +88,7 @@ export class VehicleDebugSandboxApp {
     this.container.innerHTML = `
       <style>
         #debug-sandbox-root{position:fixed;inset:0;z-index:9999;display:grid;grid-template-columns:minmax(0,1fr) 360px;background:#e5e7eb;color:#e2e8f0;font:13px system-ui,sans-serif;user-select:none}
-        #debug-sandbox-viewport{position:relative;min-width:0;min-height:0;overflow:hidden;background:#fff}
+        #debug-sandbox-viewport{position:relative;min-width:0;min-height:0;overflow:hidden;background:#021815}
         #debug-sandbox-viewport canvas{display:block;width:100%!important;height:100%!important;touch-action:none}
         #debug-sandbox-panel{min-width:0;overflow-y:auto;background:#14181e;border-left:1px solid #334155;padding:16px;box-sizing:border-box}
         .debug-section{margin:0 0 16px;padding:11px;background:#0f172a;border:1px solid #334155;border-radius:6px}
@@ -119,7 +126,7 @@ export class VehicleDebugSandboxApp {
     await this.rendererFacade.initialize();
     this.scene = this.rendererFacade.scene;
     this.camera = this.rendererFacade.camera;
-    this.scene.background = new THREE.Color(0xf8fafc);
+    this.scene.background = new THREE.Color(VEHICLE_SANDBOX_VR_PALETTE.backdrop);
     this.scene.fog = null;
     this.camera.far = 1000;
     this.controls = new OrbitControls(this.camera, this.rendererFacade.domElement);
@@ -128,7 +135,7 @@ export class VehicleDebugSandboxApp {
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
 
-    this.setupWhiteVoidGround();
+    this.setupVrMissionGround();
     this.aimMarker = new THREE.Mesh(
       new THREE.SphereGeometry(0.07, 12, 8),
       new THREE.MeshBasicMaterial({ color: 0xff1744, depthTest: false })
@@ -185,14 +192,23 @@ export class VehicleDebugSandboxApp {
     document.body.dataset.gameStatus = 'ready';
   }
 
-  setupWhiteVoidGround() {
+  setupVrMissionGround() {
     const geometry = new THREE.PlaneGeometry(600, 600);
-    const material = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92 });
+    const material = new THREE.MeshStandardMaterial({
+      color: VEHICLE_SANDBOX_VR_PALETTE.ground,
+      roughness: 0.88,
+      metalness: 0.04
+    });
     this.ground = new THREE.Mesh(geometry, material);
     this.ground.rotation.x = -Math.PI / 2;
     this.ground.receiveShadow = true;
     this.scene.add(this.ground);
-    this.grid = new THREE.GridHelper(600, 120, 0xcbd5e1, 0xe2e8f0);
+    this.grid = new THREE.GridHelper(
+      600,
+      120,
+      VEHICLE_SANDBOX_VR_PALETTE.gridMajor,
+      VEHICLE_SANDBOX_VR_PALETTE.gridMinor
+    );
     this.grid.position.y = 0.01;
     this.scene.add(this.grid);
   }

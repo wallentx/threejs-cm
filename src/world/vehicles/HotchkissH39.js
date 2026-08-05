@@ -301,18 +301,6 @@ export function createHotchkissH39Mesh() {
       }
     }
 
-    for (const [index, z] of [-0.52, 0.52].entries()) {
-      const roller = makeMesh(
-        `H39_${semanticSide}ReturnRoller_${index + 1}`,
-        new THREE.CylinderGeometry(0.085, 0.085, 0.10, 10),
-        turretMat,
-        'medium',
-        tankGroup
-      );
-      roller.rotation.z = Math.PI / 2;
-      roller.position.set(side * 0.80, 0.79, z);
-      roller.userData.runningGearPart = 'return-roller';
-    }
   }
 
   const runningGear = createTrackedRunningGear({
@@ -331,10 +319,10 @@ export function createHotchkissH39Mesh() {
     roadWheelSpacing: 0.45,
     sprocketRadius: 0.30,
     idlerRadius: 0.28,
-    linkPitch: 0.15
+    linkPitch: 0.15,
+    trackPath: H39.trackPath
   });
-  runningGear.userData.trackParts.roadWheels.forEach((wheel, index) => {
-    wheel.position.z = H39.roadWheelCentersZ[index % PROFILE.roadWheelsPerSide];
+  runningGear.userData.trackParts.roadWheels.forEach(wheel => {
     wheel.userData.profilePositionQuality = 'registered-profile approximation';
   });
   tankGroup.add(runningGear);

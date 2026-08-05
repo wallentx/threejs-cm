@@ -249,6 +249,11 @@ test('vehicle damage effects retain bounded impact scars and lower far-LOD parti
   markPosition.setFromMatrixPosition(markMatrix);
   assert.ok(Math.abs(markPosition.z - 1.508) < 1e-5);
   assert.ok(record.impactTimer > 0);
+  const markColorsAttribute = record.scorch.geometry.getAttribute('color');
+  assert.equal(markColorsAttribute.itemSize, 4,
+    'impact-mark geometry must carry alpha for a non-solid outer scorch falloff');
+  assert.equal(Math.min(...markColorsAttribute.array.filter((_, index) => index % 4 === 3)), 0);
+  assert.ok(Math.max(...markColorsAttribute.array.filter((_, index) => index % 4 === 3)) > 0.9);
 
   effects.processImpacts([{
     ...impact,
@@ -274,12 +279,43 @@ test('vehicle damage effects retain bounded impact scars and lower far-LOD parti
   }]);
   assert.equal(record.impactMarkTypes[2].type, 'stopped');
   assert.equal(record.impactMarkTypes[3].type, 'heBlast');
-  const markColors = Array.from({ length: 4 }, (_, index) => {
+  assert.equal(record.heScorch.count, 1);
+  const markScales = Array.from({ length: 3 }, (_, index) => {
+    const matrix = new THREE.Matrix4();
+    record.scorch.getMatrixAt(index, matrix);
+    const scale = new THREE.Vector3();
+    matrix.decompose(new THREE.Vector3(), new THREE.Quaternion(), scale);
+    return scale;
+  });
+  const heMarkMatrix = new THREE.Matrix4();
+  const heMarkScale = new THREE.Vector3();
+  record.heScorch.getMatrixAt(0, heMarkMatrix);
+  heMarkMatrix.decompose(
+    new THREE.Vector3(),
+    new THREE.Quaternion(),
+    heMarkScale
+  );
+  assert.ok(markScales[0].x <= 0.760001 && markScales[0].y <= 0.760001,
+    'penetration holes must remain much smaller than the former plate-sized dot');
+  assert.ok(markScales[1].x <= 1.400001 && markScales[1].y <= 0.400001,
+    'ricochet marks must read as a narrow scrape rather than a broad disk');
+  assert.ok(markScales[2].x <= 0.720001 && markScales[2].y <= 0.640001,
+    'stopped-round craters must remain compact');
+  assert.ok(heMarkScale.x <= 1.600001 && heMarkScale.y <= 1.250001,
+    'HE scoring must remain bounded instead of covering a large armor patch');
+  const markColors = Array.from({ length: 3 }, (_, index) => {
     const color = new THREE.Color();
     record.scorch.getColorAt(index, color);
     return color.getHex();
   });
+  const heMarkColor = new THREE.Color();
+  record.heScorch.getColorAt(0, heMarkColor);
+  markColors.push(heMarkColor.getHex());
   assert.equal(new Set(markColors).size, 4);
+  const heAlpha = record.heScorch.geometry.getAttribute('color');
+  assert.equal(heAlpha.itemSize, 4);
+  assert.ok(Math.max(...heAlpha.array.filter((_, index) => index % 4 === 3)) <= 0.48,
+    'HE scoring must remain a diffuse burn stain without an opaque crater center');
 
   for (let index = 0; index < 20; index++) {
     effects.processImpacts([{
