@@ -269,6 +269,9 @@ export class GameApp {
       });
       this.terrain.buildScenarioMap();
       await this.terrain.foliageReady;
+      this.cameraManager.setGroundHeightProvider(
+        (x, z) => this.terrain.getRenderedTerrainHeightAt(x, z)
+      );
 
       // 4. Game Systems
       this.units = [];

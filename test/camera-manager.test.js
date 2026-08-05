@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {
+  CAMERA_GROUND_CLEARANCE,
   CAMERA_HOME_DISTANCE,
+  CAMERA_TARGET_GROUND_CLEARANCE,
   CAMERA_UNIT_FOCUS_DISTANCE,
   CameraManager,
   getKeyboardPanOffset
@@ -80,6 +82,76 @@ test('camera update moves position and target together without changing framing'
   );
   assert.ok(manager.controls.target.y > 0);
   assert.equal(updates, 1);
+});
+
+test('camera and orbit target remain above uneven rendered terrain', () => {
+  const manager = Object.create(CameraManager.prototype);
+  manager.camera = {
+    position: new THREE.Vector3(8, -20, 4)
+  };
+  let updates = 0;
+  manager.controls = {
+    target: new THREE.Vector3(2, -10, 6),
+    update() { updates++; }
+  };
+  manager.followUnit = null;
+  manager.interactionLocked = false;
+  manager.pressedPanKeys = new Set();
+  manager.getGroundHeightAt = (x, z) => x * 0.5 - z * 0.25;
+
+  manager.update(0);
+
+  assert.ok(
+    Math.abs(
+      manager.controls.target.y
+        - (manager.getGroundHeightAt(2, 6) + CAMERA_TARGET_GROUND_CLEARANCE)
+    ) < 1e-9
+  );
+  assert.ok(
+    Math.abs(
+      manager.camera.position.y
+        - (manager.getGroundHeightAt(8, 4) + CAMERA_GROUND_CLEARANCE)
+    ) < 1e-9
+  );
+  assert.equal(updates, 2, 'controls must reconcile once after a terrain correction');
+
+  manager.pressedPanKeys.add('KeyE');
+  manager.update(1);
+  assert.ok(
+    manager.controls.target.y
+      >= manager.getGroundHeightAt(
+        manager.controls.target.x,
+        manager.controls.target.z
+      ) + CAMERA_TARGET_GROUND_CLEARANCE
+  );
+  assert.ok(
+    manager.camera.position.y
+      >= manager.getGroundHeightAt(
+        manager.camera.position.x,
+        manager.camera.position.z
+      ) + CAMERA_GROUND_CLEARANCE
+  );
+});
+
+test('lifting a buried orbit target preserves camera framing when terrain permits', () => {
+  const manager = Object.create(CameraManager.prototype);
+  manager.camera = {
+    position: new THREE.Vector3(0, 12, 20)
+  };
+  manager.controls = {
+    target: new THREE.Vector3(0, -4, 0),
+    update() {}
+  };
+  manager.getGroundHeightAt = () => 3;
+  const offset = manager.camera.position.clone().sub(manager.controls.target);
+
+  assert.equal(manager.constrainToTerrain(), true);
+
+  assert.deepEqual(
+    manager.camera.position.clone().sub(manager.controls.target).toArray(),
+    offset.toArray()
+  );
+  assert.equal(manager.controls.target.y, 3 + CAMERA_TARGET_GROUND_CLEARANCE);
 });
 
 test('camera interaction lock freezes pointer damping and keyboard movement', () => {

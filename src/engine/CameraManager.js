@@ -12,6 +12,11 @@ const CAMERA_PAN_KEYS = new Set([
 const UP = new THREE.Vector3(0, 1, 0);
 export const CAMERA_UNIT_FOCUS_DISTANCE = 40;
 export const CAMERA_HOME_DISTANCE = 70;
+// Presentation clearances in scene metres. The camera needs enough room to
+// keep its near plane above the ground, while the orbit target only needs to
+// remain just above the rendered surface.
+export const CAMERA_GROUND_CLEARANCE = 0.75;
+export const CAMERA_TARGET_GROUND_CLEARANCE = 0.05;
 
 function isEditableTarget(target) {
   return target?.tagName === 'INPUT'
@@ -52,7 +57,8 @@ export function getKeyboardPanOffset({
 
 export class CameraManager {
   constructor(camera, domElement, {
-    keyboardTarget = globalThis.window
+    keyboardTarget = globalThis.window,
+    getGroundHeightAt = null
   } = {}) {
     this.camera = camera;
     this.domElement = domElement;
@@ -71,6 +77,8 @@ export class CameraManager {
     this.camera.position.set(0, 45, 95);
     this.controls.update();
     this.homeTarget = this.controls.target.clone();
+    this.getGroundHeightAt = null;
+    this.setGroundHeightProvider(getGroundHeightAt);
 
     this.followUnit = null;
     this.interactionLocked = false;
@@ -103,7 +111,7 @@ export class CameraManager {
     const offset = new THREE.Vector3().subVectors(this.camera.position, this.controls.target);
     this.controls.target.copy(posVec3);
     this.camera.position.copy(posVec3).add(offset);
-    this.controls.update();
+    this.updateControls();
   }
 
   frameTarget(posVec3, distance) {
@@ -120,7 +128,7 @@ export class CameraManager {
         this.controls.maxDistance
       ));
     this.followUnit = null;
-    this.controls.update();
+    this.updateControls();
   }
 
   setHomeTarget(posVec3, { frame = false } = {}) {
@@ -153,7 +161,54 @@ export class CameraManager {
 
     const dir = new THREE.Vector3().subVectors(this.camera.position, this.controls.target).normalize();
     this.camera.position.copy(this.controls.target).addScaledVector(dir, dist);
+    this.updateControls();
+  }
+
+  setGroundHeightProvider(getGroundHeightAt) {
+    if (getGroundHeightAt !== null && typeof getGroundHeightAt !== 'function') {
+      throw new TypeError('camera ground-height provider must be a function or null');
+    }
+    this.getGroundHeightAt = getGroundHeightAt;
+    if (this.camera && this.controls) this.constrainToTerrain();
+    return this;
+  }
+
+  constrainToTerrain() {
+    if (typeof this.getGroundHeightAt !== 'function') return false;
+
+    let changed = false;
+    const targetGround = this.getGroundHeightAt(
+      this.controls.target.x,
+      this.controls.target.z
+    );
+    if (Number.isFinite(targetGround)) {
+      const minimumTargetY = targetGround + CAMERA_TARGET_GROUND_CLEARANCE;
+      if (this.controls.target.y < minimumTargetY) {
+        const lift = minimumTargetY - this.controls.target.y;
+        this.controls.target.y += lift;
+        // Preserve the current framing when the orbit pivot itself was buried.
+        this.camera.position.y += lift;
+        changed = true;
+      }
+    }
+
+    const cameraGround = this.getGroundHeightAt(
+      this.camera.position.x,
+      this.camera.position.z
+    );
+    if (Number.isFinite(cameraGround)) {
+      const minimumCameraY = cameraGround + CAMERA_GROUND_CLEARANCE;
+      if (this.camera.position.y < minimumCameraY) {
+        this.camera.position.y = minimumCameraY;
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  updateControls() {
     this.controls.update();
+    if (this.constrainToTerrain()) this.controls.update();
   }
 
   setInteractionLocked(locked) {
@@ -185,7 +240,7 @@ export class CameraManager {
       this.camera.position.add(keyboardOffset);
       this.controls.target.add(keyboardOffset);
     }
-    this.controls.update();
+    this.updateControls();
   }
 
   dispose() {

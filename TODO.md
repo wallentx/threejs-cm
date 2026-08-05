@@ -53,6 +53,8 @@ even when a matching broader parent exists elsewhere in this file.
 - [x] Reserve desktop `W`/`A`/`S`/`D` for planar camera movement and `Q`/`E`
   for camera up/down; remove every conflicting command hotkey, including mortar
   deploy/pack, while retaining pointer/mobile access to those commands.
+- [x] Keep the tactical camera and its orbit target above the rendered terrain
+  during mouse orbit/pan, keyboard movement, focus changes, and height presets.
 
 ### Environment and effects
 
