@@ -1,20 +1,28 @@
 import * as THREE from 'three';
 import { lateralX } from '../../../world/LocalFrame.js';
+import { BERTHIER_M1892_M16_VISUAL_DATA } from './BerthierM1892M16VisualData.js';
+import {
+  LEBEL_M1886_M93_APX1916_VISUAL_DATA,
+  LEBEL_M1886_M93_VISUAL_DATA
+} from './LebelM1886M93VisualData.js';
+import { LEBEL_M1886_M93_REFERENCE_MESH_DATA } from './LebelM1886M93ReferenceMeshData.js';
+import { MAS36_VISUAL_DATA } from './Mas36VisualData.js';
 
 // Visual dimensions are metres. Overall lengths are historical nominal values;
-// the smaller sectional dimensions are inferred visual proportions.
+// sectional dimensions are inferred proportions unless a source-backed visual
+// record, such as the MAS-36 bundle, classifies them more precisely.
 export const FRANCE_1940_INFANTRY_WEAPON_VISUALS = Object.freeze({
+  'Lebel Mle 1886/93': Object.freeze({
+    ...LEBEL_M1886_M93_VISUAL_DATA.visualSpec
+  }),
+  'Lebel Mle 1886/93 with APX 1916': Object.freeze({
+    ...LEBEL_M1886_M93_APX1916_VISUAL_DATA.visualSpec
+  }),
+  'Berthier Mousqueton Mle 1892 M16': Object.freeze({
+    ...BERTHIER_M1892_M16_VISUAL_DATA.visualSpec
+  }),
   'MAS-36 Rifle': Object.freeze({
-    id: 'mas36',
-    designation: 'MAS-36',
-    kind: 'rifle',
-    overallLength: 1.02,
-    stockEnd: 0.43,
-    receiverEnd: 0.58,
-    handguardEnd: 0.865,
-    barrelRadius: 0.012,
-    magazine: 'internal',
-    definingFeatures: ['dog-leg bolt handle', 'short enclosed internal magazine', 'full wood stock']
+    ...MAS36_VISUAL_DATA.visualSpec
   }),
   'FM 24/29 LMG': Object.freeze({
     id: 'fm2429',
@@ -117,6 +125,202 @@ function cylinderPart(group, material, name, radius, startZ, endZ, x = 0, y = 0,
   const geometry = new THREE.CylinderGeometry(radius, radius, endZ - startZ, sides);
   geometry.rotateX(Math.PI / 2);
   return meshPart(group, geometry, material, name, [x, y, (startZ + endZ) * 0.5]);
+}
+
+function cylinderBetweenPart(group, material, name, radius, start, end, sides = 8) {
+  const startPoint = new THREE.Vector3(...start);
+  const endPoint = new THREE.Vector3(...end);
+  const direction = endPoint.clone().sub(startPoint);
+  const length = direction.length();
+  if (!(length > 0)) throw new Error(`${name} requires distinct endpoints`);
+  const geometry = new THREE.CylinderGeometry(radius, radius, length, sides);
+  const part = meshPart(
+    group,
+    geometry,
+    material,
+    name,
+    startPoint.add(endPoint).multiplyScalar(0.5).toArray()
+  );
+  part.quaternion.setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0),
+    direction.normalize()
+  );
+  part.userData.connectionStart = Object.freeze([...start]);
+  part.userData.connectionEnd = Object.freeze([...end]);
+  return part;
+}
+
+function decodeBase64TypedArray(encoded, count, bytesPerValue, readValue) {
+  const binary = atob(encoded);
+  if (binary.length !== count * bytesPerValue) {
+    throw new Error(`Reference mesh payload length ${binary.length} does not match ${count}`);
+  }
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  const view = new DataView(bytes.buffer);
+  return Array.from({ length: count }, (_, index) => (
+    readValue(view, index * bytesPerValue)
+  ));
+}
+
+function referenceMeshPart(group, material, name, meshData, correctPosition = null) {
+  if (meshData.positionEncoding !== 'float32-le-base64') {
+    throw new Error(`${name} has unsupported position encoding`);
+  }
+  if (meshData.indexEncoding !== 'uint16-le-base64') {
+    throw new Error(`${name} has unsupported index encoding`);
+  }
+  const positions = new Float32Array(decodeBase64TypedArray(
+    meshData.positionBase64,
+    meshData.vertexCount * 3,
+    Float32Array.BYTES_PER_ELEMENT,
+    (view, offset) => view.getFloat32(offset, true)
+  ));
+  const indices = new Uint16Array(decodeBase64TypedArray(
+    meshData.indexBase64,
+    meshData.indexCount,
+    Uint16Array.BYTES_PER_ELEMENT,
+    (view, offset) => view.getUint16(offset, true)
+  ));
+  let correctedVertexCount = 0;
+  if (correctPosition) {
+    for (let offset = 0; offset < positions.length; offset += 3) {
+      correctedVertexCount += correctPosition(positions, offset) ? 1 : 0;
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  for (const group of meshData.groups ?? []) {
+    geometry.addGroup(group.start, group.count, group.materialIndex);
+  }
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  const part = meshPart(group, geometry, material, name, [0, 0, 0]);
+  part.userData.sourceNodeName = meshData.sourceNodeName;
+  part.userData.sourceTriangleCount = meshData.triangleCount;
+  part.userData.correctedVertexCount = correctedVertexCount;
+  part.userData.geometryProvenance = 'normalized user-supplied GLB topology';
+  return part;
+}
+
+function profileShape(points) {
+  const shape = new THREE.Shape();
+  shape.moveTo(points[0].z, points[0].y);
+  for (const point of points.slice(1)) shape.lineTo(point.z, point.y);
+  shape.closePath();
+  return shape;
+}
+
+function profileShapeWithHole(outerPoints, innerPoints) {
+  const outer = outerPoints.map(point => new THREE.Vector2(point.z, point.y));
+  const inner = innerPoints.map(point => new THREE.Vector2(point.z, point.y));
+  if (!THREE.ShapeUtils.isClockWise(outer)) outer.reverse();
+  if (THREE.ShapeUtils.isClockWise(inner)) inner.reverse();
+
+  const shape = new THREE.Shape(outer);
+  shape.holes.push(new THREE.Path(inner));
+  return shape;
+}
+
+function pointSegmentDistanceSquared(point, start, end) {
+  const dz = end.z - start.z;
+  const dy = end.y - start.y;
+  const lengthSquared = dz * dz + dy * dy;
+  if (lengthSquared <= 1e-12) {
+    const pointZ = point.z - start.z;
+    const pointY = point.y - start.y;
+    return pointZ * pointZ + pointY * pointY;
+  }
+  const projection = THREE.MathUtils.clamp(
+    ((point.z - start.z) * dz + (point.y - start.y) * dy) / lengthSquared,
+    0,
+    1
+  );
+  const projectedZ = start.z + dz * projection;
+  const projectedY = start.y + dy * projection;
+  const pointZ = point.z - projectedZ;
+  const pointY = point.y - projectedY;
+  return pointZ * pointZ + pointY * pointY;
+}
+
+function simplifyProfile(points, tolerance) {
+  if (points.length <= 4 || !(tolerance > 0)) return points;
+  const keep = new Uint8Array(points.length);
+  keep[0] = 1;
+  keep[points.length - 1] = 1;
+  const toleranceSquared = tolerance * tolerance;
+  const ranges = [[0, points.length - 1]];
+  while (ranges.length > 0) {
+    const [startIndex, endIndex] = ranges.pop();
+    let farthestIndex = -1;
+    let farthestDistance = toleranceSquared;
+    for (let index = startIndex + 1; index < endIndex; index += 1) {
+      const distance = pointSegmentDistanceSquared(
+        points[index],
+        points[startIndex],
+        points[endIndex]
+      );
+      if (distance > farthestDistance) {
+        farthestDistance = distance;
+        farthestIndex = index;
+      }
+    }
+    if (farthestIndex < 0) continue;
+    keep[farthestIndex] = 1;
+    ranges.push([startIndex, farthestIndex], [farthestIndex, endIndex]);
+  }
+  return points.filter((_point, index) => keep[index] === 1);
+}
+
+function markWeaponLodRepresentation(roots, tier, visible) {
+  const meshes = [];
+  const seen = new Set();
+  for (const root of Array.isArray(roots) ? roots : [roots]) {
+    root.traverse(object => {
+      if (!object.isMesh || seen.has(object)) return;
+      seen.add(object);
+      object.userData.weaponLodTier = tier;
+      object.userData.lodBand = tier;
+      object.visible = visible;
+      meshes.push(object);
+    });
+  }
+  return meshes;
+}
+
+function meshTriangleCount(meshes) {
+  return meshes.reduce((count, mesh) => (
+    count + (mesh.geometry.index?.count ?? mesh.geometry.attributes.position.count) / 3
+  ), 0);
+}
+
+function installWeaponLodContract(model, visualData, highMeshes, mediumGroup, coreGroup) {
+  const mediumMeshes = markWeaponLodRepresentation(mediumGroup, 'medium', false);
+  const coreMeshes = markWeaponLodRepresentation(coreGroup, 'core', false);
+  const representations = Object.freeze({
+    high: Object.freeze([...highMeshes]),
+    medium: Object.freeze(mediumMeshes),
+    core: Object.freeze(coreMeshes)
+  });
+  model.userData.weaponLodRepresentations = representations;
+  model.userData.weaponLodContract = Object.freeze({
+    distancesMetres: Object.freeze({
+      highMax: visualData.lodDistances.highMax,
+      mediumMax: visualData.lodDistances.mediumMax
+    }),
+    classification: visualData.lodDistances.classification,
+    triangleCounts: Object.freeze(Object.fromEntries(
+      Object.entries(representations).map(([tier, meshes]) => [
+        tier,
+        meshTriangleCount(meshes)
+      ])
+    ))
+  });
+  return representations;
 }
 
 function firingHandHeight(parts) {
@@ -325,93 +529,999 @@ function buildMas36(spec, materials) {
   const model = new THREE.Group();
   model.name = `${spec.designation}_WeaponModel`;
 
-  const stockEnd = spec.stockEnd;
-  const receiverEnd = spec.receiverEnd;
-  const realHandguardEnd = spec.handguardEnd;
-  const frontRingStart = realHandguardEnd;
-  const frontRingEnd = frontRingStart + 0.03;
+  const { profiles, stations, widths } = MAS36_VISUAL_DATA;
+  const stockEnd = stations.stockNose;
+  const receiverEnd = stations.receiverEnd;
+  const realHandguardEnd = stations.handguardEnd;
+  const frontRingStart = stations.frontBandStart;
+  const frontRingEnd = stations.frontBandEnd;
 
-  // 1. Rear stock from the buttplate to the authored stock-end station.
-  const stockShape = new THREE.Shape();
-  stockShape.moveTo(0, -0.105);
-  stockShape.bezierCurveTo(0.10, -0.105, 0.22, -0.055, stockEnd, -0.04);
-  stockShape.lineTo(stockEnd, 0.01);
-  stockShape.bezierCurveTo(0.22, 0.005, 0.10, 0.01, 0, 0.01);
-  stockShape.lineTo(0, -0.105);
-  const stock = profilePart(model, materials.wood, `${spec.designation}_Stock`, stockShape, 0.042, stockEnd * 0.5, 0);
+  // 1. Source-registered butt, comb notch, wrist, and lower stock sweep.
+  const stock = profilePart(
+    model,
+    materials.wood,
+    `${spec.designation}_Stock`,
+    profileShape(profiles.stock),
+    widths.stock,
+    stockEnd * 0.5,
+    0
+  );
 
-  // 2. Receiver between the authored stock and receiver stations.
-  const receiverShape = new THREE.Shape();
-  receiverShape.moveTo(stockEnd, -0.04);
-  receiverShape.lineTo(receiverEnd, -0.04);
-  receiverShape.lineTo(receiverEnd, 0.015);
-  receiverShape.lineTo(stockEnd, 0.015);
-  receiverShape.lineTo(stockEnd, -0.04);
-  const receiver = profilePart(model, materials.metal, `${spec.designation}_Receiver`, receiverShape, 0.045, (stockEnd + receiverEnd) * 0.5, 0);
+  // 2. The receiver overlaps the stock wrist; the old single station lost this step.
+  const receiver = profilePart(
+    model,
+    materials.metal,
+    `${spec.designation}_Receiver`,
+    profileShape(profiles.receiver),
+    widths.receiver,
+    (stations.receiverStart + receiverEnd) * 0.5,
+    0
+  );
+  const boltBodySpec = MAS36_VISUAL_DATA.controls.boltBody;
+  const boltBody = cylinderPart(
+    model,
+    materials.metal,
+    `${spec.designation}_BoltBody`,
+    boltBodySpec.radius,
+    boltBodySpec.startZ,
+    boltBodySpec.endZ,
+    0,
+    boltBodySpec.y,
+    16
+  );
+  const receiverTang = boxPart(
+    model,
+    materials.metal,
+    `${spec.designation}_ReceiverTang`,
+    widths.receiver,
+    0.045,
+    stockEnd,
+    stations.receiverTangEnd,
+    -0.0325
+  );
+  const receiverTopDetails = MAS36_VISUAL_DATA.controls.receiverTopDetails.map(detail => {
+    const part = boxPart(
+      model,
+      materials.metal,
+      `${spec.designation}_${detail.name}`,
+      widths.receiver,
+      detail.topY - detail.bottomY,
+      detail.startZ,
+      detail.endZ,
+      (detail.topY + detail.bottomY) * 0.5
+    );
+    part.userData.lodBand = 'core';
+    return part;
+  });
 
   // Internal magazine floorplate under receiver
   const magazine = boxPart(model, materials.metal, `${spec.designation}_InternalMagazineFloorplate`, 0.036, 0.015, stockEnd + 0.02, receiverEnd - 0.02, -0.045);
   magazine.userData.feedType = 'internal';
 
   // Trigger guard
-  const triggerGuardGeometry = new THREE.TorusGeometry(0.022, 0.004, 6, 12);
-  triggerGuardGeometry.rotateY(Math.PI / 2);
-  const triggerGuard = meshPart(model, triggerGuardGeometry, materials.metal, `${spec.designation}_TriggerGuard`, [0, -0.05, stockEnd + 0.05]);
+  const triggerGuardSpec = MAS36_VISUAL_DATA.controls.triggerGuard;
+  const triggerGuard = profilePart(
+    model,
+    materials.metal,
+    `${spec.designation}_TriggerGuard`,
+    profileShapeWithHole(triggerGuardSpec.outer, triggerGuardSpec.inner),
+    0.012,
+    triggerGuardSpec.z,
+    0
+  );
+  const trigger = profilePart(
+    model,
+    materials.metal,
+    `${spec.designation}_Trigger`,
+    profileShape(triggerGuardSpec.trigger),
+    0.010,
+    triggerGuardSpec.z,
+    0
+  );
 
   // Dog-leg bolt handle (characteristic forward-angled bolt handle on right side)
-  const stemGeometry = new THREE.CylinderGeometry(0.004, 0.005, 0.045, 6);
-  stemGeometry.rotateX(Math.PI / 2);
-  const boltHandle = meshPart(model, stemGeometry, materials.metal, `${spec.designation}_BoltHandle`, [lateralX('right', 0.028), 0.005, stockEnd + 0.06]);
-  boltHandle.rotation.y = 0.4;
-  boltHandle.rotation.x = -0.3;
+  const boltKnobPosition = [lateralX('right', 0.047), -0.012, stockEnd + 0.045];
+  const boltHandle = cylinderBetweenPart(
+    model,
+    materials.metal,
+    `${spec.designation}_BoltHandle`,
+    0.005,
+    [lateralX('right', widths.receiver * 0.5), 0.005, stockEnd + 0.06],
+    boltKnobPosition,
+    8
+  );
   boltHandle.userData.semanticSide = 'right';
+  const boltKnob = meshPart(
+    model,
+    new THREE.SphereGeometry(0.011, 8, 6),
+    materials.metal,
+    `${spec.designation}_BoltKnob`,
+    boltKnobPosition
+  );
+  boltKnob.userData.semanticSide = 'right';
+  boltHandle.userData.knob = boltKnob;
 
-  // 3. Wooden forend / handguard, ending inside the front sight band.
-  const handguardShape = new THREE.Shape();
-  handguardShape.moveTo(receiverEnd, -0.038);
-  handguardShape.lineTo(realHandguardEnd, -0.022);
-  handguardShape.lineTo(realHandguardEnd, 0.016);
-  handguardShape.lineTo(receiverEnd, 0.016);
-  handguardShape.lineTo(receiverEnd, -0.038);
-  const handguard = profilePart(model, materials.wood, `${spec.designation}_Handguard`, handguardShape, 0.038, (receiverEnd + realHandguardEnd) * 0.5, 0);
+  // 3. Separate fore-end and upper handguard retain the source's horizontal seam.
+  const handguard = profilePart(
+    model,
+    materials.wood,
+    `${spec.designation}_Handguard`,
+    profileShape(profiles.lowerHandguard),
+    widths.lowerHandguard,
+    (receiverEnd + realHandguardEnd) * 0.5,
+    0
+  );
+  const upperHandguard = profilePart(
+    model,
+    materials.wood,
+    `${spec.designation}_UpperHandguard`,
+    profileShape(profiles.upperHandguard),
+    widths.upperHandguard,
+    (receiverEnd + realHandguardEnd) * 0.5,
+    0
+  );
 
   // Ejection port on right side
-  const ejectionPort = meshPart(model, new THREE.BoxGeometry(0.009, 0.026, 0.075), materials.metal, `${spec.designation}_EjectionPort`, [lateralX('right', 0.016), 0.02, stockEnd + 0.095]);
+  const ejectionPort = meshPart(
+    model,
+    new THREE.BoxGeometry(0.009, 0.018, 0.075),
+    materials.metal,
+    `${spec.designation}_EjectionPort`,
+    [lateralX('right', 0.016), 0.005, stockEnd + 0.095]
+  );
   ejectionPort.userData.semanticSide = 'right';
+  ejectionPort.userData.envelopeRole = 'surfaceDetail';
 
   // 4. Barrel from the receiver to the historical overall length.
   const barrel = cylinderPart(model, materials.metal, `${spec.designation}_Barrel`, spec.barrelRadius, receiverEnd, spec.overallLength);
 
   // 5. Metal Barrel Bands (Mid Ring and Front Cap) - made wider/thicker than wood furniture (width 0.048 / 0.046 vs wood 0.038)
-  const midRing = boxPart(model, materials.metal, `${spec.designation}_MidRing`, 0.048, 0.050, 0.67, 0.69, -0.006);
+  const midBandSpec = MAS36_VISUAL_DATA.controls.midBand;
+  const midRingBottom = midBandSpec.woodBottomY - midBandSpec.protrusion;
+  const midRingTop = midBandSpec.woodTopY + midBandSpec.protrusion;
+  const midRing = boxPart(
+    model,
+    materials.metal,
+    `${spec.designation}_MidRing`,
+    widths.midBand,
+    midRingTop - midRingBottom,
+    stations.midBandStart,
+    stations.midBandEnd,
+    (midRingTop + midRingBottom) * 0.5
+  );
 
   // Front cap metal band meeting the end of the wooden furniture.
-  const frontRing = boxPart(model, materials.metal, `${spec.designation}_FrontRing`, 0.046, 0.044, frontRingStart, frontRingEnd, -0.005);
+  const frontRing = boxPart(model, materials.metal, `${spec.designation}_FrontRing`, widths.frontBand, 0.044, frontRingStart, frontRingEnd, -0.005);
 
-  // Front Sight Hood (solid hollow cylinder tube with inner & outer faces, 2.4cm diameter, 3cm length)
-  const hoodShape = new THREE.Shape();
-  hoodShape.absarc(0, 0, 0.012, 0, Math.PI * 2, false);
-  const holePath = new THREE.Path();
-  holePath.absarc(0, 0, 0.009, 0, Math.PI * 2, true);
-  hoodShape.holes.push(holePath);
-  const hoodGeo = new THREE.ExtrudeGeometry(hoodShape, { depth: 0.030, bevelEnabled: false });
-  hoodGeo.translate(0, 0, -0.015);
-  const frontSight = meshPart(model, hoodGeo, materials.metal, `${spec.designation}_FrontSight`, [0, 0.018, (frontRingStart + frontRingEnd) * 0.5]);
+  // The assembled side elevation shows a compact rectangular hood, not the
+  // generic 30 mm circular tunnel used by the previous approximation.
+  const frontSightSpec = MAS36_VISUAL_DATA.controls.frontSight;
+  const frontSight = boxPart(
+    model,
+    materials.metal,
+    `${spec.designation}_FrontSight`,
+    0.024,
+    frontSightSpec.topY - frontSightSpec.bottomY,
+    frontSightSpec.startZ,
+    frontSightSpec.endZ,
+    (frontSightSpec.topY + frontSightSpec.bottomY) * 0.5
+  );
   frontSight.userData.semanticPart = 'frontSight';
 
   // Reversed-bayonet storage tube emerging forward from the front band.
-  const bayonetTube = cylinderPart(model, materials.metal, `${spec.designation}_BayonetTube`, 0.006, frontRingStart, spec.overallLength - 0.03, 0, -0.022);
+  const bayonetTube = cylinderPart(model, materials.metal, `${spec.designation}_BayonetTube`, 0.006, frontRingStart, stations.bayonetTubeEnd, 0, -0.022);
 
   const muzzle = new THREE.Object3D();
   muzzle.name = `${spec.designation}_Muzzle`;
   muzzle.position.set(0, 0, spec.overallLength);
   model.add(muzzle);
 
-  const coreSilhouette = [stock, receiver, handguard, barrel, bayonetTube];
+  const coreSilhouette = [
+    stock,
+    receiver,
+    boltBody,
+    receiverTang,
+    ...receiverTopDetails,
+    handguard,
+    upperHandguard,
+    barrel,
+    frontSight,
+    triggerGuard,
+    bayonetTube
+  ];
   for (const part of coreSilhouette) part.userData.lodBand = 'core';
 
-  model.userData.visualContract = { units: 'metres', overallLength: spec.overallLength, definingFeatures: ['dog-leg bolt handle', 'exposed bayonet tube', 'two piece stock', 'barrel band'], ...spec };
-  model.userData.parts = { stock, receiver, handguard, barrel, magazine, muzzle, frontSight, triggerGuard, boltHandle, ejectionPort, chargingHandle: null, coreSilhouette };
+  model.userData.visualContract = {
+    units: 'metres',
+    overallLength: spec.overallLength,
+    source: MAS36_VISUAL_DATA.source,
+    ...spec
+  };
+  model.userData.parts = { stock, receiver, boltBody, receiverTang, receiverTopDetails, handguard, upperHandguard, barrel, magazine, muzzle, frontSight, triggerGuard, trigger, boltHandle, ejectionPort, chargingHandle: null, coreSilhouette };
+  return model;
+}
+
+function buildBerthierLodRepresentation(spec, materials, tier) {
+  const group = new THREE.Group();
+  group.name = `${spec.designation}_${tier}_LOD`;
+  const { profiles, stations, widths, controls } = BERTHIER_M1892_M16_VISUAL_DATA;
+  const medium = tier === 'medium';
+  const tolerance = medium ? 0.0015 : 0.004;
+  const receiverTop = Math.max(...profiles.receiver.map(point => point.y));
+  const receiverBottom = Math.min(...profiles.receiver.map(point => point.y));
+  const receiverRadius = (receiverTop - receiverBottom) * 0.5;
+
+  profilePart(
+    group,
+    materials.wood,
+    `${spec.designation}_${tier}_Stock`,
+    profileShape(simplifyProfile(profiles.stock, tolerance)),
+    widths.stock,
+    stations.stockNose * 0.5
+  );
+  cylinderPart(
+    group,
+    materials.metal,
+    `${spec.designation}_${tier}_Receiver`,
+    receiverRadius,
+    stations.receiverStart,
+    stations.receiverEnd,
+    0,
+    (receiverTop + receiverBottom) * 0.5,
+    medium ? 10 : 6
+  );
+  profilePart(
+    group,
+    materials.wood,
+    `${spec.designation}_${tier}_Handguard`,
+    profileShape(simplifyProfile(profiles.handguard, tolerance)),
+    widths.handguard,
+    (stations.handguardStart + stations.handguardEnd) * 0.5
+  );
+  profilePart(
+    group,
+    materials.wood,
+    `${spec.designation}_${tier}_UpperHandguard`,
+    profileShape(profiles.upperHandguard),
+    widths.upperHandguard,
+    (stations.handguardStart + stations.handguardEnd) * 0.5
+  );
+  profilePart(
+    group,
+    materials.wood,
+    `${spec.designation}_${tier}_ForwardUpperHandguard`,
+    profileShape(profiles.forwardUpperHandguard),
+    widths.forwardUpperHandguard,
+    (stations.midBandEnd + stations.frontBandStart) * 0.5
+  );
+  const magazine = profilePart(
+    group,
+    materials.metal,
+    `${spec.designation}_${tier}_M16Magazine`,
+    profileShape(simplifyProfile(profiles.magazine, tolerance)),
+    widths.magazine,
+    (stations.receiverStart + stations.receiverEnd) * 0.5
+  );
+  magazine.userData.feedType = 'en-bloc';
+  const barrel = cylinderPart(
+    group,
+    materials.metal,
+    `${spec.designation}_${tier}_Barrel`,
+    spec.barrelRadius,
+    stations.receiverEnd,
+    spec.overallLength,
+    0,
+    0,
+    medium ? 8 : 6
+  );
+  barrel.userData.semanticPart = 'barrel';
+
+  for (const [control, width, name] of [
+    [controls.midBand, widths.midBand, 'MidBand'],
+    [controls.frontBand, widths.frontBand, 'FrontBand']
+  ]) {
+    boxPart(
+      group,
+      materials.metal,
+      `${spec.designation}_${tier}_${name}`,
+      width,
+      control.topY - control.bottomY,
+      control.startZ,
+      control.endZ,
+      (control.topY + control.bottomY) * 0.5
+    );
+  }
+
+  if (medium) {
+    profilePart(
+      group,
+      materials.metal,
+      `${spec.designation}_${tier}_TriggerGuard`,
+      profileShapeWithHole(profiles.triggerGuardOuter, profiles.triggerGuardInner),
+      0.012,
+      stations.receiverStart
+    );
+    boxPart(
+      group,
+      materials.metal,
+      `${spec.designation}_${tier}_RearSight`,
+      widths.receiver,
+      controls.rearSight.topY - controls.rearSight.bottomY,
+      controls.rearSight.startZ,
+      controls.rearSight.endZ,
+      (controls.rearSight.topY + controls.rearSight.bottomY) * 0.5
+    );
+    profilePart(
+      group,
+      materials.metal,
+      `${spec.designation}_${tier}_FrontSight`,
+      profileShape(profiles.frontSight),
+      widths.frontSight,
+      (controls.frontSight.startZ + controls.frontSight.endZ) * 0.5
+    );
+    const stackingRodY = (
+      controls.stackingRod.topY + controls.stackingRod.bottomY
+    ) * 0.5;
+    cylinderPart(
+      group,
+      materials.metal,
+      `${spec.designation}_${tier}_RightStackingRod`,
+      controls.stackingRod.radius,
+      controls.stackingRod.startZ,
+      controls.stackingRod.endZ,
+      controls.stackingRod.x,
+      stackingRodY,
+      6
+    );
+    const boltStart = [
+      lateralX('right', widths.receiver * 0.5),
+      controls.boltHandle.start.y,
+      controls.boltHandle.start.z
+    ];
+    const boltEnd = [
+      lateralX('right', 0.035),
+      controls.boltHandle.end.y,
+      controls.boltHandle.end.z
+    ];
+    cylinderBetweenPart(
+      group,
+      materials.metal,
+      `${spec.designation}_${tier}_BoltHandle`,
+      controls.boltHandle.stemRadius,
+      boltStart,
+      boltEnd,
+      6
+    ).userData.semanticSide = 'right';
+    const knob = meshPart(
+      group,
+      new THREE.SphereGeometry(controls.boltHandle.knobRadius, 6, 4),
+      materials.metal,
+      `${spec.designation}_${tier}_BoltKnob`,
+      [
+        lateralX('right', 0.035),
+        controls.boltHandle.knobCenter.y,
+        controls.boltHandle.knobCenter.z
+      ]
+    );
+    knob.userData.semanticSide = 'right';
+  }
+  return group;
+}
+
+function buildBerthierM1892M16(spec, materials) {
+  const model = new THREE.Group();
+  model.name = `${spec.designation}_WeaponModel`;
+  const { profiles, stations, widths, controls } = BERTHIER_M1892_M16_VISUAL_DATA;
+
+  const stock = profilePart(
+    model, materials.wood, `${spec.designation}_Stock`,
+    profileShape(profiles.stock), widths.stock, stations.stockNose * 0.5
+  );
+  const receiverTop = Math.max(...profiles.receiver.map(point => point.y));
+  const receiverBottom = Math.min(...profiles.receiver.map(point => point.y));
+  const receiverRadius = (receiverTop - receiverBottom) * 0.5;
+  const receiver = cylinderPart(
+    model, materials.metal, `${spec.designation}_ReceiverTube`,
+    receiverRadius, stations.receiverStart, stations.receiverEnd,
+    0, (receiverTop + receiverBottom) * 0.5, 20
+  );
+  const handguard = profilePart(
+    model, materials.wood, `${spec.designation}_Handguard`,
+    profileShape(profiles.handguard), widths.handguard,
+    (stations.handguardStart + stations.handguardEnd) * 0.5
+  );
+  const upperHandguard = profilePart(
+    model, materials.wood, `${spec.designation}_UpperHandguard`,
+    profileShape(profiles.upperHandguard), widths.upperHandguard,
+    (stations.handguardStart + stations.handguardEnd) * 0.5
+  );
+  const forwardUpperHandguard = profilePart(
+    model, materials.wood, `${spec.designation}_ForwardUpperHandguard`,
+    profileShape(profiles.forwardUpperHandguard), widths.forwardUpperHandguard,
+    (stations.midBandEnd + stations.frontBandStart) * 0.5
+  );
+  const magazine = profilePart(
+    model, materials.metal, `${spec.designation}_M16Magazine`,
+    profileShape(profiles.magazine), widths.magazine,
+    (stations.receiverStart + stations.receiverEnd) * 0.5
+  );
+  magazine.userData.feedType = 'en-bloc';
+
+  const triggerGuard = profilePart(
+    model, materials.metal, `${spec.designation}_TriggerGuard`,
+    profileShapeWithHole(profiles.triggerGuardOuter, profiles.triggerGuardInner),
+    0.012, stations.receiverStart
+  );
+  const trigger = profilePart(
+    model, materials.metal, `${spec.designation}_Trigger`,
+    profileShape(profiles.trigger), 0.010, stations.receiverStart
+  );
+
+  const barrel = cylinderPart(
+    model, materials.metal, `${spec.designation}_Barrel`,
+    spec.barrelRadius, stations.receiverEnd, spec.overallLength, 0, 0, 16
+  );
+
+  const addSourceBox = (source, width, suffix) => boxPart(
+    model,
+    materials.metal,
+    `${spec.designation}_${suffix}`,
+    width,
+    source.topY - source.bottomY,
+    source.startZ,
+    source.endZ,
+    (source.topY + source.bottomY) * 0.5
+  );
+  const rearSight = addSourceBox(controls.rearSight, widths.receiver, 'RearSight');
+  const frontSight = profilePart(
+    model,
+    materials.metal,
+    `${spec.designation}_FrontSight`,
+    profileShape(profiles.frontSight),
+    widths.frontSight,
+    (controls.frontSight.startZ + controls.frontSight.endZ) * 0.5
+  );
+  frontSight.userData.semanticPart = 'frontSight';
+  const midBand = addSourceBox(controls.midBand, widths.midBand, 'MidBand');
+  const frontBand = addSourceBox(controls.frontBand, widths.frontBand, 'FrontBand');
+  const stackingRodY = (controls.stackingRod.topY + controls.stackingRod.bottomY) * 0.5;
+  const stackingRod = cylinderPart(
+    model,
+    materials.metal,
+    `${spec.designation}_RightStackingRod`,
+    controls.stackingRod.radius,
+    controls.stackingRod.startZ,
+    controls.stackingRod.endZ,
+    controls.stackingRod.x,
+    stackingRodY,
+    10
+  );
+  stackingRod.userData.semanticSide = controls.stackingRod.semanticSide;
+  stackingRod.userData.connectionStart = Object.freeze([
+    controls.stackingRod.x,
+    stackingRodY,
+    controls.stackingRod.startZ
+  ]);
+
+  const boltStart = [
+    lateralX('right', widths.receiver * 0.5),
+    controls.boltHandle.start.y,
+    controls.boltHandle.start.z
+  ];
+  const boltEnd = [
+    lateralX('right', 0.035),
+    controls.boltHandle.end.y,
+    controls.boltHandle.end.z
+  ];
+  const boltHandle = cylinderBetweenPart(
+    model, materials.metal, `${spec.designation}_BoltHandle`,
+    controls.boltHandle.stemRadius, boltStart, boltEnd, 10
+  );
+  boltHandle.userData.semanticSide = 'right';
+  const boltKnobPosition = [
+    lateralX('right', 0.035),
+    controls.boltHandle.knobCenter.y,
+    controls.boltHandle.knobCenter.z
+  ];
+  const boltKnob = meshPart(
+    model,
+    new THREE.SphereGeometry(controls.boltHandle.knobRadius, 10, 8),
+    materials.metal,
+    `${spec.designation}_BoltKnob`,
+    boltKnobPosition
+  );
+  boltKnob.userData.semanticSide = 'right';
+  boltHandle.userData.knob = boltKnob;
+
+  const muzzle = new THREE.Object3D();
+  muzzle.name = `${spec.designation}_Muzzle`;
+  muzzle.position.set(0, 0, spec.overallLength);
+  model.add(muzzle);
+
+  const detailedMeshes = [
+    stock, receiver, handguard, upperHandguard, forwardUpperHandguard,
+    magazine, triggerGuard, trigger,
+    barrel, rearSight, frontSight, midBand, frontBand, stackingRod,
+    boltHandle, boltKnob
+  ];
+  const highMeshes = markWeaponLodRepresentation(detailedMeshes, 'high', true);
+  const mediumLod = buildBerthierLodRepresentation(spec, materials, 'medium');
+  const coreLod = buildBerthierLodRepresentation(spec, materials, 'core');
+  model.add(mediumLod, coreLod);
+  const lodRepresentations = installWeaponLodContract(
+    model,
+    BERTHIER_M1892_M16_VISUAL_DATA,
+    highMeshes,
+    mediumLod,
+    coreLod
+  );
+
+  model.userData.visualContract = {
+    units: 'metres',
+    overallLength: spec.overallLength,
+    source: BERTHIER_M1892_M16_VISUAL_DATA.source,
+    classification: BERTHIER_M1892_M16_VISUAL_DATA.classification,
+    ...spec
+  };
+  model.userData.parts = {
+    stock, receiver, handguard, upperHandguard, forwardUpperHandguard,
+    magazine, triggerGuard, trigger,
+    barrel, rearSight, frontSight, midBand, frontBand, stackingRod,
+    boltHandle, boltKnob, muzzle, chargingHandle: null, pistolGrip: null,
+    detailedMeshes: lodRepresentations.high,
+    mediumSilhouette: lodRepresentations.medium,
+    coreSilhouette: lodRepresentations.core
+  };
+  return model;
+}
+
+function buildLebelLodRepresentation(spec, materials, visualData, tier) {
+  const group = new THREE.Group();
+  group.name = `${spec.designation}_${tier}_LOD`;
+  const { profiles, stations, widths, controls } = visualData;
+  const medium = tier === 'medium';
+  const tolerance = medium ? 0.0015 : 0.004;
+
+  profilePart(
+    group,
+    materials.wood,
+    `${spec.designation}_${tier}_Stock`,
+    profileShape(simplifyProfile(profiles.stock, tolerance)),
+    widths.stock,
+    stations.receiverEnd * 0.5
+  );
+  profilePart(
+    group,
+    materials.metal,
+    `${spec.designation}_${tier}_Receiver`,
+    profileShape(simplifyProfile(profiles.receiver, tolerance)),
+    widths.receiver,
+    (stations.receiverStart + stations.receiverEnd) * 0.5
+  );
+  profilePart(
+    group,
+    materials.wood,
+    `${spec.designation}_${tier}_RearForearm`,
+    profileShape(profiles.rearForearm),
+    widths.rearForearm,
+    (stations.rearForearmStart + stations.rearForearmEnd) * 0.5
+  );
+  profilePart(
+    group,
+    materials.wood,
+    `${spec.designation}_${tier}_FrontForearm`,
+    profileShape(profiles.frontForearm),
+    widths.frontForearm,
+    (stations.frontForearmStart + stations.frontForearmEnd) * 0.5
+  );
+  const barrel = cylinderPart(
+    group,
+    materials.metal,
+    `${spec.designation}_${tier}_Barrel`,
+    controls.barrel.rendererRadiusMetres,
+    stations.receiverEnd,
+    spec.overallLength,
+    0,
+    0,
+    medium ? 8 : 6
+  );
+  barrel.userData.semanticPart = 'barrel';
+  const magazineTube = cylinderPart(
+    group,
+    materials.metal,
+    `${spec.designation}_${tier}_TubeMagazine`,
+    controls.tube.radius,
+    controls.tube.startZ,
+    1.2581,
+    0,
+    controls.tube.y,
+    medium ? 8 : 6
+  );
+  magazineTube.userData.feedType = 'tubular';
+
+  for (const [control, width, name] of [
+    [controls.midBand, widths.midBand, 'MidBand'],
+    [controls.frontBand, widths.frontBand, 'FrontBand']
+  ]) {
+    boxPart(
+      group,
+      materials.metal,
+      `${spec.designation}_${tier}_${name}`,
+      width,
+      control.topY - control.bottomY,
+      control.startZ,
+      control.endZ,
+      (control.topY + control.bottomY) * 0.5
+    );
+  }
+
+  if (medium) {
+    profilePart(
+      group,
+      materials.metal,
+      `${spec.designation}_${tier}_TriggerGuard`,
+      profileShapeWithHole(profiles.triggerGuardOuter, profiles.triggerGuardInner),
+      widths.triggerGuard,
+      stations.receiverStart
+    );
+    boxPart(
+      group,
+      materials.metal,
+      `${spec.designation}_${tier}_RearSight`,
+      widths.rearSight,
+      controls.rearSight.topY - controls.rearSight.bottomY,
+      controls.rearSight.startZ,
+      controls.rearSight.endZ,
+      (controls.rearSight.topY + controls.rearSight.bottomY) * 0.5
+    );
+    profilePart(
+      group,
+      materials.metal,
+      `${spec.designation}_${tier}_FrontSight`,
+      profileShape(profiles.frontSight),
+      widths.frontSight,
+      (profiles.frontSight[0].z + profiles.frontSight.at(-1).z) * 0.5
+    );
+    const boltAction = controls.boltAction;
+    cylinderPart(
+      group,
+      materials.boltMetal ?? materials.metal,
+      `${spec.designation}_${tier}_BoltBody`,
+      boltAction.bodyRadius,
+      boltAction.bodyStartZ,
+      boltAction.bodyEndZ,
+      0,
+      boltAction.axisY,
+      8
+    );
+    const boltHandle = cylinderBetweenPart(
+      group,
+      materials.boltMetal ?? materials.metal,
+      `${spec.designation}_${tier}_BoltHandle`,
+      controls.boltHandle.stemRadius,
+      [
+        lateralX('right', controls.boltHandle.stemStartOffset),
+        controls.boltHandle.centerY,
+        controls.boltHandle.centerZ
+      ],
+      [
+        lateralX('right', controls.boltHandle.stemEndOffset),
+        controls.boltHandle.centerY,
+        controls.boltHandle.centerZ
+      ],
+      6
+    );
+    boltHandle.userData.semanticSide = 'right';
+    const knob = meshPart(
+      group,
+      new THREE.SphereGeometry(controls.boltHandle.knobRadius, 6, 4),
+      materials.boltMetal ?? materials.metal,
+      `${spec.designation}_${tier}_BoltKnob`,
+      [
+        lateralX(
+          'right',
+          controls.boltHandle.knobEndOffset - controls.boltHandle.knobRadius
+        ),
+        controls.boltHandle.centerY,
+        controls.boltHandle.centerZ
+      ]
+    );
+    knob.userData.semanticSide = 'right';
+    cylinderPart(
+      group,
+      materials.metal,
+      `${spec.designation}_${tier}_StackingTube`,
+      controls.stackingTube.radius,
+      controls.stackingTube.startZ,
+      controls.stackingTube.endZ,
+      0,
+      controls.stackingTube.centerY,
+      6
+    );
+  }
+
+  if (spec.optic === 'apx1916') {
+    const optic = controls.optic;
+    const scopeBounds = visualData.crossViewReference.normalizedMeasurements.scopeBounds;
+    const scopeCenterY = (scopeBounds.minY + scopeBounds.maxY) * 0.5;
+    if (medium) {
+      const opticParts = [
+        cylinderPart(
+          group,
+          materials.metal,
+          `${spec.designation}_${tier}_APXTube`,
+          optic.tubeRadius,
+          scopeBounds.startZ,
+          scopeBounds.endZ,
+          scopeBounds.lateralCenterOffset,
+          scopeCenterY,
+          8
+        ),
+        cylinderPart(
+          group,
+          materials.metal,
+          `${spec.designation}_${tier}_APXObjective`,
+          optic.objectiveRadius,
+          scopeBounds.startZ,
+          scopeBounds.startZ + 0.02,
+          scopeBounds.lateralCenterOffset,
+          scopeCenterY,
+          8
+        ),
+        cylinderPart(
+          group,
+          materials.metal,
+          `${spec.designation}_${tier}_APXOcular`,
+          optic.ocularRadius,
+          scopeBounds.endZ - 0.02,
+          scopeBounds.endZ,
+          scopeBounds.lateralCenterOffset,
+          scopeCenterY,
+          8
+        )
+      ];
+      for (const part of opticParts) part.userData.semanticSide = 'left';
+      const tubeBottom = scopeCenterY - optic.tubeRadius;
+      for (const [index, station] of optic.mountStations.entries()) {
+        const mount = boxPart(
+          group,
+          materials.metal,
+          `${spec.designation}_${tier}_APXMount_${index + 1}`,
+          optic.mountWidth,
+          tubeBottom - scopeBounds.minY,
+          station - 0.008,
+          station + 0.008,
+          (tubeBottom + scopeBounds.minY) * 0.5
+        );
+        mount.position.x = scopeBounds.lateralCenterOffset;
+        mount.userData.semanticSide = 'left';
+      }
+    } else {
+      const opticProxy = boxPart(
+        group,
+        materials.metal,
+        `${spec.designation}_${tier}_APX1916`,
+        scopeBounds.width,
+        scopeBounds.height,
+        scopeBounds.startZ,
+        scopeBounds.endZ,
+        scopeCenterY
+      );
+      opticProxy.position.x = scopeBounds.lateralCenterOffset;
+      opticProxy.userData.semanticSide = 'left';
+    }
+  }
+  return group;
+}
+
+function buildLebelM1886M93(spec, materials) {
+  const model = new THREE.Group();
+  model.name = `${spec.designation}_WeaponModel`;
+  const visualData = spec.optic === 'apx1916'
+    ? LEBEL_M1886_M93_APX1916_VISUAL_DATA
+    : LEBEL_M1886_M93_VISUAL_DATA;
+  const { controls } = visualData;
+  const referenceMeshes = {
+    ...LEBEL_M1886_M93_REFERENCE_MESH_DATA.shared,
+    ...(spec.optic === 'apx1916'
+      ? LEBEL_M1886_M93_REFERENCE_MESH_DATA.scoped
+      : LEBEL_M1886_M93_REFERENCE_MESH_DATA.plain)
+  };
+  const correctBodyBarrel = (positions, offset) => {
+    const z = positions[offset + 2];
+    if (z < 0.575) return false;
+    const x = positions[offset];
+    const y = positions[offset + 1];
+    const radius = Math.hypot(x, y);
+    const targetRadius = controls.barrel.rendererRadiusMetres;
+    if (radius <= 1e-7 || radius >= targetRadius) return false;
+    const scale = targetRadius / radius;
+    positions[offset] = x * scale;
+    positions[offset + 1] = y * scale;
+    return true;
+  };
+  const stock = referenceMeshPart(
+    model, materials.wood, `${spec.designation}_Stock`, referenceMeshes.stock
+  );
+  const bodyBarrelAssembly = referenceMeshPart(
+    model,
+    materials.metal,
+    `${spec.designation}_ReceiverBarrelAssembly`,
+    referenceMeshes.bodyBarrelAssembly,
+    correctBodyBarrel
+  );
+  bodyBarrelAssembly.userData.feedType = 'tubular';
+  bodyBarrelAssembly.userData.semanticRegions = Object.freeze({
+    receiver: Object.freeze({ startZ: 0.2697, endZ: 0.5884 }),
+    barrel: Object.freeze({ startZ: 0.5779, endZ: spec.overallLength }),
+    tubeMagazine: Object.freeze({ startZ: 0.3568, endZ: 1.2581 })
+  });
+  bodyBarrelAssembly.userData.rendererCorrection = Object.freeze({
+    type: 'minimum radial barrel radius',
+    startZ: 0.575,
+    sourceRadius: LEBEL_M1886_M93_REFERENCE_MESH_DATA.source.sourceBarrelRadius,
+    rendererRadius: controls.barrel.rendererRadiusMetres
+  });
+  const handguard = referenceMeshPart(
+    model,
+    referenceMeshes.handguard.materialSlots.map(slot => materials[slot] ?? materials.metal),
+    `${spec.designation}_Handguard`,
+    referenceMeshes.handguard
+  );
+  const triggerGuard = referenceMeshPart(
+    model, materials.metal, `${spec.designation}_TriggerGuard`, referenceMeshes.triggerGuard
+  );
+  const trigger = referenceMeshPart(
+    model, materials.metal, `${spec.designation}_Trigger`, referenceMeshes.trigger
+  );
+  const boltBack = referenceMeshPart(
+    model,
+    materials.boltMetal ?? materials.metal,
+    `${spec.designation}_BoltBack`,
+    referenceMeshes.boltBack
+  );
+  const bolt = referenceMeshPart(
+    model,
+    materials.boltMetal ?? materials.metal,
+    `${spec.designation}_Bolt`,
+    referenceMeshes.bolt
+  );
+  bolt.userData.semanticSide = 'right';
+  const stackingTube = referenceMeshPart(
+    model, materials.metal, `${spec.designation}_StackingTube`, referenceMeshes.stackingTube
+  );
+  stackingTube.userData.semanticPart = controls.stackingTube.semanticPart;
+  const stackingTubeBounds = stackingTube.geometry.boundingBox;
+  stackingTube.userData.connectionStart = Object.freeze([
+    (stackingTubeBounds.min.x + stackingTubeBounds.max.x) * 0.5,
+    (stackingTubeBounds.min.y + stackingTubeBounds.max.y) * 0.5,
+    stackingTubeBounds.min.z
+  ]);
+  const frontSight = referenceMeshPart(
+    model, materials.metal, `${spec.designation}_FrontSight`, referenceMeshes.frontSight
+  );
+  frontSight.userData.semanticPart = 'frontSight';
+
+  const rearSight = new THREE.Group();
+  rearSight.name = `${spec.designation}_RearSightAssembly`;
+  rearSight.userData.geometryProvenance = 'three contacted normalized GLB meshes';
+  model.add(rearSight);
+  const rearSightMount = referenceMeshPart(
+    rearSight,
+    materials.metal,
+    `${spec.designation}_RearSightMount`,
+    referenceMeshes.rearSightMount
+  );
+  const rearSightPost = referenceMeshPart(
+    rearSight,
+    materials.metal,
+    `${spec.designation}_RearSightPost`,
+    referenceMeshes.rearSightPost
+  );
+  const rearSightLeaf = referenceMeshPart(
+    rearSight,
+    materials.metal,
+    `${spec.designation}_RearSightLeaf`,
+    referenceMeshes.rearSightLeaf
+  );
+  rearSight.userData.parts = Object.freeze({
+    mount: rearSightMount,
+    post: rearSightPost,
+    leaf: rearSightLeaf
+  });
+
+  let optic = null;
+  if (referenceMeshes.optic) {
+    optic = referenceMeshPart(
+      model, materials.metal, `${spec.designation}_APX1916`, referenceMeshes.optic
+    );
+    optic.userData.opticId = 'APX_1916';
+    optic.userData.semanticSide = 'left';
+    optic.userData.connectedSourceAssembly = true;
+  }
+
+  const muzzle = new THREE.Object3D();
+  muzzle.name = `${spec.designation}_Muzzle`;
+  muzzle.position.set(0, 0, spec.overallLength);
+  model.add(muzzle);
+
+  const detailedMeshes = [
+    stock,
+    bodyBarrelAssembly,
+    handguard,
+    triggerGuard,
+    trigger,
+    boltBack,
+    bolt,
+    rearSightMount,
+    rearSightPost,
+    rearSightLeaf,
+    stackingTube,
+    frontSight
+  ];
+  if (optic) detailedMeshes.push(optic);
+  const highMeshes = markWeaponLodRepresentation(detailedMeshes, 'high', true);
+  const mediumLod = buildLebelLodRepresentation(
+    spec,
+    materials,
+    visualData,
+    'medium'
+  );
+  const coreLod = buildLebelLodRepresentation(
+    spec,
+    materials,
+    visualData,
+    'core'
+  );
+  model.add(mediumLod, coreLod);
+  const lodRepresentations = installWeaponLodContract(
+    model,
+    visualData,
+    highMeshes,
+    mediumLod,
+    coreLod
+  );
+
+  model.userData.visualContract = {
+    units: 'metres',
+    overallLength: spec.overallLength,
+    source: visualData.source,
+    crossViewReference: visualData.crossViewReference,
+    referenceMeshSource: LEBEL_M1886_M93_REFERENCE_MESH_DATA.source,
+    classification: visualData.classification,
+    ...spec
+  };
+  model.userData.parts = {
+    stock,
+    receiver: bodyBarrelAssembly,
+    bodyBarrelAssembly,
+    handguard,
+    forwardHandguard: handguard,
+    barrel: bodyBarrelAssembly,
+    magazine: bodyBarrelAssembly,
+    stackingTube,
+    triggerGuard,
+    trigger,
+    rearSight,
+    rearSightMount,
+    rearSightPost,
+    rearSightLeaf,
+    midBand: bodyBarrelAssembly,
+    frontBand: bodyBarrelAssembly,
+    frontSight,
+    boltBack,
+    boltBody: bolt,
+    boltRib: bolt,
+    boltHandle: bolt,
+    boltKnob: bolt,
+    optic,
+    muzzle,
+    chargingHandle: null,
+    pistolGrip: null,
+    detailedMeshes: lodRepresentations.high,
+    mediumSilhouette: lodRepresentations.medium,
+    coreSilhouette: lodRepresentations.core
+  };
   return model;
 }
 
@@ -568,6 +1678,10 @@ function buildFm2429(spec, materials) {
 }
 
 function buildWeaponModel(spec, materials) {
+  if (spec.id === 'lebel1886m93' || spec.id === 'lebel1886m93apx1916') {
+    return buildLebelM1886M93(spec, materials);
+  }
+  if (spec.id === 'berthier1892m16') return buildBerthierM1892M16(spec, materials);
   if (spec.id === 'mas36') return buildMas36(spec, materials);
   if (spec.id === 'mas38') return buildMas38(spec, materials);
   if (spec.id === 'fm2429') return buildFm2429(spec, materials);
@@ -786,7 +1900,8 @@ export function createFrance1940InfantryWeaponRig(weaponName, materials) {
   triggerGrip.position.set(
     lateralX('right', 0.045),
     firingHandHeight(weapon.userData.parts),
-    hasPistolGrip ? spec.stockEnd + 0.02 : Math.max(0.16, spec.stockEnd - 0.025)
+    spec.triggerGripStation
+      ?? (hasPistolGrip ? spec.stockEnd + 0.02 : Math.max(0.16, spec.stockEnd - 0.025))
   );
   rig.add(triggerGrip);
 
@@ -795,15 +1910,16 @@ export function createFrance1940InfantryWeaponRig(weaponName, materials) {
   supportGrip.position.set(
     lateralX('left', 0.025),
     -0.03,
-    spec.receiverEnd + (spec.handguardEnd - spec.receiverEnd) * 0.25
+    spec.supportGripStation
+      ?? spec.receiverEnd + (spec.handguardEnd - spec.receiverEnd) * 0.25
   );
   rig.add(supportGrip);
 
   const reloadGrip = new THREE.Object3D();
   reloadGrip.name = 'ReloadHandGrip';
-  const reloadZ = spec.magazine === 'internal'
+  const reloadZ = spec.reloadGripStation ?? (spec.magazine === 'internal'
     ? spec.stockEnd + (spec.receiverEnd - spec.stockEnd) * 0.72
-    : spec.stockEnd + 0.13;
+    : spec.stockEnd + 0.13);
   const reloadY = spec.magazine === 'top-box'
     ? 0.16
     : spec.magazine === 'bottom-box'

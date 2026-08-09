@@ -540,6 +540,11 @@ export class France1940UnitMeshFactory {
       roughness: 0.48,
       metalness: 0.65
     });
+    const boltWeaponMat = new THREE.MeshStandardMaterial({
+      color: '#8e9692',
+      roughness: 0.62,
+      metalness: 0.55
+    });
     const proxyUniformMat = new THREE.MeshStandardMaterial({
       color: isFrench ? '#6a6b57' : '#525a4d',
       roughness: 1
@@ -1294,7 +1299,8 @@ export class France1940UnitMeshFactory {
 
       const weapon = createFrance1940InfantryWeaponRig(weaponName, {
         wood: woodMat,
-        metal: weaponMat
+        metal: weaponMat,
+        boltMetal: boltWeaponMat
       });
       const weaponModel = weapon.userData.weaponModel;
       const muzzle = weapon.userData.muzzle;
@@ -1457,14 +1463,45 @@ export class France1940UnitMeshFactory {
         squadGroup.userData.soldiers
       );
 
-    squadGroup.userData.updateLOD = (_cameraPosition, targetLOD = 'high') => {
+    const weaponLodWorldPosition = new THREE.Vector3();
+    const weaponLodTierByModel = new WeakMap();
+    const soldiersWithWeaponLods = squadGroup.userData.soldiers.filter(
+      soldier => soldier.userData.parts.weaponModel.userData.weaponLodContract
+    );
+    squadGroup.userData.requiresContinuousLODUpdate =
+      soldiersWithWeaponLods.length > 0;
+
+    squadGroup.userData.updateLOD = (cameraPosition, targetLOD = 'high') => {
       const band = targetLOD === 'low' ? 'proxy' : targetLOD;
+      for (const soldier of soldiersWithWeaponLods) {
+        const weaponModel = soldier.userData.parts.weaponModel;
+        const contract = weaponModel.userData.weaponLodContract;
+        let weaponTier = band;
+        if (band === 'proxy') {
+          weaponTier = null;
+        } else if (cameraPosition) {
+          weaponModel.getWorldPosition(weaponLodWorldPosition);
+          const distance = cameraPosition.distanceTo(weaponLodWorldPosition);
+          weaponTier = distance < contract.distancesMetres.highMax
+            ? 'high'
+            : (distance < contract.distancesMetres.mediumMax ? 'medium' : 'core');
+          if (band === 'medium' && weaponTier === 'high') weaponTier = 'medium';
+          if (band === 'core') weaponTier = 'core';
+        }
+        if (weaponLodTierByModel.get(weaponModel) === weaponTier) continue;
+        weaponLodTierByModel.set(weaponModel, weaponTier);
+        weaponModel.traverse(object => {
+          if (!object.isMesh || !object.userData.weaponLodTier) return;
+          object.visible = object.userData.weaponLodTier === weaponTier;
+        });
+      }
       squadGroup.traverse(object => {
         if (!object.isMesh || !object.userData.lodBand) return;
         if (object.userData.proxyInstanceSource === true) {
           object.visible = false;
           return;
         }
+        if (object.userData.weaponLodTier) return;
         const role = object.userData.lodBand;
         if (role === 'ui') return;
         const replacementTier = object.userData.infantryLodTier;

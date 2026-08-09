@@ -53,8 +53,11 @@ function minimumLivingSpacing(unit) {
   return minimum;
 }
 
-test('six 1940 infantry weapons expose dimensioned semantic silhouettes and true muzzles', () => {
+test('nine 1940 infantry weapons expose dimensioned semantic silhouettes and true muzzles', () => {
   const expectedFeeds = {
+    'Lebel Mle 1886/93': 'tubular',
+    'Lebel Mle 1886/93 with APX 1916': 'tubular',
+    'Berthier Mousqueton Mle 1892 M16': 'en-bloc',
     'MAS-36 Rifle': 'internal',
     'FM 24/29 LMG': 'top',
     'MAS-38 SMG': 'bottom',
@@ -87,7 +90,7 @@ test('six 1940 infantry weapons expose dimensioned semantic silhouettes and true
       assert.ok(parts[semanticPart].name, `${weaponName} ${semanticPart} must be named`);
     }
     assert.ok(parts.triggerGuard, `${weaponName} must expose its trigger guard`);
-    if (['mas36', 'kar98k'].includes(spec.id)) {
+    if (['lebel1886m93', 'lebel1886m93apx1916', 'berthier1892m16', 'mas36', 'kar98k'].includes(spec.id)) {
       assert.ok(parts.boltHandle, `${weaponName} must expose its bolt handle`);
       assert.equal(parts.chargingHandle, null);
     } else {
@@ -98,18 +101,29 @@ test('six 1940 infantry weapons expose dimensioned semantic silhouettes and true
     }
 
     assert.equal(parts.stock.position.z >= 0, true);
-    assert.equal(parts.receiver.position.z > parts.stock.position.z, true);
-    assert.equal(parts.barrel.position.z > parts.receiver.position.z, true);
+    if (parts.bodyBarrelAssembly) {
+      assert.equal(parts.receiver, parts.bodyBarrelAssembly);
+      assert.equal(parts.barrel, parts.bodyBarrelAssembly);
+      assert.equal(parts.magazine, parts.bodyBarrelAssembly);
+      const regions = parts.bodyBarrelAssembly.userData.semanticRegions;
+      assert.ok(regions.receiver.startZ < regions.receiver.endZ);
+      assert.ok(regions.barrel.startZ < regions.barrel.endZ);
+      assert.ok(regions.receiver.endZ > regions.barrel.startZ);
+    } else {
+      assert.equal(parts.receiver.position.z > parts.stock.position.z, true);
+      assert.equal(parts.barrel.position.z > parts.receiver.position.z, true);
+    }
     signatures.add([
       spec.overallLength,
       spec.stockEnd,
       spec.receiverEnd,
       spec.handguardEnd,
-      expectedFeeds[weaponName]
+      expectedFeeds[weaponName],
+      spec.optic ?? 'iron'
     ].join(':'));
   }
 
-  assert.equal(signatures.size, 6);
+  assert.equal(signatures.size, 9);
 });
 
 test('infantry exposes two-bone arms, avoids deep weapon clipping, and binds both hands in every active pose', () => {

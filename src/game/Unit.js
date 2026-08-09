@@ -2502,7 +2502,12 @@ export class Unit {
       : (distance < thresholds.medium
           ? 'medium'
           : (distance < thresholds.core ? 'core' : 'low'));
-    if (level === this.currentLOD) return level;
+    if (
+      level === this.currentLOD
+      && this.mesh.userData.requiresContinuousLODUpdate !== true
+    ) {
+      return level;
+    }
     this.currentLOD = level;
     if (typeof this.mesh.userData.updateLOD === 'function') {
       this.mesh.userData.updateLOD(cameraPosition, level);

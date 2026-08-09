@@ -310,6 +310,36 @@ even when a matching broader parent exists elsewhere in this file.
 
 ### Maps and historical infantry weapons
 
+- [ ] Complete source-backed MAS-36 model calibration.
+  - [x] Register the supplied layered SVG/DXF artwork to the published 1.02 m
+    length; retain source pixels, identity hash, evidence classification, and
+    derived metre-space profiles; refit the stock/receiver stations, stepped
+    comb and lower sweep, separate fore-end/upper handguard, barrel diameter,
+    bands, stored-bayonet tube, and bolt knob; and validate outward winding,
+    geometry contracts, infantry poses, and fixed side/front/top software
+    silhouettes.
+  - [x] Auto-load the supplied SVG in weapon review for the MAS-36; crop and
+    metre-register only its clean assembled side and top elevations to their
+    absolute camera views, excluding the exploded lower-sheet drawings, while
+    preserving editable opacity, touch transforms, reset, replacement, and
+    removal. Leave front manual because the sheet contains no assembled front
+    elevation.
+  - [ ] Inspect the refit and blueprint overlay in a working device browser;
+    Termux headless Chromium still loses its GPU process before capture.
+    - [x] Add a deterministic GPU-free side-silhouette jig that locks the
+      published length and bore axis, isolates the assembled SVG component,
+      projects the live weapon geometry into the same source coordinates, and
+      reports overlap, source-only, model-only, and IoU evidence for refits;
+      expose it through `npm run calibrate:weapon` with source, model,
+      difference, overlay, and JSON artifacts. The first measured MAS-36 loop
+      improved IoU from 88.16% to 92.58% while refitting the assembled receiver,
+      top details, front sight, ejection-port envelope, trigger guard, and trigger.
+    - [x] Contact/profile follow-up: give the foregrip sling band an even 4 mm
+      reveal on all four sides; join the bolt handle to its knob; seat the rear
+      sight leaf on its base and its bridge into the receiver; widen the stock
+      wrist beyond the receiver; and replace the square rear receiver extension
+      with a circular exposed bolt body ending at the rear-sight station. Preserve
+      the locked side silhouette at 92.60% IoU.
 - [ ] Add tactically meaningful authored cover, positions, terrain detail, and
   objective context to the enemy side of the Bridge map.
 - [ ] Add rifle grenades, including the French Tromblon VB ownership, loading,
@@ -317,9 +347,110 @@ even when a matching broader parent exists elsewhere in this file.
 - [ ] Author a detailed, correctly handed Mousqueton Mle 1892 M16 8 mm model
   with the same grip, muzzle, LOD, silhouette, and accuracy standard as the
   MAS-36.
-- [ ] Author detailed Lebel Mle 1886 M93 8 mm infantry and APX Mle 1921
+  - [x] Source-register the supplied right-facing PNG to the museum-published
+    0.945 m overall length; retain source pixels and identity hash; author the
+    stock, receiver, five-round M16 magazine extension, trigger group,
+    two-piece fore-end, bands, sights, right-side stacking rod, barrel, connected
+    downturned bolt handle and true muzzle; expose the model through existing
+    Berthier-equipped formations and weapon review; auto-load the metre-aligned
+    side blueprint; and generalize the GPU-free calibration CLI to select either
+    MAS-36 or Berthier. The initial measured Berthier side silhouette was
+    88.52% IoU.
+    - [x] Screenshot follow-up: extend the barrel rearward into the receiver,
+      add the missing upper wooden handguard forward of the sling band, replace
+      centered generic lower hardware with a right-side stacking rod, and make
+      the exposed rear action a circular receiver/bolt tube. The locked side
+      silhouette improves to 90.25% IoU.
+    - [x] Second screenshot refinement: raise the forward magazine corner,
+      replace the wide front-sight block with a narrow triangular blade,
+      shorten the right stacking rod, stop the forward upper handguard before
+      the exposed barrel run, and slim the user-reviewed cross-view furniture,
+      band, and magazine widths while retaining original source pixels. The
+      locked side silhouette improves again to 91.18% IoU.
+    - [x] Contact refinement: increase the user-reviewed barrel diameter from
+      13.1 mm to 14.8 mm while retaining the original source-radius record,
+      and move the right stacking rod inward so its rear centerline terminates
+      inside the front band rather than floating 0.5 mm outside it. The thicker
+      barrel intentionally shifts the locked side silhouette to 91.01% IoU.
+    - [x] Distance LOD refinement: retain the complete 712-triangle model only
+      inside the user-requested 4 m inspection range; add a 404-triangle medium
+      representation for 4-18 m and a 184-triangle core silhouette beyond
+      18 m, while preserving the exact muzzle, overall length, magazine, bands,
+      furniture, barrel, and existing far infantry proxy behavior.
+  - [ ] Inspect the Berthier model and aligned blueprint in a working device
+    browser. Termux headless Chromium still exits its GPU process with code 11
+    before reaching `data-game-status="ready"`.
+- [ ] Author detailed Lebel Mle 1886 M93 8 mm infantry and APX 1916
   optical-sight variants with the same grip, muzzle, LOD, silhouette, and
   accuracy standard as the MAS-36.
+  - [x] Source-register the plain and APX 1916 right-facing illustrations in
+    `french-all.png` independently to the official museum-published 1.30 m
+    overall length; add reusable edge-flood isolation for opaque illustrated
+    sheets without changing the source; author the stock, receiver, two-piece
+    fore-end, eight-round tube magazine, trigger group, bands, sights, barrel,
+    connected right-side bolt handle, true muzzle, and contacted two-mount APX
+    optic; expose both variants in weapon review and the calibration CLI; and
+    cover source landmarks, geometry, contacts, grips, feed, muzzle, winding,
+    and variant identity behavior. Initial GPU-free side baselines were 85.19%
+    IoU plain and 83.34% IoU scoped.
+    - [x] User-reviewed barrel refinement: retain the traced 4.29 mm source
+      radius separately, double the rendered radius to 8.58 mm for a 17.16 mm
+      outside diameter shared by both variants, and protect the renderer value
+      with a geometry assertion. The locked side silhouettes improve to 89.55%
+      IoU plain and 86.94% IoU scoped.
+    - [x] User-supplied GLB cross-view refinement: hash and inspect
+      `low_poly_lebel_1886.glb`, isolate only its bottom
+      `Lebel_Rifle_Uncovered` and `Lebel_Rifle_Covered` assemblies, normalize
+      their 24.191-unit length to the official 1.30 m dimension, and retain the
+      derived measurements as non-canonical renderer evidence. Slim the stock,
+      fore-end, receiver, sights, and bands; extend the right-side bolt control;
+      and make the APX optic shorter in section and entirely offset to the
+      rifle's left side while its cleaner illustrated side registration retains
+      longitudinal and vertical authority. The plain side remains 89.55% IoU
+      and the scoped side improves to 87.08% IoU; top/front widths, handedness,
+      source identity, and mount contacts are protected by geometry tests.
+    - [x] Six-axis GLB mechanical refinement: add a reusable CPU orthographic
+      renderer that emits explicitly labeled right, left, top, bottom, muzzle,
+      and rear full and detail views into `$TMPDIR`; correct its far-to-near
+      painter order so opposite faces cannot masquerade as the named side;
+      measure the bottom full-length assemblies; and replace the flat action
+      approximation with a tapered rear cocking piece, cylindrical bolt body,
+      top rib, horizontal right-side handle, and faceted terminal knob. Split
+      the official eight-round magazine tube from the short user-identified
+      forward stacking tube, seat the latter inside the front band, and retain
+      immutable illustrated evidence beside GLB-derived renderer corrections.
+      Contact, handedness, action-section, and tube-transition assertions pass;
+      locked side IoU improves to 89.80% plain and 87.30% scoped.
+    - [x] Reference-topology adoption: demote `french-all.png` to immutable
+      legacy evidence and make the supplied GLB plus official 1.30 m length the
+      geometry authority. Deterministically extract a 1,562-triangle plain and
+      2,012-triangle scoped production bundle without a runtime loader; replace
+      the entire receiver/barrel/tube junction, stock, handguard, trigger group,
+      bolt/action, front sight, contacted three-piece rear sight, stacking tube,
+      and connected APX optic/mount assembly with the normalized source
+      topology; retain only the explicit user-reviewed barrel-radius correction.
+      Render the actual production variants through the same correctly labeled
+      right/left/top/bottom/front/rear CPU review path as the GLB. Exact source
+      node, triangle-budget, winding, handedness, contact-vertex, variant, and
+      correction-separation assertions pass; the superseded illustrated-sheet
+      IoU is no longer an acceptance metric.
+    - [x] Material-finish refinement: partition the existing GLB handguard
+      triangles at the two topology-defined furniture-band spans (0.7214-
+      0.7365 m and 1.1599-1.1784 m) so both plain and scoped variants render
+      those wraps with the same metal material as the receiver and barrel,
+      without duplicate geometry; render the complete bolt and rear cocking
+      piece in a lighter, matte silver in weapon review and on live infantry.
+      Geometry tests protect both band stations, shared receiver-material
+      ownership, and the unchanged 1,562/2,012-triangle budgets.
+    - [x] Distance LOD refinement: reserve the complete source topology for
+      cameras inside 4 m; add medium representations for 4-18 m at 388
+      triangles plain and 508 scoped, then core silhouettes beyond 18 m at 164
+      triangles plain and 176 scoped. Keep the scoped silhouette distinct at
+      every tier, retain the authoritative muzzle and 1.30 m envelope, and
+      leave the existing far infantry proxy behavior unchanged.
+  - [ ] Inspect both source-topology Lebel variants in a working device browser.
+    The current Termux headless weapon-review check still exits its GPU process
+    with code 11 before reaching `data-game-status="ready"`.
 - [ ] Split French small-arms issue into historically labeled 7.5 mm and 8 mm
   formations: modern FM 24/29 units use MAS-36 rifles; eligible non-FM units
   use Lebel rifles for riflemen, leaders, VB grenadiers, sharpshooters, and APX
@@ -549,6 +680,10 @@ authorized.
           - [x] External-model service foundation: add a format-neutral injected fetch, source-release, parse, clone, instance-dispose, template-dispose pipeline; retain strict request identity and explicit fallback policy; bound template ownership with clone leases and deferred LRU disposal; aggregate cleanup failures; and cancel late work on shutdown. Concrete family model records, format adapters, and live unit/structure binding remain.
 - [ ] Move browser lifecycle and simulation orchestration from `main.js` into a narrow application/runtime facade.
   - [x] Extract browser startup, renderer/system construction, scenario loading, fixed-step orchestration, rollback hooks, interaction, and diagnostics into injected `GameApp`; keep `main.js` composition-only; remove concrete faction, weapon, and mesh-name assumptions from the facade; and isolate deterministic faction scheduling in a browser-free tested index.
+  - [ ] Finish validation of the standalone weapon-review page.
+    - [x] Remove soldier rendering and controls; present only canonically oriented weapon models on a flat medium-blue renderer background with transparent interaction cells; align side/front/top cameras with the calibration axes and let each flip to its exact opposite side; fit every view from live model bounds; retain close 3D inspection without near-plane clipping; route each top-left DOM cell to the same renderer viewport used by its touch controls; derive CSS, scissor, renderer, measured-toolbar, and safe-area sizing from one live visual-viewport owner across dynamic browser chrome and portrait/landscape changes; reserve a non-overlapping selector toolbar; let every pane enter and exit full-viewport review with native-fullscreen enhancement plus a CSS fallback; keep loaded-blueprint UI compact with opacity, mirror, reset, and removal controls; and support direct one-finger placement plus dead-zoned, direction-correct, intent-locked pinch scaling or twist rotation with exclusive touch ownership.
+    - [x] Accept local SVG blueprints alongside PNG, JPEG, and WebP; reject malformed, executable, externally referenced, oversized, or excessively complex SVG input; and rasterize validated vector sheets once to a bounded 2K-4K canvas texture for sharp overlay review without adding a runtime dependency.
+    - [ ] Confirm `data-game-status="ready"`, WebGPU or WebGL2 backend identity, all four rendered views, and same-cell touch interaction in a working browser; the current Termux headless Chromium GPU process crashes before completion.
   - [ ] Provide a dedicated vehicle diagnostic sandbox for component hitboxes, damage state, ballistics, and VFX iteration.
     - [x] Replace the provisional damage-injection controls with a responsive non-overlapping dock, selectable armed-vehicle 1v1 duels driven by normal vehicle combat, and a single-target gun mode with selectable canonical gun/ammunition, range, orbit-selected firing aspect, tapped local aim point, real projectile/armor/internal damage resolution, authoritative armor/component/crew overlays, trajectory and impact telemetry, and no sandbox-owned damage mutation.
     - [x] Refine gun mode with camera-plane-normal shot origins at full camera elevation, one selector entry per distinct canonical main-gun or auxiliary-cannon ammunition record with compatible vehicles, mount identity, and ballistic differences exposed, live crew health/casualty reporting, canonical Char B1 bis 75 mm hull-gun HE/APHE discovery, and explicitly sandbox-only sourced 8.8 cm Flak 18/36 AP and HE calibration records that still use the shared projectile, armor, explosive, internal-path, crew, and component damage systems.

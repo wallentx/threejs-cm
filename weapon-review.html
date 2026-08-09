@@ -1,235 +1,376 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="en">
 <head>
-    <title>Weapon Review UI</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Weapon Review</title>
     <style>
-        * { box-sizing: border-box; }
-        body { margin: 0; overflow: hidden; background-color: #111; color: white; font-family: sans-serif; }
-        
-        #controls {
-            position: absolute;
-            top: 10px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0,0,0,0.85);
-            padding: 8px 16px;
-            z-index: 1000;
-            border-radius: 8px;
-            border: 1px solid #555;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        :root {
+            --review-viewport-left: 0px;
+            --review-viewport-top: 0px;
+            --review-viewport-width: 100vw;
+            --review-viewport-height: 100dvh;
+            --review-content-top: 70px;
+            --review-content-height: calc(100dvh - 70px);
+            --panel: rgba(17, 24, 34, 0.94);
+            --panel-border: #526171;
+            --text: #eef4f8;
+            --muted: #a9b6c2;
+            --accent: #64c8ff;
         }
-        
+        * { box-sizing: border-box; }
+        html, body { width: 100%; height: 100%; }
+        body {
+            margin: 0;
+            overflow: hidden;
+            overscroll-behavior: contain;
+            background: #9fbed3;
+            color: var(--text);
+            font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+        }
+        button, input, select { font: inherit; }
+        button, select, input[type="number"] {
+            border: 1px solid #6d7c89;
+            border-radius: 5px;
+            background: #f5f8fa;
+            color: #17202a;
+        }
+        button {
+            min-height: 27px;
+            padding: 3px 7px;
+            cursor: pointer;
+            touch-action: manipulation;
+        }
+        button:hover, button:focus-visible {
+            border-color: var(--accent);
+            outline: 2px solid rgba(100, 200, 255, 0.45);
+            outline-offset: 1px;
+        }
+
+        #controls {
+            position: fixed;
+            top: calc(var(--review-viewport-top) + 8px);
+            left: calc(var(--review-viewport-left) + 12px);
+            z-index: 1000;
+            display: grid;
+            grid-template-columns: auto minmax(150px, 230px) minmax(120px, 170px) minmax(180px, 240px);
+            align-items: center;
+            justify-content: center;
+            gap: 10px 16px;
+            width: calc(var(--review-viewport-width) - 24px);
+            min-height: 54px;
+            padding: 6px 10px;
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            background: var(--panel);
+            box-shadow: 0 5px 18px rgba(0, 0, 0, 0.38);
+        }
+        .toolbar-title {
+            color: var(--accent);
+            font-size: 0.76rem;
+            font-weight: 850;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+        .toolbar-field {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr);
+            align-items: center;
+            gap: 7px;
+            color: var(--muted);
+            font-size: 0.76rem;
+            font-weight: 750;
+            white-space: nowrap;
+        }
+        .toolbar-field select { min-width: 0; padding: 5px 7px; }
+        .toolbar-range {
+            display: grid;
+            grid-template-columns: minmax(80px, 1fr) 34px;
+            align-items: center;
+            gap: 6px;
+        }
+        output {
+            color: var(--text);
+            font: 0.72rem ui-monospace, monospace;
+            text-align: right;
+        }
+
         #grid {
+            position: fixed;
+            top: calc(var(--review-viewport-top) + var(--review-content-top));
+            left: var(--review-viewport-left);
+            z-index: 10;
             display: grid;
             grid-template-columns: 1fr 1fr;
             grid-template-rows: 1fr 1fr;
-            width: 100vw;
-            height: 100vh;
-            position: absolute;
-            top: 0;
-            left: 0;
-            z-index: 10;
+            width: var(--review-viewport-width);
+            height: var(--review-content-height);
             pointer-events: none;
         }
-        
         .view-cell {
             position: relative;
-            border: 1px solid #333;
             overflow: hidden;
+            border: 1px solid #34414d;
+            background: transparent;
             pointer-events: auto;
+            touch-action: none;
             cursor: grab;
         }
-        .view-cell:active {
-            cursor: grabbing;
+        .view-cell:active { cursor: grabbing; }
+        .view-cell.blueprint-touch-active { cursor: move; }
+        #grid.is-maximized {
+            top: var(--review-viewport-top);
+            height: var(--review-viewport-height);
+            grid-template-columns: 1fr;
+            grid-template-rows: 1fr;
         }
-        
+        #grid.is-maximized .view-cell { display: none; }
+        #grid.is-maximized .view-cell.is-maximized {
+            display: block;
+            grid-column: 1;
+            grid-row: 1;
+            border: 0;
+        }
+        body.has-maximized-view #controls { display: none; }
+
         .view-label {
             position: absolute;
             top: 10px;
             left: 10px;
-            background: rgba(0,0,0,0.7);
-            padding: 4px 10px;
-            border-radius: 4px;
-            pointer-events: none;
             z-index: 100;
-            font-weight: bold;
-            font-size: 13px;
-            border: 1px solid #444;
+            max-width: calc(100% - 170px);
+            padding: 4px 7px;
+            border: 1px solid #465665;
+            border-radius: 5px;
+            background: rgba(12, 18, 24, 0.82);
+            color: #d9e4ec;
+            font-size: 0.72rem;
+            font-weight: 800;
+            letter-spacing: 0.035em;
+            pointer-events: none;
+        }
+        .view-actions {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 200;
+            display: flex;
+            gap: 5px;
+        }
+        .view-action-button {
+            background: rgba(239, 245, 248, 0.94);
+            font-size: 0.67rem;
+            font-weight: 800;
         }
 
-        .bg-controls {
+        .blueprint-tools {
             position: absolute;
             bottom: 10px;
             left: 10px;
-            z-index: 100;
-            background: rgba(0,0,0,0.85);
-            padding: 8px 12px;
-            font-size: 12px;
-            border-radius: 6px;
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-            border: 1px solid #444;
+            z-index: 220;
+            width: min(280px, calc(100% - 20px));
+            border: 1px solid var(--panel-border);
+            border-radius: 7px;
+            background: var(--panel);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.34);
+            color: var(--text);
+            cursor: default;
+            touch-action: auto;
         }
-        .bg-controls input[type="file"] {
-            width: 160px;
-        }
-        .control-row {
+        .blueprint-load-row {
             display: flex;
             align-items: center;
-            justify-content: space-between;
             gap: 8px;
+            padding: 5px;
         }
-        .control-row span {
-            min-width: 40px;
+        .blueprint-file-input { display: none; }
+        .blueprint-file-button {
+            display: inline-flex;
+            align-items: center;
+            min-height: 27px;
+            padding: 3px 7px;
+            border: 1px solid #71808e;
+            border-radius: 5px;
+            background: #f5f8fa;
+            color: #17202a;
+            font-size: 0.74rem;
+            font-weight: 800;
+            cursor: pointer;
+            touch-action: manipulation;
         }
+        .blueprint-status {
+            min-width: 0;
+            overflow: hidden;
+            color: var(--muted);
+            font-size: 0.7rem;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .blueprint-overlay-controls {
+            border-top: 1px solid #43515f;
+        }
+        .blueprint-overlay-controls[hidden] { display: none; }
+        .overlay-control-body {
+            display: grid;
+            grid-template-columns: minmax(110px, 1fr) auto;
+            align-items: center;
+            gap: 5px 8px;
+            padding: 6px;
+        }
+        .overlay-field {
+            display: grid;
+            gap: 3px;
+            color: var(--muted);
+            font-size: 0.7rem;
+            font-weight: 750;
+        }
+        .overlay-range {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 34px;
+            align-items: center;
+            gap: 6px;
+        }
+        .overlay-check {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            min-height: 27px;
+            color: var(--muted);
+            font-size: 0.72rem;
+            font-weight: 750;
+        }
+        .touch-adjust-note {
+            grid-column: 1 / -1;
+            margin: 0;
+            padding: 4px 6px;
+            border: 1px solid #40576a;
+            border-radius: 5px;
+            background: rgba(34, 53, 68, 0.72);
+            color: #cfeeff;
+            font-size: 0.68rem;
+            line-height: 1.35;
+        }
+        .overlay-actions { display: flex; gap: 5px; }
+        .overlay-actions button { flex: 1; font-size: 0.72rem; font-weight: 800; }
 
         #canvas-container {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
+            position: fixed;
+            top: var(--review-viewport-top);
+            left: var(--review-viewport-left);
             z-index: 2;
+            width: var(--review-viewport-width);
+            height: var(--review-viewport-height);
+            background: #9fbed3;
             pointer-events: none;
+        }
+
+        #safe-area-probe {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 1px;
+            height: env(safe-area-inset-bottom, 0px);
+            visibility: hidden;
+            pointer-events: none;
+        }
+
+        @media (max-width: 760px) {
+            :root {
+                --review-content-top: 108px;
+                --review-content-height: calc(100dvh - 108px);
+            }
+            #controls {
+                grid-template-columns: auto minmax(130px, 1fr) minmax(120px, 1fr);
+                justify-content: stretch;
+                gap: 7px 10px;
+            }
+            .toolbar-title { grid-row: 1 / span 2; }
+            .toolbar-field.model-opacity { grid-column: 2 / span 2; }
+        }
+        @media (max-width: 520px) {
+            :root {
+                --review-content-top: 136px;
+                --review-content-height: calc(100dvh - 136px);
+            }
+            #controls { grid-template-columns: 1fr 1fr; }
+            .toolbar-title { grid-column: 1 / span 2; grid-row: auto; }
+            .toolbar-field { grid-template-columns: 1fr; gap: 3px; }
+            .toolbar-field.model-opacity { grid-column: 1 / span 2; }
+            .blueprint-tools { width: calc(100% - 16px); left: 8px; bottom: 8px; }
         }
     </style>
 </head>
-<body>
-    <div id="controls">
-        <label for="weapon-select"><strong>Select Weapon:</strong></label>
-        <select id="weapon-select">
-            <option value="MAS-36 Rifle">MAS-36 Rifle</option>
-            <option value="MAS-38 SMG">MAS-38 SMG</option>
-            <option value="FM 24/29 LMG">FM 24/29 LMG</option>
-            <option value="Kar98k">Kar98k</option>
-            <option value="MG34 LMG">MG34 LMG</option>
-            <option value="MP40">MP40</option>
-        </select>
-
-        <label for="view-mode-select" style="margin-left: 12px;"><strong>Mode:</strong></label>
-        <select id="view-mode-select">
-            <option value="weapon">Weapon Only</option>
-            <option value="soldier">Weapon + Soldier</option>
-        </select>
-
-        <label for="stance-select" style="margin-left: 12px;"><strong>Stance:</strong></label>
-        <select id="stance-select">
-            <option value="STANDING_LOW_READY">Standing Low-Ready</option>
-            <option value="STANDING_AIMING">Standing Aiming</option>
-            <option value="STANDING_AT_EASE">Standing At-Ease</option>
-            <option value="KNEELING">Kneeling Ready</option>
-            <option value="CROUCHED">Crouched Ready</option>
-            <option value="PRONE">Prone Idle</option>
-        </select>
-
-        <label style="margin-left: 12px; font-size: 13px;">
-            <input type="checkbox" id="animate-toggle" checked> Animate Idle
+<body data-game-status="loading">
+    <header id="controls">
+        <span class="toolbar-title">Weapon review</span>
+        <label class="toolbar-field" for="weapon-select">
+            Weapon
+            <select id="weapon-select">
+                <option value="Lebel Mle 1886/93">Lebel Mle 1886/93</option>
+                <option value="Lebel Mle 1886/93 with APX 1916">Lebel Mle 1886/93 with APX 1916</option>
+                <option value="Berthier Mousqueton Mle 1892 M16">Berthier Mousqueton Mle 1892 M16</option>
+                <option value="MAS-36 Rifle">MAS-36 Rifle</option>
+                <option value="MAS-38 SMG">MAS-38 SMG</option>
+                <option value="FM 24/29 LMG">FM 24/29 LMG</option>
+                <option value="Kar98k">Kar98k</option>
+                <option value="MG34 LMG">MG34 LMG</option>
+                <option value="MP40">MP40</option>
+            </select>
         </label>
-    </div>
-    
-    <div id="grid">
-        <!-- Top Left: Side View -->
-        <div id="cell-tl" class="view-cell">
-            <div class="view-label">Side View (Locked 90°) - Drag to Pan, Scroll to Zoom</div>
-            <div class="bg-controls">
-                <div class="control-row">
-                    <span>Blueprint:</span>
-                    <input type="file" accept="image/*" onchange="setBg(this, 'tl')">
-                </div>
-                <div class="control-row">
-                    <span>Scale:</span>
-                    <input type="range" min="10" max="300" value="100" oninput="updateBg('tl', this)">
-                </div>
-                <div class="control-row">
-                    <span>Offset X:</span>
-                    <input type="range" min="-500" max="500" value="0" oninput="updateBg('tl', this)">
-                </div>
-                <div class="control-row">
-                    <span>Offset Y:</span>
-                    <input type="range" min="-500" max="500" value="0" oninput="updateBg('tl', this)">
-                </div>
+        <label class="toolbar-field" for="render-mode-select">
+            Render
+            <select id="render-mode-select">
+                <option value="overlay">Overlay</option>
+                <option value="difference">Difference</option>
+                <option value="silhouette">Silhouette</option>
+                <option value="wireframe">Wireframe</option>
+                <option value="shaded">Shaded</option>
+            </select>
+        </label>
+        <label class="toolbar-field model-opacity" for="model-opacity">
+            Model opacity
+            <span class="toolbar-range">
+                <input id="model-opacity" type="range" min="0" max="1" value="0.72" step="0.01">
+                <output id="model-opacity-output" for="model-opacity">0.72</output>
+            </span>
+        </label>
+    </header>
+
+    <main id="grid">
+        <section id="cell-tl" class="view-cell" aria-label="Side weapon view">
+            <div class="view-label">SIDE | +X camera | -Z / +Y</div>
+            <div class="view-actions">
+                <button class="axis-flip-button view-action-button" type="button" data-view-id="cell-tl">Other side</button>
+                <button class="view-fullscreen-button view-action-button" type="button" data-view-id="cell-tl" aria-pressed="false">Full</button>
             </div>
-        </div>
-        
-        <!-- Top Right: Top View -->
-        <div id="cell-tr" class="view-cell">
-            <div class="view-label">Top View (Locked 90°) - Drag to Pan, Scroll to Zoom</div>
-            <div class="bg-controls">
-                <div class="control-row">
-                    <span>Blueprint:</span>
-                    <input type="file" accept="image/*" onchange="setBg(this, 'tr')">
-                </div>
-                <div class="control-row">
-                    <span>Scale:</span>
-                    <input type="range" min="10" max="300" value="100" oninput="updateBg('tr', this)">
-                </div>
-                <div class="control-row">
-                    <span>Offset X:</span>
-                    <input type="range" min="-500" max="500" value="0" oninput="updateBg('tr', this)">
-                </div>
-                <div class="control-row">
-                    <span>Offset Y:</span>
-                    <input type="range" min="-500" max="500" value="0" oninput="updateBg('tr', this)">
-                </div>
+            <div class="blueprint-tools" data-view-key="tl" data-view-label="Side"></div>
+        </section>
+        <section id="cell-tr" class="view-cell" aria-label="Top weapon view">
+            <div class="view-label">TOP | +Y camera | -X / +Z</div>
+            <div class="view-actions">
+                <button class="axis-flip-button view-action-button" type="button" data-view-id="cell-tr">Bottom</button>
+                <button class="view-fullscreen-button view-action-button" type="button" data-view-id="cell-tr" aria-pressed="false">Full</button>
             </div>
-        </div>
-        
-        <!-- Bottom Left: Front View -->
-        <div id="cell-bl" class="view-cell">
-            <div class="view-label">Front View (Locked 90°) - Drag to Pan, Scroll to Zoom</div>
-            <div class="bg-controls">
-                <div class="control-row">
-                    <span>Blueprint:</span>
-                    <input type="file" accept="image/*" onchange="setBg(this, 'bl')">
-                </div>
-                <div class="control-row">
-                    <span>Scale:</span>
-                    <input type="range" min="10" max="300" value="100" oninput="updateBg('bl', this)">
-                </div>
-                <div class="control-row">
-                    <span>Offset X:</span>
-                    <input type="range" min="-500" max="500" value="0" oninput="updateBg('bl', this)">
-                </div>
-                <div class="control-row">
-                    <span>Offset Y:</span>
-                    <input type="range" min="-500" max="500" value="0" oninput="updateBg('bl', this)">
-                </div>
+            <div class="blueprint-tools" data-view-key="tr" data-view-label="Top"></div>
+        </section>
+        <section id="cell-bl" class="view-cell" aria-label="Front weapon view">
+            <div class="view-label">FRONT | +Z camera | +X / +Y</div>
+            <div class="view-actions">
+                <button class="axis-flip-button view-action-button" type="button" data-view-id="cell-bl">Back</button>
+                <button class="view-fullscreen-button view-action-button" type="button" data-view-id="cell-bl" aria-pressed="false">Full</button>
             </div>
-        </div>
-        
-        <!-- Bottom Right: Free 3D View -->
-        <div id="cell-br" class="view-cell">
-            <div class="view-label">3D View (Free Rotation) - Drag to Rotate, Right-Drag to Pan, Scroll to Zoom</div>
-        </div>
-    </div>
+            <div class="blueprint-tools" data-view-key="bl" data-view-label="Front"></div>
+        </section>
+        <section id="cell-br" class="view-cell" aria-label="Free three-dimensional weapon view">
+            <div class="view-label">3D | Free orbit</div>
+            <div class="view-actions">
+                <button class="view-fullscreen-button view-action-button" type="button" data-view-id="cell-br" aria-pressed="false">Full</button>
+            </div>
+        </section>
+    </main>
 
     <div id="canvas-container"></div>
-    
-    <script>
-        function setBg(input, viewKey) {
-            if (input.files && input.files[0]) {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    window.dispatchEvent(new CustomEvent('bg-loaded', { detail: { viewKey, src: e.target.result } }));
-                    const controls = input.closest('.bg-controls').querySelectorAll('input[type="range"]');
-                    controls.forEach(c => {
-                        if(c.previousElementSibling.innerText.includes('Scale')) c.value = 100;
-                        else c.value = 0;
-                    });
-                    updateBg(viewKey, controls[0]);
-                }
-                reader.readAsDataURL(input.files[0]);
-            }
-        }
-        function updateBg(viewKey, sliderElement) {
-            const controls = sliderElement.closest('.bg-controls').querySelectorAll('input[type="range"]');
-            const scale = parseFloat(controls[0].value);
-            const x = parseFloat(controls[1].value);
-            const y = parseFloat(controls[2].value);
-            window.dispatchEvent(new CustomEvent('bg-update', { detail: { viewKey, scale, x, y } }));
-        }
-    </script>
+    <div id="safe-area-probe" aria-hidden="true"></div>
     <script type="module" src="/src/weapon-review.js"></script>
 </body>
 </html>
