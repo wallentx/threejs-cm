@@ -1,3 +1,9 @@
+import {
+  SOMUA_S35_VISUAL_DATA
+} from '../../content/france1940/vehicleData/SomuaS35VisualData.js';
+
+const SOMUA_SUPPORTS = SOMUA_S35_VISUAL_DATA.geometry.runningGear.supports;
+
 const freezeStations = stations => Object.freeze(
   stations.map(station => Object.freeze({ ...station }))
 );
@@ -32,44 +38,60 @@ export const VEHICLE_VISUAL_PROFILES = Object.freeze({
       {
         id: 'road-wheel-rear-center',
         label: 'Rear road-wheel centre',
-        world: [0, 0.235, -1.50],
+        world: [
+          0,
+          SOMUA_SUPPORTS.roadWheels.at(-1).centerY,
+          SOMUA_SUPPORTS.roadWheels.at(-1).centerZ
+        ],
         views: ['side'],
-        quality: 'registered illustration inference'
+        quality: 'registered from source pixels [3295, 1905]'
       },
       {
         id: 'road-wheel-front-center',
         label: 'Front road-wheel centre',
-        world: [0, 0.235, 1.54],
+        world: [
+          0,
+          SOMUA_SUPPORTS.roadWheels[0].centerY,
+          SOMUA_SUPPORTS.roadWheels[0].centerZ
+        ],
         views: ['side'],
-        quality: 'registered illustration inference'
+        quality: 'registered from source pixels [790, 1905]'
       },
       {
         id: 'rear-sprocket-center',
         label: 'Rear drive-sprocket centre',
-        world: [0, 0.585, -1.99],
+        world: [
+          0,
+          SOMUA_SUPPORTS.driveSprocket.centerY,
+          SOMUA_SUPPORTS.driveSprocket.centerZ
+        ],
         views: ['side'],
-        quality: 'registered illustration inference'
+        quality: 'registered from source pixels [3595, 1658]'
       },
       {
         id: 'front-idler-center',
         label: 'Front idler centre',
-        world: [0, 0.585, 1.99],
+        world: [
+          0,
+          SOMUA_SUPPORTS.idlerWheel.centerY,
+          SOMUA_SUPPORTS.idlerWheel.centerZ
+        ],
         views: ['side'],
-        quality: 'registered illustration inference'
+        quality: 'registered from source pixels [326, 1665]'
       },
       {
         id: 'turret-ring-center',
         label: 'Turret-ring centre',
         world: [0, 1.55, 0.55],
-        views: ['side', 'top'],
-        quality: 'registered illustration inference'
+        views: ['side', 'front', 'rear', 'top'],
+        quality: 'four-view source comparison datum consumed by the refitted renderer'
       },
       {
         id: 'gun-axis-root',
         label: 'Main-gun axis at mantlet',
-        world: [0.04, 2.03, 1.29],
+        world: [0.04, 1.97, 1.52],
         views: ['side', 'front'],
-        quality: 'registered illustration inference'
+        quality: 'side-registered axis constrained by the refitted mantlet installation'
       },
       {
         id: 'engine-deck-rear',
@@ -88,7 +110,7 @@ export const VEHICLE_VISUAL_PROFILES = Object.freeze({
       'https://museedesblindes.fr/les_chars/somua-s35/',
       'https://www.govinfo.gov/content/pkg/GOVPUB-W-PURL-gpo119422/pdf/GOVPUB-W-PURL-gpo119422.pdf'
     ],
-    dataQuality: 'historical rigid dimensions; user-supplied side elevation registered; front/top cross-checked against a secondary multiview; hidden-side and plan landmarks inferred'
+    dataQuality: 'historical rigid dimensions; user-supplied side, front, rear, and top elevations independently registered; opposite-side, bottom, hidden edges, and cast depth remain inferred'
   }),
   fr_renault_r35: freezeProfile({
     designation: 'Renault R35',

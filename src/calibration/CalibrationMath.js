@@ -1,4 +1,4 @@
-const VIEW_NAMES = Object.freeze(['side', 'front', 'top']);
+const VIEW_NAMES = Object.freeze(['side', 'front', 'rear', 'top']);
 
 export const CALIBRATION_VIEWS = Object.freeze({
   side: Object.freeze({
@@ -16,6 +16,14 @@ export const CALIBRATION_VIEWS = Object.freeze({
     verticalDimension: 'height',
     cameraAxis: '+Z',
     screenAxes: '+X / +Y'
+  }),
+  rear: Object.freeze({
+    id: 'rear',
+    label: 'Rear',
+    horizontalDimension: 'width',
+    verticalDimension: 'height',
+    cameraAxis: '-Z',
+    screenAxes: '-X / +Y'
   }),
   top: Object.freeze({
     id: 'top',
@@ -83,6 +91,7 @@ export function worldToViewMeters(point, view) {
     : [point.x, point.y, point.z];
   if (view === 'side') return { u: -z, v: y };
   if (view === 'front') return { u: x, v: y };
+  if (view === 'rear') return { u: -x, v: y };
   return { u: -x, v: z };
 }
 
@@ -111,6 +120,8 @@ export function createImageTransform({
   canvasHeight,
   crop,
   scale = 1,
+  scaleX = scale,
+  scaleY = scale,
   offsetX = 0,
   offsetY = 0,
   rotationDegrees = 0,
@@ -137,8 +148,10 @@ export function createImageTransform({
   const rotatedWidth = Math.abs(sourceWidth * cosine) + Math.abs(sourceHeight * sine);
   const rotatedHeight = Math.abs(sourceWidth * sine) + Math.abs(sourceHeight * cosine);
   const containScale = Math.min(canvasWidth / rotatedWidth, canvasHeight / rotatedHeight);
-  const drawWidth = sourceWidth * containScale * scale;
-  const drawHeight = sourceHeight * containScale * scale;
+  const safeScaleX = Number.isFinite(Number(scaleX)) ? Number(scaleX) : scale;
+  const safeScaleY = Number.isFinite(Number(scaleY)) ? Number(scaleY) : scale;
+  const drawWidth = sourceWidth * containScale * safeScaleX;
+  const drawHeight = sourceHeight * containScale * safeScaleY;
 
   return Object.freeze({
     sourceX: imageWidth * safeCrop.left,
@@ -149,6 +162,8 @@ export function createImageTransform({
     centerY: canvasHeight * 0.5 + offsetY,
     drawWidth,
     drawHeight,
+    scaleX: safeScaleX,
+    scaleY: safeScaleY,
     rotation,
     rotationDegrees: rotation * 180 / Math.PI,
     mirrorX
@@ -193,7 +208,12 @@ export function fitImageTransformToLandmarks(
   referenceCanvasPoints,
   modelCanvasPoints,
   canvasCenter,
-  { minimumScale = 0.05, maximumScale = 10 } = {}
+  {
+    minimumScale = 0.05,
+    maximumScale = 10,
+    independentAxes = false,
+    rotationDegrees = 0
+  } = {}
 ) {
   if (
     referenceCanvasPoints.length !== modelCanvasPoints.length
@@ -202,6 +222,62 @@ export function fitImageTransformToLandmarks(
     throw new Error('At least two matching reference/model landmarks are required.');
   }
   const count = referenceCanvasPoints.length;
+  if (independentAxes) {
+    const rotation = rotationDegrees * Math.PI / 180;
+    const cosine = Math.cos(rotation);
+    const sine = Math.sin(rotation);
+    const toLocal = point => {
+      const x = point.x - canvasCenter.x;
+      const y = point.y - canvasCenter.y;
+      return {
+        x: x * cosine + y * sine,
+        y: -x * sine + y * cosine
+      };
+    };
+    const referenceLocal = referenceCanvasPoints.map(toLocal);
+    const modelLocal = modelCanvasPoints.map(toLocal);
+    const mean = points => points.reduce(
+      (sum, point) => ({
+        x: sum.x + point.x / count,
+        y: sum.y + point.y / count
+      }),
+      { x: 0, y: 0 }
+    );
+    const referenceMean = mean(referenceLocal);
+    const modelMean = mean(modelLocal);
+    const fitAxis = axis => {
+      let numerator = 0;
+      let denominator = 0;
+      for (let index = 0; index < count; index++) {
+        const reference = referenceLocal[index][axis] - referenceMean[axis];
+        numerator += reference * (modelLocal[index][axis] - modelMean[axis]);
+        denominator += reference ** 2;
+      }
+      if (denominator < 1e-9) return 1;
+      return Math.max(minimumScale, Math.min(maximumScale, numerator / denominator));
+    };
+    const scaleX = fitAxis('x');
+    const scaleY = fitAxis('y');
+    const localOffsetX = modelMean.x - referenceMean.x * scaleX;
+    const localOffsetY = modelMean.y - referenceMean.y * scaleY;
+    const offsetX = localOffsetX * cosine - localOffsetY * sine;
+    const offsetY = localOffsetX * sine + localOffsetY * cosine;
+    const squaredError = referenceLocal.reduce((sum, reference, index) => {
+      const fitted = {
+        x: reference.x * scaleX + localOffsetX,
+        y: reference.y * scaleY + localOffsetY
+      };
+      const model = modelLocal[index];
+      return sum + (fitted.x - model.x) ** 2 + (fitted.y - model.y) ** 2;
+    }, 0);
+    return {
+      scaleX,
+      scaleY,
+      offsetX,
+      offsetY,
+      rmsPixels: Math.sqrt(squaredError / count)
+    };
+  }
   const referenceMean = referenceCanvasPoints.reduce(
     (sum, point) => ({ x: sum.x + point.x / count, y: sum.y + point.y / count }),
     { x: 0, y: 0 }

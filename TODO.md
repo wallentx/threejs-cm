@@ -43,6 +43,11 @@ even when a matching broader parent exists elsewhere in this file.
 - [ ] Reserve Mount/Dismount for modeled vehicle passengers and historically
   permitted tank riders, with individual capacity, transit, casualty, and
   capture/restore behavior.
+  - [x] Truck slice: timed whole-unit boarding/dismounting and remounting,
+    personnel capacity, vehicle-relative hidden passengers, movement/fire/
+    spotting lockout while carried, truck-detonation casualties, and deep
+    capture/restore for Laffly S20TL and Opel Blitz transports. Historically
+    validated tank riders remain.
 - [ ] Show Char B1 bis hull-gun ammunition/status on the same bottom `AMMO:`
   summary line as the turret main-gun ammunition while retaining the
   individual weapon cards above.
@@ -290,6 +295,10 @@ even when a matching broader parent exists elsewhere in this file.
   ammunition cargo records for MG ammunition, mortar bombs, grenades, and other
   supported stores; let eligible nearby units resupply through deterministic
   individual/weapon ammunition ownership.
+  - [x] First logistics slice: damageable bounded rifle/MG/60 mm/grenade cargo,
+    stable-soldier-order nearby or embarked resupply, exact cargo conservation,
+    and deep rollback. Grenades remain cargo until infantry grenade ownership
+    exists.
 - [ ] Add scenario objectives as plain map/scenario data with deterministic
   scoring and victory state: hold a zone for time, destroy the enemy, capture a
   house or zone, capture all zones, hold a bridge crossing, or cross a bridge.
@@ -451,6 +460,19 @@ even when a matching broader parent exists elsewhere in this file.
   - [ ] Inspect both source-topology Lebel variants in a working device browser.
     The current Termux headless weapon-review check still exits its GPU process
     with code 11 before reaching `data-game-status="ready"`.
+- [ ] Blueprint-calibrate the remaining current infantry firearms against the
+  supplied `french-all.png` and `german-all.png` sheets; retain source identity,
+  exact rigid dimensions, connected semantic parts, correct handedness, and
+  inspection/medium/core LOD ownership.
+  - [x] Kar98k refit: replace the generic rectangular rifle with source-registered
+    stock, receiver, furniture, internal magazine, trigger group, tangent rear
+    sight, front bands, cleaning rod, hooded front sight, barrel, and connected
+    right-side bolt/action; preserve the 1.11 m muzzle contract and infantry grip
+    poses; add 664/452/180-triangle high/medium/core representations. The locked
+    side silhouette improves from the audit baseline of 42.20% to 93.04% IoU.
+  - [ ] Refit the FM 24/29, MAS-38, MG34, and MP40 from their registered sheet
+    components; resolve the MG34 feed configuration before treating its sheet
+    silhouette as the production authority.
 - [ ] Split French small-arms issue into historically labeled 7.5 mm and 8 mm
   formations: modern FM 24/29 units use MAS-36 rifles; eligible non-FM units
   use Lebel rifles for riflemen, leaders, VB grenadiers, sharpshooters, and APX
@@ -712,7 +734,7 @@ authorized.
   - [x] Panzer III Ausf. D vertical slice: separate its internal layout into a vehicle-owned data module; model the five crew positions, front transmission, rear engine/fuel, side ammunition racks, radio, hull/coax MGs, turret crew, breech, optics, and traverse; and validate front, side, rear, turret-yaw, and plate-to-path behavior.
   - [x] Renault R35 and Hotchkiss H39 vertical slice: add separate two-man internal-layout records with model-backed opposite-side driver positions, front drives, rear powerpacks, side ammunition stowage, one-man turret crew, breech, coax, optics, and traverse; validate front, side, rear, turret, and plate-to-path behavior.
   - [x] AMC 35 and Panhard 178 vertical slice: add independent blueprint-registered layouts for the AMC's right-side driver and two-man APX 2 turret and the Panhard's dual left-side drivers, radio, rear powerpack, and two-man APX 3 turret; validate crew ownership, installed components, ordered paths, and armor-entry integration.
-  - [x] Laffly S20TL and Opel Blitz vertical slice: add independent unarmored-transport layouts with model-backed cab/bonnet stations, separate driver and vehicle-commander volumes, engine, transmission, and fuel; validate exact installed-component sets, ordered paths, and zero-armor penetration integration without inventing ammunition or weapon modules.
+  - [x] Laffly S20TL and Opel Blitz vertical slice: add independent unarmored-transport layouts with model-backed cab/bonnet stations, separate driver and vehicle-commander volumes, engine, transmission, and fuel; validate exact installed-component sets, ordered paths, and zero-armor penetration integration. A later user-authorized logistics slice adds bounded, damageable ammunition-cargo volumes without adding truck weapons.
   - [x] Panzer II Ausf. C and Panzer 35(t) vertical slice: add independent early-light-tank layouts with distinct front- and rear-drive arrangements, model-backed bow crew and turret stations, radios, ammunition racks, fuel, powerpacks, breeches, optics, traverse, and exact installed MG modules; validate ordered crew/module paths and armor-entry integration.
   - [x] Panzer 38(t) and Sd.Kfz. 231 6-Rad vertical slice: add independent layouts for the tracked tank's front drive, right bow MG, and rear powerpack and the armored car's front engine, central transmission, dual drivers, rear radio station, and rear fighting compartment; validate exact crew/component ownership, ordered paths, and armor-entry integration.
   - [x] Char B1 bis and Panzer IV Ausf. D vertical slice: complete model-local layouts for all 15 catalog vehicles; distinguish the B1's rear drive, asymmetric hull crew and armament, one-man APX 4 turret, and supported component contract from the Panzer IV's front drive, separate bow crew, and three-man turret; validate exact crew/component ownership, ordered paths, and armor-entry integration.
@@ -727,6 +749,17 @@ authorized.
     - [ ] Author source-registered hatch/exposure/headgear records and distinct crew LOD figures for remaining vehicles; replace generic derived volumes only after each represented variant's real opening policy is verified.
   - [ ] Render every real stable-ID vehicle crewman at an authored station, then add deterministic hatch-owned bailout, dismounted targetable survivors, abandonment, interruption, and deep replay.
 - [ ] Add infantry transport embarkation, carried-passenger ownership, capacity, vehicle-relative presentation, casualties, disembarkation, and deep WEGO replay for real transport vehicles.
+  - [x] First Laffly/Opel slice: stable squad-to-truck ownership, timed transfer,
+    personnel capacity, carried-state simulation lockout, truck-relative hidden
+    presentation, deterministic dismount placement, remount, detonation deaths,
+    UI actions/status, and capture/restore regression coverage.
+  - [x] Add real driver and vehicle-commander roster ownership to both trucks;
+    permit the living crew to dismount and remount, visibly place them behind
+    the truck, disable driving while the driver is outside, exclude dismounted
+    crew from internal hits/cookoff, and capture/restore their state.
+  - [ ] Make dismounted truck crew individually movable, targetable survivors
+    with authored full LOD figures; add non-cookoff passenger injury/ejection
+    from ordinary impacts and historically validated tank riders.
 - [ ] Add weapon sighting, target acquisition, aim time, range estimation, and fire-control delays.
   - [x] Deterministic first slice: give every infantryman, vehicle main gun, and auxiliary mount persistent target, phase, aim-progress, required-time, estimated-range, and range-error state; derive aim work from weapon/platform, range, experience, stance, suppression, wounds, target motion, optics, traverse, crew availability, and measured shooter motion; reset on target change; retain tracking through automatic bursts and feeds; apply the estimate to physical holdover and dispersion; expose read-only HUD/telemetry state; and preserve deep WEGO capture/restore with frame-partition, target-switch, cadence, and rollback tests.
   - [x] Add a renderer-neutral individual marksmanship/optic foundation with stable soldier profiles, injected optic capabilities, neutral defaults, independent observation, aim-work, range-error, dispersion, concealment-signature, and shot-retention factors, explicit approximation labels, and order-independent resolution. France 1940 optic records, formation allocation, and live spotting/fire-control wiring remain.
@@ -915,7 +948,8 @@ authorized.
     - [ ] Replace legacy oval/capsule tracks on every remaining tracked vehicle with vehicle-owned sprocket, idler, road-wheel, and return-roller support records.
       - [x] Establish the R35 reference implementation: one deterministic wheel-supported path, labeled renderer-only tension/gravity approximations, and the same path shape at detail and proxy LOD.
       - [x] Migrate the Char B1 bis detailed and proxy tiers to one vehicle-owned, 22-support, wheel-solved track path with distinct rear drive sprocket, front idler, and documented 3x4 + 3 + 1 support-wheel identity; retain exact support locations as photo-constrained inference rather than blueprint fact.
-      - [ ] Migrate the H39, S35, AMC 35, Panzer II/III/IV, Panzer 35(t), and Panzer 38(t); never use their current capsule geometry as blueprint-calibration evidence.
+      - [x] Migrate the S35 to source-registered sprocket, idler, nine-road-wheel, and return-roller supports shared by detailed and proxy tracks; keep link thickness and static tension labeled as renderer approximations.
+      - [ ] Migrate the H39, AMC 35, Panzer II/III/IV, Panzer 35(t), and Panzer 38(t); never use their current capsule geometry as blueprint-calibration evidence.
       - [ ] Couple track shape to authoritative suspension travel and track/component damage if dynamic running gear becomes a simulated mechanic; the current R35 path is static presentation geometry.
     - [x] Repair the registered tail-less R35 configuration: remove the absent optional trench tail, extend the base track/nose to the 4.02 m envelope, restore the five-wheel spacing, seat detailed track cleats at ground level, and constrain the proxy turret to 2.13 m.
     - ~~[x] Seat a separate R35 driver hood and rounded generic mantlet.~~ Dropped after source overlay showed both abstractions contradicted the supplied drawing.
@@ -928,10 +962,27 @@ authorized.
     - [x] Refit Panzer II Ausf. C, Panzer 35(t), and Panzer 38(t) against registered reference elevations; converge hull, turret, running-gear, and gun silhouettes while preserving exact envelopes and articulated far proxies.
     - [x] Refit Panzer IV Ausf. D against a registered multiview reference; converge its stepped hull, four-bogie suspension, faceted turret, short KwK 37, MG mounts, and articulated far proxy.
     - [x] Refit Sd.Kfz. 231 6-Rad against a registered multiview reference; preserve its exact three-axle envelope, tandem rear wheels, horseshoe turret, weapon projections, and articulated far proxy.
-    - [x] Blueprint-calibrate the SOMUA S35 cast hull, nine-wheel suspension, and APX stack plus the Opel Blitz bonnet, cab, dual-rear-tire bed, and canvas profile.
+    - [x] Blueprint-calibrate the Opel Blitz bonnet, cab, dual-rear-tire bed, and canvas profile.
+    - [ ] Blueprint-calibrate the SOMUA S35 cast hull, nine-wheel suspension, and APX stack.
+      - [x] Source-owned refit: replace the eight-point hull tube and elliptical APX approximation with registered ten-point hull sections, faceted turret plan sections, a shaped mantlet, elliptical domed cupola, source-registered running gear, and reduced source-derived proxy lofts; preserve exact envelope, winding, articulation, ground contact, and shared renderer/collision topology.
+      - [x] Correct front/rear source-mask interpretation: use source-pixel seeds to reopen the ground-line-enclosed under-hull space and retain only the largest connected vehicle silhouette so detached drawing artifacts do not score as geometry.
+      - [x] First GLB-authority slice: deterministically extract and register the user-supplied CC-BY-4.0 S35 cast turret shell, side door, and bilateral observation-port closures; use the same 1,062 source triangles for rendering and armor collision, preserve the exact vehicle envelope and articulated gun ownership, and retain the reduced procedural turret only as the far proxy.
+      - [ ] Complete live acceptance of the full-exterior GLB replacement at every runtime LOD.
+        - [x] Implementation and automated-validation slice: adopt the complete 297-node GLB as source authority; exclude four interior-material primitives and 13 excessive presentation nodes; retain hull, running gear, engine deck, doors, cupola, separately owned mantlet/barrel, lights, and aerial; repair source-normal mismatches plus closed/open component winding for front-face-only rendering; close audited structural boundaries before reduction; and emit deterministic 35,325-triangle high plus 17,032-triangle source-derived proxy LODs.
+        - [x] Generic surface-audit slice: use the reusable Object3D harness and model-case registry to render ten fixed oblique views per LOD on magenta, compare front-only coverage with a two-sided diagnostic oracle, attribute leaks to source parts, and separately audit welded boundary/non-manifold edges plus closed-surface genus. Raise the regression to 384 px after the higher-resolution pass exposed door, cupola, and proxy-wheel defects hidden at 256 px; all 40 final captures now have zero backface-only pixels.
+        - [x] Self-review the final high/medium/core/proxy front-face audit mosaic after selective closure and budgeted reduction; do not delegate model-defect acceptance to the user.
+        - [x] Simplify excessive source micro-detail: omit floating tool/handle, rear-chain, net, canvas, dark turret-insert, and layered vision-port presentation meshes; retain only the source-connected twin exhaust from the mixed toolset mesh at every LOD; cap all turret and upper-hull boundary loops with outward-only armor, back both turret slots without exposing an interior skin, add shallow sealed slot indicators, seal the engine-deck opening beneath its grille, merge repaired blinn4 fittings into painted armor, and self-review depth-tested material captures plus zero-leak silhouettes at every LOD.
+        - ~~[x] Screenshot-rejected shell-repair replacement: replace the GLB primary armor with closed four-view station lofts.~~ Superseded after user review showed that this restored the obsolete procedural hull instead of preserving the accepted GLB cast shape.
+        - [x] GLB shell restoration: render the actual five-part GLB hull and five-part APX shell at core/high detail; partition small painted/door fittings into a high-only detail assembly; reduce only the proxy representation; close each post-reduction boundary independently with concave or local 3D triangulation; split and invisibly inset only audited three-way source seams before solidification; retain FrontSide materials; and require exact source-node provenance, fixed triangle budgets, zero boundary/non-manifold edges, genus zero, and zero backface-only pixels at every primary armor LOD.
+        - [ ] Reinspect the regenerated front-face-only high/medium/core/proxy model in the live review after the final winding repair.
+      - [ ] Complete final human visual acceptance of the four-view high/medium/core/proxy overlays; the traversed gun remains a scoring artifact rather than a geometry target.
     - [x] Blueprint-calibrate the Panzer III Ausf. D exact envelope, eight-wheel suspension, stepped hull, three-man turret/cupola, weapon projections, and articulated proxy.
     - [x] Validate all 15 rigid envelopes and model contracts automatically, then inspect representative near and formation-distance silhouettes in the live scene.
     - [x] Add an isolated orthographic calibration jig with side, front, and top blueprint registration; silhouette, wireframe, overlay, and difference modes; explicit LOD selection; landmark-error readouts in metres; resumable JSON; and deterministic GPU-free SVG silhouettes.
+      - [x] Extend the jig with a true rear camera and independent horizontal/vertical source scaling; register the user-supplied SOMUA S35 side, front, rear, and rotated top elevations as immutable source pixels with rigid-only auto-fit landmarks. The source-backed hull, turret, running-gear, and detail refit remains separate review work.
+      - [x] Define the calibration model origin explicitly as ground center in every orthographic view; derive the S35 side/front/rear source points from their rigid bounds and add the top-view origin at the registered longitudinal/lateral centerline intersection.
+      - [x] Replace the visual-only difference blend with the weapon jig's shared CPU silhouette review: vehicle-owned line-art mask extraction, active-LOD triangle rasterization, red source-only/cyan model-only output, overlap IoU, directional pixel counts, and browser-readable score diagnostics for all four registered S35 views.
+      - [x] Add `/vehicle-review` as a standalone, mobile-sized four-pane S35 review page matching the weapon-review workflow: simultaneous side/top/front/rear source, model, overlay, and difference views; fixed-resolution per-view IoU and directional error counts; shared LOD selection; and native-fullscreen-enhanced CSS pane maximization.
     - [ ] Add a review-driven blueprint-to-parametric vehicle wizard with view detection, editable rigid datums, labeled wheel/support circles, cross-view component polygons, uncertainty, and explicit export approval.
       - [x] Build a pure-LLM Renault D2 proof: provenance and image identity, five proposed view crops, side/front/top metre registration, editable source-pixel component/support data, an injected generic loft/compiler seam, high/medium/core/proxy geometry, GLB/OBJ/STL export, annotated crops, and fixed overlay evidence.
       - [x] Integrate the Renault D2 as a clearly provisional playable vehicle with canonical crew/armor/armament records, internal modules, radio and coax ownership, material/LOD bindings, calibration asset, exact silhouette coverage, and a Stonne scenario spawn; retain human-review-pending visual metadata.
@@ -993,6 +1044,7 @@ authorized.
 - [x] Add CANCEL TOOL, DESELECT, Escape, right-click, and empty-ground deselection.
 - [x] Make visible friendly and hostile unit models plus their badges explicit selection/inspection surfaces; keep badges pass-through while a command tool owns the pointer, keep friendly models out of opposing-target raycasts, and preserve separate command authority.
 - [x] Keep the current orbit target and camera framing unchanged across ordinary model/badge selection, inspection, deselection, empty-ground clicks, and right-button camera panning; intentionally frame a unit on model/badge double-click.
+- [x] Recenter the vehicle debug sandbox orbit target on the exact visible vehicle or ground point selected by a clean double tap/click; keep drag/pinch gestures distinct and cancel the pending gun-mode shot when the gesture becomes a double tap.
 - [x] Preview the complete model-click selection on hover with yellow support-surface rings around every living infantryman, declared equipment such as mortars, or the vehicle footprint plus a matching yellow badge border; update hover transitions synchronously, keep render-object pools isolated per unit so differently sized footprints cannot leak across transitions, conform footprints to terrain, and let opaque models occlude them.
 - [x] Center each floating badge independently of its name and damage rows, and hide the whole badge when a nearer visible unit model blocks its camera ray.
 - [x] Raise floating badge anchors from 3.5 to 5.5 metres, add a fixed 48-pixel upward screen clearance that survives long camera range, and reduce badge size from 34 to 28 pixels so unit models remain readable underneath.

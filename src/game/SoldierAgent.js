@@ -113,6 +113,9 @@ export class SoldierAgent {
     this.buildingLocation = record.buildingLocation
       ? JSON.parse(JSON.stringify(record.buildingLocation))
       : null;
+    this.vehicleLocation = record.vehicleLocation
+      ? { ...record.vehicleLocation }
+      : null;
     this.commandWaypoint = record.commandWaypoint ?? -1;
     this.fenceVault = restoreFenceVault(record.fenceVault);
     this.syncRecord();
@@ -159,6 +162,9 @@ export class SoldierAgent {
       threatMemory: this.threatMemory.captureState(),
       buildingLocation: this.record.buildingLocation
         ? JSON.parse(JSON.stringify(this.record.buildingLocation))
+        : null,
+      vehicleLocation: this.record.vehicleLocation
+        ? { ...this.record.vehicleLocation }
         : null,
       fenceVault: this.record.fenceVault
         ? { ...this.record.fenceVault }
@@ -208,6 +214,9 @@ export class SoldierAgent {
     this.targetSoldierId = record.targetSoldierId ?? null;
     this.fireControl = createFireControlState(record.fireControl);
     this.buildingLocation = record.buildingLocation ? JSON.parse(JSON.stringify(record.buildingLocation)) : null;
+    this.vehicleLocation = record.vehicleLocation
+      ? { ...record.vehicleLocation }
+      : null;
     this.commandWaypoint = record.commandWaypoint ?? -1;
     this.fenceVault = restoreFenceVault(record.fenceVault);
     this.syncRecord();
@@ -242,6 +251,9 @@ export class SoldierAgent {
       threatMemory: this.threatMemory.captureState(),
       buildingLocation: this.buildingLocation
         ? JSON.parse(JSON.stringify(this.buildingLocation))
+        : null,
+      vehicleLocation: this.vehicleLocation
+        ? { ...this.vehicleLocation }
         : null,
       commandWaypoint: this.commandWaypoint,
       fenceVault: this.fenceVault ? { ...this.fenceVault } : null

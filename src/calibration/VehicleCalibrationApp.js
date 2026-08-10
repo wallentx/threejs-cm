@@ -21,7 +21,15 @@ import {
   setCalibrationLodVisibility
 } from './CalibrationModel.js';
 import { normalizeImportedCalibration } from './CalibrationRecordIO.js';
-import { renderVehicleSilhouetteSvg } from './SoftwareSilhouette.js';
+import {
+  renderVehicleSilhouetteMask,
+  renderVehicleSilhouetteSvg
+} from './SoftwareSilhouette.js';
+import {
+  compareSilhouetteMasks,
+  createLineArtSilhouetteMask,
+  resolveLineArtMaskCanvasPolicy
+} from './SilhouetteComparison.js';
 import { createVehicleOwnedRegistrations } from './VehicleOwnedRegistration.js';
 
 const MODES = Object.freeze(['overlay', 'difference', 'silhouette', 'wireframe', 'shaded']);
@@ -41,12 +49,20 @@ const cloneRegistration = registration => ({
   imageUrl: registration.imageUrl,
   crop: { ...registration.crop },
   scale: registration.scale,
+  scaleX: registration.scaleX ?? registration.scale,
+  scaleY: registration.scaleY ?? registration.scale,
   offsetX: registration.offsetX,
   offsetY: registration.offsetY,
   rotationDegrees: registration.rotationDegrees ?? 0,
   mirrorX: registration.mirrorX,
   autoFit: Boolean(registration.autoFit),
-  landmarks: structuredClone(registration.landmarks)
+  landmarks: structuredClone(registration.landmarks),
+  fitLandmarkIds: registration.fitLandmarkIds
+    ? [...registration.fitLandmarkIds]
+    : null,
+  ...(registration.sourceMask
+    ? { sourceMask: structuredClone(registration.sourceMask) }
+    : {})
 });
 
 function requiredElement(id) {
@@ -98,6 +114,7 @@ export class VehicleCalibrationApp {
     this.rendererHost = requiredElement('calibration-renderer');
     this.blueprintCanvas = requiredElement('blueprint-canvas');
     this.annotationCanvas = requiredElement('annotation-canvas');
+    this.comparisonCanvas = requiredElement('silhouette-comparison-canvas');
     this.vehicleSelect = requiredElement('vehicle-select');
     this.viewSelect = requiredElement('view-select');
     this.lodSelect = requiredElement('lod-select');
@@ -109,7 +126,8 @@ export class VehicleCalibrationApp {
     this.loadUrlButton = requiredElement('load-blueprint-url');
     this.sourceLink = requiredElement('blueprint-source');
     this.mirrorInput = requiredElement('blueprint-mirror');
-    this.scaleInput = requiredElement('blueprint-scale');
+    this.scaleXInput = requiredElement('blueprint-scale-x');
+    this.scaleYInput = requiredElement('blueprint-scale-y');
     this.offsetXInput = requiredElement('blueprint-offset-x');
     this.offsetYInput = requiredElement('blueprint-offset-y');
     this.rotationInput = requiredElement('blueprint-rotation');
@@ -148,6 +166,7 @@ export class VehicleCalibrationApp {
     this.imageCache = new Map();
     this.currentModel = null;
     this.currentImage = null;
+    this.currentComparison = null;
     this.blueprintTransform = null;
     this.frame = null;
     this.placeLandmark = false;
@@ -180,7 +199,7 @@ export class VehicleCalibrationApp {
     window.__VEHICLE_CALIBRATION__ = this;
     document.body.dataset.calibrationStatus = 'ready';
     document.body.dataset.rendererBackend = this.backendName;
-    this.setStatus('Ready. Load a side, front, or top reference and register its datums.');
+    this.setStatus('Ready. Load a side, front, rear, or top reference and register its datums.');
   }
 
   populateControls() {
@@ -265,7 +284,8 @@ export class VehicleCalibrationApp {
     });
     this.mirrorInput.addEventListener('change', () => this.updateRegistrationFromControls());
     for (const input of [
-      this.scaleInput,
+      this.scaleXInput,
+      this.scaleYInput,
       this.offsetXInput,
       this.offsetYInput,
       this.rotationInput,
@@ -464,11 +484,17 @@ export class VehicleCalibrationApp {
           ? this.differenceMaterial
           : this.silhouetteMaterial;
     this.applyModelOpacity();
-    this.rendererHost.style.mixBlendMode = this.mode === 'difference' ? 'difference' : 'normal';
-    this.blueprintCanvas.style.filter = this.mode === 'difference'
-      ? 'grayscale(1) contrast(1.8)'
-      : 'none';
+    this.updateComparisonLayerVisibility();
     this.requestRender();
+  }
+
+  updateComparisonLayerVisibility() {
+    const measuredDifference = Boolean(
+      this.mode === 'difference' && this.currentComparison
+    );
+    this.comparisonCanvas.style.display = measuredDifference ? 'block' : 'none';
+    this.blueprintCanvas.style.visibility = measuredDifference ? 'hidden' : 'visible';
+    this.rendererHost.style.visibility = measuredDifference ? 'hidden' : 'visible';
   }
 
   applyModelOpacity() {
@@ -501,6 +527,10 @@ export class VehicleCalibrationApp {
       this.camera.position.set(0, centerY, distance);
       this.camera.up.set(0, 1, 0);
       this.camera.lookAt(0, centerY, 0);
+    } else if (this.view === 'rear') {
+      this.camera.position.set(0, centerY, -distance);
+      this.camera.up.set(0, 1, 0);
+      this.camera.lookAt(0, centerY, 0);
     } else {
       this.camera.position.set(0, distance, 0);
       this.camera.up.set(0, 0, 1);
@@ -524,12 +554,17 @@ export class VehicleCalibrationApp {
       canvas.style.width = `${width}px`;
       canvas.style.height = `${height}px`;
     }
+    this.comparisonCanvas.width = width;
+    this.comparisonCanvas.height = height;
+    this.comparisonCanvas.style.width = `${width}px`;
+    this.comparisonCanvas.style.height = `${height}px`;
     this.updateCamera();
   }
 
   syncRegistrationControls() {
     const registration = this.getRegistration();
-    this.scaleInput.value = String(registration.scale);
+    this.scaleXInput.value = String(registration.scaleX ?? registration.scale);
+    this.scaleYInput.value = String(registration.scaleY ?? registration.scale);
     this.offsetXInput.value = String(registration.offsetX);
     this.offsetYInput.value = String(registration.offsetY);
     this.rotationInput.value = String(registration.rotationDegrees ?? 0);
@@ -547,7 +582,8 @@ export class VehicleCalibrationApp {
 
   updateRegistrationFromControls() {
     const registration = this.getRegistration();
-    registration.scale = Number(this.scaleInput.value);
+    registration.scaleX = Number(this.scaleXInput.value);
+    registration.scaleY = Number(this.scaleYInput.value);
     registration.offsetX = Number(this.offsetXInput.value);
     registration.offsetY = Number(this.offsetYInput.value);
     registration.rotationDegrees = Number(this.rotationInput.value);
@@ -659,8 +695,13 @@ export class VehicleCalibrationApp {
       rotationDegrees: registration.rotationDegrees ?? 0,
       mirrorX: registration.mirrorX
     });
+    const fitLandmarkIds = registration.fitLandmarkIds
+      ? new Set(registration.fitLandmarkIds)
+      : null;
     const matching = record.landmarks.filter(landmark => (
-      landmark.views.includes(this.view) && registration.landmarks[landmark.id]
+      landmark.views.includes(this.view)
+      && registration.landmarks[landmark.id]
+      && (!fitLandmarkIds || fitLandmarkIds.has(landmark.id))
     ));
     if (matching.length < 2) {
       this.setStatus('Place at least two landmarks in this view before fitting.', true);
@@ -680,15 +721,20 @@ export class VehicleCalibrationApp {
           width,
           height
         )),
-        { x: width * 0.5, y: height * 0.5 }
+        { x: width * 0.5, y: height * 0.5 },
+        {
+          independentAxes: true,
+          rotationDegrees: registration.rotationDegrees ?? 0
+        }
       );
-      registration.scale = fit.scale;
+      registration.scaleX = fit.scaleX;
+      registration.scaleY = fit.scaleY;
       registration.offsetX = fit.offsetX;
       registration.offsetY = fit.offsetY;
       registration.autoFit = false;
       this.syncRegistrationControls();
       this.setStatus(
-        `Fitted ${matching.length} landmarks; residual ${(fit.rmsPixels).toFixed(1)} px.`
+        `Fitted ${matching.length} landmarks on independent axes; residual ${(fit.rmsPixels).toFixed(1)} px.`
       );
     } catch (error) {
       this.setStatus(error instanceof Error ? error.message : 'Landmark fit failed.', true);
@@ -709,19 +755,103 @@ export class VehicleCalibrationApp {
     const width = Math.max(1, this.viewport.clientWidth);
     const height = Math.max(1, this.viewport.clientHeight);
     this.drawBlueprint();
+    this.measureSilhouette(width, height);
     this.drawAnnotations();
     this.resetRendererInfo();
     if (this.renderer) this.renderer.render(this.scene, this.camera);
     else this.drawSoftwareModel(width, height);
     const geometry = countModelGeometry(this.currentModel);
     const dimensions = getBlueprintCalibrationRecord(this.modelId).dimensionsMeters;
+    const score = this.currentComparison
+      ? [
+          `IoU ${(this.currentComparison.iou * 100).toFixed(2)}%`,
+          `source-only ${this.currentComparison.sourceOnlyPixels.toLocaleString()} px`,
+          `model-only ${this.currentComparison.modelOnlyPixels.toLocaleString()} px`
+        ]
+      : ['IoU unavailable'];
     this.metricsElement.textContent = [
+      ...score,
       `${dimensions.length.toFixed(2)} x ${dimensions.width.toFixed(2)} x ${dimensions.height.toFixed(2)} m`,
       `${this.backendName}`,
       `${geometry.meshes} visible meshes`,
       `${geometry.triangles.toLocaleString()} tris`,
       `${CALIBRATION_VIEWS[this.view].screenAxes}`
     ].join(' | ');
+  }
+
+  measureSilhouette(width, height) {
+    this.currentComparison = null;
+    delete document.body.dataset.silhouetteIou;
+    delete document.body.dataset.silhouetteSourceOnlyPixels;
+    delete document.body.dataset.silhouetteModelOnlyPixels;
+    const registration = this.getRegistration();
+    if (
+      !this.currentImage
+      || !this.blueprintTransform
+      || registration.sourceMask?.mode !== 'line-art-fill'
+    ) {
+      this.updateComparisonLayerVisibility();
+      return;
+    }
+
+    const sourceCanvas = document.createElement('canvas');
+    sourceCanvas.width = width;
+    sourceCanvas.height = height;
+    const context = sourceCanvas.getContext('2d', { willReadFrequently: true });
+    const transform = this.blueprintTransform;
+    context.save();
+    context.translate(transform.centerX, transform.centerY);
+    context.rotate(transform.rotation);
+    context.scale(transform.mirrorX ? -1 : 1, 1);
+    context.drawImage(
+      this.currentImage,
+      transform.sourceX,
+      transform.sourceY,
+      transform.sourceWidth,
+      transform.sourceHeight,
+      -transform.drawWidth * 0.5,
+      -transform.drawHeight * 0.5,
+      transform.drawWidth,
+      transform.drawHeight
+    );
+    context.restore();
+    const sourceRgba = createLineArtSilhouetteMask(
+      context.getImageData(0, 0, width, height).data,
+      width,
+      height,
+      resolveLineArtMaskCanvasPolicy(
+        registration.sourceMask,
+        transform,
+        this.currentImage.naturalWidth,
+        this.currentImage.naturalHeight
+      )
+    );
+    const dimensions = getBlueprintCalibrationRecord(this.modelId).dimensionsMeters;
+    const model = renderVehicleSilhouetteMask(
+      this.currentModel,
+      dimensions,
+      this.view,
+      { width, height }
+    );
+    this.currentComparison = compareSilhouetteMasks(
+      sourceRgba,
+      model.rgba,
+      width,
+      height
+    );
+    this.comparisonCanvas.getContext('2d').putImageData(
+      new ImageData(this.currentComparison.pixels, width, height),
+      0,
+      0
+    );
+    document.body.dataset.silhouetteIou = this.currentComparison.iou.toFixed(6);
+    document.body.dataset.silhouetteSourceOnlyPixels = String(
+      this.currentComparison.sourceOnlyPixels
+    );
+    document.body.dataset.silhouetteModelOnlyPixels = String(
+      this.currentComparison.modelOnlyPixels
+    );
+    this.updateComparisonLayerVisibility();
   }
 
   drawBlueprint() {
@@ -741,7 +871,8 @@ export class VehicleCalibrationApp {
       canvasWidth: width,
       canvasHeight: height,
       crop: registration.crop,
-      scale: registration.scale,
+      scaleX: registration.scaleX ?? registration.scale,
+      scaleY: registration.scaleY ?? registration.scale,
       offsetX: registration.offsetX,
       offsetY: registration.offsetY,
       rotationDegrees: registration.rotationDegrees ?? 0,
@@ -774,6 +905,7 @@ export class VehicleCalibrationApp {
     const context = this.annotationCanvas.getContext('2d');
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
     context.clearRect(0, 0, width, height);
+    if (this.mode === 'difference' && this.currentComparison) return;
     this.drawGrid(context, width, height);
     this.drawRigidEnvelope(context, width, height);
     this.drawLandmarks(context, width, height);
@@ -901,6 +1033,8 @@ export class VehicleCalibrationApp {
         imageUrl: registration.imageUrl?.startsWith('blob:') ? null : registration.imageUrl,
         crop: registration.crop,
         scale: registration.scale,
+        scaleX: registration.scaleX ?? registration.scale,
+        scaleY: registration.scaleY ?? registration.scale,
         offsetX: registration.offsetX,
         offsetY: registration.offsetY,
         rotationDegrees: registration.rotationDegrees ?? 0,
@@ -938,6 +1072,8 @@ export class VehicleCalibrationApp {
       const views = normalizeImportedCalibration(payload, record);
       for (const [viewName, registration] of Object.entries(views)) {
         const key = this.getRegistrationKey(this.modelId, viewName);
+        const sourceMask = this.registrationDefaults.get(this.modelId)?.[viewName]?.sourceMask;
+        if (sourceMask) registration.sourceMask = structuredClone(sourceMask);
         this.registrationState.set(key, registration);
         this.imageCache.delete(key);
       }

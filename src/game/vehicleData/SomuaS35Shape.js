@@ -3,6 +3,8 @@
  * vehicle-owned shape and armor data lives with France 1940 content.
  */
 export {
+  createSomuaS35HullLoftMeshData,
+  createSomuaS35TurretLoftMeshData,
   SOMUA_S35_HULL_STATIONS,
   SOMUA_S35_TURRET_STATIONS,
   SOMUA_S35_WEAPON_INSTALLATION,

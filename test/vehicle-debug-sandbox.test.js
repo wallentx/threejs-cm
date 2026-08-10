@@ -4,9 +4,11 @@ import * as THREE from 'three';
 import {
   DEBUG_VEHICLE_SEPARATION_METERS,
   VEHICLE_SANDBOX_VR_PALETTE,
+  VEHICLE_SANDBOX_TAP_GESTURE,
   VehicleDebugSandboxApp,
   VehicleDebugSandboxSimulation,
   createVehicleDebugVehicles,
+  isVehicleSandboxDoubleTap,
   listDebugGunOptions,
   listDebugVehicleOptions
 } from '../src/debug/VehicleDebugSandboxApp.js';
@@ -28,6 +30,107 @@ function advance(simulation, seconds) {
 
 test('vehicle debug sandbox exports its browser app constructor', () => {
   assert.equal(typeof VehicleDebugSandboxApp, 'function');
+});
+
+test('vehicle sandbox double tap requires nearby clean taps inside the time window', () => {
+  const first = { clientX: 100, clientY: 80, pointerType: 'touch', timeStamp: 1000 };
+  assert.equal(isVehicleSandboxDoubleTap(first, {
+    ...first,
+    clientX: 112,
+    clientY: 91,
+    timeStamp: 1000 + VEHICLE_SANDBOX_TAP_GESTURE.maxDoubleTapIntervalMs
+  }), true);
+  assert.equal(isVehicleSandboxDoubleTap(first, {
+    ...first,
+    clientX: 100 + VEHICLE_SANDBOX_TAP_GESTURE.maxDoubleTapDistancePx + 1,
+    timeStamp: 1100
+  }), false);
+  assert.equal(isVehicleSandboxDoubleTap(first, {
+    ...first,
+    timeStamp: 1001 + VEHICLE_SANDBOX_TAP_GESTURE.maxDoubleTapIntervalMs
+  }), false);
+  assert.equal(isVehicleSandboxDoubleTap(first, {
+    ...first,
+    pointerType: 'mouse',
+    timeStamp: 1100
+  }), false);
+});
+
+test('double tapping the sandbox recenters orbit controls without firing a gun shot', () => {
+  const app = Object.create(VehicleDebugSandboxApp.prototype);
+  app.mode = 'gun';
+  app.pointerStart = null;
+  app.pendingTap = null;
+  const focused = [];
+  const fired = [];
+  app.focusCameraAt = (x, y) => focused.push([x, y]);
+  app.fireGunAt = (x, y) => fired.push([x, y]);
+
+  const tap = (timeStamp, clientX, clientY) => {
+    app.onPointerDown({
+      pointerId: 7,
+      pointerType: 'touch',
+      isPrimary: true,
+      clientX,
+      clientY
+    });
+    app.onPointerUp({
+      pointerId: 7,
+      pointerType: 'touch',
+      isPrimary: true,
+      timeStamp,
+      clientX,
+      clientY
+    });
+  };
+  tap(1000, 120, 90);
+  tap(1240, 126, 94);
+
+  assert.deepEqual(focused, [[126, 94]]);
+  assert.deepEqual(fired, []);
+  assert.equal(app.pendingTap, null);
+});
+
+test('camera focus raycasts visible vehicle surfaces before the ground', () => {
+  const app = Object.create(VehicleDebugSandboxApp.prototype);
+  const scene = new THREE.Scene();
+  const vehicle = new THREE.Mesh(
+    new THREE.BoxGeometry(2, 2, 2),
+    new THREE.MeshBasicMaterial()
+  );
+  vehicle.position.y = 1;
+  scene.add(vehicle);
+  app.ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(100, 100),
+    new THREE.MeshBasicMaterial()
+  );
+  app.ground.rotation.x = -Math.PI / 2;
+  scene.add(app.ground);
+  app.simulation = { visibleUnits: [{ mesh: vehicle }] };
+  app.camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
+  app.camera.position.set(0, 1, 8);
+  app.camera.lookAt(0, 1, 0);
+  app.raycaster = new THREE.Raycaster();
+  app.pointer = new THREE.Vector2();
+  app.rendererFacade = {
+    domElement: {
+      getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 100 })
+    }
+  };
+  let updates = 0;
+  app.controls = {
+    target: new THREE.Vector3(),
+    update: () => { updates += 1; }
+  };
+
+  assert.equal(app.focusCameraAt(50, 50), true);
+  assert.ok(app.controls.target.distanceTo(new THREE.Vector3(0, 1, 1)) < 1e-9);
+  assert.equal(updates, 1);
+
+  vehicle.geometry.dispose();
+  vehicle.material.dispose();
+  app.ground.geometry.dispose();
+  app.ground.material.dispose();
 });
 
 test('vehicle debug sandbox ground uses the neon green VR training palette', () => {

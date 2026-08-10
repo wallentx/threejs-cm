@@ -22,6 +22,9 @@ import {
 import {
   CHAR_B1_BIS_VISUAL_DATA
 } from '../src/content/france1940/vehicleData/CharB1BisVisualData.js';
+import {
+  SOMUA_S35_VISUAL_DATA
+} from '../src/content/france1940/vehicleData/SomuaS35VisualData.js';
 
 const contractChecks = DEFAULT_VEHICLE_VISUAL_CHECKS.filter(check => (
   ['identity', 'assets', 'mesh-contract'].includes(check.id)
@@ -60,6 +63,32 @@ test('the same contract checks accept every registered vehicle bundle', () => {
     );
     assert.deepEqual(report.executedChecks, contractChecks.map(check => check.id));
   }
+});
+
+test('SOMUA bundle owns the checked-in four-view source pixels', async () => {
+  const bundle = FRANCE_1940_VEHICLE_VISUAL_BUNDLES.fr_somua;
+  assert.equal(bundle.visualData, SOMUA_S35_VISUAL_DATA);
+  assert.deepEqual(
+    Object.keys(bundle.visualData.blueprint.views).sort(),
+    ['front', 'rear', 'side', 'top']
+  );
+  const bytes = await readFile(
+    new URL(`../public${bundle.visualData.blueprint.imageUrl}`, import.meta.url)
+  );
+  assert.equal(
+    createHash('sha256').update(bytes).digest('hex'),
+    bundle.visualData.blueprint.sha256
+  );
+  const report = evaluateVehicleVisualBundle(bundle);
+  assert.equal(
+    report.pass,
+    true,
+    report.failures.map(item => `${item.checkId}: ${item.message}`).join('\n')
+  );
+  assert.deepEqual(
+    Object.keys(report.metrics.blueprintViews).sort(),
+    ['front', 'rear', 'side', 'top']
+  );
 });
 
 test('H39 bundle injects the exact family-owned visual data without source-mechanics claims', () => {

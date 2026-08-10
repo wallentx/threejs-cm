@@ -123,7 +123,15 @@ function createHarness() {
       selectedUnit = null;
     },
     splitUnit: () => { calls.split++; },
-    issueBuildingExit: () => {}
+    issueBuildingExit: () => {},
+    requestTransportMount: () => ({ accepted: true, durationSeconds: 4 }),
+    requestTransportDismount: () => ({ accepted: true, durationSeconds: 3 }),
+    resupplyFromTransport: () => ({
+      accepted: true,
+      smallArmsRounds: 20,
+      machineGunRounds: 0,
+      mortarBombs60mm: 0
+    })
   });
   ui.showToast = () => {};
   ui.renderCommandGrid = () => {};

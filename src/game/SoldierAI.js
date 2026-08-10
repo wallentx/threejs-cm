@@ -128,6 +128,9 @@ function copySoldier(soldier) {
       ),
     threatMemory: cloneThreatMemoryState(soldier.threatMemory)
   };
+  copy.vehicleLocation = soldier.vehicleLocation
+    ? { ...soldier.vehicleLocation }
+    : null;
   if (!copy.supportAmmunitionTransfer) {
     delete copy.supportAmmunitionTransfer;
   }

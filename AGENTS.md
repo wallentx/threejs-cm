@@ -248,6 +248,13 @@ Required handoff report:
   exact rigid envelope, ground contact, major mechanical datums, silhouette,
   outward winding, marker alignment, and all four runtime LOD tiers. Never add
   close detail that disappears into an incorrect medium/core silhouette.
+- Do not create vehicle-, weapon-, or object-specific validation machinery.
+  Build generic model-audit harnesses that accept an Object3D/factory,
+  dimensions, view manifest, LOD policy, and acceptance thresholds as data;
+  register each concrete asset as a case. A model-owned test may verify its
+  historical contract, but shared geometry defects such as missing faces,
+  winding, bounds, LOD visibility, or silhouette coverage belong in the
+  reusable harness.
 - Track proxies must preserve open running-gear identity. Do not replace tracks
   with opaque black slabs.
 - Never use a generic oval, capsule, or current rendered track silhouette as

@@ -30,6 +30,7 @@ export function isTargetCommandMode(mode) {
 
 function canUnitUseCommandMode(unit, mode) {
   if (unit && typeof unit.isControllable === 'function' && !unit.isControllable()) return false;
+  if (unit?.isTransported?.()) return false;
   if (mode === 'MOVE_REVERSE') return Boolean(unit?.vehicleSpec);
   if (mode === 'TARGET_AP') return Boolean(unit?.vehicleSpec?.mainGun?.ap);
   if (mode === 'TARGET_HE') return Boolean(unit?.vehicleSpec?.mainGun?.he);
@@ -142,7 +143,14 @@ export class CommandSystem {
   }
 
   setCommandMode(mode) {
-    if (!this.activeUnit || (typeof this.activeUnit.isControllable === 'function' && !this.activeUnit.isControllable())) {
+    if (
+      !this.activeUnit
+      || (
+        typeof this.activeUnit.isControllable === 'function'
+        && !this.activeUnit.isControllable()
+      )
+      || this.activeUnit.isTransported?.()
+    ) {
       this.activeMode = null;
       this.areaTargetPreview = null;
       this.renderOverlays();

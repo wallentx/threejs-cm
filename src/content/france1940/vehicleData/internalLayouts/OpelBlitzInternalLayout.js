@@ -6,7 +6,7 @@ export function createOpelBlitzInternalLayout(referenceUrl) {
     dataQuality: [
       'historical unarmored Opel Blitz 3.6-36 S general-service truck configuration',
       'bonnet, cab, wheelbase, axle, and cargo-body stations follow the authored registered elevations',
-      'seat sides, crew, engine, transmission, and fuel bounds are gameplay approximations'
+      'seat sides, crew, engine, transmission, fuel, and mixed ammunition-cargo bounds are gameplay approximations'
     ].join('; '),
     referenceUrl,
     volumes: [
@@ -49,6 +49,14 @@ export function createOpelBlitzInternalLayout(referenceUrl) {
         center: [-0.70, 0.72, -0.18],
         halfExtents: [0.18, 0.22, 0.44],
         dataQuality: 'chassis-mounted tank position inferred; volume is a gameplay approximation'
+      },
+      {
+        id: 'module-ammunition-cargo',
+        kind: 'component',
+        componentId: 'ammunition',
+        center: [0, 1.35, -1.18],
+        halfExtents: [0.86, 0.48, 0.92],
+        dataQuality: 'bounded mixed supply load in the cargo body is a gameplay approximation authorized for the logistics slice'
       }
     ]
   };

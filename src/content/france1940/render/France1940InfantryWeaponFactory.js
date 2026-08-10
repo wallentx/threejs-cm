@@ -6,6 +6,7 @@ import {
   LEBEL_M1886_M93_VISUAL_DATA
 } from './LebelM1886M93VisualData.js';
 import { LEBEL_M1886_M93_REFERENCE_MESH_DATA } from './LebelM1886M93ReferenceMeshData.js';
+import { KAR98K_VISUAL_DATA } from './Kar98kVisualData.js';
 import { MAS36_VISUAL_DATA } from './Mas36VisualData.js';
 
 // Visual dimensions are metres. Overall lengths are historical nominal values;
@@ -49,16 +50,7 @@ export const FRANCE_1940_INFANTRY_WEAPON_VISUALS = Object.freeze({
     definingFeatures: ['canted receiver profile', 'bottom box magazine', 'wooden stock']
   }),
   Kar98k: Object.freeze({
-    id: 'kar98k',
-    designation: 'Kar98k',
-    kind: 'rifle',
-    overallLength: 1.11,
-    stockEnd: 0.48,
-    receiverEnd: 0.63,
-    handguardEnd: 0.87,
-    barrelRadius: 0.011,
-    magazine: 'internal',
-    definingFeatures: ['turned bolt handle', 'internal magazine floorplate', 'full wood stock']
+    ...KAR98K_VISUAL_DATA.visualSpec
   }),
   'MG34 LMG': Object.freeze({
     id: 'mg34',
@@ -1677,6 +1669,365 @@ function buildFm2429(spec, materials) {
   return model;
 }
 
+function buildKar98kLodRepresentation(spec, materials, tier) {
+  const group = new THREE.Group();
+  group.name = `${spec.designation}_${tier}_LOD`;
+  const { profiles, stations, widths, controls } = KAR98K_VISUAL_DATA;
+  const medium = tier === 'medium';
+  const tolerance = medium ? 0.0015 : 0.004;
+
+  profilePart(
+    group,
+    materials.wood,
+    `${spec.designation}_${tier}_Stock`,
+    profileShape(simplifyProfile(profiles.stock, tolerance)),
+    widths.stock,
+    stations.stockNose * 0.5
+  );
+  profilePart(
+    group,
+    materials.wood,
+    `${spec.designation}_${tier}_Handguard`,
+    profileShape(simplifyProfile(profiles.handguard, tolerance)),
+    widths.handguard,
+    (stations.handguardStart + stations.handguardEnd) * 0.5
+  );
+  profilePart(
+    group,
+    materials.metal,
+    `${spec.designation}_${tier}_Receiver`,
+    profileShape(simplifyProfile(profiles.receiver, tolerance)),
+    widths.receiver,
+    (stations.receiverStart + stations.receiverEnd) * 0.5
+  );
+  const magazine = profilePart(
+    group,
+    materials.metal,
+    `${spec.designation}_${tier}_InternalMagazine`,
+    profileShape(simplifyProfile(profiles.magazine, tolerance)),
+    widths.magazine,
+    (stations.receiverStart + stations.receiverEnd) * 0.5
+  );
+  magazine.userData.feedType = 'internal';
+  const barrel = cylinderPart(
+    group,
+    materials.metal,
+    `${spec.designation}_${tier}_Barrel`,
+    spec.barrelRadius,
+    stations.barrelStart,
+    spec.overallLength,
+    0,
+    0,
+    medium ? 8 : 6
+  );
+  barrel.userData.semanticPart = 'barrel';
+
+  for (const [control, width, name] of [
+    [controls.rearBand, widths.rearBand, 'RearBand'],
+    [controls.frontBand, widths.frontBand, 'FrontBand']
+  ]) {
+    boxPart(
+      group,
+      materials.metal,
+      `${spec.designation}_${tier}_${name}`,
+      width,
+      control.topY - control.bottomY,
+      control.startZ,
+      control.endZ,
+      (control.topY + control.bottomY) * 0.5
+    );
+  }
+
+  profilePart(
+    group,
+    materials.metal,
+    `${spec.designation}_${tier}_FrontSight`,
+    profileShape(profiles.frontSight),
+    widths.frontSight,
+    (profiles.frontSight[0].z + profiles.frontSight.at(-1).z) * 0.5
+  );
+
+  if (medium) {
+    profilePart(
+      group,
+      materials.metal,
+      `${spec.designation}_${tier}_TriggerGuard`,
+      profileShapeWithHole(profiles.triggerGuardOuter, profiles.triggerGuardInner),
+      widths.triggerGuard,
+      stations.receiverStart
+    );
+    profilePart(
+      group,
+      materials.metal,
+      `${spec.designation}_${tier}_RearSight`,
+      profileShape(profiles.rearSight),
+      widths.receiver,
+      (controls.rearSight.startZ + controls.rearSight.endZ) * 0.5
+    );
+    cylinderPart(
+      group,
+      materials.boltMetal ?? materials.metal,
+      `${spec.designation}_${tier}_BoltBody`,
+      controls.boltBody.radius,
+      controls.boltBody.startZ,
+      controls.boltBody.endZ,
+      0,
+      controls.boltBody.axisY,
+      8
+    );
+    const boltHandle = cylinderBetweenPart(
+      group,
+      materials.boltMetal ?? materials.metal,
+      `${spec.designation}_${tier}_BoltHandle`,
+      controls.boltHandle.stemRadius,
+      [controls.boltHandle.start.x, controls.boltHandle.start.y, controls.boltHandle.start.z],
+      [controls.boltHandle.end.x, controls.boltHandle.end.y, controls.boltHandle.end.z],
+      6
+    );
+    boltHandle.userData.semanticSide = 'right';
+    const boltKnob = meshPart(
+      group,
+      new THREE.SphereGeometry(controls.boltHandle.knobRadius, 6, 4),
+      materials.boltMetal ?? materials.metal,
+      `${spec.designation}_${tier}_BoltKnob`,
+      [
+        controls.boltHandle.end.x - controls.boltHandle.knobRadius * 0.7,
+        controls.boltHandle.end.y,
+        controls.boltHandle.end.z
+      ]
+    );
+    boltKnob.userData.semanticSide = 'right';
+    cylinderPart(
+      group,
+      materials.metal,
+      `${spec.designation}_${tier}_CleaningRod`,
+      controls.cleaningRod.radius,
+      controls.cleaningRod.startZ,
+      controls.cleaningRod.endZ,
+      0,
+      controls.cleaningRod.y,
+      6
+    );
+  }
+  return group;
+}
+
+function buildKar98k(spec, materials) {
+  const model = new THREE.Group();
+  model.name = `${spec.designation}_WeaponModel`;
+  const { profiles, stations, widths, controls } = KAR98K_VISUAL_DATA;
+  const boltMaterial = materials.boltMetal ?? materials.metal;
+
+  const stock = profilePart(
+    model,
+    materials.wood,
+    `${spec.designation}_Stock`,
+    profileShape(profiles.stock),
+    widths.stock,
+    stations.stockNose * 0.5
+  );
+  const handguard = profilePart(
+    model,
+    materials.wood,
+    `${spec.designation}_Handguard`,
+    profileShape(profiles.handguard),
+    widths.handguard,
+    (stations.handguardStart + stations.handguardEnd) * 0.5
+  );
+  const receiver = profilePart(
+    model,
+    materials.metal,
+    `${spec.designation}_Receiver`,
+    profileShape(profiles.receiver),
+    widths.receiver,
+    (stations.receiverStart + stations.receiverEnd) * 0.5
+  );
+  const boltBody = cylinderPart(
+    model,
+    boltMaterial,
+    `${spec.designation}_BoltBody`,
+    controls.boltBody.radius,
+    controls.boltBody.startZ,
+    controls.boltBody.endZ,
+    0,
+    controls.boltBody.axisY,
+    12
+  );
+  const magazine = profilePart(
+    model,
+    materials.metal,
+    `${spec.designation}_InternalMagazineFloorplate`,
+    profileShape(profiles.magazine),
+    widths.magazine,
+    (stations.receiverStart + stations.receiverEnd) * 0.5
+  );
+  magazine.userData.feedType = 'internal';
+  const triggerGuard = profilePart(
+    model,
+    materials.metal,
+    `${spec.designation}_TriggerGuard`,
+    profileShapeWithHole(profiles.triggerGuardOuter, profiles.triggerGuardInner),
+    widths.triggerGuard,
+    stations.receiverStart
+  );
+  const trigger = profilePart(
+    model,
+    materials.metal,
+    `${spec.designation}_Trigger`,
+    profileShape(profiles.trigger),
+    0.010,
+    stations.receiverStart
+  );
+  const barrel = cylinderPart(
+    model,
+    materials.metal,
+    `${spec.designation}_Barrel`,
+    spec.barrelRadius,
+    stations.barrelStart,
+    spec.overallLength,
+    0,
+    0,
+    12
+  );
+  barrel.userData.semanticPart = 'barrel';
+
+  const rearBand = boxPart(
+    model,
+    materials.metal,
+    `${spec.designation}_RearBand`,
+    widths.rearBand,
+    controls.rearBand.topY - controls.rearBand.bottomY,
+    controls.rearBand.startZ,
+    controls.rearBand.endZ,
+    (controls.rearBand.topY + controls.rearBand.bottomY) * 0.5
+  );
+  const frontBand = boxPart(
+    model,
+    materials.metal,
+    `${spec.designation}_FrontBand`,
+    widths.frontBand,
+    controls.frontBand.topY - controls.frontBand.bottomY,
+    controls.frontBand.startZ,
+    controls.frontBand.endZ,
+    (controls.frontBand.topY + controls.frontBand.bottomY) * 0.5
+  );
+  const rearSight = profilePart(
+    model,
+    materials.metal,
+    `${spec.designation}_RearSight`,
+    profileShape(profiles.rearSight),
+    widths.receiver,
+    (controls.rearSight.startZ + controls.rearSight.endZ) * 0.5
+  );
+  const frontSight = profilePart(
+    model,
+    materials.metal,
+    `${spec.designation}_FrontSight`,
+    profileShape(profiles.frontSight),
+    widths.frontSight,
+    (profiles.frontSight[0].z + profiles.frontSight.at(-1).z) * 0.5
+  );
+  frontSight.userData.semanticPart = 'frontSight';
+  const cleaningRod = cylinderPart(
+    model,
+    materials.metal,
+    `${spec.designation}_CleaningRod`,
+    controls.cleaningRod.radius,
+    controls.cleaningRod.startZ,
+    controls.cleaningRod.endZ,
+    0,
+    controls.cleaningRod.y,
+    8
+  );
+
+  const boltHandle = cylinderBetweenPart(
+    model,
+    boltMaterial,
+    `${spec.designation}_BoltHandle`,
+    controls.boltHandle.stemRadius,
+    [controls.boltHandle.start.x, controls.boltHandle.start.y, controls.boltHandle.start.z],
+    [controls.boltHandle.end.x, controls.boltHandle.end.y, controls.boltHandle.end.z],
+    8
+  );
+  boltHandle.userData.semanticSide = 'right';
+  const boltKnob = meshPart(
+    model,
+    new THREE.SphereGeometry(controls.boltHandle.knobRadius, 8, 6),
+    boltMaterial,
+    `${spec.designation}_BoltKnob`,
+    [
+      controls.boltHandle.end.x - controls.boltHandle.knobRadius * 0.7,
+      controls.boltHandle.end.y,
+      controls.boltHandle.end.z
+    ]
+  );
+  boltKnob.userData.semanticSide = 'right';
+  boltHandle.userData.knob = boltKnob;
+  const ejectionPort = meshPart(
+    model,
+    new THREE.BoxGeometry(0.008, 0.018, 0.085),
+    materials.metal,
+    `${spec.designation}_EjectionPort`,
+    [lateralX('right', widths.receiver * 0.5 + 0.003), 0.006, stations.receiverStart + 0.20]
+  );
+  ejectionPort.userData.semanticSide = 'right';
+
+  const muzzle = new THREE.Object3D();
+  muzzle.name = `${spec.designation}_Muzzle`;
+  muzzle.position.set(0, 0, spec.overallLength);
+  model.add(muzzle);
+
+  const detailedMeshes = [
+    stock, handguard, receiver, boltBody, magazine, triggerGuard, trigger, barrel,
+    rearBand, frontBand, rearSight, frontSight, cleaningRod, boltHandle, boltKnob,
+    ejectionPort
+  ];
+  const highMeshes = markWeaponLodRepresentation(detailedMeshes, 'high', true);
+  const mediumLod = buildKar98kLodRepresentation(spec, materials, 'medium');
+  const coreLod = buildKar98kLodRepresentation(spec, materials, 'core');
+  model.add(mediumLod, coreLod);
+  const lodRepresentations = installWeaponLodContract(
+    model,
+    KAR98K_VISUAL_DATA,
+    highMeshes,
+    mediumLod,
+    coreLod
+  );
+
+  model.userData.visualContract = {
+    units: 'metres',
+    overallLength: spec.overallLength,
+    source: KAR98K_VISUAL_DATA.source,
+    classification: KAR98K_VISUAL_DATA.classification,
+    ...spec
+  };
+  model.userData.parts = {
+    stock,
+    receiver,
+    boltBody,
+    handguard,
+    barrel,
+    magazine,
+    triggerGuard,
+    trigger,
+    rearBand,
+    frontBand,
+    rearSight,
+    frontSight,
+    cleaningRod,
+    boltHandle,
+    boltKnob,
+    ejectionPort,
+    chargingHandle: null,
+    pistolGrip: null,
+    muzzle,
+    detailedMeshes: lodRepresentations.high,
+    mediumSilhouette: lodRepresentations.medium,
+    coreSilhouette: lodRepresentations.core
+  };
+  return model;
+}
+
 function buildWeaponModel(spec, materials) {
   if (spec.id === 'lebel1886m93' || spec.id === 'lebel1886m93apx1916') {
     return buildLebelM1886M93(spec, materials);
@@ -1685,6 +2036,7 @@ function buildWeaponModel(spec, materials) {
   if (spec.id === 'mas36') return buildMas36(spec, materials);
   if (spec.id === 'mas38') return buildMas38(spec, materials);
   if (spec.id === 'fm2429') return buildFm2429(spec, materials);
+  if (spec.id === 'kar98k') return buildKar98k(spec, materials);
   const model = new THREE.Group();
   model.name = `${spec.designation}_WeaponModel`;
 

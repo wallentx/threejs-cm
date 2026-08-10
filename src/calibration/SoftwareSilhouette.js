@@ -5,6 +5,7 @@ import {
   worldToViewMeters
 } from './CalibrationMath.js';
 import { isEffectivelyVisible } from './CalibrationModel.js';
+import { rasterizeSilhouetteTriangles } from './SilhouetteComparison.js';
 
 const scratchA = new THREE.Vector3();
 const scratchB = new THREE.Vector3();
@@ -30,6 +31,7 @@ function includePoint(bounds, viewPoint, canvasPoint) {
 
 function appendProjectedTriangle(
   path,
+  triangles,
   bounds,
   positions,
   ia,
@@ -51,6 +53,7 @@ function appendProjectedTriangle(
   const a = viewMetersToCanvas(viewA, frame, width, height);
   const b = viewMetersToCanvas(viewB, frame, width, height);
   const c = viewMetersToCanvas(viewC, frame, width, height);
+  triangles.push([a, b, c].map(point => Object.freeze({ ...point })));
   if (includeInBounds) {
     includePoint(bounds, viewA, a);
     includePoint(bounds, viewB, b);
@@ -63,7 +66,7 @@ function appendProjectedTriangle(
   );
 }
 
-function appendMeshTriangles(path, bounds, mesh, root, view, frame, width, height) {
+function appendMeshTriangles(path, triangles, bounds, mesh, root, view, frame, width, height) {
   if (!isEffectivelyVisible(mesh, root.parent)) return 0;
   const geometry = mesh.geometry;
   const positions = geometry?.attributes?.position;
@@ -86,6 +89,7 @@ function appendMeshTriangles(path, bounds, mesh, root, view, frame, width, heigh
     for (let offset = 0; offset < elementCount; offset += 3) {
       appendProjectedTriangle(
         path,
+        triangles,
         bounds,
         positions,
         index ? index.getX(offset) : offset,
@@ -158,9 +162,35 @@ export function renderVehicleSilhouetteSvg(root, dimensionsMeters, view, {
   showEnvelope = true,
   wireframe = false
 } = {}) {
+  const projection = collectVehicleSilhouetteTriangles(
+    root,
+    dimensionsMeters,
+    view,
+    { width, height }
+  );
+  const { path, manifest } = projection;
+  const envelopeMarkup = showEnvelope
+    ? `<rect x="${manifest.envelope.x.toFixed(2)}" y="${manifest.envelope.y.toFixed(2)}" width="${manifest.envelope.width.toFixed(2)}" height="${manifest.envelope.height.toFixed(2)}" fill="none" stroke="#dc2626" stroke-width="2" stroke-dasharray="10 7"/>`
+    : '';
+  const svg = [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`,
+    `<rect width="${width}" height="${height}" fill="${background}"/>`,
+    `<g fill="${wireframe ? 'none' : silhouette}" stroke="${wireframe ? silhouette : 'none'}" stroke-width="${wireframe ? 0.75 : 0}">${path.map(d => `<path d="${d}"/>`).join('')}</g>`,
+    envelopeMarkup,
+    '</svg>',
+    ''
+  ].join('');
+  return { svg, manifest };
+}
+
+export function collectVehicleSilhouetteTriangles(root, dimensionsMeters, view, {
+  width = 1400,
+  height = 900
+} = {}) {
   root.updateMatrixWorld(true);
   const frame = createOrthographicFrame(dimensionsMeters, view, width / height);
   const path = [];
+  const triangles = [];
   const bounds = {
     canvas: {
       minX: Infinity,
@@ -180,6 +210,7 @@ export function renderVehicleSilhouetteSvg(root, dimensionsMeters, view, {
     if (!object.isMesh) return;
     triangleCount += appendMeshTriangles(
       path,
+      triangles,
       bounds,
       object,
       root,
@@ -190,21 +221,10 @@ export function renderVehicleSilhouetteSvg(root, dimensionsMeters, view, {
     );
   });
   const projectedBounds = completedBounds(bounds, triangleCount);
-  const envelope = envelopeRect(dimensionsMeters, view, frame, width, height);
-  const envelopeMarkup = showEnvelope
-    ? `<rect x="${envelope.x.toFixed(2)}" y="${envelope.y.toFixed(2)}" width="${envelope.width.toFixed(2)}" height="${envelope.height.toFixed(2)}" fill="none" stroke="#dc2626" stroke-width="2" stroke-dasharray="10 7"/>`
-    : '';
-  const svg = [
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`,
-    `<rect width="${width}" height="${height}" fill="${background}"/>`,
-    `<g fill="${wireframe ? 'none' : silhouette}" stroke="${wireframe ? silhouette : 'none'}" stroke-width="${wireframe ? 0.75 : 0}">${path.map(d => `<path d="${d}"/>`).join('')}</g>`,
-    envelopeMarkup,
-    '</svg>',
-    ''
-  ].join('');
-  return {
-    svg,
-    manifest: {
+  return Object.freeze({
+    path: Object.freeze(path),
+    triangles: Object.freeze(triangles),
+    manifest: Object.freeze({
       view,
       width,
       height,
@@ -212,7 +232,20 @@ export function renderVehicleSilhouetteSvg(root, dimensionsMeters, view, {
       triangleCount,
       projectedBoundsCanvas: projectedBounds.canvas,
       projectedBoundsMeters: projectedBounds.meters,
-      frame
-    }
-  };
+      frame,
+      envelope: envelopeRect(dimensionsMeters, view, frame, width, height)
+    })
+  });
+}
+
+export function renderVehicleSilhouetteMask(root, dimensionsMeters, view, options = {}) {
+  const projection = collectVehicleSilhouetteTriangles(root, dimensionsMeters, view, options);
+  return Object.freeze({
+    rgba: rasterizeSilhouetteTriangles(
+      projection.triangles,
+      projection.manifest.width,
+      projection.manifest.height
+    ),
+    manifest: projection.manifest
+  });
 }

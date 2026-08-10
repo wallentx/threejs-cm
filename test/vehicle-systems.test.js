@@ -571,6 +571,7 @@ test('fuel fire spreads, vents live ammunition, and deterministically cooks off'
 
 test('fuel fire burns out a vehicle when no cannon ammunition remains', () => {
   const transport = makeVehicle('OPEL_BLITZ', 'fuel_burnout_transport');
+  transport.destroyVehicleAmmunitionStores();
   applyDirectComponentDamage({
     components: transport.vehicleComponents,
     damageState: transport.vehicleDamageState,
@@ -588,25 +589,31 @@ test('fuel fire burns out a vehicle when no cannon ammunition remains', () => {
     event.type === 'vehicle_burned_out'));
 });
 
-test('unarmed transports have no ammunition component and cannot ammunition-explode', () => {
+test('supply transports own damageable ammunition cargo', () => {
   for (const vehicleId of ['LAFFLY_S20TL', 'OPEL_BLITZ']) {
     const transport = makeVehicle(vehicleId, `unarmed_ammo_${vehicleId}`);
-    assert.equal(transport.vehicleComponents.ammunition.installed, false);
-    assert.equal(setVehicleComponentHealth(transport.vehicleComponents, 'ammunition', 0), null);
+    assert.equal(transport.vehicleComponents.ammunition.installed, true);
+    assert.ok(Object.values(transport.vehicleTransportState.cargo)
+      .some(rounds => rounds > 0));
 
-    applyPenetrationComponentDamage({
+    applyDirectComponentDamage({
       components: transport.vehicleComponents,
       damageState: transport.vehicleDamageState,
-      zone: 'hull_side',
-      residualRatio: 1.6,
+      componentId: 'ammunition',
+      damageAmount: 100,
       random: () => 0
     });
-    assert.equal(transport.vehicleDamageState.secondaryExplosion, false);
     assert.equal(
-      transport.vehicleDamageState.events
-        .some(event => event.type === 'secondary_explosion' && event.source === 'ammunition'),
-      false
+      transport.vehicleDamageState.fire.phase,
+      'AMMUNITION_VENTING'
     );
+    transport.updateVehicleSystems(
+      transport.vehicleDamageState.fire.ventDurationSeconds
+    );
+    assert.equal(transport.vehicleDamageState.secondaryExplosion, true);
+    assert.ok(transport.vehicleDamageState.events
+      .some(event => event.type === 'secondary_explosion'
+        && event.source === 'ammunition'));
   }
 });
 

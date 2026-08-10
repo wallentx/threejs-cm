@@ -200,11 +200,17 @@ input[type="checkbox"] {
 
 #blueprint-canvas,
 #calibration-renderer,
+#silhouette-comparison-canvas,
 #annotation-canvas {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
+}
+
+#silhouette-comparison-canvas {
+  display: none;
+  pointer-events: none;
 }
 
 #calibration-renderer {

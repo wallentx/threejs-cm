@@ -83,6 +83,13 @@ import {
   getUnbuttonedCommanderWorldPosition
 } from '../simulation/vehicles/VehicleCrewExposure.js';
 import {
+  captureInfantryTransportAssignment,
+  captureVehicleTransportState,
+  createVehicleTransportState,
+  destroyTransportCargo,
+  restoreInfantryTransportAssignment
+} from '../simulation/vehicles/VehicleTransport.js';
+import {
   advanceMortarTeamState,
   canFireMortar,
   captureMortarTeamState,
@@ -143,7 +150,10 @@ function cloneRoster(roster) {
     equipment: soldier.equipment ? [...soldier.equipment] : undefined,
     buildingLocation: soldier.buildingLocation
       ? JSON.parse(JSON.stringify(soldier.buildingLocation))
-      : soldier.buildingLocation
+      : soldier.buildingLocation,
+    vehicleLocation: soldier.vehicleLocation
+      ? { ...soldier.vehicleLocation }
+      : soldier.vehicleLocation
   }));
 }
 
@@ -344,6 +354,13 @@ export class Unit {
     this.vehicleWeapon = this.vehicleSpec?.mainGun ? this.initVehicleWeapon(config.vehicleWeapon) : null;
     this.vehicleMounts = this.initVehicleMounts(config.vehicleMounts);
     if (this.vehicleWeapon) this.vehicleMounts.main = this.vehicleWeapon;
+    this.vehicleTransportState = createVehicleTransportState(
+      this.vehicleSpec?.transport,
+      config.vehicleTransportState
+    );
+    this.transportAssignment = restoreInfantryTransportAssignment(
+      config.transportAssignment
+    );
     if (this.vehicleDamageState.secondaryExplosion) this.applyVehicleCookoffConsequences();
     this.syncLegacyVehicleDamage();
     this.structureState = createStructureState(this.structureSpec, config.structureState);
@@ -467,7 +484,25 @@ export class Unit {
           this.mesh.userData.commanderFigure = figure;
         }
       }
+      if (this.vehicleSpec.transport && typeof commanderFactory === 'function') {
+        const figures = {};
+        for (const [index, crewman] of this.roster.entries()) {
+          const figure = commanderFactory({
+            vehicleId: this.vehicleId,
+            commanderRole: crewman.role,
+            fullBody: true
+          });
+          if (!figure?.isObject3D) continue;
+          figure.name = `DismountedCrew_${crewman.id}`;
+          figure.visible = false;
+          figure.position.set(index % 2 === 0 ? 0.55 : -0.55, 1.08, -3.1);
+          this.mesh.add(figure);
+          figures[String(crewman.id)] = figure;
+        }
+        this.mesh.userData.transportCrewFigures = figures;
+      }
       this.syncVehicleCommanderPresentation();
+      this.syncTransportCrewPresentation();
     }
     this.mesh.userData.unitId = this.id;
     this.mesh.userData.unitRoot = true;
@@ -622,7 +657,10 @@ export class Unit {
   }
 
   isCombatEffective() {
-    if (this.type === 'infantry_squad') return this.getLivingSoldiers().length > 0;
+    if (this.type === 'infantry_squad') {
+      return !this.isTransported()
+        && this.getLivingSoldiers().length > 0;
+    }
     if (this.structureSpec) return !this.structureState.destroyed && !this.structureState.firingDisabled;
     if (this.vehicleSpec) {
       return this.roster.some(crewman => crewman.health > 0 && crewman.status !== 'KIA')
@@ -676,6 +714,43 @@ export class Unit {
   toggleHoldFire() {
     this.holdFire = !this.holdFire;
     return this.holdFire;
+  }
+
+  isTransportVehicle() {
+    return Boolean(this.vehicleSpec?.transport && this.vehicleTransportState);
+  }
+
+  isTransported() {
+    return ['EMBARKED', 'DISEMBARKING'].includes(
+      this.transportAssignment?.phase
+    );
+  }
+
+  getTransportPassengerCount(unitMap = null) {
+    if (!this.vehicleTransportState) return 0;
+    if (!unitMap) {
+      return Object.values(
+        this.vehicleTransportState.passengerCountsByUnitId ?? {}
+      ).reduce((sum, count) => sum + count, 0);
+    }
+    return this.vehicleTransportState.passengerUnitIds.reduce(
+      (sum, unitId) => sum + (
+        unitMap.get(unitId)?.soldierAI?.getLivingAgents().length ?? 0
+      ),
+      0
+    );
+  }
+
+  setTransportPresentation(hidden) {
+    if (!this.soldierAI || !this.mesh) return;
+    this.mesh.userData.transportHidden = Boolean(hidden);
+    for (const soldierMesh of this.mesh.userData.soldiers ?? []) {
+      soldierMesh.visible = !hidden;
+    }
+    for (const batch of this.mesh.userData.infantryProxyInstances?.batches ?? []) {
+      batch.visible = false;
+    }
+    this.currentLOD = null;
   }
 
   hasDeployableCrewServedWeapon() {
@@ -1125,6 +1200,66 @@ export class Unit {
     return this.roster.filter(crewman => crewman.health > 0 && crewman.status !== 'KIA');
   }
 
+  getMountedCrew() {
+    return this.getLivingCrew().filter(crewman =>
+      crewman.vehicleLocation?.phase !== 'DISMOUNTED'
+    );
+  }
+
+  hasDismountedTransportCrew() {
+    return Boolean(
+      this.isTransportVehicle()
+      && this.getLivingCrew().some(crewman =>
+        crewman.vehicleLocation?.phase === 'DISMOUNTED'
+      )
+    );
+  }
+
+  dismountTransportCrew() {
+    if (!this.isTransportVehicle() || this.vehicleDamageState?.destroyed) {
+      return { accepted: false, reason: 'NOT_A_WORKING_TRUCK' };
+    }
+    if (this.hasDismountedTransportCrew()) {
+      return { accepted: false, reason: 'CREW_ALREADY_DISMOUNTED' };
+    }
+    this.clearWaypoints();
+    const crewIds = [];
+    for (const crewman of this.getLivingCrew()) {
+      crewman.vehicleLocation = {
+        vehicleId: String(this.id),
+        phase: 'DISMOUNTED'
+      };
+      crewIds.push(String(crewman.id));
+    }
+    this.syncTransportCrewPresentation();
+    return { accepted: crewIds.length > 0, reason: crewIds.length ? null : 'NO_CREW', crewIds };
+  }
+
+  remountTransportCrew() {
+    if (!this.isTransportVehicle() || this.vehicleDamageState?.destroyed) {
+      return { accepted: false, reason: 'NOT_A_WORKING_TRUCK' };
+    }
+    const crewIds = [];
+    for (const crewman of this.getLivingCrew()) {
+      if (crewman.vehicleLocation?.phase !== 'DISMOUNTED') continue;
+      crewman.vehicleLocation = null;
+      crewIds.push(String(crewman.id));
+    }
+    this.syncTransportCrewPresentation();
+    return { accepted: crewIds.length > 0, reason: crewIds.length ? null : 'CREW_ALREADY_MOUNTED', crewIds };
+  }
+
+  syncTransportCrewPresentation() {
+    const figures = this.mesh?.userData.transportCrewFigures ?? {};
+    for (const crewman of this.roster ?? []) {
+      const figure = figures[String(crewman.id)];
+      if (!figure) continue;
+      figure.visible = crewman.health > 0
+        && crewman.status !== 'KIA'
+        && crewman.vehicleLocation?.phase === 'DISMOUNTED';
+    }
+  }
+
   getUnbuttonedCommander() {
     return getUnbuttonedCommander(this);
   }
@@ -1243,7 +1378,7 @@ export class Unit {
   }
 
   isOriginalCrewRoleAlive(roles) {
-    return this.getLivingCrew().some(crewman => roles.includes(crewman.role));
+    return this.getMountedCrew().some(crewman => roles.includes(crewman.role));
   }
 
   getEffectiveCrewRole(crewman) {
@@ -1482,6 +1617,7 @@ export class Unit {
       state.isFiring = false;
       state.fireState = 'DESTROYED';
     }
+    destroyTransportCargo(this.vehicleTransportState);
   }
 
   hasVehicleCookoffAmmunition() {
@@ -1493,13 +1629,15 @@ export class Unit {
       return stored + (state.feedAmmo ?? 0);
     };
     if (roundsInState(this.vehicleWeapon) > 0) return true;
+    if (Object.values(this.vehicleTransportState?.cargo ?? {})
+      .some(rounds => rounds > 0)) return true;
     return (this.vehicleSpec?.weaponMounts ?? []).some(mount =>
       mount.kind === 'cannon'
       && roundsInState(this.vehicleMounts[mount.id]) > 0);
   }
 
   incapacitateVehicleCrewFromCookoff() {
-    for (const crewman of this.getLivingCrew()) {
+    for (const crewman of this.getMountedCrew()) {
       crewman.health = 0;
       crewman.status = 'KIA';
       recordVehicleEvent(this.vehicleDamageState, 'crew_hit', {
@@ -2318,7 +2456,7 @@ export class Unit {
     const casualties = [];
     const affectedCrewIds = new Set();
     for (const intent of explosiveEffect.crewIntents ?? []) {
-      const crewman = this.getLivingCrew().find(candidate =>
+      const crewman = this.getMountedCrew().find(candidate =>
         intent.crewRoles.includes(candidate.role)
           && !affectedCrewIds.has(candidate.id));
       if (!crewman || !(intent.damageAmount > 0)) continue;
@@ -2403,7 +2541,7 @@ export class Unit {
       const affectedCrew = new Set();
       for (const hit of result.internalPathHits) {
         if (hit.kind !== 'crew') continue;
-        const crewman = this.getLivingCrew().find(candidate =>
+        const crewman = this.getMountedCrew().find(candidate =>
           hit.crewRoles.includes(candidate.role) && !affectedCrew.has(candidate));
         if (!crewman) continue;
         affectedCrew.add(crewman);
@@ -2433,7 +2571,7 @@ export class Unit {
       const roles = this.vehicleSpec.zoneCrew[result.zone]
         ?? this.vehicleSpec.zoneCrew[damageZone]
         ?? [];
-      const candidates = this.getLivingCrew().filter(crewman => roles.includes(crewman.role));
+      const candidates = this.getMountedCrew().filter(crewman => roles.includes(crewman.role));
       const crewman = candidates.length > 0
         ? candidates[Math.floor(result.random() * candidates.length)]
         : null;
@@ -2502,6 +2640,15 @@ export class Unit {
       : (distance < thresholds.medium
           ? 'medium'
           : (distance < thresholds.core ? 'core' : 'low'));
+    if (this.mesh.userData.transportHidden === true) {
+      this.currentLOD = level;
+      this.mesh.traverse(object => {
+        if (object.isMesh && object.userData.lodBand !== 'ui') {
+          object.visible = false;
+        }
+      });
+      return level;
+    }
     if (
       level === this.currentLOD
       && this.mesh.userData.requiresContinuousLODUpdate !== true
@@ -2594,6 +2741,12 @@ export class Unit {
           .filter(([id]) => id !== 'main')
           .map(([id, mount]) => [id, captureVehicleMountState(mount)])
       ),
+      vehicleTransportState: captureVehicleTransportState(
+        this.vehicleTransportState
+      ),
+      transportAssignment: captureInfantryTransportAssignment(
+        this.transportAssignment
+      ),
       currentLOD: this.currentLOD,
       infantryBuddyBounds:
         this.infantryBuddyBounds?.captureState() ?? null,
@@ -2601,7 +2754,12 @@ export class Unit {
         this.soldierAI?.dangerMap.captureState() ?? null,
       roster: this.soldierAI
         ? this.soldierAI.captureRoster()
-        : this.roster.map(soldier => ({ ...soldier }))
+        : this.roster.map(soldier => ({
+            ...soldier,
+            ...(soldier.vehicleLocation
+              ? { vehicleLocation: { ...soldier.vehicleLocation } }
+              : {})
+          }))
     };
   }
 
@@ -2681,6 +2839,13 @@ export class Unit {
     if (state.vehicleWeapon) this.vehicleWeapon = this.initVehicleWeapon(state.vehicleWeapon);
     this.vehicleMounts = this.initVehicleMounts(state.vehicleMounts);
     if (this.vehicleWeapon) this.vehicleMounts.main = this.vehicleWeapon;
+    this.vehicleTransportState = createVehicleTransportState(
+      this.vehicleSpec?.transport,
+      state.vehicleTransportState
+    );
+    this.transportAssignment = restoreInfantryTransportAssignment(
+      state.transportAssignment
+    );
     if (this.vehicleDamageState.secondaryExplosion) this.applyVehicleCookoffConsequences();
     this.currentLOD = null;
     if (this.soldierAI) {
@@ -2691,7 +2856,12 @@ export class Unit {
         roster: state.roster
       });
     } else {
-      this.roster = state.roster.map(soldier => ({ ...soldier }));
+      this.roster = state.roster.map(soldier => ({
+        ...soldier,
+        ...(soldier.vehicleLocation
+          ? { vehicleLocation: { ...soldier.vehicleLocation } }
+          : {})
+      }));
     }
     this.syncTransformPresentation();
     this.syncVehicleWeaponPresentation();
@@ -2704,6 +2874,8 @@ export class Unit {
     if (this.vehicleAI && state.vehicleAI) this.vehicleAI.restoreState(state.vehicleAI);
     this.refreshAmmoSummary();
     this.syncVehicleCommanderPresentation();
+    this.syncTransportCrewPresentation();
+    this.setTransportPresentation(this.isTransported());
   }
 
   updateStanceVisuals() {
@@ -2775,6 +2947,30 @@ export class Unit {
       this.recentFireActivitySeconds
         - Math.max(0, Number.isFinite(delta) ? delta : 0)
     );
+    if (this.transportAssignment?.phase === 'BOARDING') {
+      for (const agent of this.soldierAI?.agents ?? []) {
+        agent.velocity.set(0, 0, 0);
+        agent.reloadTimer = 0;
+        agent.burstRemaining = 0;
+        agent.targetUnitId = null;
+        agent.targetSoldierId = null;
+        agent.syncRecord();
+      }
+      this.setTransportPresentation(false);
+      return;
+    }
+    if (this.isTransported()) {
+      for (const agent of this.soldierAI?.agents ?? []) {
+        agent.velocity.set(0, 0, 0);
+        agent.reloadTimer = 0;
+        agent.burstRemaining = 0;
+        agent.targetUnitId = null;
+        agent.targetSoldierId = null;
+        agent.syncRecord();
+      }
+      this.setTransportPresentation(true);
+      return;
+    }
     if (this.mortarTeamState) {
       advanceMortarTeamState(this.mortarTeamState, Math.max(0, delta));
       if (

@@ -67,9 +67,14 @@
       <section class="control-section">
         <h2>Registration</h2>
         <div class="split-controls">
-          <label>Scale
-            <input id="blueprint-scale" type="number" min="0.05" max="10" value="1" step="0.01">
+          <label>Horizontal scale
+            <input id="blueprint-scale-x" type="number" min="0.05" max="10" value="1" step="0.01">
           </label>
+          <label>Vertical scale
+            <input id="blueprint-scale-y" type="number" min="0.05" max="10" value="1" step="0.01">
+          </label>
+        </div>
+        <div class="split-controls">
           <label class="check-label">
             <input id="blueprint-mirror" type="checkbox">
             Mirror X
@@ -134,6 +139,7 @@
       <div id="calibration-viewport" class="calibration-viewport">
         <canvas id="blueprint-canvas"></canvas>
         <div id="calibration-renderer"></div>
+        <canvas id="silhouette-comparison-canvas" aria-label="Measured silhouette difference"></canvas>
         <canvas id="annotation-canvas"></canvas>
       </div>
     </section>

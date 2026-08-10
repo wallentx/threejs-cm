@@ -1,52 +1,40 @@
-const freezeRecords = records => Object.freeze(
-  records.map(record => Object.freeze({ ...record }))
-);
+import {
+  SOMUA_S35_VISUAL_DATA
+} from './SomuaS35VisualData.js';
+import {
+  SOMUA_S35_REFERENCE_REGISTRATION
+} from './SomuaS35ReferenceGeometry.js';
 
 // Shared renderer/collision contour. Rear (-Z) to front (+Z), scene metres.
-// Values are registered against s35-compare.jpg and the published rigid
-// envelope; hidden casting curvature remains a labeled geometric inference.
-export const SOMUA_S35_HULL_STATIONS = freezeRecords([
-  { z: -2.69, floorHalf: 0.30, floorY: 0.75, lowerHalf: 0.40, lowerY: 0.94, sideHalf: 0.45, shoulderY: 1.10, roofHalf: 0.24, roofY: 1.24 },
-  { z: -2.49, floorHalf: 0.62, floorY: 0.49, lowerHalf: 0.78, lowerY: 0.67, sideHalf: 0.82, shoulderY: 1.19, roofHalf: 0.62, roofY: 1.39 },
-  { z: -2.14, floorHalf: 0.78, floorY: 0.34, lowerHalf: 0.95, lowerY: 0.55, sideHalf: 0.98, shoulderY: 1.28, roofHalf: 0.78, roofY: 1.47 },
-  { z: -1.42, floorHalf: 0.82, floorY: 0.32, lowerHalf: 0.98, lowerY: 0.52, sideHalf: 1.00, shoulderY: 1.34, roofHalf: 0.80, roofY: 1.53 },
-  { z: -0.48, floorHalf: 0.83, floorY: 0.32, lowerHalf: 1.00, lowerY: 0.52, sideHalf: 1.02, shoulderY: 1.39, roofHalf: 0.80, roofY: 1.60 },
-  { z: 0.42, floorHalf: 0.83, floorY: 0.32, lowerHalf: 1.00, lowerY: 0.52, sideHalf: 1.02, shoulderY: 1.43, roofHalf: 0.78, roofY: 1.67 },
-  { z: 1.12, floorHalf: 0.80, floorY: 0.34, lowerHalf: 0.97, lowerY: 0.54, sideHalf: 0.99, shoulderY: 1.40, roofHalf: 0.71, roofY: 1.64 },
-  { z: 1.72, floorHalf: 0.75, floorY: 0.38, lowerHalf: 0.91, lowerY: 0.58, sideHalf: 0.94, shoulderY: 1.33, roofHalf: 0.60, roofY: 1.52 },
-  { z: 2.18, floorHalf: 0.64, floorY: 0.45, lowerHalf: 0.82, lowerY: 0.63, sideHalf: 0.85, shoulderY: 1.21, roofHalf: 0.43, roofY: 1.36 },
-  { z: 2.52, floorHalf: 0.48, floorY: 0.56, lowerHalf: 0.66, lowerY: 0.70, sideHalf: 0.69, shoulderY: 1.05, roofHalf: 0.25, roofY: 1.18 },
-  { z: 2.69, floorHalf: 0.25, floorY: 0.73, lowerHalf: 0.35, lowerY: 0.79, sideHalf: 0.38, shoulderY: 0.91, roofHalf: 0.12, roofY: 1.00 }
-]);
+// Values consume the checked-in four-view source registration and published
+// rigid envelope; hidden casting curvature remains a labeled inference.
+export const SOMUA_S35_HULL_STATIONS =
+  SOMUA_S35_VISUAL_DATA.geometry.hullStations;
 
 // Turret-local levels above the ring pivot at [0, 1.55, 0.55].
-export const SOMUA_S35_TURRET_STATIONS = freezeRecords([
-  { y: 0.00, halfWidth: 0.66, frontZ: 0.75, rearZ: 0.82 },
-  { y: 0.30, halfWidth: 0.68, frontZ: 0.78, rearZ: 0.84 },
-  { y: 0.58, halfWidth: 0.61, frontZ: 0.69, rearZ: 0.76 },
-  { y: 0.72, halfWidth: 0.48, frontZ: 0.52, rearZ: 0.59 }
-]);
+export const SOMUA_S35_TURRET_STATIONS =
+  SOMUA_S35_VISUAL_DATA.geometry.turret.stations;
 
 export const SOMUA_S35_WEAPON_INSTALLATION = Object.freeze({
   main: Object.freeze({
     axisLocalX: 0.04,
     axisLocalY: 0.42,
-    barrelBaseLocalZ: 0.78,
-    barrelLength: 1.20,
-    muzzleLocalZ: 1.98
+    barrelBaseLocalZ: 0.99,
+    barrelLength: 1.13,
+    muzzleLocalZ: 2.12
   }),
   mantlet: Object.freeze({
-    centerLocalZ: 0.76,
-    depth: 0.17,
-    radiusTop: 0.24,
-    radiusBottom: 0.28
+    centerLocalZ: 0.97,
+    depth: SOMUA_S35_VISUAL_DATA.geometry.turret.mantlet.depth,
+    radiusTop: 0.32,
+    radiusBottom: 0.35
   }),
   coax: Object.freeze({
     axisLocalX: -0.18,
     axisLocalY: 0.43,
-    barrelBaseLocalZ: 0.83,
+    barrelBaseLocalZ: 1.036,
     barrelLength: 0.46,
-    muzzleLocalZ: 1.29,
+    muzzleLocalZ: 1.495,
     mountSide: 'right',
     mantletOverlapMeters: 0.015
   }),
@@ -55,34 +43,99 @@ export const SOMUA_S35_WEAPON_INSTALLATION = Object.freeze({
 });
 
 const TURRET_PIVOT = Object.freeze([0, 1.55, 0.55]);
-const HULL_RING_SIZE = 8;
-const TURRET_SEGMENTS = 20;
+const HULL_RING_SIZE = 10;
+const HULL_SOURCE_MAX_HALF_WIDTH = Math.max(...SOMUA_S35_HULL_STATIONS.flatMap(
+  station => [
+    station.bottomHalfWidth,
+    station.lowerHalfWidth,
+    station.shoulderHalfWidth,
+    station.upperHalfWidth,
+    station.deckHalfWidth
+  ]
+));
+const HULL_TRANSVERSE_REGISTRATION_SCALE = (
+  SOMUA_S35_VISUAL_DATA.dimensionsMeters.width * 0.5
+) / HULL_SOURCE_MAX_HALF_WIDTH;
 
 function hullRing(station) {
+  const x = value => value * HULL_TRANSVERSE_REGISTRATION_SCALE;
   return [
-    [-station.floorHalf, station.floorY, station.z],
-    [-station.lowerHalf, station.lowerY, station.z],
-    [-station.sideHalf, station.shoulderY, station.z],
-    [-station.roofHalf, station.roofY, station.z],
-    [station.roofHalf, station.roofY, station.z],
-    [station.sideHalf, station.shoulderY, station.z],
-    [station.lowerHalf, station.lowerY, station.z],
-    [station.floorHalf, station.floorY, station.z]
+    [-x(station.bottomHalfWidth), station.bottomY, station.z],
+    [x(station.bottomHalfWidth), station.bottomY, station.z],
+    [x(station.lowerHalfWidth), station.lowerY, station.z],
+    [x(station.shoulderHalfWidth), station.shoulderY, station.z],
+    [x(station.upperHalfWidth), station.upperY, station.z],
+    [x(station.deckHalfWidth), station.deckY, station.z],
+    [-x(station.deckHalfWidth), station.deckY, station.z],
+    [-x(station.upperHalfWidth), station.upperY, station.z],
+    [-x(station.shoulderHalfWidth), station.shoulderY, station.z],
+    [-x(station.lowerHalfWidth), station.lowerY, station.z]
   ];
 }
 
-function turretRing(station) {
-  const points = [];
-  for (let segment = 0; segment < TURRET_SEGMENTS; segment++) {
-    const angle = segment / TURRET_SEGMENTS * Math.PI * 2;
-    const cosine = Math.cos(angle);
-    points.push([
-      Math.sin(angle) * station.halfWidth,
-      station.y,
-      cosine * (cosine >= 0 ? station.frontZ : station.rearZ)
-    ]);
+function signedMeshVolume(positions, indices) {
+  let volume = 0;
+  for (let offset = 0; offset < indices.length; offset += 3) {
+    const a = positions[indices[offset]];
+    const b = positions[indices[offset + 1]];
+    const c = positions[indices[offset + 2]];
+    volume += (
+      a[0] * (b[1] * c[2] - b[2] * c[1])
+      + a[1] * (b[2] * c[0] - b[0] * c[2])
+      + a[2] * (b[0] * c[1] - b[1] * c[0])
+    ) / 6;
   }
-  return points;
+  return volume;
+}
+
+function closedLoftMeshData(rings) {
+  const ringSize = rings[0].length;
+  if (rings.length < 2 || ringSize < 3 || rings.some(ring => ring.length !== ringSize)) {
+    throw new RangeError('SOMUA closed loft requires at least two equal-size rings');
+  }
+  const positions = rings.flat();
+  const indices = [];
+  for (let ring = 0; ring < rings.length - 1; ring += 1) {
+    const current = ring * ringSize;
+    const next = current + ringSize;
+    for (let edge = 0; edge < ringSize; edge += 1) {
+      const following = (edge + 1) % ringSize;
+      indices.push(
+        current + edge, next + edge, current + following,
+        current + following, next + edge, next + following
+      );
+    }
+  }
+  indices.push(...fanTriangles(0, ringSize).flat());
+  indices.push(...fanTriangles((rings.length - 1) * ringSize, ringSize, true).flat());
+  if (signedMeshVolume(positions, indices) < 0) {
+    for (let offset = 0; offset < indices.length; offset += 3) {
+      [indices[offset + 1], indices[offset + 2]] = [
+        indices[offset + 2],
+        indices[offset + 1]
+      ];
+    }
+  }
+  return { positions, indices, ringSize };
+}
+
+export function createSomuaS35HullLoftMeshData({ proxy = false } = {}) {
+  const stationIndices = proxy
+    ? SOMUA_S35_VISUAL_DATA.geometry.proxyHullStationIndices
+    : SOMUA_S35_HULL_STATIONS.map((_, index) => index);
+  return closedLoftMeshData(
+    stationIndices.map(index => hullRing(SOMUA_S35_HULL_STATIONS[index]))
+  );
+}
+
+export function createSomuaS35TurretLoftMeshData({ proxy = false } = {}) {
+  const stationIndices = proxy
+    ? SOMUA_S35_VISUAL_DATA.geometry.turret.proxyStationIndices
+    : SOMUA_S35_TURRET_STATIONS.map((_, index) => index);
+  return closedLoftMeshData(stationIndices.map(index => {
+    const station = SOMUA_S35_TURRET_STATIONS[index];
+    return station.planVertices.map(([x, z]) => [x, station.y, z]);
+  }));
 }
 
 function fanTriangles(offset, count, reverse = false) {
@@ -119,16 +172,18 @@ function fallbackZones(zone) {
 
 function hullPlateMesh(armorMm, referenceUrl) {
   const rings = SOMUA_S35_HULL_STATIONS.map(hullRing);
-  const vertices = rings.flat();
+  const vertices = createSomuaS35HullLoftMeshData().positions;
   const surfaces = [
-    { id: 'right-lower-casting', zone: 'hull_side', thicknessZone: 'hull_side' },
-    { id: 'right-side-casting', zone: 'hull_side', thicknessZone: 'hull_side' },
-    { id: 'right-shoulder-casting', zone: 'hull_side', thicknessZone: 'hull_side' },
-    { id: 'roof-deck', zone: 'hull_top', thicknessZone: 'hull_side' },
-    { id: 'left-shoulder-casting', zone: 'hull_side', thicknessZone: 'hull_side' },
-    { id: 'left-side-casting', zone: 'hull_side', thicknessZone: 'hull_side' },
+    { id: 'belly', zone: 'hull_bottom', thicknessZone: 'hull_side' },
     { id: 'left-lower-casting', zone: 'hull_side', thicknessZone: 'hull_side' },
-    { id: 'belly', zone: 'hull_bottom', thicknessZone: 'hull_side' }
+    { id: 'left-side-casting', zone: 'hull_side', thicknessZone: 'hull_side' },
+    { id: 'left-shoulder-casting', zone: 'hull_side', thicknessZone: 'hull_side' },
+    { id: 'left-upper-casting', zone: 'hull_side', thicknessZone: 'hull_side' },
+    { id: 'roof-deck', zone: 'hull_top', thicknessZone: 'hull_side' },
+    { id: 'right-upper-casting', zone: 'hull_side', thicknessZone: 'hull_side' },
+    { id: 'right-shoulder-casting', zone: 'hull_side', thicknessZone: 'hull_side' },
+    { id: 'right-side-casting', zone: 'hull_side', thicknessZone: 'hull_side' },
+    { id: 'right-lower-casting', zone: 'hull_side', thicknessZone: 'hull_side' }
   ];
   const plates = [];
   for (let station = 0; station < rings.length - 1; station++) {
@@ -184,71 +239,75 @@ function hullPlateMesh(armorMm, referenceUrl) {
     interiorPoint: [0, 0.95, 0],
     vertices,
     plates,
-    geometryQuality: 'exact shared authored SOMUA hull station mesh; curvature faceted between stations'
+    geometryQuality: 'source-owned ten-point cast-hull station mesh shared with rendering; hidden curvature faceted between registered stations'
   };
 }
 
 function turretPlateMesh(armorMm, referenceUrl) {
-  const rings = SOMUA_S35_TURRET_STATIONS.map(turretRing);
-  const vertices = rings.flat();
-  const plates = [];
-  for (let level = 0; level < rings.length - 1; level++) {
-    const lower = level * TURRET_SEGMENTS;
-    const upper = lower + TURRET_SEGMENTS;
-    for (let segment = 0; segment < TURRET_SEGMENTS; segment++) {
-      const next = (segment + 1) % TURRET_SEGMENTS;
-      const midpointAngle = (segment + 0.5) / TURRET_SEGMENTS * Math.PI * 2;
-      const forward = Math.cos(midpointAngle);
-      const zone = forward > 0.55
-        ? 'turret_front'
-        : forward < -0.55 ? 'turret_rear' : 'turret_side';
-      plates.push({
-        id: `${zone.replace('turret_', '')}-casting-${String(level + 1).padStart(2, '0')}-${String(segment + 1).padStart(2, '0')}`,
-        zone,
-        fallbackZone: zone,
-        thicknessMm: armorMm[zone],
-        thicknessSourceZone: zone,
-        thicknessDataQuality: 'historical nominal APX turret zone value; local casting variation unavailable',
-        thicknessReferenceUrl: referenceUrl,
-        triangles: [
-          [lower + segment, lower + next, upper + segment],
-          [lower + next, upper + next, upper + segment]
-        ]
-      });
-    }
+  const reference = createSomuaS35TurretLoftMeshData();
+  const vertices = reference.positions;
+  const zValues = vertices.map(vertex => vertex[2]);
+  const frontZ = Math.max(...zValues);
+  const rearZ = Math.min(...zValues);
+  const trianglesByZone = new Map([
+    ['turret_front', []],
+    ['turret_side', []],
+    ['turret_rear', []],
+    ['turret_top', []],
+    ['turret_bottom', []]
+  ]);
+  for (let offset = 0; offset < reference.indices.length; offset += 3) {
+    const triangle = reference.indices.slice(offset, offset + 3);
+    const [a, b, c] = triangle.map(index => vertices[index]);
+    const edgeA = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const edgeB = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    const normalY = edgeA[2] * edgeB[0] - edgeA[0] * edgeB[2];
+    const normalLength = Math.hypot(
+      edgeA[1] * edgeB[2] - edgeA[2] * edgeB[1],
+      normalY,
+      edgeA[0] * edgeB[1] - edgeA[1] * edgeB[0]
+    );
+    const verticalFacing = normalLength > 0 ? normalY / normalLength : 0;
+    const centerZ = (a[2] + b[2] + c[2]) / 3;
+    let zone = 'turret_side';
+    if (verticalFacing > 0.55) zone = 'turret_top';
+    else if (verticalFacing < -0.55) zone = 'turret_bottom';
+    else if (centerZ > frontZ * 0.55) zone = 'turret_front';
+    else if (centerZ < rearZ * 0.55) zone = 'turret_rear';
+    trianglesByZone.get(zone).push(triangle);
   }
-  plates.push({
-    id: 'turret-bottom',
-    zone: 'turret_bottom',
-    fallbackZone: 'turret_side',
-    thicknessMm: null,
-    thicknessSourceZone: 'turret_side',
-    thicknessDataQuality: 'turret-bottom thickness unavailable; explicit turret-side fallback',
-    thicknessReferenceUrl: referenceUrl,
-    triangles: fanTriangles(0, TURRET_SEGMENTS, true)
-  });
-  const top = (rings.length - 1) * TURRET_SEGMENTS;
-  plates.push({
-    id: 'turret-roof',
-    zone: 'turret_top',
-    fallbackZone: 'turret_side',
-    thicknessMm: null,
-    thicknessSourceZone: 'turret_side',
-    thicknessDataQuality: 'turret-roof thickness unavailable; explicit turret-side fallback',
-    thicknessReferenceUrl: referenceUrl,
-    triangles: fanTriangles(top, TURRET_SEGMENTS)
-  });
+  const plates = [...trianglesByZone.entries()]
+    .filter(([, triangles]) => triangles.length > 0)
+    .map(([zone, triangles]) => {
+      const hasHistoricalThickness = !['turret_top', 'turret_bottom'].includes(zone);
+      const thicknessZone = hasHistoricalThickness ? zone : 'turret_side';
+      return {
+        id: `glb-${zone.replace('turret_', '')}-casting`,
+        zone,
+        fallbackZone: thicknessZone,
+        thicknessMm: hasHistoricalThickness ? armorMm[zone] : null,
+        thicknessSourceZone: thicknessZone,
+        thicknessDataQuality: hasHistoricalThickness
+          ? 'historical nominal APX turret zone value; local casting variation unavailable'
+          : `${zone.replace('turret_', '')} thickness unavailable; explicit turret-side fallback`,
+        thicknessReferenceUrl: referenceUrl,
+        triangles
+      };
+    });
   return {
     id: 'turret-apx1ce-shell',
     part: 'turret',
     shape: 'triangle-mesh',
     exitArmorPolicy: 'opposite_face',
     center: TURRET_PIVOT,
-    interiorPoint: [0, 0.34, 0],
+    interiorPoint: [0, 0.40, 0.075],
     followsTurret: true,
     vertices,
     plates,
-    geometryQuality: 'exact shared authored APX 1 CE station mesh; casting curvature faceted to 20 segments'
+    sourceNodeName: 'registered-four-view-apx1ce-closed-loft',
+    sourceSha256: SOMUA_S35_REFERENCE_REGISTRATION.source.sha256,
+    sourceLicense: SOMUA_S35_REFERENCE_REGISTRATION.source.license,
+    geometryQuality: 'closed four-view station loft shared exactly with rendering; no decimation, shell thickening, or boundary-loop fan caps'
   };
 }
 
@@ -291,8 +350,22 @@ export function createSomuaS35ArmorCollision(armorMm, referenceUrl) {
         part: 'cupola',
         exitArmorPolicy: 'opposite_face',
         center: TURRET_PIVOT,
-        offset: [0.02, 0.875, 0],
-        halfExtents: [0.30, 0.175, 0.30],
+        offset: [
+          SOMUA_S35_VISUAL_DATA.geometry.turret.cupola.centerX,
+          (
+            SOMUA_S35_VISUAL_DATA.geometry.turret.cupola.baseY
+            + SOMUA_S35_VISUAL_DATA.geometry.turret.cupola.topY
+          ) * 0.5,
+          SOMUA_S35_VISUAL_DATA.geometry.turret.cupola.centerZ
+        ],
+        halfExtents: [
+          SOMUA_S35_VISUAL_DATA.geometry.turret.cupola.lateralRadius,
+          (
+            SOMUA_S35_VISUAL_DATA.geometry.turret.cupola.topY
+            - SOMUA_S35_VISUAL_DATA.geometry.turret.cupola.baseY
+          ) * 0.5,
+          SOMUA_S35_VISUAL_DATA.geometry.turret.cupola.longitudinalRadius
+        ],
         followsTurret: true,
         faceZones: namedFaces('cupola'),
         fallbackZones: namedFallback('turret_side'),

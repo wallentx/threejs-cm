@@ -1,4 +1,6 @@
-const VIEW_NAMES = Object.freeze(['side', 'front', 'top']);
+import { CALIBRATION_VIEWS } from './CalibrationMath.js';
+
+const VIEW_NAMES = Object.freeze(Object.keys(CALIBRATION_VIEWS));
 
 const finite = value => (
   Number.isFinite(Number(value)) ? Number(value) : null
@@ -247,12 +249,20 @@ function cloneRegistration(registration) {
     imageUrl: registration.imageUrl,
     crop: { ...registration.crop },
     scale: registration.scale,
+    scaleX: registration.scaleX ?? registration.scale,
+    scaleY: registration.scaleY ?? registration.scale,
     offsetX: registration.offsetX,
     offsetY: registration.offsetY,
     rotationDegrees: registration.rotationDegrees ?? 0,
     mirrorX: registration.mirrorX,
     autoFit: Boolean(registration.autoFit),
-    landmarks: structuredClone(registration.landmarks)
+    landmarks: structuredClone(registration.landmarks),
+    fitLandmarkIds: registration.fitLandmarkIds
+      ? [...registration.fitLandmarkIds]
+      : null,
+    ...(registration.sourceMask
+      ? { sourceMask: structuredClone(registration.sourceMask) }
+      : {})
   };
 }
 
@@ -322,7 +332,13 @@ export function createVehicleOwnedRegistrations(
         ?? false
       ),
       autoFit: Object.keys(landmarks).length >= 2,
-      landmarks
+      landmarks,
+      fitLandmarkIds: Array.isArray(viewData.entry?.fitLandmarkIds)
+        ? [...viewData.entry.fitLandmarkIds]
+        : fallback.fitLandmarkIds,
+      ...(viewData.entry?.sourceMask
+        ? { sourceMask: structuredClone(viewData.entry.sourceMask) }
+        : {})
     };
   }
   return views;

@@ -19,6 +19,8 @@ function hasFlag(name) {
   return process.argv.includes(name);
 }
 
+const useMeshColors = hasFlag('--mesh-colors');
+
 function runMagick(svg, outputPath) {
   const result = spawnSync('magick', ['svg:-', outputPath], {
     input: Buffer.from(svg),
@@ -31,6 +33,18 @@ function runMagick(svg, outputPath) {
 }
 
 function semanticColor(name) {
+  if (useMeshColors) {
+    let hash = 2166136261;
+    for (const character of name) {
+      hash ^= character.codePointAt(0);
+      hash = Math.imul(hash, 16777619);
+    }
+    return new THREE.Color().setHSL(
+      ((hash >>> 0) % 360) / 360,
+      0.58,
+      0.48
+    );
+  }
   if (/stock|handguard/i.test(name)) return new THREE.Color(0x70442f);
   if (/scope/i.test(name)) return new THREE.Color(0x25282b);
   if (/clean|stack/i.test(name)) return new THREE.Color(0x58616a);
@@ -264,12 +278,18 @@ function renderView(triangles, {
   // the model and makes top/front views appear mislabeled.
   })).sort((first, second) => second.depth - first.depth);
 
-  const valuesU = projected.flatMap(triangle => triangle.projected.map(point => point.u));
-  const valuesV = projected.flatMap(triangle => triangle.projected.map(point => point.v));
-  const minU = Math.min(...valuesU);
-  const maxU = Math.max(...valuesU);
-  const minV = Math.min(...valuesV);
-  const maxV = Math.max(...valuesV);
+  let minU = Infinity;
+  let maxU = -Infinity;
+  let minV = Infinity;
+  let maxV = -Infinity;
+  for (const triangle of projected) {
+    for (const point of triangle.projected) {
+      minU = Math.min(minU, point.u);
+      maxU = Math.max(maxU, point.u);
+      minV = Math.min(minV, point.v);
+      maxV = Math.max(maxV, point.v);
+    }
+  }
   const padding = 54;
   const titleHeight = 52;
   const scale = Math.min(
@@ -296,6 +316,7 @@ function renderView(triangles, {
 }
 
 const weaponName = readOption('--weapon', null);
+const preserveFrame = hasFlag('--preserve-frame');
 let inputPath = null;
 let nodeName = readOption('--node', 'Lebel_Rifle_Uncovered');
 const outputDirectory = path.resolve(readOption(
@@ -332,13 +353,18 @@ if (weaponName) {
   gltf.scene.updateMatrixWorld(true);
   const bounds = new THREE.Box3().setFromObject(root);
   sourceLength = bounds.getSize(new THREE.Vector3()).z;
-  metresPerSourceUnit = 1.30 / sourceLength;
-  const nodeWorld = root.getWorldPosition(new THREE.Vector3());
-  convertPoint = point => new THREE.Vector3(
-    -point.x * metresPerSourceUnit,
-    (point.y - nodeWorld.y) * metresPerSourceUnit,
-    (bounds.max.z - point.z) * metresPerSourceUnit
-  );
+  if (preserveFrame) {
+    metresPerSourceUnit = 1;
+    convertPoint = point => point.clone();
+  } else {
+    metresPerSourceUnit = 1.30 / sourceLength;
+    const nodeWorld = root.getWorldPosition(new THREE.Vector3());
+    convertPoint = point => new THREE.Vector3(
+      -point.x * metresPerSourceUnit,
+      (point.y - nodeWorld.y) * metresPerSourceUnit,
+      (bounds.max.z - point.z) * metresPerSourceUnit
+    );
+  }
 }
 const triangles = collectTriangles(root, convertPoint);
 const meshInventory = collectMeshInventory(root, convertPoint);
@@ -351,10 +377,12 @@ const addViews = (prefix, views, zRange, width, height) => {
 };
 if (!hasFlag('--inventory-only')) {
   addViews('full', ['side-right', 'side-left', 'top', 'bottom', 'front', 'rear'], null, 1600, 800);
-  addViews('bolt', ['side-right', 'side-left', 'top', 'bottom', 'front', 'rear'], [0.27, 0.69], 1400, 900);
-  addViews('muzzle', ['side-right', 'side-left', 'top', 'bottom', 'front', 'rear'], [1.12, 1.30], 1400, 900);
-  if (nodeName === 'Lebel_Rifle_Covered' || weaponName?.includes('APX 1916')) {
-    addViews('scope', ['side-right', 'side-left', 'top', 'bottom', 'front', 'rear'], [0.30, 0.70], 1400, 900);
+  if (!hasFlag('--full-only')) {
+    addViews('bolt', ['side-right', 'side-left', 'top', 'bottom', 'front', 'rear'], [0.27, 0.69], 1400, 900);
+    addViews('muzzle', ['side-right', 'side-left', 'top', 'bottom', 'front', 'rear'], [1.12, 1.30], 1400, 900);
+    if (nodeName === 'Lebel_Rifle_Covered' || weaponName?.includes('APX 1916')) {
+      addViews('scope', ['side-right', 'side-left', 'top', 'bottom', 'front', 'rear'], [0.30, 0.70], 1400, 900);
+    }
   }
 }
 
@@ -367,8 +395,11 @@ const manifest = {
   inputPath,
   weaponName,
   nodeName,
+  coordinatePolicy: preserveFrame
+    ? 'source world frame preserved'
+    : 'weapon frame normalized to a 1.30 metre +Z length',
   sourceLength,
-  registeredLengthMetres: 1.30,
+  registeredLengthMetres: preserveFrame ? null : 1.30,
   metresPerSourceUnit,
   triangleCount: triangles.length,
   meshInventory,

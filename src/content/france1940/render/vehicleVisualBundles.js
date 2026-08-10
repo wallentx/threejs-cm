@@ -23,6 +23,9 @@ import {
   RENAULT_D2_VISUAL_DATA
 } from '../vehicleData/RenaultD2AuthoringData.js';
 import {
+  SOMUA_S35_VISUAL_DATA
+} from '../vehicleData/SomuaS35VisualData.js';
+import {
   FRANCE_1940_VEHICLES
 } from '../vehicles.js';
 import {
@@ -34,6 +37,7 @@ import {
 
 const DEFAULT_REQUIRED_LODS = Object.freeze(['high', 'medium', 'core', 'proxy']);
 const VISUAL_DATA_BY_MODEL_ID = Object.freeze({
+  [SOMUA_S35_VISUAL_DATA.modelId]: SOMUA_S35_VISUAL_DATA,
   [RENAULT_R35_VISUAL_DATA.modelId]: RENAULT_R35_VISUAL_DATA,
   [HOTCHKISS_H39_VISUAL_DATA.modelId]: HOTCHKISS_H39_VISUAL_DATA,
   [CHAR_B1_BIS_VISUAL_DATA.modelId]: CHAR_B1_BIS_VISUAL_DATA,
@@ -54,11 +58,16 @@ function assetRecordsByModelId(assetResolver) {
     FRANCE_1940_ASSET_IDS.renaultR35MultiviewCalibrationReference,
     'calibration-reference-image'
   );
+  const somuaBlueprintBinding = assetResolver.require(
+    FRANCE_1940_ASSET_IDS.somuaMultiviewCalibrationReference,
+    'calibration-reference-image'
+  );
   const d2BlueprintBinding = assetResolver.require(
     FRANCE_1940_ASSET_IDS.renaultD2MultiviewCalibrationReference,
     'calibration-reference-image'
   );
   const blueprintBindings = Object.freeze({
+    [SOMUA_S35_VISUAL_DATA.modelId]: somuaBlueprintBinding,
     [RENAULT_R35_VISUAL_DATA.modelId]: r35BlueprintBinding,
     [RENAULT_D2_VISUAL_DATA.modelId]: d2BlueprintBinding
   });

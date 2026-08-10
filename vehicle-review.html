@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <link rel="icon" href="data:,">
+  <title>Vehicle Review</title>
+  <style>
+    :root {
+      --review-viewport-left: 0px;
+      --review-viewport-top: 0px;
+      --review-viewport-width: 100vw;
+      --review-viewport-height: 100dvh;
+      --review-content-top: 70px;
+      --review-content-height: calc(100dvh - 70px);
+      --panel: rgba(17, 24, 34, 0.94);
+      --panel-border: #526171;
+      --text: #eef4f8;
+      --muted: #a9b6c2;
+      --accent: #64c8ff;
+    }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; }
+    body {
+      margin: 0;
+      overflow: hidden;
+      overscroll-behavior: contain;
+      background: #87abc3;
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    }
+    button, input, select { font: inherit; }
+    button, select {
+      min-height: 28px;
+      border: 1px solid #6d7c89;
+      border-radius: 5px;
+      background: #f5f8fa;
+      color: #17202a;
+    }
+    button { padding: 3px 8px; cursor: pointer; touch-action: manipulation; }
+    button:hover, button:focus-visible {
+      border-color: var(--accent);
+      outline: 2px solid rgba(100, 200, 255, 0.45);
+      outline-offset: 1px;
+    }
+    #controls {
+      position: fixed;
+      top: calc(var(--review-viewport-top) + 8px);
+      left: calc(var(--review-viewport-left) + 12px);
+      z-index: 1000;
+      display: grid;
+      grid-template-columns: auto minmax(160px, 230px) minmax(110px, 150px) minmax(120px, 170px) minmax(190px, 260px);
+      align-items: center;
+      justify-content: center;
+      gap: 8px 14px;
+      width: calc(var(--review-viewport-width) - 24px);
+      min-height: 54px;
+      padding: 6px 10px;
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: 0 5px 18px rgba(0, 0, 0, 0.38);
+    }
+    .toolbar-title {
+      color: var(--accent);
+      font-size: 0.76rem;
+      font-weight: 850;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .toolbar-field {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      align-items: center;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 0.76rem;
+      font-weight: 750;
+      white-space: nowrap;
+    }
+    .toolbar-field select { min-width: 0; padding: 4px 6px; }
+    .toolbar-range {
+      display: grid;
+      grid-template-columns: minmax(80px, 1fr) 34px;
+      align-items: center;
+      gap: 6px;
+    }
+    output { color: var(--text); font: 0.72rem ui-monospace, monospace; }
+    .legend { color: var(--muted); font-size: 0.68rem; white-space: nowrap; }
+    .legend .source { color: #ff7777; }
+    .legend .model { color: #42e8ff; }
+    #grid {
+      position: fixed;
+      top: calc(var(--review-viewport-top) + var(--review-content-top));
+      left: var(--review-viewport-left);
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      width: var(--review-viewport-width);
+      height: var(--review-content-height);
+    }
+    .view-cell {
+      position: relative;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      border: 1px solid #34414d;
+      background: #9fbed3;
+    }
+    .view-canvas { width: 100%; height: 100%; object-fit: contain; display: block; }
+    .view-label, .view-score {
+      position: absolute;
+      z-index: 100;
+      padding: 4px 7px;
+      border: 1px solid #465665;
+      border-radius: 5px;
+      background: rgba(12, 18, 24, 0.84);
+      color: #d9e4ec;
+      font-size: 0.7rem;
+      font-weight: 800;
+      pointer-events: none;
+    }
+    .view-label { top: 10px; left: 10px; }
+    .view-score { bottom: 10px; left: 10px; font-family: ui-monospace, monospace; }
+    .view-actions { position: absolute; top: 10px; right: 10px; z-index: 200; }
+    .view-action-button { font-size: 0.67rem; font-weight: 800; }
+    #grid.is-maximized {
+      top: var(--review-viewport-top);
+      height: var(--review-viewport-height);
+      grid-template-columns: 1fr;
+      grid-template-rows: 1fr;
+    }
+    #grid.is-maximized .view-cell { display: none; }
+    #grid.is-maximized .view-cell.is-maximized { display: block; border: 0; }
+    body.has-maximized-view #controls { display: none; }
+    #safe-area-probe {
+      position: fixed;
+      bottom: 0;
+      width: 1px;
+      height: env(safe-area-inset-bottom, 0px);
+      visibility: hidden;
+    }
+    @media (max-width: 860px) {
+      :root { --review-content-top: 106px; --review-content-height: calc(100dvh - 106px); }
+      #controls { grid-template-columns: auto minmax(130px, 1fr) minmax(100px, 1fr); justify-content: stretch; }
+      .toolbar-title { grid-row: 1 / span 2; }
+      .toolbar-field.model-opacity { grid-column: 2 / span 2; }
+      .legend { display: none; }
+    }
+    @media (max-width: 520px) {
+      :root { --review-content-top: 136px; --review-content-height: calc(100dvh - 136px); }
+      #controls { grid-template-columns: 1fr 1fr; }
+      .toolbar-title { grid-column: 1 / span 2; grid-row: auto; }
+      .toolbar-field { grid-template-columns: 1fr; gap: 3px; }
+      .toolbar-field.model-opacity { grid-column: 1 / span 2; }
+      .view-score { right: 8px; bottom: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    }
+  </style>
+</head>
+<body data-game-status="loading">
+  <header id="controls">
+    <span class="toolbar-title">Vehicle review</span>
+    <label class="toolbar-field" for="vehicle-select">Vehicle
+      <select id="vehicle-select">
+        <option value="fr_somua">SOMUA S35</option>
+      </select>
+    </label>
+    <label class="toolbar-field" for="lod-select">LOD
+      <select id="lod-select">
+        <option value="high">High</option>
+        <option value="medium">Medium</option>
+        <option value="core">Core</option>
+        <option value="proxy">Proxy</option>
+      </select>
+    </label>
+    <label class="toolbar-field" for="render-mode-select">Review
+      <select id="render-mode-select">
+        <option value="difference">Difference</option>
+        <option value="overlay">Overlay</option>
+        <option value="source">Source</option>
+        <option value="model">Model</option>
+      </select>
+    </label>
+    <label class="toolbar-field model-opacity" for="model-opacity">Model opacity
+      <span class="toolbar-range">
+        <input id="model-opacity" type="range" min="0" max="1" value="0.72" step="0.01">
+        <output id="model-opacity-output" for="model-opacity">0.72</output>
+      </span>
+    </label>
+    <span class="legend"><span class="source">red = source only</span> | <span class="model">cyan = model only</span></span>
+  </header>
+  <main id="grid">
+    <section id="cell-side" class="view-cell" data-view="side">
+      <div class="view-label">SIDE | +X camera | -Z / +Y</div>
+      <div class="view-actions"><button class="view-fullscreen-button view-action-button" data-view-id="cell-side" type="button">Full</button></div>
+      <canvas class="view-canvas" width="900" height="700" aria-label="SOMUA S35 side silhouette review"></canvas>
+      <div class="view-score">Loading...</div>
+    </section>
+    <section id="cell-top" class="view-cell" data-view="top">
+      <div class="view-label">TOP | +Y camera | -X / +Z</div>
+      <div class="view-actions"><button class="view-fullscreen-button view-action-button" data-view-id="cell-top" type="button">Full</button></div>
+      <canvas class="view-canvas" width="900" height="700" aria-label="SOMUA S35 top silhouette review"></canvas>
+      <div class="view-score">Loading...</div>
+    </section>
+    <section id="cell-front" class="view-cell" data-view="front">
+      <div class="view-label">FRONT | +Z camera | +X / +Y</div>
+      <div class="view-actions"><button class="view-fullscreen-button view-action-button" data-view-id="cell-front" type="button">Full</button></div>
+      <canvas class="view-canvas" width="900" height="700" aria-label="SOMUA S35 front silhouette review"></canvas>
+      <div class="view-score">Loading...</div>
+    </section>
+    <section id="cell-rear" class="view-cell" data-view="rear">
+      <div class="view-label">REAR | -Z camera | -X / +Y</div>
+      <div class="view-actions"><button class="view-fullscreen-button view-action-button" data-view-id="cell-rear" type="button">Full</button></div>
+      <canvas class="view-canvas" width="900" height="700" aria-label="SOMUA S35 rear silhouette review"></canvas>
+      <div class="view-score">Loading...</div>
+    </section>
+  </main>
+  <div id="safe-area-probe" aria-hidden="true"></div>
+  <script type="module" src="/src/vehicle-review.js"></script>
+</body>
+</html>

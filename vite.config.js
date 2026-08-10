@@ -43,7 +43,8 @@ export default defineConfig({
     rolldownOptions: {
       input: {
         game: fileURLToPath(new URL('./index.html', import.meta.url)),
-        calibration: fileURLToPath(new URL('./calibration.html', import.meta.url))
+        calibration: fileURLToPath(new URL('./calibration.html', import.meta.url)),
+        vehicleReview: fileURLToPath(new URL('./vehicle-review.html', import.meta.url))
       },
       output: {
         strictExecutionOrder: true,

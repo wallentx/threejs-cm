@@ -80,6 +80,7 @@ export function isCrewmanTaskAvailable(crewman) {
     crewman
     && Number(crewman.health) > 0
     && !UNAVAILABLE_STATUSES.has(crewman.status)
+    && crewman.vehicleLocation?.phase !== 'DISMOUNTED'
   );
 }
 

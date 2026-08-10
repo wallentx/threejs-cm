@@ -3,6 +3,7 @@ import test from 'node:test';
 import * as THREE from 'three';
 
 import { BERTHIER_M1892_M16_VISUAL_DATA } from '../src/content/france1940/render/BerthierM1892M16VisualData.js';
+import { KAR98K_VISUAL_DATA } from '../src/content/france1940/render/Kar98kVisualData.js';
 import { MAS36_VISUAL_DATA } from '../src/content/france1940/render/Mas36VisualData.js';
 import {
   collectWeaponSideSilhouetteTriangles,
@@ -31,6 +32,19 @@ test('weapon silhouette jig registers a right-facing supplied drawing without mi
   const muzzle = projectWeaponSidePointToSource({ x: 0, y: 0, z: 0.945 }, registration);
   assert.ok(Math.abs(muzzle.x - 1159) < 1e-9);
   assert.equal(muzzle.y, 256);
+});
+
+test('weapon silhouette jig locks the supplied Kar98k sheet component to its nominal rigid length', () => {
+  const registration = KAR98K_VISUAL_DATA.silhouetteCalibration.side;
+  assert.deepEqual(
+    projectWeaponSidePointToSource({ x: 0, y: 0, z: 0 }, registration),
+    { x: 53, y: 700 }
+  );
+  const muzzle = projectWeaponSidePointToSource({ x: 0, y: 0, z: 1.11 }, registration);
+  assert.ok(Math.abs(muzzle.x - 1910) < 1e-9);
+  assert.equal(muzzle.y, 700);
+  assert.deepEqual(registration.componentSeedPixel, [700, 770]);
+  assert.equal(registration.viewDirection, '-X');
 });
 
 test('weapon silhouette jig projects visible detailed triangles and excludes proxy geometry', () => {

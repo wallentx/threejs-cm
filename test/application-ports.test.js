@@ -33,6 +33,14 @@ function runtimeHarness() {
       this.holdFire = !this.holdFire;
       calls.push(['hold-fire', this.holdFire]);
       return this.holdFire;
+    },
+    dismountTransportCrew() {
+      calls.push(['crew-dismount', this.id]);
+      return { accepted: true };
+    },
+    remountTransportCrew() {
+      calls.push(['crew-remount', this.id]);
+      return { accepted: true };
     }
   };
   let selectedUnit = unit;
@@ -128,7 +136,19 @@ function runtimeHarness() {
       selectedUnits = [];
     },
     splitUnit: selected => calls.push(['split', selected.id]),
-    issueBuildingExit: selected => calls.push(['exit', selected.id])
+    issueBuildingExit: selected => calls.push(['exit', selected.id]),
+    requestTransportMount: selected => {
+      calls.push(['mount', selected.id]);
+      return { accepted: true };
+    },
+    requestTransportDismount: selected => {
+      calls.push(['dismount', selected.id]);
+      return { accepted: true };
+    },
+    resupplyFromTransport: selected => {
+      calls.push(['resupply', selected.id]);
+      return { accepted: true };
+    }
   });
   return { port, unit, wego, commands, sound, calls, getSelected: () => selectedUnit };
 }
@@ -208,6 +228,11 @@ test('UI runtime port owns direct selected-unit mutations and building event bin
   assert.deepEqual(calls.at(-1), ['commander-posture', 'UNBUTTONED']);
   port.splitSelectedUnit();
   port.exitSelectedBuilding();
+  assert.deepEqual(port.mountSelectedUnit(), { accepted: true });
+  assert.deepEqual(port.dismountSelectedUnit(), { accepted: true });
+  assert.deepEqual(port.resupplySelectedUnit(), { accepted: true });
+  assert.deepEqual(port.dismountSelectedTransportCrew(), { accepted: true });
+  assert.deepEqual(port.remountSelectedTransportCrew(), { accepted: true });
   assert.deepEqual(port.issueBuildingOrder(
     unit,
     'ENTER_UPPER',
@@ -233,6 +258,15 @@ test('UI runtime port owns direct selected-unit mutations and building event bin
   assert.equal(unit.stance, 'KNEELING');
   assert.ok(calls.some(call => call[0] === 'split' && call[1] === unit.id));
   assert.ok(calls.some(call => call[0] === 'exit' && call[1] === unit.id));
+  for (const action of [
+    'mount',
+    'dismount',
+    'resupply',
+    'crew-dismount',
+    'crew-remount'
+  ]) {
+    assert.ok(calls.some(call => call[0] === action && call[1] === unit.id));
+  }
 });
 
 test('map editor port limits authoring to explicit terrain, scene, and notification actions', () => {

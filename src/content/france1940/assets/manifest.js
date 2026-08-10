@@ -8,8 +8,8 @@ export const FRANCE_1940_ASSET_IDS = Object.freeze({
   germanMg34BunkerMesh: 'france1940.structure.german.mg34-bunker.mesh',
   battlefieldVfxProvider: 'france1940.vfx.battlefield.default',
   battlefieldAudioProvider: 'france1940.audio.battlefield.default',
-  somuaSideCalibrationReference:
-    'france1940.calibration.vehicle.fr_somua.side.reference',
+  somuaMultiviewCalibrationReference:
+    'france1940.calibration.vehicle.fr_somua.multiview.reference',
   renaultR35MultiviewCalibrationReference:
     'france1940.calibration.vehicle.fr_renault_r35.multiview.reference',
   renaultD2MultiviewCalibrationReference:
@@ -140,18 +140,20 @@ export const FRANCE_1940_ASSET_MANIFEST = defineAssetManifest({
         simulationAuthority: false
       }
     },
-    [FRANCE_1940_ASSET_IDS.somuaSideCalibrationReference]: {
-      id: FRANCE_1940_ASSET_IDS.somuaSideCalibrationReference,
+    [FRANCE_1940_ASSET_IDS.somuaMultiviewCalibrationReference]: {
+      id: FRANCE_1940_ASSET_IDS.somuaMultiviewCalibrationReference,
       kind: 'calibration-reference-image',
       source: {
         type: 'url',
-        url: '/s35-compare.jpg'
+        url: '/assets/blueprints/france1940/s35-4view.webp'
       },
-      provenance: 'user-supplied SOMUA S35 comparison sheet; calibration use only',
+      provenance: 'user-supplied SOMUA S35 four-elevation drawing; calibration use only',
       metadata: {
         modelId: 'fr_somua',
-        views: ['side'],
-        role: 'orthographic-shape-registration'
+        views: ['side', 'front', 'rear', 'top'],
+        role: 'orthographic-shape-registration',
+        sha256:
+          '6a9e9268b514039429e7d0a84485f3773a1d230edad1532f32266a785332909d'
       }
     },
     [FRANCE_1940_ASSET_IDS.renaultR35MultiviewCalibrationReference]: {

@@ -44,7 +44,10 @@ export function createUIRuntimePort({
   inspectUnit,
   deselectUnit,
   splitUnit,
-  issueBuildingExit
+  issueBuildingExit,
+  requestTransportMount,
+  requestTransportDismount,
+  resupplyFromTransport
 }) {
   requireRecord(wego, 'UI runtime WEGO dependency');
   requireRecord(commands, 'UI runtime command dependency');
@@ -80,7 +83,10 @@ export function createUIRuntimePort({
     inspectUnit,
     deselectUnit,
     splitUnit,
-    issueBuildingExit
+    issueBuildingExit,
+    requestTransportMount,
+    requestTransportDismount,
+    resupplyFromTransport
   })) {
     requireFunction(value, `UI runtime ${label}`);
   }
@@ -263,6 +269,33 @@ export function createUIRuntimePort({
     },
     exitSelectedBuilding() {
       return selectedAction(getSelectedUnit, issueBuildingExit);
+    },
+    mountSelectedUnit() {
+      return selectedAction(getSelectedUnit, requestTransportMount);
+    },
+    dismountSelectedUnit() {
+      return selectedAction(getSelectedUnit, requestTransportDismount);
+    },
+    resupplySelectedUnit() {
+      return selectedAction(getSelectedUnit, resupplyFromTransport);
+    },
+    dismountSelectedTransportCrew() {
+      return selectedAction(
+        getSelectedUnit,
+        unit => unit.dismountTransportCrew?.() ?? {
+          accepted: false,
+          reason: 'NOT_A_WORKING_TRUCK'
+        }
+      );
+    },
+    remountSelectedTransportCrew() {
+      return selectedAction(
+        getSelectedUnit,
+        unit => unit.remountTransportCrew?.() ?? {
+          accepted: false,
+          reason: 'NOT_A_WORKING_TRUCK'
+        }
+      );
     },
     issueBuildingOrder(unit, action, point, buildingId, orderType) {
       return commands.onBuildingOrder?.(

@@ -42,6 +42,12 @@ import {
   createMapEditorPort,
   createUIRuntimePort
 } from './ApplicationPorts.js';
+import {
+  advanceTransportTransfer,
+  beginTransportTransfer,
+  cancelTransportTransfer,
+  resupplyInfantryFromTransport
+} from '../simulation/vehicles/VehicleTransport.js';
 
 // Unit movement considers ordinary waypoints reached inside this radius. Route
 // corners add it to the live formation extent so advancing early cannot cut
@@ -388,7 +394,10 @@ export class GameApp {
         inspectUnit: (unit, options) => this.inspectUnit(unit, options),
         deselectUnit: options => this.deselectUnit(options),
         splitUnit: unit => this.splitUnit(unit),
-        issueBuildingExit: unit => this.issueBuildingExit(unit)
+        issueBuildingExit: unit => this.issueBuildingExit(unit),
+        requestTransportMount: unit => this.requestTransportMount(unit),
+        requestTransportDismount: unit => this.requestTransportDismount(unit),
+        resupplyFromTransport: unit => this.resupplyUnitFromTransport(unit)
       });
       this.ui = new UIManager(this.uiRuntimePort);
       this.editor = new MapEditor(createMapEditorPort({
@@ -570,6 +579,272 @@ export class GameApp {
       result.accepted ? 'success' : 'warn'
     );
     return result;
+  }
+
+  transportUnitMap() {
+    return new Map(this.units.map(unit => [String(unit.id), unit]));
+  }
+
+  transportPassengerCounts() {
+    return Object.fromEntries(this.units
+      .filter(unit => unit.type === 'infantry_squad')
+      .map(unit => [
+        String(unit.id),
+        unit.soldierAI?.getLivingAgents().length ?? 0
+      ]));
+  }
+
+  nearestEligibleTransport(infantry, { requireOperationalDriver = true } = {}) {
+    if (!infantry?.position) return null;
+    return this.units
+      .filter(vehicle => (
+        vehicle.faction === infantry.faction
+        && vehicle.isTransportVehicle?.()
+        && (!requireOperationalDriver || vehicle.hasOperationalDriver?.())
+        && !vehicle.vehicleDamageState?.destroyed
+        && !vehicle.vehicleDamageState?.burning
+        && infantry.position.distanceTo(vehicle.position)
+          <= vehicle.vehicleSpec.transport.embarkRadiusMeters
+      ))
+      .sort((left, right) => {
+        const distanceDifference = infantry.position.distanceTo(left.position)
+          - infantry.position.distanceTo(right.position);
+        return Math.abs(distanceDifference) > 1e-9
+          ? distanceDifference
+          : String(left.id).localeCompare(String(right.id));
+      })[0] ?? null;
+  }
+
+  requestTransportMount(infantry = this.selectedUnit) {
+    if (infantry?.type !== 'infantry_squad' || !infantry.soldierAI) {
+      return { accepted: false, reason: 'INFANTRY_REQUIRED' };
+    }
+    if (infantry.transportAssignment) {
+      return { accepted: false, reason: 'ALREADY_ASSIGNED' };
+    }
+    if (infantry.soldierAI.agents.some(agent => agent.buildingLocation)) {
+      return { accepted: false, reason: 'INFANTRY_IN_BUILDING' };
+    }
+    if (
+      infantry.mortarTeamState
+      && infantry.mortarTeamState.deploymentState !== 'PACKED'
+    ) {
+      return { accepted: false, reason: 'PACK_WEAPON_FIRST' };
+    }
+    const vehicle = this.nearestEligibleTransport(infantry);
+    if (!vehicle) return { accepted: false, reason: 'NO_TRUCK_IN_RANGE' };
+    const result = beginTransportTransfer(
+      vehicle.vehicleTransportState,
+      vehicle.vehicleSpec.transport,
+      {
+        action: 'EMBARK',
+        infantryUnitId: String(infantry.id),
+        passengerCount: infantry.soldierAI.getLivingAgents().length,
+        passengerCounts: this.transportPassengerCounts(),
+        distanceMeters: infantry.position.distanceTo(vehicle.position),
+        vehicleOperational: vehicle.hasOperationalDriver()
+          && !vehicle.vehicleDamageState?.burning,
+        infantryAvailable: infantry.isControllable?.() !== false
+      }
+    );
+    if (!result.accepted) return { ...result, vehicleId: vehicle.id };
+    infantry.transportAssignment = {
+      ...result.assignment,
+      vehicleId: String(vehicle.id)
+    };
+    infantry.clearWaypoints();
+    for (const agent of infantry.soldierAI.agents) {
+      agent.velocity.set(0, 0, 0);
+      agent.syncRecord();
+    }
+    this.commands.renderOverlays();
+    return {
+      ...result,
+      vehicleId: vehicle.id,
+      durationSeconds: vehicle.vehicleSpec.transport.embarkSeconds
+    };
+  }
+
+  requestTransportDismount(selected = this.selectedUnit) {
+    const unitMap = this.transportUnitMap();
+    let infantry = selected?.type === 'infantry_squad' ? selected : null;
+    let vehicle = infantry?.transportAssignment?.vehicleId
+      ? unitMap.get(infantry.transportAssignment.vehicleId)
+      : null;
+    if (!infantry && selected?.isTransportVehicle?.()) {
+      vehicle = selected;
+      const passengerId = [...vehicle.vehicleTransportState.passengerUnitIds]
+        .sort((left, right) => String(left).localeCompare(String(right)))[0];
+      infantry = passengerId ? unitMap.get(passengerId) : null;
+    }
+    if (!vehicle || !infantry || !infantry.isTransported?.()) {
+      return { accepted: false, reason: 'NO_EMBARKED_INFANTRY' };
+    }
+    const result = beginTransportTransfer(
+      vehicle.vehicleTransportState,
+      vehicle.vehicleSpec.transport,
+      {
+        action: 'DISEMBARK',
+        infantryUnitId: String(infantry.id),
+        passengerCounts: this.transportPassengerCounts(),
+        distanceMeters: 0,
+        vehicleOperational: !vehicle.vehicleDamageState?.destroyed,
+        infantryAvailable: infantry.soldierAI.getLivingAgents().length > 0
+      }
+    );
+    if (!result.accepted) return { ...result, vehicleId: vehicle.id };
+    infantry.transportAssignment = {
+      ...result.assignment,
+      vehicleId: String(vehicle.id)
+    };
+    return {
+      ...result,
+      infantryUnitId: infantry.id,
+      vehicleId: vehicle.id,
+      durationSeconds: vehicle.vehicleSpec.transport.disembarkSeconds
+    };
+  }
+
+  resupplyUnitFromTransport(infantry = this.selectedUnit) {
+    if (infantry?.type !== 'infantry_squad' || !infantry.soldierAI) {
+      return { accepted: false, reason: 'INFANTRY_REQUIRED' };
+    }
+    const assignedVehicleId = infantry.transportAssignment?.vehicleId;
+    const vehicle = assignedVehicleId
+      ? this.transportUnitMap().get(assignedVehicleId)
+      : this.nearestEligibleTransport(infantry, {
+          requireOperationalDriver: false
+        });
+    if (!vehicle) return { accepted: false, reason: 'NO_TRUCK_IN_RANGE' };
+    if (!vehicle.vehicleComponents?.ammunition?.operational) {
+      return { accepted: false, reason: 'CARGO_DAMAGED' };
+    }
+    const result = resupplyInfantryFromTransport({
+      state: vehicle.vehicleTransportState,
+      agents: infantry.soldierAI.agents,
+      weaponLookup: infantry.weaponLookup,
+      mortarTeamState: infantry.mortarTeamState,
+      mortarTeamConfig: infantry.mortarTeamConfig
+    });
+    for (const agent of infantry.soldierAI.agents) agent.syncRecord();
+    infantry.refreshAmmoSummary();
+    return { ...result, vehicleId: vehicle.id };
+  }
+
+  setCarriedInfantryPosition(infantry, vehicle) {
+    const localOffset = vehicle.vehicleSpec.transport.disembarkOffsetLocal;
+    const cosine = Math.cos(vehicle.rotation);
+    const sine = Math.sin(vehicle.rotation);
+    infantry.position.set(
+      vehicle.position.x + cosine * localOffset[0] + sine * (localOffset[2] + 2),
+      vehicle.position.y + 1.15,
+      vehicle.position.z - sine * localOffset[0] + cosine * (localOffset[2] + 2)
+    );
+    infantry.rotation = vehicle.rotation;
+    infantry.mesh.position.copy(infantry.position);
+    infantry.mesh.rotation.y = infantry.rotation;
+    for (const agent of infantry.soldierAI.agents) {
+      agent.position.copy(infantry.position);
+      agent.velocity.set(0, 0, 0);
+      agent.vehicleLocation = {
+        vehicleId: String(vehicle.id),
+        phase: infantry.transportAssignment.phase
+      };
+      agent.syncRecord();
+    }
+    infantry.setTransportPresentation(true);
+  }
+
+  placeDismountedInfantry(infantry, vehicle) {
+    const localOffset = vehicle.vehicleSpec.transport.disembarkOffsetLocal;
+    const cosine = Math.cos(vehicle.rotation);
+    const sine = Math.sin(vehicle.rotation);
+    infantry.position.set(
+      vehicle.position.x + cosine * localOffset[0] + sine * localOffset[2],
+      0,
+      vehicle.position.z - sine * localOffset[0] + cosine * localOffset[2]
+    );
+    infantry.position.y = this.terrain.getMovementHeightAt?.(
+      infantry.position.x,
+      infantry.position.z
+    ) ?? this.terrain.getHeightAt(infantry.position.x, infantry.position.z);
+    infantry.rotation = vehicle.rotation;
+    infantry.mesh.position.copy(infantry.position);
+    infantry.mesh.rotation.y = infantry.rotation;
+    for (const agent of infantry.soldierAI.agents) {
+      const offset = infantry.soldierAI.getFormationOffset(agent.index, 'QUICK');
+      agent.position.set(
+        infantry.position.x + cosine * offset.x + sine * offset.z,
+        infantry.position.y,
+        infantry.position.z - sine * offset.x + cosine * offset.z
+      );
+      agent.position.y = this.terrain.getMovementHeightAt?.(
+        agent.position.x,
+        agent.position.z
+      ) ?? this.terrain.getHeightAt(agent.position.x, agent.position.z);
+      agent.velocity.set(0, 0, 0);
+      agent.vehicleLocation = null;
+      agent.syncRecord();
+    }
+    infantry.transportAssignment = null;
+    infantry.setTransportPresentation(false);
+    infantry.soldierAI.syncMeshes();
+  }
+
+  advanceVehicleTransports(delta) {
+    const unitMap = this.transportUnitMap();
+    const trucks = this.units
+      .filter(unit => unit.isTransportVehicle?.())
+      .sort((left, right) => String(left.id).localeCompare(String(right.id)));
+    for (const vehicle of trucks) {
+      const state = vehicle.vehicleTransportState;
+      const pending = state.pendingTransfer;
+      if (pending?.action === 'EMBARK') {
+        const infantry = unitMap.get(pending.infantryUnitId);
+        const invalid = !infantry
+          || infantry.position.distanceTo(vehicle.position)
+            > vehicle.vehicleSpec.transport.embarkRadiusMeters
+          || !vehicle.hasOperationalDriver()
+          || vehicle.vehicleDamageState?.burning;
+        if (invalid) {
+          cancelTransportTransfer(state);
+          if (infantry) infantry.transportAssignment = null;
+        }
+      }
+      const completed = advanceTransportTransfer(state, delta);
+      if (completed?.action === 'EMBARK') {
+        const infantry = unitMap.get(completed.infantryUnitId);
+        if (infantry) {
+          infantry.transportAssignment = {
+            modelVersion: state.modelVersion,
+            vehicleId: String(vehicle.id),
+            phase: 'EMBARKED'
+          };
+        }
+      } else if (completed?.action === 'DISEMBARK') {
+        const infantry = unitMap.get(completed.infantryUnitId);
+        if (infantry) this.placeDismountedInfantry(infantry, vehicle);
+      }
+      for (const passengerId of [...state.passengerUnitIds]) {
+        const infantry = unitMap.get(passengerId);
+        if (!infantry) continue;
+        if (vehicle.vehicleDamageState?.secondaryExplosion) {
+          for (const agent of infantry.soldierAI?.getLivingAgents() ?? []) {
+            agent.health = 0;
+            agent.status = 'KIA';
+            agent.state = 'KIA';
+            agent.syncRecord();
+          }
+          state.passengerUnitIds = state.passengerUnitIds.filter(
+            id => id !== passengerId
+          );
+          delete state.passengerCountsByUnitId[passengerId];
+          this.placeDismountedInfantry(infantry, vehicle);
+        } else {
+          this.setCarriedInfantryPosition(infantry, vehicle);
+        }
+      }
+    }
   }
 
   syncBuildingInteriorPresentation() {
@@ -790,6 +1065,7 @@ export class GameApp {
     for (const unitState of state.units) {
       unitMap.get(unitState.id)?.restoreState(unitState, unitMap);
     }
+    this.advanceVehicleTransports(0);
     this.buildingInteraction.restoreState(state.buildingInteractions);
     for (const buildingId of this.buildingSystem.getBuildingIds()) {
       this.terrain.syncBuildingRuntime(buildingId, {
@@ -914,6 +1190,7 @@ export class GameApp {
         this.movedUnitIds.add(unit.id);
       }
     });
+    this.advanceVehicleTransports(delta);
     if (commandOverlaysDirty) this.commands.renderOverlays();
     const separation = this.infantrySeparation?.resolve(this.units, this.terrain);
     if (separation?.correctedUnitIds.length > 0) {

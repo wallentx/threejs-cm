@@ -6,7 +6,7 @@ export function createLafflyS20TLInternalLayout(referenceUrl) {
     dataQuality: [
       'historical unarmored 6x6 troop-carrier configuration',
       'cab seats, bonnet, body breaks, and axle stations follow the authored multi-view model',
-      'crew, engine, transmission, and fuel bounds are gameplay approximations'
+      'crew, engine, transmission, fuel, and mixed ammunition-cargo bounds are gameplay approximations'
     ].join('; '),
     referenceUrl,
     volumes: [
@@ -49,6 +49,14 @@ export function createLafflyS20TLInternalLayout(referenceUrl) {
         center: [-0.66, 0.72, -0.34],
         halfExtents: [0.18, 0.23, 0.42],
         dataQuality: 'chassis-mounted tank position inferred; volume is a gameplay approximation'
+      },
+      {
+        id: 'module-ammunition-cargo',
+        kind: 'component',
+        componentId: 'ammunition',
+        center: [0, 1.18, -1.15],
+        halfExtents: [0.76, 0.42, 0.78],
+        dataQuality: 'bounded mixed supply load in the troop body is a gameplay approximation authorized for the logistics slice'
       }
     ]
   };

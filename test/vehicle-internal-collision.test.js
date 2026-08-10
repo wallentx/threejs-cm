@@ -105,7 +105,7 @@ test('authored internal layouts are immutable, provenance-labeled, and vehicle-o
     );
     assert.deepEqual(
       [...components].sort(),
-      ['engine', 'fuel', 'transmission']
+      ['ammunition', 'engine', 'fuel', 'transmission']
     );
   }
   const panzerIIComponents = new Set(
@@ -387,7 +387,7 @@ test('Laffly S20TL paths follow authored cab seats, bonnet powertrain, and chass
       impactPoint: [0, 1.05, 3],
       direction: [0, 0, -1]
     }).map(hit => hit.id),
-    ['module-engine', 'module-transmission']
+    ['module-engine', 'module-transmission', 'module-ammunition-cargo']
   );
   assert.deepEqual(
     traceVehicleInternalPath({
@@ -395,7 +395,7 @@ test('Laffly S20TL paths follow authored cab seats, bonnet powertrain, and chass
       impactPoint: [0.42, 1.37, 3],
       direction: [0, 0, -1]
     }).map(hit => hit.id),
-    ['module-engine', 'crew-driver']
+    ['module-engine', 'crew-driver', 'module-ammunition-cargo']
   );
   assert.deepEqual(
     traceVehicleInternalPath({
@@ -403,7 +403,7 @@ test('Laffly S20TL paths follow authored cab seats, bonnet powertrain, and chass
       impactPoint: [-0.42, 1.37, 3],
       direction: [0, 0, -1]
     }).map(hit => hit.id),
-    ['module-engine', 'crew-vehicle-commander']
+    ['module-engine', 'crew-vehicle-commander', 'module-ammunition-cargo']
   );
   assert.deepEqual(
     traceVehicleInternalPath({
@@ -423,7 +423,7 @@ test('Opel Blitz paths follow inferred cab seats and registered bonnet and chass
       impactPoint: [0, 0.98, 3.2],
       direction: [0, 0, -1]
     }).map(hit => hit.id),
-    ['module-engine', 'module-transmission']
+    ['module-engine', 'module-transmission', 'module-ammunition-cargo']
   );
   assert.deepEqual(
     traceVehicleInternalPath({
@@ -431,7 +431,7 @@ test('Opel Blitz paths follow inferred cab seats and registered bonnet and chass
       impactPoint: [0.42, 1.38, 3.2],
       direction: [0, 0, -1]
     }).map(hit => hit.id),
-    ['module-engine', 'crew-driver']
+    ['module-engine', 'crew-driver', 'module-ammunition-cargo']
   );
   assert.deepEqual(
     traceVehicleInternalPath({
@@ -439,7 +439,7 @@ test('Opel Blitz paths follow inferred cab seats and registered bonnet and chass
       impactPoint: [-0.42, 1.38, 3.2],
       direction: [0, 0, -1]
     }).map(hit => hit.id),
-    ['module-engine', 'crew-vehicle-commander']
+    ['module-engine', 'crew-vehicle-commander', 'module-ammunition-cargo']
   );
   assert.deepEqual(
     traceVehicleInternalPath({
@@ -651,7 +651,7 @@ test('Char B1 bis paths follow rear drive, asymmetric hull stations, side racks,
       impactPoint: [-0.31, 1.30, 3.2],
       direction: [0, 0, -1]
     }).map(hit => hit.id),
-    ['crew-hull-loader', 'module-engine']
+    ['module-hull-75', 'crew-hull-loader', 'module-engine']
   );
   assert.deepEqual(
     traceVehicleInternalPath({

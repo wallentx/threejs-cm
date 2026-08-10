@@ -9,6 +9,7 @@ import {
   LEBEL_M1886_M93_APX1916_VISUAL_DATA,
   LEBEL_M1886_M93_VISUAL_DATA
 } from '../src/content/france1940/render/LebelM1886M93VisualData.js';
+import { KAR98K_VISUAL_DATA } from '../src/content/france1940/render/Kar98kVisualData.js';
 import { LEBEL_M1886_M93_REFERENCE_MESH_DATA } from '../src/content/france1940/render/LebelM1886M93ReferenceMeshData.js';
 import { MAS36_VISUAL_DATA } from '../src/content/france1940/render/Mas36VisualData.js';
 import { Unit } from './helpers/France1940TestUnit.js';
@@ -596,11 +597,86 @@ test('Berthier Mle 1892 M16 consumes the supplied side-elevation landmarks', () 
   }
 });
 
-test('M93 and M16 weapon LODs reserve full detail for inspection range', () => {
+test('Kar98k consumes its registered sheet profile with connected action and lower-detail LODs', () => {
+  const materials = {
+    wood: new THREE.MeshBasicMaterial({ side: THREE.FrontSide }),
+    metal: new THREE.MeshBasicMaterial({ side: THREE.FrontSide }),
+    boltMetal: new THREE.MeshBasicMaterial({ side: THREE.FrontSide })
+  };
+  const rig = createFrance1940InfantryWeaponRig('Kar98k', materials);
+  const model = rig.userData.weaponModel;
+  model.removeFromParent();
+  model.updateMatrixWorld(true);
+
+  try {
+    const parts = model.userData.parts;
+    assert.equal(
+      model.userData.visualContract.source.sha256,
+      '7fa2ec50c71ae578085d3b8a6f3ceeca3ad05714fa5d2dd1f531896da26f0d2a'
+    );
+    assert.deepEqual(
+      KAR98K_VISUAL_DATA.profiles.stock[0].sourcePixel,
+      { x: 53, y: 772 }
+    );
+    assert.deepEqual(
+      model.userData.weaponLodContract.distancesMetres,
+      { highMax: 4, mediumMax: 18 }
+    );
+    assert.equal(model.userData.weaponLodContract.triangleCounts.high, 664);
+    assert.ok(
+      model.userData.weaponLodContract.triangleCounts.medium
+        <= model.userData.weaponLodContract.triangleCounts.high * 0.7
+    );
+    assert.ok(
+      model.userData.weaponLodContract.triangleCounts.core
+        <= model.userData.weaponLodContract.triangleCounts.high * 0.28
+    );
+    for (const [tier, meshes] of Object.entries(model.userData.weaponLodRepresentations)) {
+      assert.ok(meshes.length > 0, `Kar98k ${tier} LOD must own geometry`);
+      assert.equal(meshes.every(mesh => mesh.userData.weaponLodTier === tier), true);
+      assert.equal(meshes.every(mesh => mesh.visible === (tier === 'high')), true);
+    }
+
+    const stockBounds = new THREE.Box3().setFromObject(parts.stock);
+    const handguardBounds = new THREE.Box3().setFromObject(parts.handguard);
+    const receiverBounds = new THREE.Box3().setFromObject(parts.receiver);
+    const barrelBounds = new THREE.Box3().setFromObject(parts.barrel);
+    const frontBandBounds = new THREE.Box3().setFromObject(parts.frontBand);
+    assert.ok(receiverBounds.intersectsBox(stockBounds));
+    assert.ok(receiverBounds.intersectsBox(handguardBounds));
+    assert.ok(barrelBounds.intersectsBox(handguardBounds));
+    assert.ok(frontBandBounds.intersectsBox(barrelBounds));
+    assert.ok(
+      receiverBounds.containsPoint(new THREE.Vector3(...parts.boltHandle.userData.connectionStart)),
+      'Kar98k bolt-handle root must terminate inside the receiver envelope'
+    );
+    assert.equal(parts.boltHandle.userData.semanticSide, 'right');
+    assert.equal(parts.ejectionPort.userData.semanticSide, 'right');
+    assert.ok(parts.boltHandle.position.x < 0);
+    assert.ok(parts.ejectionPort.position.x < 0);
+    assert.equal(parts.boltBody.material, materials.boltMetal);
+    assert.equal(parts.boltHandle.material, materials.boltMetal);
+    assert.equal(parts.magazine.userData.feedType, 'internal');
+    assertNear(parts.muzzle.position.z, 1.11, 'Kar98k authoritative muzzle');
+    assertNear(
+      barrelBounds.max.z,
+      parts.muzzle.position.z,
+      'Kar98k barrel and muzzle contact'
+    );
+  } finally {
+    model.traverse(object => object.geometry?.dispose());
+    materials.wood.dispose();
+    materials.metal.dispose();
+    materials.boltMetal.dispose();
+  }
+});
+
+test('M93, M16, and Kar98k weapon LODs reserve full detail for inspection range', () => {
   const cases = [
     ['LEBEL_M1886_M93', 'Lebel Mle 1886/93'],
     ['LEBEL_M1886_M93_APX1916', 'Lebel Mle 1886/93 with APX 1916'],
-    ['BERTHIER_M1892_M16', 'Berthier Mousqueton Mle 1892 M16']
+    ['BERTHIER_M1892_M16', 'Berthier Mousqueton Mle 1892 M16'],
+    ['KAR98K', 'Kar98k']
   ];
   const cameraByTier = {
     high: new THREE.Vector3(0, 1.2, 2),
@@ -611,7 +687,7 @@ test('M93 and M16 weapon LODs reserve full detail for inspection range', () => {
   for (const [weaponId, weapon] of cases) {
     const unit = new Unit({
       id: `weapon_lod_${weaponId.toLowerCase()}`,
-      faction: 'french',
+      faction: weaponId === 'KAR98K' ? 'german' : 'french',
       type: 'infantry_squad',
       position: new THREE.Vector3(),
       roster: [{

@@ -38,14 +38,26 @@ import {
   setCalibrationLodVisibility
 } from '../src/calibration/CalibrationModel.js';
 import {
+  renderVehicleSilhouetteMask,
   renderVehicleSilhouetteSvg
 } from '../src/calibration/SoftwareSilhouette.js';
+import {
+  compareSilhouetteMasks,
+  composeSilhouetteReviewPixels,
+  createLineArtSilhouetteMask,
+  rasterizeSilhouetteTriangles,
+  resolveLineArtMaskCanvasPolicy,
+  resolveSilhouetteReviewOpacity
+} from '../src/calibration/SilhouetteComparison.js';
 import {
   normalizeImportedCalibration
 } from '../src/calibration/CalibrationRecordIO.js';
 import {
   createVehicleOwnedRegistrations
 } from '../src/calibration/VehicleOwnedRegistration.js';
+import {
+  SOMUA_S35_VISUAL_DATA
+} from '../src/content/france1940/vehicleData/SomuaS35VisualData.js';
 import {
   resolveCalibrationModelOpacity,
   VehicleCalibrationApp
@@ -84,7 +96,7 @@ test('model opacity control changes the rendered model layer independently', () 
   assert.equal(renderRequests, 2);
 });
 
-test('every catalog vehicle has a reusable side, front, and top calibration record', () => {
+test('every catalog vehicle has reusable side, front, rear, and top calibration records', () => {
   const modelIds = Object.values(VEHICLES).map(vehicle => vehicle.modelId).sort();
   assert.deepEqual(Object.keys(BLUEPRINT_CALIBRATION_RECORDS).sort(), modelIds);
 
@@ -92,7 +104,7 @@ test('every catalog vehicle has a reusable side, front, and top calibration reco
     const record = BLUEPRINT_CALIBRATION_RECORDS[modelId];
     assert.ok(record.sourceUrls.length > 0, `${modelId} needs blueprint provenance`);
     assert.equal(record.dimensionPolicy.includes('weapon projection'), true);
-    assert.deepEqual(Object.keys(record.views).sort(), ['front', 'side', 'top']);
+    assert.deepEqual(Object.keys(record.views).sort(), ['front', 'rear', 'side', 'top']);
     assert.ok(record.landmarks.length >= 6);
     for (const view of Object.values(record.views)) {
       assert.deepEqual(view.crop, { left: 0, top: 0, right: 0, bottom: 0 });
@@ -117,29 +129,114 @@ test('SOMUA calibration exposes mechanical datums beyond its rigid envelope', ()
     assert.ok(landmarks.has(id), `missing ${id}`);
   }
   assert.deepEqual(landmarks.get('turret-ring-center').world, [0, 1.55, 0.55]);
-  assert.deepEqual(landmarks.get('turret-ring-center').views, ['side', 'top']);
+  assert.deepEqual(
+    landmarks.get('turret-ring-center').views,
+    ['side', 'front', 'rear', 'top']
+  );
 });
 
-test('jig defaults consume vehicle-owned SOMUA crop, mirror, and rigid landmarks', () => {
+test('calibration exposes the model ground-center origin in every view', () => {
+  const origin = BLUEPRINT_CALIBRATION_RECORDS.fr_somua.landmarks
+    .find(landmark => landmark.id === 'ground-origin');
+  assert.deepEqual(origin.world, [0, 0, 0]);
+  assert.deepEqual(origin.views, ['side', 'front', 'rear', 'top']);
+  for (const view of origin.views) {
+    const projected = worldToViewMeters(origin.world, view);
+    assert.equal(Math.abs(projected.u), 0);
+    assert.equal(Math.abs(projected.v), 0);
+  }
+});
+
+test('SOMUA source origins are exact rigid-axis intersections', () => {
+  const views = SOMUA_S35_VISUAL_DATA.blueprint.views;
+  const midpoint = (first, second) => (first + second) * 0.5;
+  assert.deepEqual(views.side.landmarkPixels['ground-origin'], [
+    midpoint(
+      views.side.landmarkPixels['rigid-front'][0],
+      views.side.landmarkPixels['rigid-rear'][0]
+    ),
+    views.side.landmarkPixels['rigid-front'][1]
+  ]);
+  for (const viewName of ['front', 'rear']) {
+    const landmarks = views[viewName].landmarkPixels;
+    assert.deepEqual(landmarks['ground-origin'], [
+      midpoint(landmarks['vehicle-left'][0], landmarks['vehicle-right'][0]),
+      landmarks['vehicle-left'][1]
+    ]);
+  }
+  assert.deepEqual(views.top.landmarkPixels['ground-origin'], [
+    midpoint(
+      views.top.landmarkPixels['vehicle-left'][0],
+      views.top.landmarkPixels['vehicle-right'][0]
+    ),
+    midpoint(
+      views.top.landmarkPixels['rigid-front'][1],
+      views.top.landmarkPixels['rigid-rear'][1]
+    )
+  ]);
+});
+
+test('SOMUA jig defaults consume all four immutable source registrations', () => {
   const model = createVehicleMesh('fr_somua');
   const views = createVehicleOwnedRegistrations(
     model,
     BLUEPRINT_CALIBRATION_RECORDS.fr_somua,
     { referenceRegistry: FRANCE_1940_CALIBRATION_REFERENCES }
   );
-  assert.equal(views.side.imageUrl, '/s35-compare.jpg');
+  assert.equal(
+    views.side.imageUrl,
+    '/assets/blueprints/france1940/s35-4view.webp'
+  );
   assert.equal(views.side.mirrorX, false);
   assert.equal(views.side.autoFit, true);
-  assert.ok(Math.abs(views.side.crop.left - 220 / 1335) < 1e-12);
-  assert.ok(Math.abs(views.side.crop.top - 55 / 1377) < 1e-12);
-  assert.ok(Math.abs(views.side.crop.right - 50 / 1335) < 1e-12);
-  assert.ok(Math.abs(views.side.crop.bottom - 722 / 1377) < 1e-12);
+  assert.ok(Math.abs(views.side.crop.left - 20 / 4168) < 1e-12);
+  assert.ok(Math.abs(views.side.crop.top) < 1e-12);
+  assert.ok(Math.abs(views.side.crop.right - 23 / 4168) < 1e-12);
+  assert.ok(Math.abs(views.side.crop.bottom - 3984 / 6036) < 1e-12);
   assert.deepEqual(views.side.landmarks['rigid-front'], {
-    x: 238 / 1335,
-    y: 634 / 1377
+    x: 104 / 4168,
+    y: 2037 / 6036
   });
-  assert.equal(views.front.imageUrl, null, 'qualitative front view must remain unavailable');
-  assert.equal(views.top.imageUrl, null, 'qualitative top view must remain unavailable');
+  assert.deepEqual(views.side.fitLandmarkIds, [
+    'rigid-front',
+    'rigid-rear',
+    'ground-origin',
+    'vehicle-top'
+  ]);
+  for (const viewName of ['side', 'front', 'rear', 'top']) {
+    assert.equal(
+      views[viewName].imageUrl,
+      '/assets/blueprints/france1940/s35-4view.webp'
+    );
+    assert.equal(views[viewName].autoFit, true);
+    assert.ok(Object.keys(views[viewName].landmarks).length >= 5);
+  }
+  assert.equal(views.top.rotationDegrees, 90);
+  assert.equal(views.rear.rotationDegrees, 0);
+  for (const viewName of ['side', 'top']) {
+    assert.deepEqual(views[viewName].sourceMask, {
+      mode: 'line-art-fill',
+      luminanceThreshold: 210,
+      boundaryDilation: 1,
+      minimumInteriorPixels: 4,
+      provenance: 'calibration review policy tuned for the registered black-on-white four-view raster'
+    });
+  }
+  for (const [viewName, seed] of [
+    ['front', [947.5, 5850]],
+    ['rear', [3267.5, 5850]]
+  ]) {
+    assert.deepEqual(views[viewName].sourceMask, {
+      mode: 'line-art-fill',
+      luminanceThreshold: 210,
+      boundaryDilation: 1,
+      minimumInteriorPixels: 4,
+      componentPolicy: 'largest',
+      openRegionSeedPixels: [seed],
+      provenance:
+        'largest connected vehicle silhouette with a source-pixel seed removing the false ground-line-enclosed under-hull region'
+    });
+  }
 });
 
 test('replacement asset pack reaches SOMUA jig defaults through logical reference identity', () => {
@@ -148,8 +245,8 @@ test('replacement asset pack reaches SOMUA jig defaults through logical referenc
     familyId: 'france-1940',
     replaces: [FRANCE_1940_ASSET_MANIFEST.id],
     assets: {
-      [FRANCE_1940_ASSET_IDS.somuaSideCalibrationReference]: {
-        id: FRANCE_1940_ASSET_IDS.somuaSideCalibrationReference,
+      [FRANCE_1940_ASSET_IDS.somuaMultiviewCalibrationReference]: {
+        id: FRANCE_1940_ASSET_IDS.somuaMultiviewCalibrationReference,
         kind: 'calibration-reference-image',
         source: {
           type: 'url',
@@ -173,17 +270,19 @@ test('replacement asset pack reaches SOMUA jig defaults through logical referenc
 
   assert.equal(FRANCE_1940_ASSET_RESOLVER.familyId, 'france-1940');
   assert.deepEqual(reference, {
-    logicalId: FRANCE_1940_ASSET_IDS.somuaSideCalibrationReference,
+    logicalId: FRANCE_1940_ASSET_IDS.somuaMultiviewCalibrationReference,
     sourcePackId: replacementManifest.id,
     modelId: 'fr_somua',
-    views: ['side'],
+    views: ['side', 'front', 'rear', 'top'],
     imageUrl: '/replacement-somua-side.png',
     provenance: 'test replacement reference'
   });
-  assert.equal(references.get('fr_somua', 'front'), null);
+  assert.equal(references.get('fr_somua', 'front'), reference);
+  assert.equal(references.get('fr_somua', 'rear'), reference);
   assert.equal(views.side.imageUrl, '/replacement-somua-side.png');
-  assert.equal(views.front.imageUrl, null);
-  assert.equal(views.top.imageUrl, null);
+  assert.equal(views.front.imageUrl, '/replacement-somua-side.png');
+  assert.equal(views.rear.imageUrl, '/replacement-somua-side.png');
+  assert.equal(views.top.imageUrl, '/replacement-somua-side.png');
 });
 
 test('generic calibration code contains no family-owned model or raster fallback', async () => {
@@ -312,6 +411,9 @@ test('local-only Char B1 transforms seed the jig without claiming raster availab
   for (const viewName of ['side', 'front', 'top']) {
     assert.deepEqual(fallback[viewName], {
       ...structuredClone(fallbackRecord.views[viewName]),
+      scaleX: 1,
+      scaleY: 1,
+      fitLandmarkIds: null,
       autoFit: false
     });
   }
@@ -484,7 +586,7 @@ test('Opel Blitz record exposes historical wheelbase, track, and canvas datums',
 test('orthographic frames contain exact rigid dimensions at portrait and landscape aspects', () => {
   const dimensions = { length: 5.38, width: 2.12, height: 2.62 };
   for (const aspect of [0.6, 1, 16 / 9]) {
-    for (const view of ['side', 'front', 'top']) {
+    for (const view of ['side', 'front', 'rear', 'top']) {
       const frame = createOrthographicFrame(dimensions, view, aspect);
       const visible = getViewDimensions(dimensions, view);
       assert.ok(frame.width >= visible.horizontal);
@@ -506,6 +608,7 @@ test('view mappings follow the +Y-up +Z-forward vehicle contract', () => {
   const point = [1, 2, 3];
   assert.deepEqual(worldToViewMeters(point, 'side'), { u: -3, v: 2 });
   assert.deepEqual(worldToViewMeters(point, 'front'), { u: 1, v: 2 });
+  assert.deepEqual(worldToViewMeters(point, 'rear'), { u: -1, v: 2 });
   assert.deepEqual(worldToViewMeters(point, 'top'), { u: -1, v: 3 });
 });
 
@@ -527,6 +630,13 @@ test('cropped mirrored blueprint transforms preserve source coordinates', () => 
   const restored = canvasToSourceNormalized(canvas, transform, 1600, 900);
   assert.ok(Math.abs(restored.x - source.x) < 1e-9);
   assert.ok(Math.abs(restored.y - source.y) < 1e-9);
+
+  const policy = resolveLineArtMaskCanvasPolicy({
+    mode: 'line-art-fill',
+    openRegionSeedPixels: [[source.x * 1600, source.y * 900]]
+  }, transform, 1600, 900);
+  assert.ok(Math.abs(policy.openRegionSeeds[0].x - canvas.x) < 1e-9);
+  assert.ok(Math.abs(policy.openRegionSeeds[0].y - canvas.y) < 1e-9);
 });
 
 test('crop normalization always retains an in-bounds source rectangle', () => {
@@ -561,6 +671,45 @@ test('multi-landmark fit recovers a uniform blueprint scale and offset', () => {
   assert.ok(Math.abs(fit.scale - expected.scale) < 1e-12);
   assert.ok(Math.abs(fit.offsetX - expected.offsetX) < 1e-12);
   assert.ok(Math.abs(fit.offsetY - expected.offsetY) < 1e-12);
+  assert.ok(fit.rmsPixels < 1e-12);
+});
+
+test('multi-landmark fit independently registers distorted drawing axes', () => {
+  const reference = [
+    { x: 80, y: 100 },
+    { x: 420, y: 100 },
+    { x: 80, y: 360 },
+    { x: 420, y: 360 }
+  ];
+  const center = { x: 250, y: 230 };
+  const rotationDegrees = 90;
+  const expected = {
+    scaleX: 1.35,
+    scaleY: 0.82,
+    localOffsetX: 22,
+    localOffsetY: -31
+  };
+  const rotation = rotationDegrees * Math.PI / 180;
+  const cosine = Math.cos(rotation);
+  const sine = Math.sin(rotation);
+  const model = reference.map(point => {
+    const x = point.x - center.x;
+    const y = point.y - center.y;
+    const localX = x * cosine + y * sine;
+    const localY = -x * sine + y * cosine;
+    const fittedX = localX * expected.scaleX + expected.localOffsetX;
+    const fittedY = localY * expected.scaleY + expected.localOffsetY;
+    return {
+      x: center.x + fittedX * cosine - fittedY * sine,
+      y: center.y + fittedX * sine + fittedY * cosine
+    };
+  });
+  const fit = fitImageTransformToLandmarks(reference, model, center, {
+    independentAxes: true,
+    rotationDegrees
+  });
+  assert.ok(Math.abs(fit.scaleX - expected.scaleX) < 1e-12);
+  assert.ok(Math.abs(fit.scaleY - expected.scaleY) < 1e-12);
   assert.ok(fit.rmsPixels < 1e-12);
 });
 
@@ -655,6 +804,161 @@ test('software silhouette emits visible projected triangles for the selected LOD
     { wireframe: true, silhouette: '#0891b2' }
   );
   assert.match(wireframe.svg, /fill="none" stroke="#0891b2"/);
+
+  const mask = renderVehicleSilhouetteMask(
+    root,
+    { length: 4, width: 2, height: 1 },
+    'top',
+    { width: 64, height: 36 }
+  );
+  assert.equal(mask.rgba.length, 64 * 36 * 4);
+  assert.ok(mask.rgba.some((value, index) => index % 4 === 3 && value === 255));
+});
+
+test('measured silhouette review fills closed line art and rejects open annotation lines', () => {
+  const width = 12;
+  const height = 10;
+  const source = new Uint8ClampedArray(width * height * 4);
+  for (let index = 0; index < width * height; index += 1) {
+    source[index * 4] = 255;
+    source[index * 4 + 1] = 255;
+    source[index * 4 + 2] = 255;
+    source[index * 4 + 3] = 255;
+  }
+  const dark = (x, y) => {
+    const offset = (y * width + x) * 4;
+    source[offset] = 0;
+    source[offset + 1] = 0;
+    source[offset + 2] = 0;
+  };
+  for (let x = 2; x <= 8; x += 1) {
+    dark(x, 2);
+    dark(x, 7);
+  }
+  for (let y = 2; y <= 7; y += 1) {
+    dark(2, y);
+    dark(8, y);
+  }
+  for (let x = 1; x <= 5; x += 1) dark(x, 9);
+
+  const sourceMask = createLineArtSilhouetteMask(source, width, height, {
+    boundaryDilation: 0,
+    minimumInteriorPixels: 2
+  });
+  assert.equal(sourceMask[(4 * width + 5) * 4 + 3], 255);
+  assert.equal(sourceMask[(9 * width + 3) * 4 + 3], 0);
+
+  const modelMask = rasterizeSilhouetteTriangles([
+    [{ x: 3, y: 2 }, { x: 10, y: 2 }, { x: 3, y: 8 }],
+    [{ x: 10, y: 2 }, { x: 10, y: 8 }, { x: 3, y: 8 }]
+  ], width, height);
+  const comparison = compareSilhouetteMasks(sourceMask, modelMask, width, height);
+  assert.ok(comparison.iou > 0 && comparison.iou < 1);
+  assert.ok(comparison.sourceOnlyPixels > 0);
+  assert.ok(comparison.modelOnlyPixels > 0);
+  assert.deepEqual(
+    [...comparison.pixels.slice((4 * width + 5) * 4, (4 * width + 5) * 4 + 4)],
+    [17, 24, 39, 255]
+  );
+  const overlay = composeSilhouetteReviewPixels(
+    sourceMask,
+    modelMask,
+    width,
+    height,
+    'overlay'
+  );
+  assert.deepEqual(
+    [...overlay.slice((4 * width + 2) * 4, (4 * width + 2) * 4 + 4)],
+    [239, 68, 68, 155]
+  );
+  assert.deepEqual(
+    [...overlay.slice((4 * width + 9) * 4, (4 * width + 9) * 4 + 4)],
+    [6, 182, 212, 155]
+  );
+  assert.throws(
+    () => composeSilhouetteReviewPixels(sourceMask, modelMask, width, height, 'shaded'),
+    /Unknown silhouette review mode/
+  );
+});
+
+test('line-art silhouette review removes a seeded under-hull opening and floating components', () => {
+  const width = 22;
+  const height = 12;
+  const source = new Uint8ClampedArray(width * height * 4);
+  for (let index = 0; index < width * height; index += 1) {
+    source[index * 4] = 255;
+    source[index * 4 + 1] = 255;
+    source[index * 4 + 2] = 255;
+    source[index * 4 + 3] = 255;
+  }
+  const dark = (x, y) => {
+    const offset = (y * width + x) * 4;
+    source[offset] = 0;
+    source[offset + 1] = 0;
+    source[offset + 2] = 0;
+  };
+  for (let x = 1; x <= 14; x += 1) {
+    dark(x, 1);
+    dark(x, 5);
+    dark(x, 10);
+  }
+  for (let y = 1; y <= 10; y += 1) {
+    dark(1, y);
+    dark(14, y);
+  }
+  for (let y = 5; y <= 10; y += 1) {
+    dark(4, y);
+    dark(11, y);
+  }
+  for (let x = 17; x <= 20; x += 1) {
+    dark(x, 2);
+    dark(x, 5);
+  }
+  for (let y = 2; y <= 5; y += 1) {
+    dark(17, y);
+    dark(20, y);
+  }
+
+  const uncorrected = createLineArtSilhouetteMask(source, width, height, {
+    boundaryDilation: 0,
+    minimumInteriorPixels: 1
+  });
+  assert.equal(uncorrected[(7 * width + 7) * 4 + 3], 255);
+  assert.equal(uncorrected[(3 * width + 18) * 4 + 3], 255);
+
+  const corrected = createLineArtSilhouetteMask(source, width, height, {
+    boundaryDilation: 0,
+    minimumInteriorPixels: 1,
+    openRegionSeeds: [{ x: 7, y: 7 }],
+    componentPolicy: 'largest'
+  });
+  assert.equal(corrected[(3 * width + 7) * 4 + 3], 255);
+  assert.equal(corrected[(7 * width + 2) * 4 + 3], 255);
+  assert.equal(corrected[(7 * width + 7) * 4 + 3], 0);
+  assert.equal(corrected[(10 * width + 7) * 4 + 3], 0);
+  assert.equal(corrected[(3 * width + 18) * 4 + 3], 0);
+});
+
+test('standalone vehicle review exposes the registered four-view scoring page', async () => {
+  assert.equal(resolveSilhouetteReviewOpacity(null), 0.72);
+  assert.equal(resolveSilhouetteReviewOpacity(''), 0.72);
+  assert.equal(resolveSilhouetteReviewOpacity('0'), 0);
+  assert.equal(resolveSilhouetteReviewOpacity('2'), 1);
+  assert.equal(resolveSilhouetteReviewOpacity('bad'), 0.72);
+  const [html, source, viteConfig] = await Promise.all([
+    readFile(new URL('../vehicle-review.html', import.meta.url), 'utf8'),
+    readFile(new URL('../src/vehicle-review.js', import.meta.url), 'utf8'),
+    readFile(new URL('../vite.config.js', import.meta.url), 'utf8')
+  ]);
+  for (const view of ['side', 'top', 'front', 'rear']) {
+    assert.match(html, new RegExp(`data-view="${view}"`));
+    assert.match(source, new RegExp(`\\b${view}\\b`));
+  }
+  assert.match(html, /src="\/src\/vehicle-review\.js"/);
+  assert.match(source, /compareSilhouetteMasks/);
+  assert.match(source, /composeSilhouetteReviewPixels/);
+  assert.match(source, /resolveWeaponReviewMaximizedView/);
+  assert.match(viteConfig, /vehicleReview:.*vehicle-review\.html/);
 });
 
 test('registration imports reject the wrong vehicle and normalize unsafe values', () => {
@@ -692,4 +996,6 @@ test('registration imports reject the wrong vehicle and normalize unsafe values'
     'rigid-front': { x: 1, y: 0 }
   });
   assert.equal(views.front.scale, 1);
+  assert.equal(views.rear.scaleX, 1);
+  assert.equal(views.rear.scaleY, 1);
 });

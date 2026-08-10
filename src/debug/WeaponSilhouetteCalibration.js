@@ -1,5 +1,9 @@
 import * as THREE from 'three';
 
+export {
+  compareSilhouetteMasks as compareWeaponSilhouetteMasks
+} from '../calibration/SilhouetteComparison.js';
+
 const scratch = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
 const worldMatrix = new THREE.Matrix4();
 const instanceMatrix = new THREE.Matrix4();
@@ -172,47 +176,4 @@ export function isolateConnectedAlphaComponent(
     rgba[offset + 3] = 0;
   }
   return tail;
-}
-
-export function compareWeaponSilhouetteMasks(sourceRgba, modelRgba, width, height, {
-  alphaThreshold = 8
-} = {}) {
-  const expectedLength = width * height * 4;
-  if (
-    !(sourceRgba instanceof Uint8ClampedArray)
-    || !(modelRgba instanceof Uint8ClampedArray)
-    || sourceRgba.length !== expectedLength
-    || modelRgba.length !== expectedLength
-  ) throw new Error('Silhouette comparison buffers do not match');
-  const pixels = new Uint8ClampedArray(expectedLength);
-  let sourcePixels = 0;
-  let modelPixels = 0;
-  let overlapPixels = 0;
-  for (let index = 0; index < width * height; index += 1) {
-    const offset = index * 4;
-    const source = sourceRgba[offset + 3] > alphaThreshold;
-    const model = modelRgba[offset + 3] > alphaThreshold;
-    if (source) sourcePixels += 1;
-    if (model) modelPixels += 1;
-    if (source && model) overlapPixels += 1;
-    const color = source && model
-      ? [17, 24, 39, 255]
-      : source
-        ? [239, 68, 68, 235]
-        : model
-          ? [6, 182, 212, 235]
-          : [0, 0, 0, 0];
-    pixels.set(color, offset);
-  }
-  const unionPixels = sourcePixels + modelPixels - overlapPixels;
-  return Object.freeze({
-    pixels,
-    sourcePixels,
-    modelPixels,
-    overlapPixels,
-    sourceOnlyPixels: sourcePixels - overlapPixels,
-    modelOnlyPixels: modelPixels - overlapPixels,
-    unionPixels,
-    iou: unionPixels > 0 ? overlapPixels / unionPixels : 1
-  });
 }

@@ -7,7 +7,7 @@ import {
 
 const FAMILY_ID = 'france-1940';
 const REFERENCE_KIND = 'calibration-reference-image';
-const VALID_VIEWS = new Set(['side', 'front', 'top']);
+const VALID_VIEWS = new Set(['side', 'front', 'rear', 'top']);
 
 function requireReferenceRoute(record) {
   const modelId = record.metadata?.modelId;

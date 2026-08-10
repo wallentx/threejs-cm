@@ -106,7 +106,8 @@ function createGermanPanzerProtectiveBeret() {
 export function createFrance1940VehicleCrewFigure(faction, {
   vehicleId = null,
   commanderRole = null,
-  headgearId = null
+  headgearId = null,
+  fullBody = false
 } = {}) {
   if (!['french', 'german'].includes(faction)) {
     throw new Error(`Unsupported France 1940 vehicle crew faction ${faction}`);
@@ -147,6 +148,30 @@ export function createFrance1940VehicleCrewFigure(faction, {
   );
   torso.position.y = -0.13;
   group.add(torso);
+  if (fullBody) {
+    const pelvis = markCore(
+      new THREE.Mesh(
+        new THREE.BoxGeometry(0.36, 0.2, 0.22),
+        uniform
+      ),
+      'dismounted-crew-pelvis'
+    );
+    pelvis.position.y = -0.39;
+    group.add(pelvis);
+    for (const side of [-1, 1]) {
+      const leg = markCore(
+        new THREE.Mesh(
+          new THREE.CylinderGeometry(0.075, 0.09, 0.62, 8),
+          uniform
+        ),
+        'dismounted-crew-leg'
+      );
+      leg.position.set(side * 0.105, -0.77, 0);
+      group.add(leg);
+    }
+    group.userData.presentationModel =
+      'first-order-dismounted-vehicle-crew-v1';
+  }
   const head = markCore(
     new THREE.Mesh(
       new THREE.SphereGeometry(0.15, 12, 10),

@@ -30,6 +30,12 @@ export const VEHICLE_SANDBOX_VR_PALETTE = Object.freeze({
   gridMinor: 0x15966f
 });
 
+export const VEHICLE_SANDBOX_TAP_GESTURE = Object.freeze({
+  maxMovePx: 6,
+  maxDoubleTapIntervalMs: 350,
+  maxDoubleTapDistancePx: 32
+});
+
 const CONTROL_STYLE = 'width:100%;box-sizing:border-box;padding:7px;background:#0f172a;color:#f8fafc;border:1px solid #475569;border-radius:4px;';
 
 function optionMarkup(options, selectedId = null) {
@@ -62,6 +68,26 @@ function metric(value, suffix, digits = 0) {
   return Number.isFinite(value) ? `${value.toFixed(digits)} ${suffix}` : 'n/a';
 }
 
+export function isVehicleSandboxDoubleTap(previousTap, currentTap) {
+  if (!previousTap || !currentTap) return false;
+  const interval = currentTap.timeStamp - previousTap.timeStamp;
+  return interval >= 0
+    && interval <= VEHICLE_SANDBOX_TAP_GESTURE.maxDoubleTapIntervalMs
+    && previousTap.pointerType === currentTap.pointerType
+    && Math.hypot(
+      currentTap.clientX - previousTap.clientX,
+      currentTap.clientY - previousTap.clientY
+    ) <= VEHICLE_SANDBOX_TAP_GESTURE.maxDoubleTapDistancePx;
+}
+
+function isEffectivelyVisible(object) {
+  for (let current = object; current; current = current.parent) {
+    if (!current.visible) return false;
+  }
+  const materials = Array.isArray(object.material) ? object.material : [object.material];
+  return materials.every(material => !material || material.visible !== false);
+}
+
 export class VehicleDebugSandboxApp {
   constructor() {
     document.body.dataset.gameStatus = 'loading';
@@ -71,10 +97,12 @@ export class VehicleDebugSandboxApp {
     this.lastImpactId = null;
     this.lastStatusUpdate = 0;
     this.pointerStart = null;
+    this.pendingTap = null;
     this.animate = this.animate.bind(this);
     this.resizeViewport = this.resizeViewport.bind(this);
     this.onPointerDown = this.onPointerDown.bind(this);
     this.onPointerUp = this.onPointerUp.bind(this);
+    this.onPointerCancel = this.onPointerCancel.bind(this);
     this.buildShell();
     this.ready = this.init().catch(error => {
       this.handleInitializationError(error);
@@ -106,7 +134,7 @@ export class VehicleDebugSandboxApp {
         }
       </style>
       <main id="debug-sandbox-viewport" aria-label="Vehicle sandbox 3D view">
-        <div id="debug-aim-help">Drag to orbit. Scroll/pinch to zoom.</div>
+        <div id="debug-aim-help">Drag to orbit. Scroll/pinch to zoom. Double tap to center.</div>
       </main>
       <aside id="debug-sandbox-panel" aria-label="Vehicle sandbox controls"></aside>
     `;
@@ -178,6 +206,7 @@ export class VehicleDebugSandboxApp {
 
     this.viewport.addEventListener('pointerdown', this.onPointerDown);
     this.viewport.addEventListener('pointerup', this.onPointerUp);
+    this.viewport.addEventListener('pointercancel', this.onPointerCancel);
     this.resizeObserver = new ResizeObserver(() => this.resizeViewport());
     this.resizeObserver.observe(this.viewport);
     window.addEventListener('resize', this.resizeViewport);
@@ -318,6 +347,7 @@ export class VehicleDebugSandboxApp {
   }
 
   startDuel() {
+    this.clearPendingTap();
     const distance = Number(this.panel.querySelector('#duel-distance').value);
     this.simulation.setupDuel({
       leftVehicleId: this.panel.querySelector('#duel-left').value,
@@ -335,6 +365,7 @@ export class VehicleDebugSandboxApp {
   }
 
   startGunMode() {
+    this.clearPendingTap();
     const distance = Number(this.panel.querySelector('#gun-distance').value);
     this.simulation.setupGun({
       targetVehicleId: this.panel.querySelector('#gun-target').value,
@@ -359,30 +390,95 @@ export class VehicleDebugSandboxApp {
   }
 
   onPointerDown(event) {
+    if (event.isPrimary === false) {
+      this.pointerStart = null;
+      this.clearPendingTap();
+      return;
+    }
     this.pointerStart = { id: event.pointerId, x: event.clientX, y: event.clientY };
   }
 
   onPointerUp(event) {
     const start = this.pointerStart;
     this.pointerStart = null;
-    if (this.mode !== 'gun' || !start || start.id !== event.pointerId) return;
-    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 6) return;
-    const target = this.simulation.visibleUnits[0];
-    if (!target || this.simulation.combat.projectiles.length > 0) return;
+    if (event.isPrimary === false || !start || start.id !== event.pointerId) return;
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y)
+      > VEHICLE_SANDBOX_TAP_GESTURE.maxMovePx) return;
+
+    const tap = {
+      clientX: event.clientX,
+      clientY: event.clientY,
+      pointerType: event.pointerType || 'mouse',
+      timeStamp: event.timeStamp
+    };
+    if (isVehicleSandboxDoubleTap(this.pendingTap, tap)) {
+      this.clearPendingTap();
+      this.focusCameraAt(tap.clientX, tap.clientY);
+      return;
+    }
+
+    this.clearPendingTap();
+    this.pendingTap = tap;
+    if (this.mode === 'gun') {
+      tap.timerId = globalThis.setTimeout(() => {
+        if (this.pendingTap !== tap) return;
+        this.pendingTap = null;
+        this.fireGunAt(tap.clientX, tap.clientY);
+      }, VEHICLE_SANDBOX_TAP_GESTURE.maxDoubleTapIntervalMs);
+    }
+  }
+
+  onPointerCancel() {
+    this.pointerStart = null;
+  }
+
+  clearPendingTap() {
+    if (this.pendingTap?.timerId != null) {
+      globalThis.clearTimeout(this.pendingTap.timerId);
+    }
+    this.pendingTap = null;
+  }
+
+  raycastAt(clientX, clientY, roots) {
     const rect = this.rendererFacade.domElement.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
     this.pointer.set(
-      ((event.clientX - rect.left) / rect.width) * 2 - 1,
-      -((event.clientY - rect.top) / rect.height) * 2 + 1
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1
     );
+    this.camera.updateMatrixWorld();
+    for (const root of roots) root?.updateWorldMatrix(true, true);
     this.raycaster.setFromCamera(this.pointer, this.camera);
-    const hit = this.raycaster.intersectObject(target.mesh, true)[0];
-    if (!hit) return;
+    return this.raycaster.intersectObjects(roots.filter(Boolean), true)
+      .find(hit => isEffectivelyVisible(hit.object)) ?? null;
+  }
+
+  focusCameraAt(clientX, clientY) {
+    const roots = [
+      ...this.simulation.visibleUnits.map(unit => unit.mesh),
+      this.ground
+    ];
+    const hit = this.raycastAt(clientX, clientY, roots);
+    if (!hit) return false;
+    this.controls.target.copy(hit.point);
+    this.controls.update();
+    return true;
+  }
+
+  fireGunAt(clientX, clientY) {
+    if (this.mode !== 'gun') return false;
+    const target = this.simulation.visibleUnits[0];
+    if (!target || this.simulation.combat.projectiles.length > 0) return false;
+    const hit = this.raycastAt(clientX, clientY, [target.mesh]);
+    if (!hit) return false;
     const cameraDirection = this.camera.getWorldDirection(new THREE.Vector3());
     if (this.simulation.queueGunShot(hit.point, cameraDirection)) {
       this.aimMarker.position.copy(hit.point);
       this.aimMarker.visible = true;
       this.updateStatus(true);
+      return true;
     }
+    return false;
   }
 
   updateOverlays() {
@@ -481,6 +577,8 @@ export class VehicleDebugSandboxApp {
     window.removeEventListener('resize', this.resizeViewport);
     this.viewport?.removeEventListener('pointerdown', this.onPointerDown);
     this.viewport?.removeEventListener('pointerup', this.onPointerUp);
+    this.viewport?.removeEventListener('pointercancel', this.onPointerCancel);
+    this.clearPendingTap();
     this.controls?.dispose();
     this.trajectoryOverlay?.dispose();
     this.debugOverlays?.dispose();

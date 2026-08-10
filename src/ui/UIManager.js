@@ -489,6 +489,13 @@ export class UIManager {
     if (!hasSelection) return;
 
     const selectedVehicle = this.runtime.selectedUnit?.vehicleSpec ?? null;
+    const selectedUnit = this.runtime.selectedUnit;
+    const isInfantry = selectedUnit?.type === 'infantry_squad';
+    const hasTransportAssignment = Boolean(selectedUnit?.transportAssignment);
+    const hasTruckPassengers = Boolean(
+      selectedUnit?.isTransportVehicle?.()
+      && selectedUnit.vehicleTransportState?.passengerUnitIds.length > 0
+    );
     const mortarTargetCommands = this.runtime.selectedUnit?.mortarTeamConfig
       ? [
           { label: 'TARGET HE', mode: 'MORTAR_HE', key: '' },
@@ -586,6 +593,26 @@ export class UIManager {
           agent => Boolean(agent.buildingLocation)
         )
           ? [{ label: 'DISMOUNT / EXIT', action: 'EXIT_BUILDING', key: '' }]
+          : []),
+        ...(isInfantry && !hasTransportAssignment
+          ? [{ label: 'MOUNT TRUCK', action: 'MOUNT_TRANSPORT', key: '' }]
+          : []),
+        ...(hasTransportAssignment || hasTruckPassengers
+          ? [{ label: 'DISMOUNT', action: 'DISMOUNT_TRANSPORT', key: '' }]
+          : []),
+        ...(isInfantry
+          ? [{ label: 'RESUPPLY', action: 'RESUPPLY', key: '' }]
+          : []),
+        ...(selectedUnit?.isTransportVehicle?.()
+          ? [{
+              label: selectedUnit.hasDismountedTransportCrew?.()
+                ? 'REMOUNT CREW'
+                : 'DISMOUNT CREW',
+              action: selectedUnit.hasDismountedTransportCrew?.()
+                ? 'REMOUNT_TRANSPORT_CREW'
+                : 'DISMOUNT_TRANSPORT_CREW',
+              key: ''
+            }]
           : [])
       ],
       admin: this.runtime.selectedUnit?.hasDeployableCrewServedWeapon?.()
@@ -707,7 +734,92 @@ export class UIManager {
       case 'EXIT_BUILDING':
         this.runtime.exitSelectedBuilding();
         break;
+      case 'MOUNT_TRANSPORT': {
+        const result = this.runtime.mountSelectedUnit();
+        this.showTransportResult(
+          result,
+          result?.accepted
+            ? `Boarding truck (${result.durationSeconds}s)`
+            : null
+        );
+        this.renderCommandGrid();
+        break;
+      }
+      case 'DISMOUNT_TRANSPORT': {
+        const result = this.runtime.dismountSelectedUnit();
+        this.showTransportResult(
+          result,
+          result?.accepted
+            ? `Dismounting (${result.durationSeconds}s)`
+            : null
+        );
+        this.renderCommandGrid();
+        break;
+      }
+      case 'RESUPPLY': {
+        const result = this.runtime.resupplySelectedUnit();
+        const transferred = (result?.smallArmsRounds ?? 0)
+          + (result?.machineGunRounds ?? 0)
+          + (result?.mortarBombs60mm ?? 0);
+        this.showTransportResult(
+          result,
+          result?.accepted
+            ? (transferred > 0
+                ? `Resupplied ${transferred} rounds from truck cargo`
+                : 'Unit ammunition already full')
+            : null
+        );
+        this.updateUnitHUD(unit);
+        break;
+      }
+      case 'DISMOUNT_TRANSPORT_CREW': {
+        const result = this.runtime.dismountSelectedTransportCrew();
+        this.showTransportResult(
+          result,
+          result?.accepted ? 'Truck crew dismounted; vehicle immobilized' : null
+        );
+        this.renderCommandGrid();
+        this.updateUnitHUD(unit);
+        break;
+      }
+      case 'REMOUNT_TRANSPORT_CREW': {
+        const result = this.runtime.remountSelectedTransportCrew();
+        this.showTransportResult(
+          result,
+          result?.accepted ? 'Truck crew remounted' : null
+        );
+        this.renderCommandGrid();
+        this.updateUnitHUD(unit);
+        break;
+      }
     }
+  }
+
+  showTransportResult(result, successMessage) {
+    if (result?.accepted) {
+      this.showToast(successMessage ?? 'Transport order accepted', 'success');
+      return;
+    }
+    const messages = {
+      NO_TRUCK_IN_RANGE: 'Move within 4.5 m of a friendly operational truck',
+      CAPACITY: 'Truck does not have enough free passenger seats',
+      TRANSFER_IN_PROGRESS: 'Truck is already boarding or dismounting a unit',
+      ALREADY_ASSIGNED: 'Unit already has a transport assignment',
+      NO_EMBARKED_INFANTRY: 'No embarked infantry to dismount',
+      INFANTRY_IN_BUILDING: 'Exit the building before mounting a truck',
+      PACK_WEAPON_FIRST: 'Pack the crew-served weapon before mounting',
+      CARGO_DAMAGED: 'Truck ammunition cargo is destroyed',
+      VEHICLE_INOPERABLE: 'Truck is inoperable',
+      INFANTRY_REQUIRED: 'Select an infantry unit',
+      NOT_A_WORKING_TRUCK: 'Select an operational transport truck',
+      CREW_ALREADY_DISMOUNTED: 'Truck crew is already dismounted',
+      CREW_ALREADY_MOUNTED: 'Truck crew is already mounted'
+    };
+    this.showToast(
+      messages[result?.reason]
+        ?? `Transport order rejected: ${String(result?.reason ?? 'unknown').replaceAll('_', ' ')}`,
+      'warn'
+    );
   }
 
   cancelOrDeselect(deselectWhenIdle = true) {
@@ -813,7 +925,12 @@ export class UIManager {
       const selectionPrefix = selectionCount > 1
         ? `${selectionCount} UNITS SELECTED · PRIMARY · `
         : '';
-      subEl.innerText = `${selectionPrefix}${unit.type.toUpperCase()} • ${unit.experience} / Leadership +${unit.leadership}`;
+      const transportStatus = unit.transportAssignment
+        ? ` · ${unit.transportAssignment.phase} ${unit.transportAssignment.vehicleId}`
+        : (unit.isTransportVehicle?.()
+            ? ` · PASSENGERS ${unit.getTransportPassengerCount?.() ?? 0}/${unit.vehicleSpec.transport.passengerCapacity}`
+            : '');
+      subEl.innerText = `${selectionPrefix}${unit.type.toUpperCase()} • ${unit.experience} / Leadership +${unit.leadership}${transportStatus}`;
     }
 
     const moraleFill = document.getElementById('meter-morale');
@@ -840,6 +957,9 @@ export class UIManager {
         const buildingText = s.buildingLocation
           ? ` · ${s.buildingLocation.phase.toUpperCase()} ${s.buildingLocation.nodeId ?? ''}`
           : '';
+        const vehicleText = s.vehicleLocation
+          ? ` · ${s.vehicleLocation.phase} ${s.vehicleLocation.vehicleId}`
+          : '';
         const aimRequired = s.fireControl?.aimRequiredSeconds ?? 0;
         const aimText = aimRequired > 0
           ? ` · AIM ${Math.round(
@@ -847,8 +967,8 @@ export class UIManager {
             )}% @ ${Math.round(s.fireControl.estimatedRangeMeters ?? 0)}m`
           : '';
         const member = buildRosterMemberPresentation(unit, s);
-        const detailLabel = `${member.detailPrefix}${buildingText}${aimText}`;
-        slot.title = `${s.name} | ${member.roleLabel} | ${s.state ?? s.status}${buildingText}${aimText} | Health ${Math.round(s.health ?? 0)} | Suppression ${Math.round(s.suppression ?? 0)}${ammoText ? ` | Ammo ${ammoText}` : ''}`;
+        const detailLabel = `${member.detailPrefix}${buildingText}${vehicleText}${aimText}`;
+        slot.title = `${s.name} | ${member.roleLabel} | ${s.state ?? s.status}${buildingText}${vehicleText}${aimText} | Health ${Math.round(s.health ?? 0)} | Suppression ${Math.round(s.suppression ?? 0)}${ammoText ? ` | Ammo ${ammoText}` : ''}`;
         slot.innerHTML = `
           <span><b>${member.primaryLabel}</b><em>${detailLabel}</em></span>
           <strong>${s.weapon ?? 'Unarmed'}${ammoText ? ` · ${ammoText}` : ''}</strong>
@@ -886,8 +1006,18 @@ export class UIManager {
         barEl.innerText = `AP ${ammo.ap ?? 0} · HE ${ammo.he ?? 0}${unit.vehicleWeapon.reloadTimer > 0 ? ` · RELOAD ${unit.vehicleWeapon.reloadTimer.toFixed(1)}s` : ''}`;
       }
     } else if (unit.vehicleSpec) {
-      if (rifleEl) rifleEl.innerText = 'MAIN GUN: UNARMED';
-      if (barEl) barEl.innerText = 'AMMUNITION: NONE';
+      const cargo = unit.vehicleTransportState?.cargo;
+      if (cargo) {
+        if (rifleEl) {
+          rifleEl.innerText = `CARGO: RIFLE ${cargo.smallArmsRounds ?? 0} · MG ${cargo.machineGunRounds ?? 0}`;
+        }
+        if (barEl) {
+          barEl.innerText = `60MM ${cargo.mortarBombs60mm ?? 0} · GRENADES ${cargo.grenades ?? 0}`;
+        }
+      } else {
+        if (rifleEl) rifleEl.innerText = 'MAIN GUN: UNARMED';
+        if (barEl) barEl.innerText = 'AMMUNITION: NONE';
+      }
     } else {
       const agents = unit.soldierAI?.agents ?? [];
       const rifleAmmo = agents

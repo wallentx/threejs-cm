@@ -21,9 +21,9 @@ const emptyRegistration = () => Object.freeze({
 const dimensionLandmarks = dimensions => Object.freeze([
   Object.freeze({
     id: 'ground-origin',
-    label: 'Ground / origin',
+    label: 'Model origin (ground center)',
     world: Object.freeze([0, 0, 0]),
-    views: Object.freeze(['side', 'front'])
+    views: Object.freeze(['side', 'front', 'rear', 'top'])
   }),
   Object.freeze({
     id: 'rigid-front',
@@ -41,19 +41,19 @@ const dimensionLandmarks = dimensions => Object.freeze([
     id: 'vehicle-top',
     label: 'Vehicle top datum',
     world: Object.freeze([0, dimensions.height, 0]),
-    views: Object.freeze(['side', 'front'])
+    views: Object.freeze(['side', 'front', 'rear'])
   }),
   Object.freeze({
     id: 'vehicle-left',
     label: 'Vehicle left datum',
     world: Object.freeze([dimensions.width * 0.5, 0, 0]),
-    views: Object.freeze(['front', 'top'])
+    views: Object.freeze(['front', 'rear', 'top'])
   }),
   Object.freeze({
     id: 'vehicle-right',
     label: 'Vehicle right datum',
     world: Object.freeze([-dimensions.width * 0.5, 0, 0]),
-    views: Object.freeze(['front', 'top'])
+    views: Object.freeze(['front', 'rear', 'top'])
   })
 ]);
 
@@ -68,6 +68,7 @@ const createRecord = (modelId, profile) => Object.freeze({
   views: Object.freeze({
     side: emptyRegistration(),
     front: emptyRegistration(),
+    rear: emptyRegistration(),
     top: emptyRegistration()
   }),
   landmarks: Object.freeze([

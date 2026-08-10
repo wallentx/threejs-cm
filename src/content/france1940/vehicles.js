@@ -469,6 +469,17 @@ function freezeVehicle(vehicle) {
       internalLayout,
       hasNominalArmor
     ),
+    transport: vehicle.transport
+      ? Object.freeze({
+          ...vehicle.transport,
+          disembarkOffsetLocal: Object.freeze([
+            ...vehicle.transport.disembarkOffsetLocal
+          ]),
+          initialCargo: Object.freeze({
+            ...vehicle.transport.initialCargo
+          })
+        })
+      : null,
     dataQuality: Object.freeze({ ...vehicle.dataQuality })
   });
 }
@@ -936,6 +947,21 @@ export const FRANCE_1940_VEHICLES = Object.freeze({
     loaderRoles: [],
     mainGun: null,
     ammunition: { ap: 0, he: 0 },
+    transport: {
+      passengerCapacity: 10,
+      embarkRadiusMeters: 4.5,
+      embarkSeconds: 4,
+      disembarkSeconds: 3,
+      disembarkOffsetLocal: [0, 0, -3.35],
+      initialCargo: {
+        smallArmsRounds: 1200,
+        machineGunRounds: 800,
+        mortarBombs60mm: 24,
+        grenades: 24
+      },
+      dataQuality:
+        'historical troop-carrier role; passenger capacity, transfer times, dismount point, and bounded mixed ammunition load are gameplay approximations'
+    },
     movementMps: movement(3.4, 4.8, 7.0, 2.2),
     mobility: wheeledMobility(7.4, 0.42),
     turretTraverseRadPerSecond: 0,
@@ -1232,6 +1258,21 @@ export const FRANCE_1940_VEHICLES = Object.freeze({
     loaderRoles: [],
     mainGun: null,
     ammunition: { ap: 0, he: 0 },
+    transport: {
+      passengerCapacity: 12,
+      embarkRadiusMeters: 4.5,
+      embarkSeconds: 4,
+      disembarkSeconds: 3,
+      disembarkOffsetLocal: [0, 0, -3.7],
+      initialCargo: {
+        smallArmsRounds: 1400,
+        machineGunRounds: 1000,
+        mortarBombs60mm: 24,
+        grenades: 30
+      },
+      dataQuality:
+        'historical general-service truck role; passenger capacity, transfer times, dismount point, and bounded mixed ammunition load are gameplay approximations'
+    },
     movementMps: movement(3.2, 4.7, 6.5, 2.0),
     mobility: wheeledMobility(8.0, 0.40),
     turretTraverseRadPerSecond: 0,

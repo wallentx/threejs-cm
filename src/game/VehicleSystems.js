@@ -104,6 +104,9 @@ export function createVehicleComponents(vehicleSpec, saved = null) {
     .some(rounds => Number.isFinite(rounds) && rounds > 0);
   const carriesMountedAmmo = (vehicleSpec.weaponMounts ?? [])
     .some(mount => Number.isFinite(mount.carriedAmmo) && mount.carriedAmmo > 0);
+  const carriesTransportCargo = Object.values(
+    vehicleSpec.transport?.initialCargo ?? {}
+  ).some(rounds => Number.isFinite(rounds) && rounds > 0);
   const installed = new Set([
     'hull',
     'engine',
@@ -113,7 +116,11 @@ export function createVehicleComponents(vehicleSpec, saved = null) {
     'optics'
   ]);
   if (vehicleSpec.communications?.radioInstalled) installed.add('radio');
-  if (carriesMainGunAmmo || carriesMountedAmmo) installed.add('ammunition');
+  if (
+    carriesMainGunAmmo
+    || carriesMountedAmmo
+    || carriesTransportCargo
+  ) installed.add('ammunition');
   if (vehicleSpec.mainGun) {
     installed.add('main_gun');
     installed.add('breech');

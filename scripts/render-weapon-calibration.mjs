@@ -7,6 +7,7 @@ import * as THREE from 'three';
 
 import { createFrance1940InfantryWeaponRig } from '../src/content/france1940/render/France1940InfantryWeaponFactory.js';
 import { BERTHIER_M1892_M16_VISUAL_DATA } from '../src/content/france1940/render/BerthierM1892M16VisualData.js';
+import { KAR98K_VISUAL_DATA } from '../src/content/france1940/render/Kar98kVisualData.js';
 import { MAS36_VISUAL_DATA } from '../src/content/france1940/render/Mas36VisualData.js';
 import {
   collectWeaponSideSilhouetteTriangles,
@@ -21,7 +22,8 @@ const CALIBRATION_TARGETS = Object.freeze({
   berthier1892m16: Object.freeze({
     weaponName: 'Berthier Mousqueton Mle 1892 M16',
     data: BERTHIER_M1892_M16_VISUAL_DATA
-  })
+  }),
+  kar98k: Object.freeze({ weaponName: 'Kar98k', data: KAR98K_VISUAL_DATA })
 });
 
 function readOption(name, fallback) {

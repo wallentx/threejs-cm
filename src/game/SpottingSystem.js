@@ -916,7 +916,7 @@ function livingPeople(unit) {
 
 function targetPoints(unit) {
   const people = sortedPeople(unit).filter(person =>
-    isBuildingOccupantExposed(person, unit)
+    isBuildingOccupantExposed(person, unit) && !person.vehicleLocation
   );
   if (unit?.type === 'infantry_squad') {
     return people.map(person => ({
@@ -933,6 +933,7 @@ function targetPoints(unit) {
 
 function unitCanBeObserved(unit) {
   if (!unit) return false;
+  if (unit.isTransported?.()) return false;
   // Vehicle combat effectiveness decides whether it can act, not whether its
   // physical hull can still be seen. Wrecked and abandoned vehicles therefore
   // remain observation targets while the ordinary LOS policy stays authoritative.
@@ -957,6 +958,7 @@ function sortedPeople(unit) {
 function canPerformDirectVisualObservation(unit, person) {
   return Boolean(
     unit?.morale !== 'Broken'
+    && !person?.vehicleLocation
     && isLivingObserver(person)
     && String(person?.status ?? '').toUpperCase() !== 'SURRENDERED'
     && String(person?.state ?? '').toUpperCase() !== 'SURRENDERED'

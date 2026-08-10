@@ -52,6 +52,18 @@ export function normalizeImportedCalibration(payload, record) {
         bottom: bounded(source.crop?.bottom, fallback.crop.bottom, 0, 0.99 - top)
       },
       scale: bounded(source.scale, fallback.scale, 0.05, 10),
+      scaleX: bounded(
+        source.scaleX,
+        fallback.scaleX ?? fallback.scale,
+        0.05,
+        10
+      ),
+      scaleY: bounded(
+        source.scaleY,
+        fallback.scaleY ?? fallback.scale,
+        0.05,
+        10
+      ),
       offsetX: finiteNumber(source.offsetX, fallback.offsetX),
       offsetY: finiteNumber(source.offsetY, fallback.offsetY),
       rotationDegrees: bounded(
