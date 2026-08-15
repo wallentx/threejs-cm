@@ -7,7 +7,10 @@ import * as THREE from 'three';
 
 import { createFrance1940InfantryWeaponRig } from '../src/content/france1940/render/France1940InfantryWeaponFactory.js';
 import { BERTHIER_M1892_M16_VISUAL_DATA } from '../src/content/france1940/render/BerthierM1892M16VisualData.js';
+import { FM2429_VISUAL_DATA } from '../src/content/france1940/render/Fm2429VisualData.js';
 import { KAR98K_VISUAL_DATA } from '../src/content/france1940/render/Kar98kVisualData.js';
+import { MAS38_VISUAL_DATA } from '../src/content/france1940/render/Mas38VisualData.js';
+import { MG34_VISUAL_DATA } from '../src/content/france1940/render/Mg34VisualData.js';
 import { MAS36_VISUAL_DATA } from '../src/content/france1940/render/Mas36VisualData.js';
 import {
   collectWeaponSideSilhouetteTriangles,
@@ -23,7 +26,10 @@ const CALIBRATION_TARGETS = Object.freeze({
     weaponName: 'Berthier Mousqueton Mle 1892 M16',
     data: BERTHIER_M1892_M16_VISUAL_DATA
   }),
-  kar98k: Object.freeze({ weaponName: 'Kar98k', data: KAR98K_VISUAL_DATA })
+  fm2429: Object.freeze({ weaponName: 'FM 24/29 LMG', data: FM2429_VISUAL_DATA }),
+  kar98k: Object.freeze({ weaponName: 'Kar98k', data: KAR98K_VISUAL_DATA }),
+  mas38: Object.freeze({ weaponName: 'MAS-38 SMG', data: MAS38_VISUAL_DATA }),
+  mg34: Object.freeze({ weaponName: 'MG34 LMG', data: MG34_VISUAL_DATA })
 });
 
 function readOption(name, fallback) {
@@ -102,7 +108,8 @@ function renderReferenceMask(registration, projection, visualData) {
   const crop = registration.cropPixels;
   const cropWidth = registration.imageSize[0] - crop.left - crop.right;
   const cropHeight = registration.imageSize[1] - crop.top - crop.bottom;
-  const sourcePath = path.resolve(repositoryRoot, visualData.source.localPath);
+  const calibrationSource = visualData.illustratedReference ?? visualData.source;
+  const sourcePath = path.resolve(repositoryRoot, calibrationSource.localPath);
   const args = [
     '-background', 'none',
     '-density', '384',

@@ -62,7 +62,7 @@ test('nine 1940 infantry weapons expose dimensioned semantic silhouettes and tru
     'FM 24/29 LMG': 'top',
     'MAS-38 SMG': 'bottom',
     Kar98k: 'internal',
-    'MG34 LMG': 'side-drum',
+    'MG34 LMG': 'belt-drum',
     MP40: 'bottom'
   };
   const signatures = new Set();

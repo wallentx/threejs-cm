@@ -19,6 +19,56 @@ function hasFlag(name) {
   return process.argv.includes(name);
 }
 
+function readAxisOption(name, fallback) {
+  const axis = readOption(name, fallback);
+  if (!['x', '-x', 'y', '-y', 'z', '-z'].includes(axis)) {
+    throw new Error(`${name} must be one of x, -x, y, -y, z, or -z; received ${axis}`);
+  }
+  return axis;
+}
+
+function axisComponent(point, axis) {
+  const sign = axis.startsWith('-') ? -1 : 1;
+  return point[axis.replace('-', '')] * sign;
+}
+
+function assertLocalReferenceUri(inputPath, uri) {
+  const inputDirectory = path.dirname(inputPath);
+  const resolved = path.resolve(inputDirectory, decodeURIComponent(uri));
+  const relative = path.relative(inputDirectory, resolved);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error(`External glTF resource escapes its reference directory: ${uri}`);
+  }
+  return resolved;
+}
+
+async function loadLocalGltf(inputPath) {
+  const extension = path.extname(inputPath).toLowerCase();
+  let payload;
+  let resourcePath = '';
+  if (extension === '.gltf') {
+    const document = JSON.parse(fs.readFileSync(inputPath, 'utf8'));
+    for (const buffer of document.buffers ?? []) {
+      if (!buffer.uri || buffer.uri.startsWith('data:')) continue;
+      if (/^[a-z][a-z0-9+.-]*:/i.test(buffer.uri)) {
+        throw new Error(`Only local glTF buffers are supported: ${buffer.uri}`);
+      }
+      const bytes = fs.readFileSync(assertLocalReferenceUri(inputPath, buffer.uri));
+      buffer.uri = `data:application/octet-stream;base64,${bytes.toString('base64')}`;
+    }
+    payload = JSON.stringify(document);
+    resourcePath = `${path.dirname(inputPath)}${path.sep}`;
+  } else if (extension === '.glb') {
+    const bytes = fs.readFileSync(inputPath);
+    payload = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  } else {
+    throw new Error(`Unsupported reference format: ${extension || '(none)'}. Expected .glb or .gltf.`);
+  }
+  return new Promise((resolve, reject) => {
+    new GLTFLoader().parse(payload, resourcePath, resolve, reject);
+  });
+}
+
 const useMeshColors = hasFlag('--mesh-colors');
 
 function runMagick(svg, outputPath) {
@@ -113,7 +163,7 @@ function viewDefinition(view) {
 function collectTriangles(root, convertPoint) {
   const triangles = [];
   root.traverse(object => {
-    if (!object.isMesh) return;
+    if (!object.isMesh || !object.visible) return;
     const positions = object.geometry.attributes.position;
     const indices = object.geometry.index;
     const count = indices ? indices.count : positions.count;
@@ -124,7 +174,9 @@ function collectTriangles(root, convertPoint) {
     for (let offset = 0; offset < count; offset += 3) {
       for (let corner = 0; corner < 3; corner += 1) {
         const index = indices ? indices.getX(offset + corner) : offset + corner;
-        source[corner].fromBufferAttribute(positions, index).applyMatrix4(object.matrixWorld);
+        source[corner].fromBufferAttribute(positions, index);
+        if (object.isSkinnedMesh) object.applyBoneTransform(index, source[corner]);
+        source[corner].applyMatrix4(object.matrixWorld);
         points[corner].copy(convertPoint(source[corner]));
       }
       const normal = edgeA.subVectors(points[1], points[0])
@@ -151,7 +203,9 @@ function collectMeshInventory(root, convertPoint) {
     const sliceBounds = new Map();
     const sourcePoint = new THREE.Vector3();
     for (let index = 0; index < positions.count; index += 1) {
-      sourcePoint.fromBufferAttribute(positions, index).applyMatrix4(object.matrixWorld);
+      sourcePoint.fromBufferAttribute(positions, index);
+      if (object.isSkinnedMesh) object.applyBoneTransform(index, sourcePoint);
+      sourcePoint.applyMatrix4(object.matrixWorld);
       const point = convertPoint(sourcePoint);
       bounds.expandByPoint(point);
       const sliceStart = Math.floor((point.z + 1e-9) / 0.025) * 0.025;
@@ -189,7 +243,9 @@ function collectMeshInventory(root, convertPoint) {
       for (let corner = 0; corner < 3; corner += 1) {
         const offset = triangleIndex * 3 + corner;
         const vertexIndex = object.geometry.index?.getX(offset) ?? offset;
-        sourcePoint.fromBufferAttribute(positions, vertexIndex).applyMatrix4(object.matrixWorld);
+        sourcePoint.fromBufferAttribute(positions, vertexIndex);
+        if (object.isSkinnedMesh) object.applyBoneTransform(vertexIndex, sourcePoint);
+        sourcePoint.applyMatrix4(object.matrixWorld);
         convertedPoint.copy(convertPoint(sourcePoint));
         points.push(convertedPoint.clone());
         const key = convertedPoint.toArray().map(value => value.toFixed(6)).join(',');
@@ -249,6 +305,22 @@ function collectMeshInventory(root, convertPoint) {
     });
   });
   return inventory.sort((first, second) => first.bounds.min[2] - second.bounds.min[2]);
+}
+
+function deformedWorldBounds(root) {
+  const bounds = new THREE.Box3();
+  const point = new THREE.Vector3();
+  root.traverse(object => {
+    if (!object.isMesh || !object.visible) return;
+    const positions = object.geometry.attributes.position;
+    for (let index = 0; index < positions.count; index += 1) {
+      point.fromBufferAttribute(positions, index);
+      if (object.isSkinnedMesh) object.applyBoneTransform(index, point);
+      bounds.expandByPoint(point.applyMatrix4(object.matrixWorld));
+    }
+  });
+  if (bounds.isEmpty()) throw new Error(`Reference root ${root.name || '(unnamed)'} contains no visible vertices`);
+  return bounds;
 }
 
 function renderView(triangles, {
@@ -316,7 +388,16 @@ function renderView(triangles, {
 }
 
 const weaponName = readOption('--weapon', null);
+const weaponLodTier = readOption('--lod', 'high');
 const preserveFrame = hasFlag('--preserve-frame');
+const useSceneRoot = hasFlag('--scene-root');
+const lengthAxis = readAxisOption('--length-axis', 'z');
+const upAxis = readAxisOption('--up-axis', 'y');
+const rightAxis = readAxisOption('--right-axis', 'x');
+const registeredLengthMetres = Number(readOption('--registered-length', '1.30'));
+if (!(registeredLengthMetres > 0)) {
+  throw new Error(`--registered-length must be greater than zero; received ${registeredLengthMetres}`);
+}
 let inputPath = null;
 let nodeName = readOption('--node', 'Lebel_Rifle_Uncovered');
 const outputDirectory = path.resolve(readOption(
@@ -336,6 +417,13 @@ if (weaponName) {
   const rig = createFrance1940InfantryWeaponRig(weaponName, ownedMaterials);
   root = rig.userData.weaponModel;
   root.removeFromParent();
+  const representations = root.userData.weaponLodRepresentations;
+  if (!representations?.[weaponLodTier]) {
+    throw new Error(`Unknown weapon LOD tier "${weaponLodTier}". Expected: ${Object.keys(representations ?? {}).join(', ')}`);
+  }
+  for (const [tier, meshes] of Object.entries(representations)) {
+    for (const mesh of meshes) mesh.visible = tier === weaponLodTier;
+  }
   root.updateMatrixWorld(true);
   nodeName = root.name;
   sourceLength = new THREE.Box3().setFromObject(root).getSize(new THREE.Vector3()).z;
@@ -343,26 +431,35 @@ if (weaponName) {
   convertPoint = point => point.clone();
 } else {
   inputPath = path.resolve(readOption('--input', 'reference/low_poly_lebel_1886.glb'));
-  const bytes = fs.readFileSync(inputPath);
-  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-  const gltf = await new Promise((resolve, reject) => {
-    new GLTFLoader().parse(buffer, '', resolve, reject);
-  });
-  root = gltf.scene.getObjectByName(nodeName);
-  if (!root) throw new Error(`GLB node not found: ${nodeName}`);
+  const gltf = await loadLocalGltf(inputPath);
+  root = useSceneRoot ? gltf.scene : gltf.scene.getObjectByName(nodeName);
+  if (!root) throw new Error(`glTF node not found: ${nodeName}`);
+  nodeName = useSceneRoot ? (gltf.scene.name || path.basename(inputPath, path.extname(inputPath))) : nodeName;
   gltf.scene.updateMatrixWorld(true);
-  const bounds = new THREE.Box3().setFromObject(root);
-  sourceLength = bounds.getSize(new THREE.Vector3()).z;
+  const bounds = deformedWorldBounds(root);
+  const corners = [];
+  for (const x of [bounds.min.x, bounds.max.x]) {
+    for (const y of [bounds.min.y, bounds.max.y]) {
+      for (const z of [bounds.min.z, bounds.max.z]) corners.push(new THREE.Vector3(x, y, z));
+    }
+  }
+  const lengthValues = corners.map(point => axisComponent(point, lengthAxis));
+  const upValues = corners.map(point => axisComponent(point, upAxis));
+  const rightValues = corners.map(point => axisComponent(point, rightAxis));
+  const lengthMin = Math.min(...lengthValues);
+  const lengthMax = Math.max(...lengthValues);
+  const upMin = Math.min(...upValues);
+  const rightCenter = (Math.min(...rightValues) + Math.max(...rightValues)) * 0.5;
+  sourceLength = lengthMax - lengthMin;
   if (preserveFrame) {
     metresPerSourceUnit = 1;
     convertPoint = point => point.clone();
   } else {
-    metresPerSourceUnit = 1.30 / sourceLength;
-    const nodeWorld = root.getWorldPosition(new THREE.Vector3());
+    metresPerSourceUnit = registeredLengthMetres / sourceLength;
     convertPoint = point => new THREE.Vector3(
-      -point.x * metresPerSourceUnit,
-      (point.y - nodeWorld.y) * metresPerSourceUnit,
-      (bounds.max.z - point.z) * metresPerSourceUnit
+      (axisComponent(point, rightAxis) - rightCenter) * metresPerSourceUnit,
+      (axisComponent(point, upAxis) - upMin) * metresPerSourceUnit,
+      (axisComponent(point, lengthAxis) - lengthMin) * metresPerSourceUnit
     );
   }
 }
@@ -395,11 +492,16 @@ const manifest = {
   inputPath,
   weaponName,
   nodeName,
-  coordinatePolicy: preserveFrame
-    ? 'source world frame preserved'
-    : 'weapon frame normalized to a 1.30 metre +Z length',
+  coordinatePolicy: weaponName
+    ? 'runtime weapon metre frame preserved'
+    : preserveFrame
+      ? 'source world frame preserved'
+      : `weapon frame normalized to a ${registeredLengthMetres.toFixed(3)} metre +Z length from source ${lengthAxis}; +Y from source ${upAxis}; project +X from source ${rightAxis}`,
   sourceLength,
-  registeredLengthMetres: preserveFrame ? null : 1.30,
+  registeredLengthMetres: weaponName
+    ? root.userData.visualContract.overallLength
+    : preserveFrame ? null : registeredLengthMetres,
+  weaponLodTier: weaponName ? weaponLodTier : null,
   metresPerSourceUnit,
   triangleCount: triangles.length,
   meshInventory,

@@ -5,12 +5,16 @@ import {
   createFrance1940InfantryWeaponRig
 } from '../src/content/france1940/render/index.js';
 import { BERTHIER_M1892_M16_VISUAL_DATA } from '../src/content/france1940/render/BerthierM1892M16VisualData.js';
+import { FM2429_VISUAL_DATA } from '../src/content/france1940/render/Fm2429VisualData.js';
 import {
   LEBEL_M1886_M93_APX1916_VISUAL_DATA,
   LEBEL_M1886_M93_VISUAL_DATA
 } from '../src/content/france1940/render/LebelM1886M93VisualData.js';
 import { KAR98K_VISUAL_DATA } from '../src/content/france1940/render/Kar98kVisualData.js';
 import { LEBEL_M1886_M93_REFERENCE_MESH_DATA } from '../src/content/france1940/render/LebelM1886M93ReferenceMeshData.js';
+import { MAS38_VISUAL_DATA } from '../src/content/france1940/render/Mas38VisualData.js';
+import { MAS38_REFERENCE_MESH_DATA } from '../src/content/france1940/render/Mas38ReferenceMeshData.js';
+import { MG34_VISUAL_DATA } from '../src/content/france1940/render/Mg34VisualData.js';
 import { MAS36_VISUAL_DATA } from '../src/content/france1940/render/Mas36VisualData.js';
 import { Unit } from './helpers/France1940TestUnit.js';
 
@@ -40,13 +44,17 @@ const EXPECTED_PROFILE_PARTS = Object.freeze({
     handguard: Object.freeze({ width: 0.038, minZ: MAS36_VISUAL_DATA.stations.receiverEnd, maxZ: MAS36_VISUAL_DATA.stations.handguardEnd })
   }),
   'FM 24/29 LMG': Object.freeze({
-    stock: Object.freeze({ width: 0.045, minZ: 0, maxZ: 0.34 }),
-    receiver: Object.freeze({ width: 0.048, minZ: 0.34, maxZ: 0.75 }),
-    handguard: Object.freeze({ width: 0.045, minZ: 0.58, maxZ: 0.73 })
+    stock: Object.freeze({ width: FM2429_VISUAL_DATA.widths.stock, minZ: 0, maxZ: FM2429_VISUAL_DATA.stations.stockNose }),
+    receiver: Object.freeze({ width: FM2429_VISUAL_DATA.widths.receiver, minZ: FM2429_VISUAL_DATA.stations.receiverStart, maxZ: FM2429_VISUAL_DATA.stations.receiverEnd }),
+    handguard: Object.freeze({ width: FM2429_VISUAL_DATA.widths.handguard, minZ: FM2429_VISUAL_DATA.stations.handguardStart, maxZ: FM2429_VISUAL_DATA.stations.handguardEnd })
   }),
   'MAS-38 SMG': Object.freeze({
-    stock: Object.freeze({ width: 0.046, minZ: 0, maxZ: 0.20 }),
-    receiver: Object.freeze({ width: 0.044, minZ: 0.20, maxZ: 0.40 })
+    stock: Object.freeze({ width: MAS38_VISUAL_DATA.widths.stock, minZ: 0, maxZ: MAS38_VISUAL_DATA.stations.stockNose }),
+    receiver: Object.freeze({ width: MAS38_VISUAL_DATA.widths.receiver, minZ: MAS38_VISUAL_DATA.stations.receiverStart, maxZ: MAS38_VISUAL_DATA.stations.receiverEnd })
+  }),
+  'MG34 LMG': Object.freeze({
+    stock: Object.freeze({ width: MG34_VISUAL_DATA.widths.stock, minZ: 0, maxZ: MG34_VISUAL_DATA.stations.stockNose }),
+    receiver: Object.freeze({ width: MG34_VISUAL_DATA.widths.receiver, minZ: MG34_VISUAL_DATA.stations.receiverStart, maxZ: MG34_VISUAL_DATA.stations.receiverEnd })
   })
 });
 
@@ -135,6 +143,21 @@ function verticesInsideBounds(mesh, bounds) {
     if (bounds.containsPoint(point)) count += 1;
   }
   return count;
+}
+
+function pointInsideSideProfile(point, profile) {
+  let inside = false;
+  for (let index = 0, previous = profile.length - 1; index < profile.length; previous = index++) {
+    const currentPoint = profile[index];
+    const previousPoint = profile[previous];
+    const crossesY = (currentPoint.y > point.y) !== (previousPoint.y > point.y);
+    if (!crossesY) continue;
+    const crossingZ = currentPoint.z
+      + ((point.y - currentPoint.y) * (previousPoint.z - currentPoint.z))
+        / (previousPoint.y - currentPoint.y);
+    if (point.z < crossingZ) inside = !inside;
+  }
+  return inside;
 }
 
 test('Lebel variants preserve GLB topology, receiver-metal bands, matte-silver bolts, and the APX assembly', () => {
@@ -671,12 +694,263 @@ test('Kar98k consumes its registered sheet profile with connected action and low
   }
 });
 
-test('M93, M16, and Kar98k weapon LODs reserve full detail for inspection range', () => {
+test('FM 24/29 consumes its labeled sheet component with connected feed, action, and LODs', () => {
+  const materials = {
+    wood: new THREE.MeshBasicMaterial({ side: THREE.FrontSide }),
+    metal: new THREE.MeshBasicMaterial({ side: THREE.FrontSide })
+  };
+  const rig = createFrance1940InfantryWeaponRig('FM 24/29 LMG', materials);
+  const model = rig.userData.weaponModel;
+  model.removeFromParent();
+  model.updateMatrixWorld(true);
+
+  try {
+    const parts = model.userData.parts;
+    assert.equal(
+      model.userData.visualContract.source.sha256,
+      '91a0c3a8230899a0611326be8337d647d115c0be16b56f3ba816a4c341c408a3'
+    );
+    assert.deepEqual(FM2429_VISUAL_DATA.profiles.stock[0].sourcePixel, { x: 3425, y: 2013 });
+    assert.deepEqual(
+      model.userData.weaponLodContract.distancesMetres,
+      { highMax: 4, mediumMax: 18 }
+    );
+    assert.equal(model.userData.weaponLodContract.triangleCounts.high, 620);
+    assert.ok(model.userData.weaponLodContract.triangleCounts.medium <= 620 * 0.66);
+    assert.ok(model.userData.weaponLodContract.triangleCounts.core <= 620 * 0.28);
+    for (const [tier, meshes] of Object.entries(model.userData.weaponLodRepresentations)) {
+      assert.ok(meshes.length > 0, `FM 24/29 ${tier} LOD must own geometry`);
+      assert.equal(meshes.every(mesh => mesh.userData.weaponLodTier === tier), true);
+      assert.equal(meshes.every(mesh => mesh.visible === (tier === 'high')), true);
+    }
+
+    const stockBounds = new THREE.Box3().setFromObject(parts.stock);
+    const receiverBounds = new THREE.Box3().setFromObject(parts.receiver);
+    const handguardBounds = new THREE.Box3().setFromObject(parts.handguard);
+    const jacketBounds = new THREE.Box3().setFromObject(parts.barrelJacket);
+    const flashHiderBounds = new THREE.Box3().setFromObject(parts.flashHider);
+    assert.ok(receiverBounds.intersectsBox(stockBounds));
+    assert.ok(receiverBounds.intersectsBox(handguardBounds));
+    assert.ok(receiverBounds.intersectsBox(jacketBounds));
+    assert.ok(jacketBounds.intersectsBox(flashHiderBounds));
+    assert.equal(parts.magazine.userData.feedType, 'top');
+    assert.equal(parts.chargingHandle.userData.semanticSide, 'right');
+    assert.ok(parts.chargingHandle.position.x < 0);
+    assert.ok(
+      receiverBounds.containsPoint(new THREE.Vector3(...parts.chargingHandle.userData.connectionStart)),
+      'FM 24/29 charging-handle root must terminate inside the receiver envelope'
+    );
+    assertNear(parts.muzzle.position.z, 1.08, 'FM 24/29 authoritative muzzle');
+    assertNear(flashHiderBounds.max.z, 1.08, 'FM 24/29 flash hider and muzzle contact');
+    assert.ok(parts.coreSilhouette.includes(parts.bipod.left));
+    assert.ok(parts.coreSilhouette.includes(parts.bipod.right));
+  } finally {
+    model.traverse(object => object.geometry?.dispose());
+    materials.wood.dispose();
+    materials.metal.dispose();
+  }
+});
+
+test('MAS-38 uses complete glTF high detail with registered contact datums and lower-detail LODs', () => {
+  const materials = {
+    wood: new THREE.MeshBasicMaterial({ side: THREE.FrontSide }),
+    metal: new THREE.MeshBasicMaterial({ side: THREE.FrontSide })
+  };
+  const rig = createFrance1940InfantryWeaponRig('MAS-38 SMG', materials);
+  const model = rig.userData.weaponModel;
+  model.removeFromParent();
+  model.updateMatrixWorld(true);
+
+  try {
+    const parts = model.userData.parts;
+    assert.equal(
+      model.userData.visualContract.source.sha256,
+      '8b7f2fdf02ebefdf5e7492cd55188ab1ede75a9bef729d01509378f31516bd1e'
+    );
+    assert.equal(
+      MAS38_VISUAL_DATA.illustratedReference.sha256,
+      '91a0c3a8230899a0611326be8337d647d115c0be16b56f3ba816a4c341c408a3'
+    );
+    assert.equal(
+      MAS38_REFERENCE_MESH_DATA.source.externalBuffers[0].sha256,
+      '11db852530e847f8387719b28ccce528492f899591608dd4d3d98e459ea9291a'
+    );
+    assert.deepEqual(MAS38_VISUAL_DATA.profiles.stock[0].sourcePixel, { x: 2323, y: 1948 });
+    assert.deepEqual(
+      model.userData.weaponLodContract.distancesMetres,
+      { highMax: 4, mediumMax: 18 }
+    );
+    assert.equal(model.userData.weaponLodContract.triangleCounts.high, 3133);
+    assert.ok(model.userData.weaponLodContract.triangleCounts.medium <= 3133 * 0.10);
+    assert.ok(model.userData.weaponLodContract.triangleCounts.core <= 3133 * 0.04);
+    for (const [tier, meshes] of Object.entries(model.userData.weaponLodRepresentations)) {
+      assert.ok(meshes.length > 0, `MAS-38 ${tier} LOD must own geometry`);
+      assert.equal(meshes.every(mesh => mesh.userData.weaponLodTier === tier), true);
+      assert.equal(meshes.every(mesh => mesh.visible === (tier === 'high')), true);
+    }
+
+    const stockBounds = new THREE.Box3().setFromObject(parts.stock);
+    const receiverBounds = new THREE.Box3().setFromObject(parts.receiver);
+    const handguardBounds = new THREE.Box3().setFromObject(parts.handguard);
+    const barrelBounds = new THREE.Box3().setFromObject(parts.barrel);
+    const magazineBounds = new THREE.Box3().setFromObject(parts.magazine);
+    const frontSightBounds = new THREE.Box3().setFromObject(parts.frontSight);
+    const magazineHousingExtensionBounds = new THREE.Box3()
+      .setFromObject(parts.foldingMagazineHousingExtension);
+    const sourceBounds = new THREE.Box3().setFromObject(parts.referenceAssembly);
+    assertNear(sourceBounds.min.z, 0, 'MAS-38 glTF butt datum');
+    assertNear(sourceBounds.max.z, 0.63, 'MAS-38 glTF muzzle datum');
+    assert.equal(parts.referenceAssembly.userData.sourceTriangleCount, 3133);
+    assert.equal(parts.referenceAssembly.userData.geometryProvenance, 'normalized user-supplied GLB topology');
+    assert.deepEqual(parts.referenceAssembly.material, [materials.metal, materials.wood]);
+    assert.equal(
+      parts.referenceAssembly.geometry.groups.reduce((sum, group) => sum + group.count, 0),
+      parts.referenceAssembly.geometry.index.count
+    );
+    assert.equal(parts.referenceAssembly.userData.sourceParts.length, 9);
+    assert.ok(receiverBounds.intersectsBox(stockBounds));
+    assert.ok(receiverBounds.intersectsBox(handguardBounds));
+    assert.ok(handguardBounds.intersectsBox(barrelBounds));
+    assert.ok(receiverBounds.intersectsBox(magazineBounds));
+    assert.ok(barrelBounds.intersectsBox(frontSightBounds));
+    assert.ok(receiverBounds.intersectsBox(magazineHousingExtensionBounds));
+    assert.equal(parts.magazine.userData.feedType, 'bottom');
+    assert.equal(parts.magazine.rotation.y, 0);
+    assert.equal(parts.magazine.rotation.z, 0);
+    assert.equal(parts.magazine.userData.semanticRollRadians, 0);
+    assertNear(
+      new THREE.Vector3(...parts.magazine.userData.connectionEnd).distanceTo(
+        new THREE.Vector3(...parts.magazine.userData.visibleTopCenter)
+      ),
+      MAS38_VISUAL_DATA.controls.magazineBody.insertionDepth,
+      'MAS-38 magazine hidden insertion depth'
+    );
+    assert.equal(
+      pointInsideSideProfile(
+        new THREE.Vector3(...parts.magazine.userData.connectionEnd),
+        MAS38_VISUAL_DATA.profiles.receiver
+      ),
+      true,
+      'MAS-38 magazine feed end must terminate inside the receiver profile'
+    );
+    for (const [tier, meshes] of Object.entries(model.userData.weaponLodRepresentations)) {
+      if (tier === 'high') {
+        assert.deepEqual(meshes, [parts.referenceAssembly]);
+        continue;
+      }
+      const tierMagazine = meshes.find(mesh => mesh.name.includes('BoxMagazine'));
+      assert.ok(tierMagazine, `MAS-38 ${tier} LOD must retain its magazine`);
+      assert.equal(tierMagazine.rotation.y, 0);
+      assert.equal(tierMagazine.rotation.z, 0);
+      assert.equal(tierMagazine.userData.semanticRollRadians, 0);
+    }
+    assert.equal(parts.chargingHandle.userData.semanticSide, 'right');
+    assert.equal(parts.dustCover.userData.semanticSide, 'right');
+    assert.ok(parts.chargingHandle.position.x < 0);
+    assert.ok(parts.dustCover.position.x < 0);
+    assert.ok(
+      receiverBounds.containsPoint(new THREE.Vector3(...parts.chargingHandle.userData.connectionStart)),
+      'MAS-38 cocking-handle root must terminate inside the receiver envelope'
+    );
+    assertNear(parts.muzzle.position.z, 0.63, 'MAS-38 authoritative muzzle');
+    assertNear(parts.barrel.userData.connectionEnd[2], 0.63, 'MAS-38 barrel and muzzle contact');
+    assertNear(frontSightBounds.max.z, 0.63, 'MAS-38 front sight and muzzle contact');
+  } finally {
+    model.traverse(object => object.geometry?.dispose());
+    materials.wood.dispose();
+    materials.metal.dispose();
+  }
+});
+
+test('MG34 consumes its registered sheet profile with a handed belt drum and complete LODs', () => {
+  const materials = {
+    wood: new THREE.MeshBasicMaterial({ side: THREE.FrontSide }),
+    metal: new THREE.MeshBasicMaterial({ side: THREE.FrontSide })
+  };
+  const rig = createFrance1940InfantryWeaponRig('MG34 LMG', materials);
+  const model = rig.userData.weaponModel;
+  model.removeFromParent();
+  model.updateMatrixWorld(true);
+
+  try {
+    const parts = model.userData.parts;
+    const triangleCounts = model.userData.weaponLodContract.triangleCounts;
+    assert.equal(model.userData.visualContract.source.sha256, MG34_VISUAL_DATA.source.sha256);
+    assert.deepEqual(model.userData.weaponLodContract.distancesMetres, { highMax: 4, mediumMax: 18 });
+    assert.deepEqual(triangleCounts, { high: 3036, medium: 536, core: 230 });
+    for (const [tier, meshes] of Object.entries(model.userData.weaponLodRepresentations)) {
+      assert.ok(meshes.length > 0, `MG34 ${tier} LOD must own geometry`);
+      assert.equal(meshes.every(mesh => mesh.userData.weaponLodTier === tier), true);
+      assert.equal(meshes.every(mesh => mesh.visible === (tier === 'high')), true);
+    }
+
+    const stockBounds = new THREE.Box3().setFromObject(parts.stock);
+    const receiverBounds = new THREE.Box3().setFromObject(parts.receiver);
+    const jacketBounds = new THREE.Box3().setFromObject(parts.barrelJacket);
+    const boosterBounds = new THREE.Box3().setFromObject(parts.muzzleBooster);
+    assert.ok(receiverBounds.intersectsBox(stockBounds));
+    assert.ok(receiverBounds.intersectsBox(jacketBounds));
+    assert.ok(jacketBounds.intersectsBox(boosterBounds));
+    assertNear(parts.muzzle.position.z, 1.22, 'MG34 authoritative muzzle');
+    assertNear(boosterBounds.max.z, 1.22, 'MG34 muzzle booster contact');
+    assertNear(jacketBounds.max.x - jacketBounds.min.x, MG34_VISUAL_DATA.controls.jacketRadius * 2, 'MG34 cylindrical jacket width');
+    assertNear(jacketBounds.max.y - jacketBounds.min.y, MG34_VISUAL_DATA.controls.jacketRadius * 2, 'MG34 cylindrical jacket height');
+    assert.deepEqual(parts.barrelJacket.userData.holeStations, MG34_VISUAL_DATA.controls.jacketHoleStations);
+    assert.equal(parts.barrelJacket.userData.holeRadius, MG34_VISUAL_DATA.controls.jacketHoleRadius);
+
+    assert.equal(parts.magazine.name, 'MG34_Gurttrommel34');
+    assert.equal(parts.magazine.userData.feedType, 'belt-drum');
+    assert.equal(parts.magazine.userData.capacity, 50);
+    assert.equal(parts.magazine.userData.semanticSide, 'left');
+    assert.equal(parts.magazine.userData.containerAxis, '-Z');
+    assert.equal(parts.magazine.userData.operatorFacing, 'rear');
+    assertNear(parts.magazine.rotation.x, -Math.PI / 2, 'MG34 operator-facing drum rotation');
+    assert.ok(parts.magazine.position.x > 0);
+    parts.magazine.geometry.computeBoundingBox();
+    const drumSize = parts.magazine.geometry.boundingBox.clone()
+      .applyMatrix4(parts.magazine.matrixWorld)
+      .getSize(new THREE.Vector3());
+    assertNear(drumSize.x, MG34_VISUAL_DATA.controls.gurttrommel.radius * 2, 'MG34 drum X diameter');
+    assertNear(drumSize.y, MG34_VISUAL_DATA.controls.gurttrommel.radius * 2, 'MG34 drum Y diameter');
+    assertNear(drumSize.z, MG34_VISUAL_DATA.controls.gurttrommel.height, 'MG34 rear-facing drum depth');
+    assert.ok(parts.magazine.userData.lid, 'MG34 inspection drum must retain its operator-facing lid');
+    assert.ok(parts.magazine.userData.carryHandle, 'MG34 inspection drum must retain its carry handle');
+    parts.magazine.userData.lid.geometry.computeBoundingBox();
+    const lidSize = parts.magazine.userData.lid.geometry.boundingBox.clone()
+      .applyMatrix4(parts.magazine.userData.lid.matrixWorld)
+      .getSize(new THREE.Vector3());
+    assertNear(lidSize.z, MG34_VISUAL_DATA.controls.gurttrommel.lidHeight, 'MG34 rear-facing drum lid');
+    assert.ok(
+      receiverBounds.intersectsBox(new THREE.Box3().setFromObject(parts.magazine.userData.feedConnector)),
+      'MG34 drum feed chute must contact the receiver'
+    );
+    assert.equal(parts.chargingHandle.userData.semanticSide, 'right');
+    assert.ok(parts.chargingHandle.position.x < 0);
+    assert.ok(receiverBounds.containsPoint(new THREE.Vector3(...parts.chargingHandle.userData.connectionStart)));
+    assert.ok(parts.coreSilhouette.includes(parts.bipod.left));
+    assert.ok(parts.coreSilhouette.includes(parts.bipod.right));
+    const legLength = leg => new THREE.Vector3(...leg.userData.connectionStart)
+      .distanceTo(new THREE.Vector3(...leg.userData.connectionEnd));
+    assertNear(legLength(parts.bipod.left), legLength(parts.bipod.right), 'MG34 equal bipod leg lengths');
+    assert.ok(Object.isFrozen(parts.bipod.left.userData.bipodRestPosition));
+    assert.equal(parts.stock.material, materials.wood);
+    assert.equal(parts.receiver.material, materials.metal);
+  } finally {
+    model.traverse(object => object.geometry?.dispose());
+    materials.wood.dispose();
+    materials.metal.dispose();
+  }
+});
+
+test('authored inspection weapons reserve full detail for inspection range', () => {
   const cases = [
     ['LEBEL_M1886_M93', 'Lebel Mle 1886/93'],
     ['LEBEL_M1886_M93_APX1916', 'Lebel Mle 1886/93 with APX 1916'],
     ['BERTHIER_M1892_M16', 'Berthier Mousqueton Mle 1892 M16'],
-    ['KAR98K', 'Kar98k']
+    ['KAR98K', 'Kar98k'],
+    ['FM2429', 'FM 24/29 LMG'],
+    ['MAS38', 'MAS-38 SMG'],
+    ['MG34', 'MG34 LMG']
   ];
   const cameraByTier = {
     high: new THREE.Vector3(0, 1.2, 2),

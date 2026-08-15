@@ -3,7 +3,10 @@ import test from 'node:test';
 import * as THREE from 'three';
 
 import { BERTHIER_M1892_M16_VISUAL_DATA } from '../src/content/france1940/render/BerthierM1892M16VisualData.js';
+import { FM2429_VISUAL_DATA } from '../src/content/france1940/render/Fm2429VisualData.js';
 import { KAR98K_VISUAL_DATA } from '../src/content/france1940/render/Kar98kVisualData.js';
+import { MAS38_VISUAL_DATA } from '../src/content/france1940/render/Mas38VisualData.js';
+import { MG34_VISUAL_DATA } from '../src/content/france1940/render/Mg34VisualData.js';
 import { MAS36_VISUAL_DATA } from '../src/content/france1940/render/Mas36VisualData.js';
 import {
   collectWeaponSideSilhouetteTriangles,
@@ -44,6 +47,45 @@ test('weapon silhouette jig locks the supplied Kar98k sheet component to its nom
   assert.ok(Math.abs(muzzle.x - 1910) < 1e-9);
   assert.equal(muzzle.y, 700);
   assert.deepEqual(registration.componentSeedPixel, [700, 770]);
+  assert.equal(registration.viewDirection, '-X');
+});
+
+test('weapon silhouette jig isolates the labeled FM 24/29 component from the French sheet', () => {
+  const registration = FM2429_VISUAL_DATA.silhouetteCalibration.side;
+  assert.deepEqual(
+    projectWeaponSidePointToSource({ x: 0, y: 0, z: 0 }, registration),
+    { x: 3425, y: 1972 }
+  );
+  const muzzle = projectWeaponSidePointToSource({ x: 0, y: 0, z: 1.08 }, registration);
+  assert.ok(Math.abs(muzzle.x - 5701) < 1e-9);
+  assert.equal(muzzle.y, 1972);
+  assert.deepEqual(registration.componentSeedPixel, [4300, 2000]);
+  assert.equal(registration.viewDirection, '-X');
+});
+
+test('weapon silhouette jig isolates the right-facing MAS-38 component at its rigid length', () => {
+  const registration = MAS38_VISUAL_DATA.silhouetteCalibration.side;
+  assert.deepEqual(
+    projectWeaponSidePointToSource({ x: 0, y: 0, z: 0 }, registration),
+    { x: 2323, y: 1910 }
+  );
+  const muzzle = projectWeaponSidePointToSource({ x: 0, y: 0, z: 0.63 }, registration);
+  assert.ok(Math.abs(muzzle.x - 3580) < 1e-9);
+  assert.equal(muzzle.y, 1910);
+  assert.deepEqual(registration.componentSeedPixel, [2800, 1950]);
+  assert.equal(registration.viewDirection, '-X');
+});
+
+test('weapon silhouette jig isolates the right-facing MG34 at its rigid length', () => {
+  const registration = MG34_VISUAL_DATA.silhouetteCalibration.side;
+  assert.deepEqual(
+    projectWeaponSidePointToSource({ x: 0, y: 0, z: 0 }, registration),
+    { x: 2066, y: 1996 }
+  );
+  const muzzle = projectWeaponSidePointToSource({ x: 0, y: 0, z: 1.22 }, registration);
+  assert.ok(Math.abs(muzzle.x - 4198) < 1e-9);
+  assert.equal(muzzle.y, 1996);
+  assert.deepEqual(registration.componentSeedPixel, [2860, 1980]);
   assert.equal(registration.viewDirection, '-X');
 });
 

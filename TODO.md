@@ -470,9 +470,52 @@ even when a matching broader parent exists elsewhere in this file.
     right-side bolt/action; preserve the 1.11 m muzzle contract and infantry grip
     poses; add 664/452/180-triangle high/medium/core representations. The locked
     side silhouette improves from the audit baseline of 42.20% to 93.04% IoU.
-  - [ ] Refit the FM 24/29, MAS-38, MG34, and MP40 from their registered sheet
-    components; resolve the MG34 feed configuration before treating its sheet
-    silhouette as the production authority.
+  - [x] FM 24/29 refit: isolate the right-facing sheet component explicitly
+    labeled `Mle 1924 M 29`; replace the generic block model with registered
+    stock, receiver, top magazine, pistol grip, trigger group, lower handguard,
+    barrel jacket, carry handle, sights, folded articulated bipod, and conical
+    flash hider; preserve the 1.08 m muzzle contract, right-side charging handle,
+    top-feed reload pose, and prone bipod animation. Add 620/400/168-triangle
+    high/medium/core representations. The locked side silhouette reaches 91.38%
+    IoU while retaining the real open trigger guard that the edge-flood source
+    mask incorrectly treats as solid.
+  - [x] MAS-38 refit: isolate the right-facing French-sheet component and replace
+    the generic block model with registered stock, receiver, pistol grip, canted
+    bottom magazine, tubular trigger guard, barrel collar, sloped barrel, sights,
+    right-side cocking handle and dust cover, and the receiver-connected folding
+    magazine-housing extension. Preserve the 0.63 m muzzle and infantry hand
+    poses; add 596/292/124-triangle high/medium/core representations. The
+    zero-roll box magazine retains its registered side cant while seating its
+    hidden feed end 14 mm inside the receiver. The locked side silhouette
+    reaches 95.47% IoU, and all three LODs pass named side, top, front, and
+    paired-handedness review.
+    - [x] Source-topology follow-up: adopt all nine visible bind-pose meshes from
+      the supplied CC-BY-4.0 `reference/mas38/scene.gltf` as the 3,133-triangle
+      inspection LOD, normalize its complete assembly to the 0.63 m weapon
+      contract, retain the right-side charging handle without a runtime mirror,
+      and preserve the existing 292/124-triangle registered medium/core tiers.
+      Keep the former sheet geometry as invisible semantic/contact datums for
+      hand placement, magazine insertion, connected action, sight, and muzzle
+      invariants. The six-view source/runtime comparison is exact; the 86.56%
+      side-sheet IoU is retained only as legacy diagnostic evidence because the
+      stronger cross-view glTF now owns production topology.
+  - [ ] Refit the MG34 and MP40 from their registered sheet components.
+    - [x] MG34: replace the generic box model with its registered right-side
+      stock, receiver, feed-cover, grip, jacket, muzzle-booster, sight, and
+      folded-bipod geometry; retain real perforations in the 3,036-triangle
+      inspection tier and source-shaped 536/230-triangle medium/core tiers.
+      The right charging handle and historically supported left-mounted
+      50-round Gurttrommel 34 remain handed. User-review correction: slim the
+      inferred stock/receiver/feed widths, keep both folded bipod legs exactly
+      equal in length, replace the smooth muzzle approximation with its stepped
+      collar/booster profile, and rebuild the Gurttrommel as a
+      receiver-connected container with a stamped carry handle. A subsequent
+      user-reviewed cross-view correction rotates the complete drum assembly
+      exactly 90 degrees about weapon X so its lid faces rearward toward the
+      operator. The honest full-assembly sheet score remains diagnostic because
+      the supplied drawing omits the drum; the drum is not hidden from the
+      acceptance mask.
+    - [ ] MP40: register and refit the remaining German sheet component.
 - [ ] Split French small-arms issue into historically labeled 7.5 mm and 8 mm
   formations: modern FM 24/29 units use MAS-36 rifles; eligible non-FM units
   use Lebel rifles for riflemen, leaders, VB grenadiers, sharpshooters, and APX
