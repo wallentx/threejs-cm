@@ -632,6 +632,7 @@ export class UIManager {
           ? [{ label: 'RESUPPLY', action: 'RESUPPLY', key: '' }]
           : []),
         ...(selectedUnit?.isTransportVehicle?.()
+          && !selectedUnit.vehicleCrewBailout?.triggered
           ? [{
               label: selectedUnit.hasDismountedTransportCrew?.()
                 ? 'REMOUNT CREW'

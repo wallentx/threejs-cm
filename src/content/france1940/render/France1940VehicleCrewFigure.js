@@ -187,9 +187,11 @@ export function createFrance1940VehicleCrewFigure(faction, {
     : createGermanPanzerProtectiveBeret();
   headgear.position.y = 0.26;
   group.add(headgear);
-  const binoculars = createBinoculars();
-  binoculars.position.y = 0.17;
-  group.add(binoculars);
+  if (!fullBody) {
+    const binoculars = createBinoculars();
+    binoculars.position.y = 0.17;
+    group.add(binoculars);
+  }
   return group;
 }
 

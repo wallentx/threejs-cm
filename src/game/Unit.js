@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { UnitFactory } from '../world/UnitFactory.js';
-import { SoldierAI } from './SoldierAI.js';
+import { SoldierAI, selectNearbyCover } from './SoldierAI.js';
 import {
   applyStructureDamage,
   createStructureState,
@@ -92,6 +92,16 @@ import {
   getUnbuttonedCommander,
   getUnbuttonedCommanderWorldPosition
 } from '../simulation/vehicles/VehicleCrewExposure.js';
+import { vehicleVolumeTransform } from '../simulation/vehicles/VehicleTransforms.js';
+import {
+  advanceVehicleCrewBailoutState,
+  applyVehicleCrewBailoutCasualty,
+  captureVehicleCrewBailoutState,
+  createVehicleCrewBailoutState,
+  getActiveVehicleCrewBailoutActors,
+  triggerVehicleCrewBailout,
+  VEHICLE_CREW_BAILOUT_POLICY
+} from '../simulation/vehicles/VehicleCrewBailout.js';
 import {
   captureInfantryTransportAssignment,
   captureVehicleTransportState,
@@ -145,6 +155,8 @@ const RECENT_FIRE_ACTIVITY_SECONDS = 0.2;
 const COMMANDER_PRESENTATION_LOCAL = new THREE.Vector3();
 const COMMANDER_PRESENTATION_OFFSET = new THREE.Vector3();
 const COMMANDER_PRESENTATION_UP = new THREE.Vector3(0, 1, 0);
+const BAILOUT_PRESENTATION_WORLD = new THREE.Vector3();
+const BAILOUT_PRESENTATION_LOCAL = new THREE.Vector3();
 const UNAVAILABLE_INFANTRY_STATUSES = new Set([
   'KIA',
   'INCAPACITATED',
@@ -316,6 +328,9 @@ export class Unit {
       this.vehicleSpec?.crewTaskPolicy,
       config.vehicleCrewTasks
     );
+    this.vehicleCrewBailout = this.vehicleSpec
+      ? createVehicleCrewBailoutState(config.vehicleCrewBailout)
+      : null;
     this.vehicleMainGunnerCombatSeconds = null;
 
     // Read-only compatibility summary. Soldier and vehicle weapon states own ammunition.
@@ -506,16 +521,19 @@ export class Unit {
             fullBody: true
           });
           if (!figure?.isObject3D) continue;
-          figure.name = `DismountedCrew_${crewman.id}`;
+          figure.name = `VehicleCrew_${crewman.id}`;
           figure.visible = false;
           figure.position.set(index % 2 === 0 ? 0.55 : -0.55, 1.08, -3.1);
           this.mesh.add(figure);
           figures[String(crewman.id)] = figure;
         }
+        this.mesh.userData.vehicleCrewFigures = figures;
         this.mesh.userData.transportCrewFigures = figures;
       }
+      if (this.vehicleCrewBailout?.triggered) this.ensureVehicleCrewFigures();
       this.syncVehicleCommanderPresentation();
       this.syncTransportCrewPresentation();
+      this.syncVehicleBailoutPresentation();
     }
     this.mesh.userData.unitId = this.id;
     this.mesh.userData.unitRoot = true;
@@ -676,7 +694,7 @@ export class Unit {
     }
     if (this.structureSpec) return !this.structureState.destroyed && !this.structureState.firingDisabled;
     if (this.vehicleSpec) {
-      return this.roster.some(crewman => crewman.health > 0 && crewman.status !== 'KIA')
+      return this.getMountedCrew().length > 0
         && !this.vehicleDamageState.destroyed;
     }
     return true;
@@ -1224,7 +1242,8 @@ export class Unit {
 
   getMountedCrew() {
     return this.getLivingCrew().filter(crewman =>
-      crewman.vehicleLocation?.phase !== 'DISMOUNTED'
+      !crewman.vehicleLocation?.phase
+      || crewman.vehicleLocation.phase === 'MOUNTED'
     );
   }
 
@@ -1240,6 +1259,9 @@ export class Unit {
   dismountTransportCrew() {
     if (!this.isTransportVehicle() || this.vehicleDamageState?.destroyed) {
       return { accepted: false, reason: 'NOT_A_WORKING_TRUCK' };
+    }
+    if (this.vehicleCrewBailout?.triggered) {
+      return { accepted: false, reason: 'CREW_BAILOUT_IN_PROGRESS' };
     }
     if (this.hasDismountedTransportCrew()) {
       return { accepted: false, reason: 'CREW_ALREADY_DISMOUNTED' };
@@ -1260,6 +1282,9 @@ export class Unit {
   remountTransportCrew() {
     if (!this.isTransportVehicle() || this.vehicleDamageState?.destroyed) {
       return { accepted: false, reason: 'NOT_A_WORKING_TRUCK' };
+    }
+    if (this.vehicleCrewBailout?.triggered) {
+      return { accepted: false, reason: 'CREW_BAILOUT_IN_PROGRESS' };
     }
     const crewIds = [];
     for (const crewman of this.getLivingCrew()) {
@@ -1282,6 +1307,376 @@ export class Unit {
     }
   }
 
+  ensureVehicleCrewFigures() {
+    if (!this.mesh || !this.vehicleSpec) return {};
+    const figures = this.mesh.userData.vehicleCrewFigures ?? {};
+    const factory = this.visualFactories.vehicleCrewFigures?.[this.faction];
+    if (typeof factory !== 'function') return figures;
+    const bailoutCrewIds = new Set(
+      (this.vehicleCrewBailout?.actors ?? []).map(actor => String(actor.crewId))
+    );
+    const figureCrew = this.vehicleSpec.transport
+      ? this.roster
+      : this.roster.filter(crewman => bailoutCrewIds.has(String(crewman.id)));
+    for (const crewman of figureCrew) {
+      if (figures[String(crewman.id)]) continue;
+      const figure = factory({
+        vehicleId: this.vehicleId,
+        commanderRole: crewman.role,
+        fullBody: true
+      });
+      if (!figure?.isObject3D) continue;
+      figure.name = `VehicleCrew_${crewman.id}`;
+      figure.visible = false;
+      this.mesh.add(figure);
+      figures[String(crewman.id)] = figure;
+    }
+    this.mesh.userData.vehicleCrewFigures = figures;
+    if (this.vehicleSpec.transport) {
+      this.mesh.userData.transportCrewFigures = figures;
+    }
+    return figures;
+  }
+
+  createVehicleCrewBailoutPlan(terrain) {
+    if (!this.vehicleSpec || !this.mesh) {
+      return { exits: [], coverCandidates: [], fallbackDestinations: [] };
+    }
+    const crew = [...this.getMountedCrew()]
+      .sort((left, right) => String(left.id).localeCompare(String(right.id)));
+    const dimensions = this.vehicleSpec.dimensionsMeters;
+    this.mesh.updateWorldMatrix(true, true);
+    const authoredExit = this.vehicleSpec.crewEgress?.exits?.[0] ?? null;
+    const authoredExitTransform = authoredExit
+      ? vehicleVolumeTransform(this, authoredExit)
+      : null;
+    const authoredHatchWorld = authoredExitTransform
+      ? {
+          x: authoredExitTransform.centerX,
+          y: authoredExitTransform.centerY,
+          z: authoredExitTransform.centerZ
+        }
+      : null;
+    const groundHeightAt = (x, z) => terrain?.getMovementHeightAt?.(x, z)
+      ?? terrain?.getHeightAt?.(x, z)
+      ?? this.position.y;
+    const toWorld = local => {
+      const cosine = Math.cos(this.rotation);
+      const sine = Math.sin(this.rotation);
+      return {
+        x: this.position.x + cosine * local.x + sine * local.z,
+        y: this.position.y + local.y,
+        z: this.position.z - sine * local.x + cosine * local.z
+      };
+    };
+    const exits = [];
+    const coverCandidates = [];
+    const fallbackDestinations = [];
+    for (const [index, crewman] of crew.entries()) {
+      const side = index % 2 === 0 ? 1 : -1;
+      const row = Math.floor(index / 2);
+      const hatch = authoredHatchWorld
+        ? {
+            x: authoredHatchWorld.x + side * 0.035,
+            y: authoredHatchWorld.y,
+            z: authoredHatchWorld.z + row * 0.035
+          }
+        : toWorld({
+            x: side * Math.min(0.34, dimensions.width * 0.14),
+            y: dimensions.height * 0.82,
+            z: dimensions.length * 0.03 - row * 0.08
+          });
+      const ground = toWorld({
+        x: side * (dimensions.width * 0.55 + 0.38),
+        y: 0,
+        z: -dimensions.length * 0.18 + row * 0.48
+      });
+      ground.y = groundHeightAt(ground.x, ground.z);
+      const exitId = `${this.id}:bailout-exit:${crewman.id}`;
+      exits.push({
+        id: exitId,
+        crewId: crewman.id,
+        hatchPosition: hatch,
+        groundPosition: ground
+      });
+
+      const awayX = ground.x - this.position.x;
+      const awayZ = ground.z - this.position.z;
+      const awayLength = Math.hypot(awayX, awayZ) || 1;
+      const preferRearVector = {
+        x: awayX / awayLength,
+        z: awayZ / awayLength
+      };
+      const cover = selectNearbyCover(
+        { position: new THREE.Vector3(ground.x, ground.y, ground.z), isAlive: true },
+        terrain,
+        this.position,
+        [],
+        18,
+        null,
+        preferRearVector
+      );
+      const fallback = {
+        x: ground.x + preferRearVector.x * (9 + row * 0.8),
+        y: 0,
+        z: ground.z + preferRearVector.z * (9 + row * 0.8)
+      };
+      fallback.y = groundHeightAt(fallback.x, fallback.z);
+      const destination = cover?.position
+        ? {
+            x: cover.position.x + side * row * 0.28,
+            y: 0,
+            z: cover.position.z
+          }
+        : fallback;
+      destination.y = groundHeightAt(destination.x, destination.z);
+      const route = this.collisionWorld?.getNavigationPath?.(
+        ground,
+        destination,
+        INFANTRY_COLLISION_RADIUS,
+        'infantry',
+        { clearance: 0.08, waypointClearance: 0.12 }
+      )?.map(point => ({
+        x: point.x,
+        y: groundHeightAt(point.x, point.z),
+        z: point.z
+      })) ?? [destination];
+      const destinationRecord = {
+        id: `${this.id}:bailout-${cover ? 'cover' : 'fallback'}:${crewman.id}`,
+        crewId: crewman.id,
+        position: destination,
+        route
+      };
+      if (cover) coverCandidates.push(destinationRecord);
+      else fallbackDestinations.push(destinationRecord);
+      fallbackDestinations.push({
+        id: `${this.id}:bailout-emergency:${crewman.id}`,
+        crewId: crewman.id,
+        position: fallback,
+        route: [fallback]
+      });
+    }
+    return { exits, coverCandidates, fallbackDestinations };
+  }
+
+  triggerVehicleCrewBailout(reason, terrain) {
+    if (!this.vehicleSpec || this.vehicleCrewBailout?.triggered) return false;
+    const plan = this.createVehicleCrewBailoutPlan(terrain);
+    this.vehicleCrewBailout = triggerVehicleCrewBailout(
+      this.vehicleCrewBailout,
+      {
+        reason,
+        crew: this.getMountedCrew(),
+        policy: VEHICLE_CREW_BAILOUT_POLICY,
+        ...plan
+      }
+    );
+    if (!this.vehicleCrewBailout.triggered) return false;
+    this.ensureVehicleCrewFigures();
+    this.vehicleCrewPosture = 'BUTTONED';
+    this.clearWaypoints();
+    this.abandonVehicleCombatIntent(`CREW_BAILOUT_${reason}`);
+    recordVehicleEvent(this.vehicleDamageState, 'crew_bailout_started', {
+      reason,
+      crewIds: this.vehicleCrewBailout.actors
+        .map(actor => String(actor.crewId))
+        .join(','),
+      modelVersion: this.vehicleCrewBailout.modelVersion,
+      dataQuality: this.vehicleCrewBailout.approximationLabel
+    });
+    this.syncVehicleCommanderPresentation();
+    this.syncVehicleBailoutPresentation();
+    return true;
+  }
+
+  reconcileVehicleCrewBailoutRoster() {
+    if (!this.vehicleCrewBailout?.triggered) return;
+    for (const actor of this.vehicleCrewBailout.actors) {
+      const crewman = this.roster.find(candidate =>
+        String(candidate.id) === String(actor.crewId));
+      if (!crewman) continue;
+      if (crewman.health <= 0 || crewman.status === 'KIA') {
+        this.vehicleCrewBailout = applyVehicleCrewBailoutCasualty(
+          this.vehicleCrewBailout,
+          actor.crewId
+        ).state;
+        continue;
+      }
+      if (actor.phase === 'WAITING') {
+        crewman.vehicleLocation = null;
+      } else if (actor.phase === 'EGRESSING') {
+        crewman.vehicleLocation = {
+          vehicleId: String(this.id),
+          phase: 'BAILING_OUT'
+        };
+      } else {
+        crewman.vehicleLocation = {
+          vehicleId: String(this.id),
+          phase: 'DISMOUNTED'
+        };
+      }
+    }
+  }
+
+  advanceVehicleCrewBailout(delta) {
+    if (!this.vehicleCrewBailout?.triggered) return;
+    this.reconcileVehicleCrewBailoutRoster();
+    this.vehicleCrewBailout = advanceVehicleCrewBailoutState(
+      this.vehicleCrewBailout,
+      Math.max(0, delta)
+    );
+    this.reconcileVehicleCrewBailoutRoster();
+    this.syncVehicleBailoutPresentation();
+  }
+
+  getDismountedVehicleCrewTargets() {
+    if (!this.vehicleCrewBailout?.triggered) return [];
+    return getActiveVehicleCrewBailoutActors(this.vehicleCrewBailout)
+      .filter(actor => actor.exposed && actor.phase !== 'KIA')
+      .map(actor => {
+        const crewman = this.roster.find(candidate =>
+          String(candidate.id) === String(actor.crewId));
+        if (!crewman || crewman.health <= 0 || crewman.status === 'KIA') return null;
+        const stateActor = this.vehicleCrewBailout.actors.find(candidate =>
+          String(candidate.crewId) === String(actor.crewId));
+        const facingPoint = actor.phase === 'EGRESSING'
+          ? stateActor?.groundPosition
+          : stateActor?.destinationPosition;
+        const dx = (facingPoint?.x ?? actor.currentPosition.x)
+          - actor.currentPosition.x;
+        const dz = (facingPoint?.z ?? actor.currentPosition.z)
+          - actor.currentPosition.z;
+        return {
+          id: actor.crewId,
+          role: crewman.role,
+          position: new THREE.Vector3(
+            actor.currentPosition.x,
+            actor.currentPosition.y,
+            actor.currentPosition.z
+          ),
+          facing: Math.hypot(dx, dz) > 1e-6
+            ? Math.atan2(dx, dz)
+            : this.rotation,
+          stance: 'STANDING',
+          phase: actor.phase
+        };
+      })
+      .filter(Boolean);
+  }
+
+  applyDismountedVehicleCrewDamage(
+    crewmanId,
+    damage,
+    suppression = 35,
+    cause = 'dismounted_crew_hit'
+  ) {
+    const target = this.getDismountedVehicleCrewTargets().find(actor =>
+      String(actor.id) === String(crewmanId));
+    if (!target) return null;
+    const crewman = this.roster.find(candidate =>
+      String(candidate.id) === String(crewmanId));
+    if (!crewman) return null;
+    crewman.health = Math.max(0, crewman.health - Math.max(0, damage));
+    crewman.status = crewman.health <= 0 ? 'KIA' : 'WOUNDED';
+    this.suppression = Math.min(100, this.suppression + Math.max(0, suppression));
+    if (crewman.health <= 0) {
+      this.vehicleCrewBailout = applyVehicleCrewBailoutCasualty(
+        this.vehicleCrewBailout,
+        crewman.id
+      ).state;
+    }
+    recordVehicleEvent(this.vehicleDamageState, 'crew_hit', {
+      crewmanId: crewman.id,
+      role: crewman.role,
+      status: crewman.status,
+      health: crewman.health,
+      cause,
+      dataQuality: 'GAMEPLAY_APPROXIMATION'
+    });
+    if (this.getLivingCrew().length === 0) {
+      this.vehicleDamageState.destroyed = true;
+      setVehicleComponentHealth(this.vehicleComponents, 'hull', 0);
+      recordVehicleEvent(this.vehicleDamageState, 'vehicle_destroyed', {
+        cause: 'crew_loss'
+      });
+    }
+    this.syncVehicleBailoutPresentation();
+    this.syncLegacyVehicleDamage();
+    return crewman;
+  }
+
+  applyDismountedVehicleCrewBlast(position, weapon, cause = 'explosive_blast') {
+    const radius = Math.max(0, Number(weapon?.explosiveRadius) || 0);
+    if (radius <= 0) return [];
+    const casualties = [];
+    for (const actor of this.getDismountedVehicleCrewTargets()
+      .sort((left, right) => String(left.id).localeCompare(String(right.id)))) {
+      const distance = actor.position.distanceTo(position);
+      if (distance > radius) continue;
+      const falloff = Math.max(0, 1 - distance / radius);
+      const casualty = this.applyDismountedVehicleCrewDamage(
+        actor.id,
+        Math.max(0, Number(weapon?.woundDamage) || 0) * falloff,
+        80 * falloff,
+        cause
+      );
+      if (casualty) casualties.push(casualty);
+    }
+    return casualties;
+  }
+
+  syncVehicleBailoutPresentation() {
+    if (!this.mesh || !this.vehicleCrewBailout?.triggered) return;
+    const figures = this.mesh.userData.vehicleCrewFigures ?? {};
+    const actorByCrewId = new Map(
+      this.vehicleCrewBailout.actors.map(actor => [String(actor.crewId), actor])
+    );
+    this.mesh.updateWorldMatrix(true, false);
+    for (const crewman of this.roster) {
+      const figure = figures[String(crewman.id)];
+      if (!figure) continue;
+      const actor = actorByCrewId.get(String(crewman.id));
+      const visible = Boolean(actor?.exposed);
+      figure.visible = visible;
+      if (!visible) continue;
+      BAILOUT_PRESENTATION_WORLD.set(
+        actor.currentPosition.x,
+        actor.currentPosition.y + 1.08,
+        actor.currentPosition.z
+      );
+      BAILOUT_PRESENTATION_LOCAL.copy(BAILOUT_PRESENTATION_WORLD);
+      this.mesh.worldToLocal(BAILOUT_PRESENTATION_LOCAL);
+      figure.position.copy(BAILOUT_PRESENTATION_LOCAL);
+      if (actor.phase === 'RUNNING') {
+        figure.position.y += Math.abs(
+          Math.sin(actor.phaseElapsedSeconds * 9)
+        ) * 0.05;
+      }
+      const facingPoint = actor.phase === 'EGRESSING'
+        ? actor.groundPosition
+        : actor.destinationPosition;
+      const dx = facingPoint.x - actor.currentPosition.x;
+      const dz = facingPoint.z - actor.currentPosition.z;
+      const worldFacing = Math.hypot(dx, dz) > 1e-6
+        ? Math.atan2(dx, dz)
+        : this.rotation;
+      figure.rotation.set(
+        actor.phase === 'KIA'
+          ? Math.PI / 2
+          : (actor.phase === 'RUNNING' ? -0.12 : 0),
+        worldFacing - this.rotation,
+        0
+      );
+      let legIndex = 0;
+      figure.traverse(part => {
+        if (part.userData.surfaceRole !== 'dismounted-crew-leg') return;
+        part.rotation.x = actor.phase === 'RUNNING'
+          ? Math.sin(actor.phaseElapsedSeconds * 10 + legIndex++ * Math.PI) * 0.42
+          : 0;
+      });
+    }
+  }
+
   getUnbuttonedCommander() {
     return getUnbuttonedCommander(this);
   }
@@ -1289,7 +1684,8 @@ export class Unit {
   canUnbuttonCommander() {
     return Boolean(
       this.vehicleSpec?.observationEquipment?.unbuttonedCommander
-      && this.getLivingCrew().some(crewman =>
+      && !this.vehicleCrewBailout?.triggered
+      && this.getMountedCrew().some(crewman =>
         this.getEffectiveCrewRole(crewman)
           === this.vehicleSpec.observationEquipment.unbuttonedCommander.role)
       && !this.vehicleDamageState.destroyed
@@ -1363,10 +1759,11 @@ export class Unit {
     if (!this.mesh || !this.vehicleSpec) return;
     const commander = this.getUnbuttonedCommander();
     const worldPosition = getUnbuttonedCommanderWorldPosition(this);
+    const bailoutHatchOpen = Boolean(this.vehicleCrewBailout?.triggered);
     for (const hatch of this.mesh.userData.commanderHatches ?? []) {
       const axis = hatch.userData.rotationAxis;
       if (!['x', 'y', 'z'].includes(axis)) continue;
-      hatch.rotation[axis] = commander
+      hatch.rotation[axis] = commander || bailoutHatchOpen
         ? hatch.userData.openAngleRadians
         : hatch.userData.closedAngleRadians;
     }
@@ -1409,7 +1806,11 @@ export class Unit {
 
   isCrewRoleAlive(roles) {
     return this.vehicleCrewTasks
-      ? hasEffectiveVehicleCrewRole(this.vehicleCrewTasks, this.roster, roles)
+      ? hasEffectiveVehicleCrewRole(
+          this.vehicleCrewTasks,
+          this.getMountedCrew(),
+          roles
+        )
       : this.isOriginalCrewRoleAlive(roles);
   }
 
@@ -1710,6 +2111,28 @@ export class Unit {
     return true;
   }
 
+  createVehicleCookoffBlastEvent() {
+    if (!this.vehicleSpec) return null;
+    const dimensions = this.vehicleSpec.dimensionsMeters;
+    const radiusMeters = THREE.MathUtils.clamp(
+      Math.max(dimensions.length * 1.35, dimensions.width * 2.15),
+      6,
+      12
+    );
+    return {
+      id: `${this.id}:cookoff:${this.vehicleDamageState.eventVersion}`,
+      sourceUnitId: String(this.id),
+      position: [
+        this.position.x,
+        this.position.y + dimensions.height * 0.58,
+        this.position.z
+      ],
+      radiusMeters,
+      woundDamage: 240,
+      dataQuality: 'GAMEPLAY_APPROXIMATION'
+    };
+  }
+
   getVehicleMovementFactor() {
     if (!this.vehicleSpec || !this.hasOperationalDriver()) return this.vehicleSpec ? 0 : 1;
     if (this.vehicleDamageState?.burning || this.vehicleDamageState?.secondaryExplosion) return 0;
@@ -1838,15 +2261,25 @@ export class Unit {
     }
   }
 
-  updateVehicleSystems(delta) {
-    if (!this.vehicleSpec) return;
+  updateVehicleSystems(delta, terrain) {
+    if (!this.vehicleSpec) return null;
     if (
       this.vehicleCrewPosture === 'UNBUTTONED'
       && !this.canUnbuttonCommander()
     ) {
       this.vehicleCrewPosture = 'BUTTONED';
     }
-    advanceVehicleFireState({
+    if (!this.vehicleCrewBailout?.triggered) {
+      const reason = this.vehicleDamageState.burning
+        ? (this.vehicleDamageState.fire?.phase === 'AMMUNITION_VENTING'
+            ? 'AMMUNITION_FIRE'
+            : 'VEHICLE_FIRE')
+        : (this.morale === 'Broken'
+            ? 'ROUTED'
+            : (this.vehicleDamageState.destroyed ? 'VEHICLE_DESTROYED' : null));
+      if (reason) this.triggerVehicleCrewBailout(reason, terrain);
+    }
+    const fireStep = advanceVehicleFireState({
       components: this.vehicleComponents,
       damageState: this.vehicleDamageState,
       hasAmmunition: this.hasVehicleCookoffAmmunition()
@@ -1854,8 +2287,33 @@ export class Unit {
     if (this.vehicleDamageState.burning) {
       this.abandonVehicleCombatIntent('VEHICLE_BURNING');
     }
+    let vehicleCookoffBlast = null;
+    const cookoffElapsedSeconds = fireStep.secondaryExplosionStarted
+      ? THREE.MathUtils.clamp(
+          fireStep.secondaryExplosionElapsedSeconds ?? delta,
+          0,
+          Math.max(0, delta)
+        )
+      : null;
+    this.advanceVehicleCrewBailout(cookoffElapsedSeconds ?? delta);
     if (this.vehicleDamageState.secondaryExplosion) {
       this.applyVehicleCookoffConsequences();
+      this.reconcileVehicleCrewBailoutRoster();
+      this.syncVehicleBailoutPresentation();
+      if (fireStep.secondaryExplosionStarted) {
+        vehicleCookoffBlast = this.createVehicleCookoffBlastEvent();
+        this.applyDismountedVehicleCrewBlast(
+          new THREE.Vector3().fromArray(vehicleCookoffBlast.position),
+          {
+            explosiveRadius: vehicleCookoffBlast.radiusMeters,
+            woundDamage: vehicleCookoffBlast.woundDamage
+          },
+          'ammunition_cookoff_blast'
+        );
+        this.advanceVehicleCrewBailout(
+          Math.max(0, delta - cookoffElapsedSeconds)
+        );
+      }
     }
     const crewTaskStep = advanceVehicleCrewTaskStep(
       this.vehicleCrewTasks,
@@ -1885,7 +2343,7 @@ export class Unit {
       this.syncLegacyVehicleDamage();
       this.refreshAmmoSummary();
       this.syncVehicleCommanderPresentation();
-      return;
+      return { vehicleCookoffBlast };
     }
     if (this.vehicleWeapon) {
       this.vehicleWeapon.isFiring = false;
@@ -1940,6 +2398,7 @@ export class Unit {
     this.syncLegacyVehicleDamage();
     this.refreshAmmoSummary();
     this.syncVehicleCommanderPresentation();
+    return { vehicleCookoffBlast };
   }
 
   canVehicleFire() {
@@ -2859,6 +3318,9 @@ export class Unit {
         : null,
       vehicleAI: this.vehicleAI ? this.vehicleAI.captureState() : null,
       vehicleCrewTasks: captureVehicleCrewTaskState(this.vehicleCrewTasks),
+      vehicleCrewBailout: captureVehicleCrewBailoutState(
+        this.vehicleCrewBailout
+      ),
       vehicleMainGunnerCombatSeconds: this.vehicleMainGunnerCombatSeconds,
       structureState: this.structureState
         ? { ...this.structureState, events: this.structureState.events.map(event => ({ ...event })) }
@@ -2967,6 +3429,9 @@ export class Unit {
       this.vehicleSpec?.crewTaskPolicy,
       state.vehicleCrewTasks
     );
+    this.vehicleCrewBailout = this.vehicleSpec
+      ? createVehicleCrewBailoutState(state.vehicleCrewBailout)
+      : null;
     this.vehicleMainGunnerCombatSeconds = Number.isFinite(
       state.vehicleMainGunnerCombatSeconds
     )
@@ -2984,7 +3449,6 @@ export class Unit {
     this.transportAssignment = restoreInfantryTransportAssignment(
       state.transportAssignment
     );
-    if (this.vehicleDamageState.secondaryExplosion) this.applyVehicleCookoffConsequences();
     this.currentLOD = null;
     if (this.soldierAI) {
       // Read-only migration compatibility for legacy snapshots storing dangerMapState on roster[0]
@@ -3001,6 +3465,10 @@ export class Unit {
           : {})
       }));
     }
+    this.reconcileVehicleCrewBailoutRoster();
+    if (this.vehicleDamageState.secondaryExplosion) {
+      this.applyVehicleCookoffConsequences();
+    }
     this.syncTransformPresentation();
     this.syncVehicleWeaponPresentation();
     this.syncVehicleTrackPresentation();
@@ -3011,8 +3479,10 @@ export class Unit {
     this.syncStructureCollision();
     if (this.vehicleAI && state.vehicleAI) this.vehicleAI.restoreState(state.vehicleAI);
     this.refreshAmmoSummary();
+    if (this.vehicleCrewBailout?.triggered) this.ensureVehicleCrewFigures();
     this.syncVehicleCommanderPresentation();
     this.syncTransportCrewPresentation();
+    this.syncVehicleBailoutPresentation();
     this.setTransportPresentation(this.isTransported());
   }
 
@@ -3034,6 +3504,7 @@ export class Unit {
   }
 
   isControllable() {
+    if (this.vehicleCrewBailout?.triggered) return false;
     if (this.soldierAI) {
       const living = this.soldierAI.getLivingAgents().filter(agent =>
         !UNAVAILABLE_INFANTRY_STATUSES.has(agent.status)
@@ -3169,7 +3640,7 @@ export class Unit {
         this.stance = 'STANDING';
       }
     }
-    this.updateVehicleSystems(delta);
+    const vehicleSystemStep = this.updateVehicleSystems(delta, terrain);
     if (this.structureSpec) this.syncStructureCollision();
 
     let anchorMoving = false;
@@ -3394,14 +3865,17 @@ export class Unit {
     }
 
     const activeVehicleWaypoint = this.waypoints[this.currentWaypointIndex] ?? null;
-    this.vehicleAI?.update(delta, terrain, {
-      ...options,
-      orderType: activeVehicleWaypoint?.orderType ?? null,
-      targetPosition: activeVehicleWaypoint?.position ?? null
-    });
+    if (!this.vehicleCrewBailout?.triggered) {
+      this.vehicleAI?.update(delta, terrain, {
+        ...options,
+        orderType: activeVehicleWaypoint?.orderType ?? null,
+        targetPosition: activeVehicleWaypoint?.position ?? null
+      });
+    }
     this.syncVehicleWeaponPresentation();
     this.updateVehiclePhysics(delta, terrain);
     this.syncVehicleCommanderPresentation();
+    this.syncVehicleBailoutPresentation();
 
     this.soldierAI?.update(delta, terrain, {
       anchorMoving,
@@ -3423,5 +3897,6 @@ export class Unit {
       }
     }
     if (!this.soldierAI) this.updateStanceVisuals();
+    return vehicleSystemStep;
   }
 }

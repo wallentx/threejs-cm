@@ -943,6 +943,35 @@ export class CombatSystem {
       return false;
     }
 
+    if (impact.kind === 'dismounted_vehicle_crew') {
+      const damage = weapon.woundDamage * (0.78 + this.random() * 0.44);
+      const casualty = impact.unit.applyDismountedVehicleCrewDamage(
+        impact.agent.id,
+        damage,
+        weapon.explosiveRadius ? 100 : 42,
+        'direct_fire'
+      );
+      this.telemetry.infantryHits++;
+      this.recordImpact(projectile, impact, {
+        crewResult: {
+          penetrated: false,
+          casualty,
+          casualties: casualty ? [casualty] : [],
+          damage: {
+            amount: damage,
+            cause: 'dismounted_vehicle_crew_hit'
+          }
+        }
+      });
+      if (weapon.explosiveRadius > 0) {
+        this.applyBlast(impact.point, weapon, projectile.attacker);
+        this.createExplosionEffect(impact.point, 0.7, weapon);
+      } else {
+        this.createImpactEffect(impact.point, 0xffc266);
+      }
+      return false;
+    }
+
     if (impact.kind === 'vehicle') {
       const result = this.ballistics.resolveVehicleImpact(projectile, impact);
       projectile.attacker.recordVehicleEngagementImpact?.({
@@ -1046,7 +1075,12 @@ export class CombatSystem {
     return false;
   }
 
-  applyBlast(position, weapon, attacker) {
+  applyBlast(
+    position,
+    weapon,
+    attacker,
+    { dismountedCrewCause = 'explosive_blast' } = {}
+  ) {
     const radius = weapon.explosiveRadius;
     if (radius <= 0) return;
     const protectedOccupants = new Set();
@@ -1056,8 +1090,18 @@ export class CombatSystem {
         protectedOccupants.add(`${occupant.unitId}:${occupant.soldierId}`);
       }
     }
-    for (const unit of this.ballistics.getUnits()) {
-      if (!unit?.isCombatEffective?.() || unit === attacker) continue;
+    const blastUnits = [...this.ballistics.getUnits()]
+      .sort((left, right) => String(left?.id).localeCompare(String(right?.id)));
+    for (const unit of blastUnits) {
+      if (!unit) continue;
+      if (unit !== attacker) {
+        unit.applyDismountedVehicleCrewBlast?.(
+          position,
+          weapon,
+          dismountedCrewCause
+        );
+      }
+      if (!unit.isCombatEffective?.() || unit === attacker) continue;
       if (unit.type === 'infantry_squad') {
         let maximumBlastExposure = 0;
         for (const agent of unit.soldierAI?.getLivingAgents() ?? []) {
@@ -1101,6 +1145,22 @@ export class CombatSystem {
       if (!buildingDamageChanged(result)) continue;
       this.processBuildingDamageResult(buildingId, result, 'blast', position);
     }
+  }
+
+  applyVehicleCookoffBlast(sourceUnit, event) {
+    if (!sourceUnit?.vehicleSpec || !event) return false;
+    const radius = Math.max(0, Number(event.radiusMeters) || 0);
+    const woundDamage = Math.max(0, Number(event.woundDamage) || 0);
+    if (radius <= 0 || woundDamage <= 0) return false;
+    const position = new THREE.Vector3().fromArray(event.position);
+    this.applyBlast(position, {
+      id: 'vehicle_ammunition_cookoff',
+      caliberMm: 0,
+      explosiveFillKg: 0,
+      explosiveRadius: radius,
+      woundDamage
+    }, sourceUnit, { dismountedCrewCause: 'ammunition_cookoff_blast' });
+    return true;
   }
 
   processBuildingDamageResult(buildingId, damageResult, reason, position) {

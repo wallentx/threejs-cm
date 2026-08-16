@@ -421,6 +421,21 @@ function freezeObservationEquipment(
   });
 }
 
+function freezeCrewEgress(source) {
+  if (!source) return null;
+  return Object.freeze({
+    ...source,
+    ...(source.policy
+      ? { policy: Object.freeze({ ...source.policy }) }
+      : {}),
+    exits: Object.freeze((source.exits ?? []).map(exit => Object.freeze({
+      ...exit,
+      center: Object.freeze([...(exit.center ?? [0, 0, 0])]),
+      offset: Object.freeze([...(exit.offset ?? [0, 0, 0])])
+    })))
+  });
+}
+
 function freezeVehicle(vehicle) {
   const hasNominalArmor = Object.values(vehicle.armorMm ?? {})
     .some(value => Number(value) > 0);
@@ -469,6 +484,9 @@ function freezeVehicle(vehicle) {
       internalLayout,
       hasNominalArmor
     ),
+    ...(vehicle.crewEgress
+      ? { crewEgress: freezeCrewEgress(vehicle.crewEgress) }
+      : {}),
     transport: vehicle.transport
       ? Object.freeze({
           ...vehicle.transport,
@@ -1048,6 +1066,17 @@ export const FRANCE_1940_VEHICLES = Object.freeze({
     observationEquipment: observationEquipment(['COMMANDER'], {
       unbuttonedCommander: PANZER_III_D_COMMANDER_STATION.exposure
     }),
+    crewEgress: {
+      modelVersion: 'vehicle-crew-egress-v1',
+      exits: [{
+        id: PANZER_III_D_COMMANDER_STATION.hatch.id,
+        center: [0, 1.58, 0.12],
+        offset: PANZER_III_D_COMMANDER_STATION.hatch.centerTurretLocal,
+        followsTurret: true,
+        dataQuality: PANZER_III_D_COMMANDER_STATION.hatch.dataQuality,
+        referenceUrl: PANZER_III_D_COMMANDER_STATION.hatch.referenceUrl
+      }]
+    },
     gunnerRoles: ['GUNNER'],
     loaderRoles: ['LOADER'],
     crewTaskPolicy: {

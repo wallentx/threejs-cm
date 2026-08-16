@@ -274,6 +274,14 @@ The first boundary slice now exists:
 - `src/game/VehicleSystems.js` owns canonical vehicle component, damage-event,
   and auxiliary-mount state. `Unit` owns each vehicle instance and exposes a
   plain `getVehicleDamageReport()` snapshot.
+- `src/simulation/vehicles/VehicleCrewBailout.js` owns renderer-neutral,
+  stable-crew-ID bailout phases, simulation-time hatch egress, supplied
+  collision-routed cover paths, exposed world positions, casualties, and deep
+  capture/restore. `Unit` selects a vehicle-authored exit when available,
+  adapts terrain/static-collision cover routes, and projects the state into
+  lazily created crew figures. `BallisticsSystem` reuses infantry swept body
+  volumes for exposed crew; `CombatSystem` applies ordinary and one-shot
+  cookoff blast falloff. Mesh transforms and VFX never decide crew survival.
 - `src/simulation/observation/` owns renderer-neutral equipment, command-net,
   relay, and immutable contact helpers. `SpottingSystem` temporarily adapts
   legacy live units into that state without mutating meshes.
@@ -332,7 +340,7 @@ These seams are usable now, before the staged directory migration is complete:
 | Individual infantry state and choices | `SoldierAgent`, `SoldierAI` | Infantry pose renderer, roster HUD |
 | Weapon target acquisition, aim work, tracking, and range estimation | `simulation/combat/FireControl.js` plus per-soldier and per-mount state | `GameApp` target/motion inputs, `CombatSystem` holdover/telemetry, HUD presenters |
 | Infantry target suitability and fire discipline | `simulation/combat/InfantryTargetEligibility.js` plus each `SoldierAgent` weapon | `GameApp` squad candidate prefilter, individual fire control |
-| Vehicle crew, components, mounts, ammo, damage events | `Unit`, `VehicleSystems` | Combat telemetry, damage report |
+| Vehicle crew, bailout, components, mounts, ammo, damage events | `Unit`, `VehicleCrewBailout`, `VehicleSystems` | Ballistics, combat telemetry, crew figures, damage report |
 | Static movement collision and bridge routing | `StaticCollisionWorld`, plain terrain collider records | `Unit`, `SoldierAgent`, terrain height adapter |
 | Building topology, occupancy, damage, collapse, consequences | `simulation/buildings/*` | Building interaction, collision, spotting, ballistics, renderer |
 | Infantry building orders and portal transit | `BuildingInteractionSystem` | Unit movement, combat eligibility, roster HUD |

@@ -311,6 +311,7 @@ export function advanceVehicleFireState({
   const result = {
     phase: damageState.fire.phase,
     secondaryExplosionStarted: false,
+    secondaryExplosionElapsedSeconds: null,
     burnedOut: false
   };
   if (
@@ -403,6 +404,9 @@ export function advanceVehicleFireState({
         dataQuality: VEHICLE_FIRE_MODEL.dataQuality
       });
       result.secondaryExplosionStarted = true;
+      result.secondaryExplosionElapsedSeconds = normalizeFireTime(
+        deltaSeconds - remaining
+      );
       continue;
     }
 

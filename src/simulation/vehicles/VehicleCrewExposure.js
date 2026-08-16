@@ -11,10 +11,18 @@ export const VEHICLE_CREW_EXPOSURE_MODEL =
 export function getUnbuttonedCommander(unit) {
   const record =
     unit?.vehicleSpec?.observationEquipment?.unbuttonedCommander;
-  if (!record || unit?.vehicleCrewPosture !== 'UNBUTTONED') return null;
+  if (
+    !record
+    || unit?.vehicleCrewPosture !== 'UNBUTTONED'
+    || unit?.vehicleCrewBailout?.triggered
+  ) return null;
   return (unit.roster ?? []).find(crewman =>
     crewman.health > 0
     && !['KIA', 'INCAPACITATED', 'DEAD'].includes(crewman.status)
+    && (
+      crewman.vehicleLocation == null
+      || crewman.vehicleLocation.phase === 'MOUNTED'
+    )
     && (
       typeof unit.getEffectiveCrewRole !== 'function'
       || unit.getEffectiveCrewRole(crewman) === record.role

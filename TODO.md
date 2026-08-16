@@ -392,6 +392,26 @@ even when a matching broader parent exists elsewhere in this file.
 - [ ] Add conditional individual vehicle-crew bailout. Crew may remain at a
   viable post; combat-ineffective, burning, routed, or commander-abandoned
   vehicles prompt appropriate hatch egress and survival movement.
+  - [ ] First authoritative visible slice: burning, ammunition-venting,
+    destroyed-with-survivors, or routed vehicles abandon their commands and
+    stagger each living mounted crewman through a simulation-timed egress onto
+    a deterministic static-collision route to nearby cover. Drive lazily
+    allocated full-body figures from rollback-owned world positions; keep
+    waiting crew internal, expose egressing/running crew to the shared swept
+    infantry body volumes and ordinary HE blast falloff, and route the exact
+    one-frame cookoff transition through an authoritative vehicle-scale blast
+    so distance—not bailout state—decides survival. Panzer III consumes its
+    source-registered cupola exit; other vehicles explicitly use a labeled
+    roof-exit approximation until their hatch records are authored. Direct AI
+    acquisition of separated survivors, dynamic-obstacle avoidance, distinct
+    running/casualty LODs, surrender, personal weapons, and remanning remain.
+    Implementation is present; behavioral validation is deferred in `TEST.md`
+    at the user's request.
+  - [ ] Correct 18 measured positive breech/crew OBB overlaps across 14 armored
+    vehicles from each vehicle's authored station evidence; separately conserve
+    residual energy across coincident internal-path intervals instead of charging
+    shared physical distance once per overlapping volume. Do not hide either
+    defect with generic volume shrinking or stable-ID reordering.
 - [x] Ensure catastrophic vehicle explosions (e.g., secondary explosion / turret pop-off) incapacitate or kill all internal crew members, marking the entire crew as casualties instead of leaving living survivors in a destroyed hull.
   - [x] Cookoff completion now also destroys every installed vehicle component,
     empties every weapon feed/store, and launches a deterministic detached
@@ -1013,7 +1033,12 @@ authorized.
   - [ ] Replace the generic exposed-commander volume and fixed headgear meshes with vehicle-specific hatch datums, articulated open hatch geometry, source-calibrated French/German 1940 tanker headgear, and authored per-LOD crew figures.
     - [x] Panzer III/SOMUA standard slice: give the Panzer III Ausf. D a vehicle-owned turret-relative commander station, two-leaf opening cupola hatch retained through core/proxy LOD, and a 1940 black padded Panzer-beret figure; explicitly keep the French-service SOMUA S35 buttoned and replace its fictional top hatch with the original closed cupola roof.
     - [ ] Author source-registered hatch/exposure/headgear records and distinct crew LOD figures for remaining vehicles; replace generic derived volumes only after each represented variant's real opening policy is verified.
-  - [ ] Render every real stable-ID vehicle crewman at an authored station, then add deterministic hatch-owned bailout, dismounted targetable survivors, abandonment, interruption, and deep replay.
+  - [ ] Render every real stable-ID vehicle crewman at an authored station,
+    replace generic bailout exits with vehicle-owned hatch records, and add
+    direct survivor acquisition, surrender/remanning, personal weapons, and
+    authored dismounted LODs. The first visible deterministic egress, swept
+    targetability, cookoff vulnerability, abandonment, cover movement, and deep
+    rollback slice is implemented above.
 - [ ] Add infantry transport embarkation, carried-passenger ownership, capacity, vehicle-relative presentation, casualties, disembarkation, and deep WEGO replay for real transport vehicles.
   - [x] First Laffly/Opel slice: stable squad-to-truck ownership, timed transfer,
     personnel capacity, carried-state simulation lockout, truck-relative hidden

@@ -251,7 +251,7 @@ function deriveUnitProjectileBounds(unit) {
     const halfLength = length * 0.5;
     const halfWidth = width * 0.5;
     const horizontalExtent = Math.hypot(halfLength, halfWidth) + 1;
-    return {
+    const bounds = {
       minX: unit.position.x - horizontalExtent,
       maxX: unit.position.x + horizontalExtent,
       minY: unit.position.y - 1,
@@ -259,6 +259,17 @@ function deriveUnitProjectileBounds(unit) {
       minZ: unit.position.z - horizontalExtent,
       maxZ: unit.position.z + horizontalExtent
     };
+    for (const actor of unit.getDismountedVehicleCrewTargets?.() ?? []) {
+      const position = actor.position;
+      if (!position) continue;
+      bounds.minX = Math.min(bounds.minX, position.x - 2);
+      bounds.maxX = Math.max(bounds.maxX, position.x + 2);
+      bounds.minY = Math.min(bounds.minY, position.y - 0.25);
+      bounds.maxY = Math.max(bounds.maxY, position.y + 2);
+      bounds.minZ = Math.min(bounds.minZ, position.z - 2);
+      bounds.maxZ = Math.max(bounds.maxZ, position.z + 2);
+    }
+    return bounds;
   }
   if (unit?.structureSpec) {
     const radius = Number(unit.structureSpec.hitRadius);
@@ -459,6 +470,29 @@ export class BallisticsSystem {
       }
 
       if (unit.vehicleSpec) {
+        for (const actor of unit.getDismountedVehicleCrewTargets?.() ?? []) {
+          const hit = intersectInfantryHitVolumes(
+            projectile.previousPosition,
+            projectile.position,
+            {
+              position: actor.position,
+              stance: actor.stance,
+              facing: actor.facing
+            }
+          );
+          if (!hit) continue;
+          const point = new THREE.Vector3(...hit.point);
+          consider({
+            kind: 'dismounted_vehicle_crew',
+            unit,
+            agent: actor,
+            distance: point.distanceTo(projectile.previousPosition),
+            point,
+            hitVolumeId: hit.hitVolumeId,
+            hitVolumeModelVersion: hit.modelVersion,
+            hitVolumeDataQuality: hit.dataQuality
+          });
+        }
         const exposedCrewHit = intersectExposedVehicleCrew(
           projectile.previousPosition,
           projectile.position,

@@ -1460,6 +1460,7 @@ export class GameApp {
     ]);
     const dynamicVehicleColliders =
       createDynamicVehicleCollisionRecords(this.units);
+    const vehicleCookoffBlasts = [];
     this.units.forEach(unit => {
       const previousX = unit.position.x;
       const previousZ = unit.position.z;
@@ -1486,7 +1487,13 @@ export class GameApp {
         updateOptions.dynamicVehicleColliders =
           collisionRecordsForVehicle(dynamicVehicleColliders, unit.id);
       }
-      unit.update(delta, this.terrain, updateOptions);
+      const unitStep = unit.update(delta, this.terrain, updateOptions);
+      if (unitStep?.vehicleCookoffBlast) {
+        vehicleCookoffBlasts.push({
+          sourceUnit: unit,
+          event: unitStep.vehicleCookoffBlast
+        });
+      }
       if (
         overlayUnits.has(unit)
         && unit.currentWaypointIndex !== previousWaypointIndex
@@ -1497,6 +1504,12 @@ export class GameApp {
         this.movedUnitIds.add(unit.id);
       }
     });
+    vehicleCookoffBlasts
+      .sort((left, right) => String(left.event.id)
+        .localeCompare(String(right.event.id)))
+      .forEach(({ sourceUnit, event }) => {
+        this.combat.applyVehicleCookoffBlast(sourceUnit, event);
+      });
     this.advanceVehicleTransports(delta);
     if (commandOverlaysDirty) this.commands.renderOverlays();
     this.simulationPhaseProfiler.mark('units');

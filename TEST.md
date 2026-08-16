@@ -1,5 +1,23 @@
 # Deferred Test Work
 
+- [ ] Cover deterministic individual vehicle-crew bailout from fire and routed
+  morale: stable crew order and staggered hatch egress, mounted vulnerability
+  until exit, swept small-arms body hits while exposed, distance-falloff HE and
+  source-vehicle cookoff casualties, collision-safe cover arrival, visible
+  casualties, command abandonment, and exact whole-step/partition/capture/
+  restore parity. A crewman who has begun bailing out must not gain immunity;
+  only actual distance and cover may improve survival. Also cover that bailout
+  disables commander unbuttoning and truck remount controls, does not recreate
+  duplicate commander exposure, and lazily allocates figures only for bailout
+  actors.
+
+- [ ] Add a generic internal-layout overlap audit and energy-conservation
+  regression. Report coincident crew/module OBB volume and shared path-length
+  intervals per vehicle, then prove one physical interval cannot consume
+  residual energy multiple times while retaining stable ordered hit evidence.
+  Vehicle-owned breech/crew datum corrections require source review rather than
+  changing expected hashes to accept the current overlap.
+
 - [ ] Cover destroyed-unit badge projection for both factions: a destroyed
   vehicle, destroyed structure, or infantry unit with no living agents must
   remove its existing floating badge on the next bounded UI update while its
