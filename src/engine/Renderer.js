@@ -1,19 +1,27 @@
 import * as THREE from 'three';
+import { pass, uniform } from 'three/tsl';
+import { dof } from 'three/addons/tsl/display/DepthOfFieldNode.js';
 
 const RENDER_PROFILES = Object.freeze({
   low: Object.freeze({
     maxPixelRatio: 1,
-    shadowMapSize: 0
+    shadowMapSize: 0,
+    shadowHalfExtent: 0
   }),
   high: Object.freeze({
     maxPixelRatio: 1.5,
-    shadowMapSize: 1024
+    shadowMapSize: 1024,
+    shadowHalfExtent: 48
   }),
   ultra: Object.freeze({
     maxPixelRatio: 2,
-    shadowMapSize: 2048
+    shadowMapSize: 2048,
+    shadowHalfExtent: 78
   })
 });
+
+const SCENE_FOG_COLOR = '#586e50';
+const SCENE_FOG_DENSITY = 0.0015;
 
 export function normalizeRenderQualityTier(value) {
   return Object.hasOwn(RENDER_PROFILES, value) ? value : 'high';
@@ -21,6 +29,13 @@ export function normalizeRenderQualityTier(value) {
 
 export function getRenderProfile(qualityTier = 'high') {
   return RENDER_PROFILES[normalizeRenderQualityTier(qualityTier)];
+}
+
+export function resolveDepthOfFieldEnabled({
+  qualityTier = 'high',
+  requested = false
+} = {}) {
+  return requested === true && normalizeRenderQualityTier(qualityTier) !== 'low';
 }
 
 function hasBlendedMaterial(object) {
@@ -64,11 +79,17 @@ export class Renderer {
     this.deviceLost = false;
     this.onDeviceLost = options.onDeviceLost ?? null;
     this.shadowStats = { casters: 0, receivers: 0 };
+    this.enableDepthOfField = options.enableDepthOfField ?? false;
+    this.renderPipeline = null;
+    this.dofNode = null;
+    this.focusDistanceUniform = null;
+    this.focalLengthUniform = null;
+    this.bokehScaleUniform = null;
 
     // 1. Scene setup
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color('#8bb7c9');
-    this.scene.fog = new THREE.FogExp2('#9bbbc2', 0.0022);
+    this.scene.fog = new THREE.FogExp2(SCENE_FOG_COLOR, SCENE_FOG_DENSITY);
 
     // 2. Camera setup
     this.camera = new THREE.PerspectiveCamera(
@@ -147,6 +168,9 @@ export class Renderer {
       : backend?.isWebGLBackend
         ? 'webgl2-fallback'
         : 'unknown';
+    if (this.enableDepthOfField && typeof document !== 'undefined') {
+      this.setupPostProcessing({ focusDistance: 70, focalLength: 50, bokehScale: 3.0 });
+    }
     return this.backendName;
   }
 
@@ -156,34 +180,53 @@ export class Renderer {
 
   setupLighting() {
     // Soft fill preserves readable silhouettes without flattening the scene.
-    const ambient = new THREE.AmbientLight('#e7f0fb', 0.68);
+    const ambient = new THREE.AmbientLight('#e7f0fb', 0.45);
     ambient.name = 'BattlefieldAmbientFill';
     this.scene.add(ambient);
 
-    // Brighter sky/ground fill keeps dark painted armor readable while
-    // preserving directional sunlight and contact shadows.
-    const hemiLight = new THREE.HemisphereLight('#d8edf4', '#667052', 1.28);
+    // Balanced sky/ground fill keeps dark armor readable and prevents overexposed ground.
+    const hemiLight = new THREE.HemisphereLight('#d8edf4', '#556045', 0.95);
     hemiLight.name = 'BattlefieldHemisphereFill';
     hemiLight.position.set(0, 60, 0);
     this.scene.add(hemiLight);
 
     // One bounded directional shadow covers the 240 m scenario map.
-    this.sunLight = new THREE.DirectionalLight('#fff1d6', 2.55);
+    this.sunLight = new THREE.DirectionalLight('#fff3df', 2.0);
     this.sunLight.name = 'BattlefieldSun';
     this.sunLight.position.set(85, 140, 60);
     this.sunLight.castShadow = this.renderProfile.shadowMapSize > 0;
     const shadowSize = Math.max(1, this.renderProfile.shadowMapSize);
+    const shadowHalfExtent = Math.max(1, this.renderProfile.shadowHalfExtent);
     this.sunLight.shadow.mapSize.set(shadowSize, shadowSize);
-    this.sunLight.shadow.camera.left = -145;
-    this.sunLight.shadow.camera.right = 145;
-    this.sunLight.shadow.camera.top = 145;
-    this.sunLight.shadow.camera.bottom = -145;
+    this.sunLight.shadow.camera.left = -shadowHalfExtent;
+    this.sunLight.shadow.camera.right = shadowHalfExtent;
+    this.sunLight.shadow.camera.top = shadowHalfExtent;
+    this.sunLight.shadow.camera.bottom = -shadowHalfExtent;
     this.sunLight.shadow.camera.near = 20;
     this.sunLight.shadow.camera.far = 340;
-    this.sunLight.shadow.bias = -0.00025;
-    this.sunLight.shadow.normalBias = 0.025;
+    this.sunLight.shadow.bias = -0.0001;
+    this.sunLight.shadow.normalBias = 0.075;
     this.scene.add(this.sunLight);
     this.scene.add(this.sunLight.target);
+  }
+
+  updateShadowFocus(target) {
+    if (!this.sunLight?.castShadow || !target) return false;
+    const focusX = Number(target.x);
+    const focusZ = Number(target.z);
+    if (!Number.isFinite(focusX) || !Number.isFinite(focusZ)) return false;
+    const offsetX = 85;
+    const offsetY = 140;
+    const offsetZ = 60;
+    this.sunLight.target.position.set(focusX, 0, focusZ);
+    this.sunLight.position.set(
+      focusX + offsetX,
+      offsetY,
+      focusZ + offsetZ
+    );
+    this.sunLight.target.updateMatrixWorld();
+    this.sunLight.updateMatrixWorld();
+    return true;
   }
 
   configureSceneShadows() {
@@ -214,7 +257,7 @@ export class Renderer {
     }
     this.scene.fog = this.debugMode === 'no-fog'
       ? null
-      : new THREE.FogExp2('#9bbbc2', 0.0022);
+      : new THREE.FogExp2(SCENE_FOG_COLOR, SCENE_FOG_DENSITY);
     this.configureSceneShadows();
   }
 
@@ -236,8 +279,46 @@ export class Renderer {
       shadows: this.sunLight.castShadow,
       shadowMapSize: this.renderProfile.shadowMapSize,
       shadowCasters: this.shadowStats.casters,
-      shadowReceivers: this.shadowStats.receivers
+      shadowReceivers: this.shadowStats.receivers,
+      depthOfField: Boolean(this.renderPipeline)
     };
+  }
+
+  setupPostProcessing({ focusDistance = 60, focalLength = 35, bokehScale = 4.5 } = {}) {
+    try {
+      const scenePass = pass(this.scene, this.camera);
+      const colorNode = scenePass.getTextureNode('output');
+      const viewZNode = scenePass.getViewZNode();
+
+      this.focusDistanceUniform = uniform(focusDistance);
+      this.focalLengthUniform = uniform(focalLength);
+      this.bokehScaleUniform = uniform(bokehScale);
+
+      this.dofNode = dof(
+        colorNode,
+        viewZNode,
+        this.focusDistanceUniform,
+        this.focalLengthUniform,
+        this.bokehScaleUniform
+      );
+
+      const PipelineClass = THREE.RenderPipeline ?? THREE.PostProcessing;
+      if (PipelineClass) {
+        this.renderPipeline = new PipelineClass(this.graphicsRenderer);
+        this.renderPipeline.outputNode = this.dofNode;
+      }
+      return this.renderPipeline;
+    } catch (err) {
+      console.warn('[WARN] Post-processing DoF initialization skipped:', err);
+      this.renderPipeline = null;
+      return null;
+    }
+  }
+
+  setFocusDistance(distance) {
+    if (this.focusDistanceUniform && Number.isFinite(distance)) {
+      this.focusDistanceUniform.value = distance;
+    }
   }
 
   onWindowResize() {
@@ -248,10 +329,17 @@ export class Renderer {
       window.devicePixelRatio,
       this.renderProfile.maxPixelRatio
     ));
+    if (this.renderPipeline?.setSize) {
+      this.renderPipeline.setSize(window.innerWidth, window.innerHeight);
+    }
   }
 
   render() {
     this.graphicsRenderer.info.reset();
-    this.graphicsRenderer.render(this.scene, this.camera);
+    if (this.renderPipeline) {
+      this.renderPipeline.render();
+    } else {
+      this.graphicsRenderer.render(this.scene, this.camera);
+    }
   }
 }

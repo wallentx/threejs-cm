@@ -29,6 +29,11 @@ export const STONNE_1940_SCENARIO = Object.freeze({
   title: 'Battle of Stonne, 1940',
   defaultSeed: 19400516,
   mapId: STONNE_1940_MAP.id,
+  playerFactionId: 'french',
+  enemyFactionId: 'german',
+  enemyAiDifficulty: 'regular',
+  objective: STONNE_1940_MAP.configuredMission.objective,
+  enemyPlanSet: STONNE_1940_MAP.configuredMission.enemyPlanSet,
   communicationNets: Object.freeze([
     Object.freeze({
       id: 'french-stonne',

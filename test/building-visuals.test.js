@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { FR_HOUSE_12X9_2F } from '../src/maps/france/FranceHouse12x9_2F.js';
 import { FR_FARMHOUSE_8X6_1F } from '../src/maps/france/FranceFarmhouse8x6_1F.js';
+import { FR_ATTACHED_NARROW_HOUSE_6_8X8_2_2F } from '../src/maps/france/FranceAttachedStreetBuildings.js';
+import {
+  FRANCE_1940_BUILDING_DESCRIPTORS
+} from '../src/maps/france/FranceBuildingDescriptors.js';
 import { BuildingSystem } from '../src/simulation/buildings/index.js';
 import { TerrainBuilder } from './helpers/France1940TestTerrain.js';
 import { STONNE_1940_MAP } from '../src/maps/france/stonne.js';
@@ -14,14 +18,15 @@ import {
   FRENCH_HOUSE_LOD_DISTANCES
 } from '../src/world/buildings/FrenchHouse.js';
 
-const STRUCTURE_ADAPTERS = Object.freeze({
-  [FR_HOUSE_12X9_2F.id]: createFrenchHouseVisualAdapter(FR_HOUSE_12X9_2F),
-  [FR_FARMHOUSE_8X6_1F.id]:
-    createFrenchHouseVisualAdapter(FR_FARMHOUSE_8X6_1F)
-});
+const STRUCTURE_ADAPTERS = Object.freeze(Object.fromEntries(
+  FRANCE_1940_BUILDING_DESCRIPTORS.map(descriptor => [
+    descriptor.id,
+    createFrenchHouseVisualAdapter(descriptor)
+  ])
+));
 
 function createTerrain(buildingSystem = new BuildingSystem()) {
-  for (const descriptor of [FR_HOUSE_12X9_2F, FR_FARMHOUSE_8X6_1F]) {
+  for (const descriptor of FRANCE_1940_BUILDING_DESCRIPTORS) {
     if (!buildingSystem.descriptors.has(descriptor.id)) {
       buildingSystem.registerDescriptor(descriptor);
     }
@@ -59,6 +64,8 @@ test('French house renderer exposes semantic shell sections, openings, stairs, a
   assert.ok(house.getObjectByName('HouseFrame:upper-window-left-aperture'));
   assert.ok(house.getObjectByName('HouseFrame:ground-rear-window-left-aperture'));
   assert.ok(house.getObjectByName('HouseFrame:upper-rear-window-right-aperture'));
+  assert.ok(house.getObjectByName('HouseFrame:ground-side-left-window-aperture'));
+  assert.ok(house.getObjectByName('HouseFrame:upper-side-right-window-aperture'));
   for (const section of FR_HOUSE_12X9_2F.sections) {
     const group = house.getObjectByName(`BuildingSection:${section.id}`);
     assert.ok(group, `missing semantic visual group for ${section.id}`);
@@ -71,6 +78,31 @@ test('French house renderer exposes semantic shell sections, openings, stairs, a
   assert.ok(tierBounds.every(bounds => JSON.stringify(bounds) === JSON.stringify(tierBounds[0])),
     'all LOD tiers retain the same exterior footprint and roof height');
   const roofReference = house.userData.lodTiers[0].roof;
+  assert.equal(house.getObjectByName('HouseChimney'), undefined);
+  assert.equal(house.getObjectByName('HouseCornerQuoins'), undefined);
+  house.traverse(object => {
+    if (!object.isMesh || !object.material?.userData?.houseVisualMaterial) return;
+    assert.equal(
+      object.material.shadowSide,
+      THREE.FrontSide,
+      `${object.name} casts its authored outward face into the shadow map`
+    );
+  });
+  for (const tier of house.userData.lodTiers) {
+    assert.equal(tier.roof.castShadow, true, `${tier.lod} roof still casts onto the scene`);
+    assert.equal(tier.roof.receiveShadow, false, `${tier.lod} roof avoids shadow-map banding`);
+    for (const section of FR_HOUSE_12X9_2F.sections.filter(entry => entry.kind === 'wall')) {
+      for (const part of section.colliderParts) {
+        const name = tier.lod === 'high'
+          ? `SectionPart:${section.id}:${part.id}`
+          : `SectionPart:${tier.lod}:${section.id}:${part.id}`;
+        const wall = tier.group.getObjectByName(name);
+        assert.ok(wall, `${tier.lod} retains wall shadow caster ${part.id}`);
+        assert.equal(wall.castShadow, true, `${name} still casts onto the scene`);
+        assert.equal(wall.receiveShadow, false, `${name} avoids facade shadow-map banding`);
+      }
+    }
+  }
   for (const tier of house.userData.lodTiers.slice(1)) {
     assert.deepEqual(tier.roof.position.toArray(), roofReference.position.toArray(),
       `${tier.lod} uses the same roof eaves and ridge origin`);
@@ -94,6 +126,236 @@ test('French house renderer exposes semantic shell sections, openings, stairs, a
       );
     }
   }
+  disposeFrenchHouseVisual(house);
+});
+
+test('commercial facades are explicit and do not leak onto ordinary houses', () => {
+  const ordinaryHouse = createFrenchHouseVisual({
+    descriptor: FR_HOUSE_12X9_2F,
+    centerX: 0,
+    centerZ: 0,
+    foundationTopY: 0,
+    getHeightAt: () => 0,
+    styleId: 'village-buff'
+  });
+  assert.equal(
+    ordinaryHouse.getObjectByProperty('userData.facadeId', 'commercial-red-fascia'),
+    undefined
+  );
+  assert.equal(
+    ordinaryHouse.userData.lodTiers.some(tier => (
+      tier.group.getObjectByName(`HouseStorefrontSign:${tier.lod}`)
+    )),
+    false
+  );
+
+  const cafe = createFrenchHouseVisual({
+    descriptor: FR_HOUSE_12X9_2F,
+    centerX: 0,
+    centerZ: 0,
+    foundationTopY: 0,
+    getHeightAt: () => 0,
+    styleId: 'village-buff',
+    facadeId: 'commercial-red-fascia'
+  });
+  assert.equal(cafe.userData.facadeId, 'commercial-red-fascia');
+  for (const tier of cafe.userData.lodTiers) {
+    const facade = tier.group.getObjectByName(`HouseStorefrontSign:${tier.lod}`);
+    assert.ok(facade, `${tier.lod} retains the authored commercial facade`);
+    assert.equal(facade.userData.facadeId, 'commercial-red-fascia');
+  }
+
+  const plasterTexture = ordinaryHouse.userData.ownedSurfaceTextures.find(texture => (
+    texture.name.endsWith(':wall')
+  ));
+  assert.equal(plasterTexture.userData.wallPattern, 'seamless-weathered-plaster');
+  assert.equal(plasterTexture.userData.metersPerTile, 6.4);
+  const plasterValues = [];
+  for (let offset = 0; offset < plasterTexture.image.data.length; offset += 4) {
+    plasterValues.push(plasterTexture.image.data[offset]);
+  }
+  assert.ok(
+    Math.max(...plasterValues) - Math.min(...plasterValues) <= 16,
+    'weathered plaster remains subtle instead of producing dark repeating clouds'
+  );
+
+  const timberHouse = createFrenchHouseVisual({
+    descriptor: FR_FARMHOUSE_8X6_1F,
+    centerX: 0,
+    centerZ: 0,
+    foundationTopY: 0,
+    getHeightAt: () => 0,
+    styleId: 'rustic-barn-timber'
+  });
+  const timberTexture = timberHouse.userData.ownedSurfaceTextures.find(texture => (
+    texture.name.endsWith(':wall')
+  ));
+  assert.equal(timberTexture.userData.wallPattern, 'vertical-timber-boards');
+  assert.equal(timberTexture.userData.metersPerTile, 2.4);
+  const columnAverage = x => {
+    let total = 0;
+    for (let y = 0; y < 64; y++) total += timberTexture.image.data[(y * 64 + x) * 4];
+    return total / 64;
+  };
+  assert.ok(
+    columnAverage(0) + 25 < columnAverage(4),
+    'timber texture has distinct vertical board joints rather than a square lattice'
+  );
+
+  disposeFrenchHouseVisual(ordinaryHouse);
+  disposeFrenchHouseVisual(cafe);
+  disposeFrenchHouseVisual(timberHouse);
+});
+
+test('Aisne village styles retain hipped roofs and stone plinths at every LOD', () => {
+  const house = createFrenchHouseVisual({
+    descriptor: FR_HOUSE_12X9_2F,
+    centerX: 0,
+    centerZ: 0,
+    foundationTopY: 0,
+    getHeightAt: () => 0,
+    styleId: 'aisne-limestone',
+    facadeId: 'commercial-pharmacy-green',
+    roofStyleId: 'hipped'
+  });
+
+  assert.equal(house.userData.roofStyleId, 'hipped');
+  for (const tier of house.userData.lodTiers) {
+    assert.equal(tier.roof.name, tier.lod === 'high'
+      ? 'HouseHippedRoof'
+      : 'HouseCheapRoof');
+    assert.ok(
+      tier.group.children.some(section => section.children.some(piece => (
+        piece.name.startsWith(`HouseStonePlinth:${tier.lod}:rear-`)
+      ))),
+      `${tier.lod} retains the source-inspired stone base course`
+    );
+    assert.ok(
+      tier.group.getObjectByName(`HouseStorefrontSign:${tier.lod}`),
+      `${tier.lod} retains the pharmacy frontage`
+    );
+    const positions = tier.roof.geometry.getAttribute('position');
+    for (let index = 0; index < positions.count; index += 3) {
+      const a = new THREE.Vector3().fromBufferAttribute(positions, index);
+      const b = new THREE.Vector3().fromBufferAttribute(positions, index + 1);
+      const c = new THREE.Vector3().fromBufferAttribute(positions, index + 2);
+      assert.ok(
+        b.sub(a).cross(c.sub(a)).lengthSq() > 1e-8,
+        `${tier.lod} hipped roof has no degenerate triangles`
+      );
+    }
+  }
+
+  disposeFrenchHouseVisual(house);
+});
+
+test('attached-house plinths clear doors and coplanar wall pieces share facade UVs', () => {
+  const attached = createFrenchHouseVisual({
+    descriptor: FR_ATTACHED_NARROW_HOUSE_6_8X8_2_2F,
+    centerX: 0,
+    centerZ: 0,
+    foundationTopY: 0,
+    getHeightAt: () => 0,
+    styleId: 'aisne-limestone'
+  });
+  const frontDoor = FR_ATTACHED_NARROW_HOUSE_6_8X8_2_2F.portals.find(portal => (
+    portal.kind === 'door' && portal.localNormal?.[2] > 0
+  )).aperture;
+  const doorMin = frontDoor.center[0] - frontDoor.size[0] * 0.5;
+  const doorMax = frontDoor.center[0] + frontDoor.size[0] * 0.5;
+  const frontWindow = FR_ATTACHED_NARROW_HOUSE_6_8X8_2_2F.firePorts.find(port => (
+    port.sectionId === 'ground-shell' && port.localNormal?.[2] > 0
+  ));
+  for (const tier of attached.userData.lodTiers) {
+    tier.group.traverse(object => {
+      if (!object.name.startsWith(`HouseStonePlinth:${tier.lod}:front-`)) return;
+      const halfWidth = object.geometry.parameters.width * 0.5;
+      const pieceMin = object.position.x - halfWidth;
+      const pieceMax = object.position.x + halfWidth;
+      assert.ok(
+        pieceMax <= doorMin + 1e-6 || pieceMin >= doorMax - 1e-6,
+        `${tier.lod} plinth does not cover the front door aperture`
+      );
+    });
+    const windowPanel = tier.group.getObjectByName(tier.lod === 'high'
+      ? `HouseWindowOccluder:${frontWindow.aperture.id}`
+      : `HouseCheapOpening:${tier.lod}:${frontWindow.aperture.id}`);
+    assert.equal(
+      windowPanel.geometry.parameters.width,
+      frontWindow.aperture.size[0],
+      `${tier.lod} window card spans the full aperture width`
+    );
+    assert.equal(
+      windowPanel.geometry.parameters.height,
+      frontWindow.aperture.size[1],
+      `${tier.lod} window card reaches both sill and lintel`
+    );
+  }
+  const windowTexture = attached.userData.ownedSurfaceTextures.find(texture => (
+    texture.name.endsWith(':window')
+  ));
+  assert.deepEqual(windowTexture.repeat.toArray(), [1, 1]);
+  const windowPixel = (x, y) => windowTexture.image.data[(y * 64 + x) * 4];
+  assert.equal(windowPixel(31, 10), 220);
+  assert.equal(windowPixel(32, 10), 220);
+  assert.ok(windowPixel(30, 10) < 180 && windowPixel(33, 10) < 180,
+    'the two-pixel mullion is centered without a repeated or cropped copy');
+  disposeFrenchHouseVisual(attached);
+
+  const house = createFrenchHouseVisual({
+    descriptor: FR_HOUSE_12X9_2F,
+    centerX: 0,
+    centerZ: 0,
+    foundationTopY: 0,
+    getHeightAt: () => 0,
+    styleId: 'aisne-limestone'
+  });
+  const tier = house.userData.lodTiers[0];
+  const uvAt = (name, x, y) => {
+    const mesh = tier.group.getObjectByName(name);
+    const positions = mesh.geometry.getAttribute('position');
+    const normals = mesh.geometry.getAttribute('normal');
+    const uvs = mesh.geometry.getAttribute('uv');
+    for (let index = 0; index < positions.count; index++) {
+      const vertexX = positions.getX(index) + mesh.position.x;
+      const vertexY = positions.getY(index) + mesh.position.y;
+      if (
+        normals.getZ(index) > 0.5
+        && Math.abs(vertexX - x) < 1e-5
+        && Math.abs(vertexY - y) < 1e-5
+      ) {
+        return [Number(uvs.getX(index).toFixed(6)), Number(uvs.getY(index).toFixed(6))];
+      }
+    }
+    assert.fail(`missing shared facade vertex on ${name}`);
+  };
+  assert.deepEqual(
+    uvAt('SectionPart:ground-shell:ground-left-end', -4.2, 0),
+    uvAt('SectionPart:ground-shell:ground-left-window-apron', -4.2, 0),
+    'horizontal facade segments continue one texture across their shared edge'
+  );
+  assert.deepEqual(
+    uvAt('SectionPart:ground-shell:ground-left-end', -4.2, 3.1),
+    uvAt('SectionPart:upper-shell:upper-left-end', -4.2, 3.1),
+    'stacked floors continue one texture across their shared edge'
+  );
+  const masonryPiece = tier.group.getObjectByName(
+    'SectionPart:ground-shell:ground-left-end'
+  );
+  const positions = masonryPiece.geometry.getAttribute('position');
+  const normals = masonryPiece.geometry.getAttribute('normal');
+  const uvs = masonryPiece.geometry.getAttribute('uv');
+  const frontUs = [];
+  for (let index = 0; index < positions.count; index++) {
+    if (normals.getZ(index) > 0.5) frontUs.push(uvs.getX(index));
+  }
+  const uvSpan = Math.max(...frontUs) - Math.min(...frontUs);
+  assert.equal(
+    Number(uvSpan.toFixed(6)),
+    Number((masonryPiece.geometry.parameters.width
+      / masonryPiece.geometry.userData.facadeUvSpace.metersPerTile).toFixed(6)),
+    'masonry texture scale is metre-driven instead of stretching one tile across a building'
+  );
   disposeFrenchHouseVisual(house);
 });
 
@@ -164,16 +426,26 @@ test('runtime occupancy stays opaque until an explicit interior projection activ
   });
   assert.equal(house.userData.interiorPresence, 0);
   assert.equal(house.userData.interiorFadeActive, false);
+  const windowOccluders = [];
+  house.traverse(object => {
+    if (object.userData?.semantic === 'window-occluder') {
+      windowOccluders.push(object);
+    }
+  });
+  assert.ok(windowOccluders.length >= FR_HOUSE_12X9_2F.firePorts.length * 4);
+  assert.ok(windowOccluders.every(object => object.visible));
 
   applyFrenchHouseVisualState(house, FR_HOUSE_12X9_2F, runtime, {
     interiorPresence: 1
   });
   assert.equal(house.userData.interiorPresence, 1);
   assert.equal(house.userData.interiorFadeActive, true);
+  assert.ok(windowOccluders.every(object => object.visible === false));
 
   applyFrenchHouseVisualState(house, FR_HOUSE_12X9_2F, runtime);
   assert.equal(house.userData.interiorPresence, 0);
   assert.equal(house.userData.interiorFadeActive, false);
+  assert.ok(windowOccluders.every(object => object.visible));
   disposeFrenchHouseVisual(house);
 });
 
@@ -250,7 +522,7 @@ test('explicit interior projection fades and restores the active high, medium, c
   disposeFrenchHouseVisual(house);
 });
 
-test('door leaves hide when open and appear when closed at every LOD', () => {
+test('front and rear brown timber door leaves remain hinged and visible at every LOD', () => {
   const buildings = new BuildingSystem();
   buildings.registerDescriptor(FR_HOUSE_12X9_2F);
   buildings.addBuilding({
@@ -266,22 +538,28 @@ test('door leaves hide when open and appear when closed at every LOD', () => {
     foundationTopY: 0,
     getHeightAt: () => 0
   });
-  const doorLeaves = [
-    house.getObjectByName('HouseOpening:front-door-aperture'),
+  const doorLeaves = ['front-door-aperture', 'rear-door-aperture'].flatMap(openingId => [
+    house.getObjectByName(`HouseOpening:${openingId}`),
     ...['medium', 'core', 'proxy'].map(level =>
-      house.getObjectByName(`HouseCheapOpening:${level}:front-door-aperture`)
+      house.getObjectByName(`HouseCheapOpening:${level}:${openingId}`)
     )
-  ];
+  ]);
   assert.ok(doorLeaves.every(Boolean));
-  assert.ok(doorLeaves.every(leaf => leaf.visible === false));
+  assert.ok(doorLeaves.every(leaf => leaf.visible === true));
+  assert.ok(doorLeaves.every(leaf => leaf.material.color.getHexString() === '4a3220'));
+  const hinges = doorLeaves.map(leaf => leaf.parent);
+  assert.ok(hinges.every(hinge => hinge.userData.semantic === 'door-hinge'));
+  assert.ok(hinges.every(hinge => hinge.rotation.y === 0));
 
-  buildings.setOpening('house-door', 'front-door-aperture', false);
+  buildings.setOpening('house-door', 'front-door-aperture', true);
+  buildings.setOpening('house-door', 'rear-door-aperture', true);
   applyFrenchHouseVisualState(
     house,
     FR_HOUSE_12X9_2F,
     buildings.getBuildingSnapshot('house-door')
   );
   assert.ok(doorLeaves.every(leaf => leaf.visible === true));
+  assert.ok(hinges.every(hinge => Math.abs(hinge.rotation.y) === Math.PI * 0.5));
   disposeFrenchHouseVisual(house);
 });
 
@@ -293,16 +571,36 @@ test('terrain publishes segmented movement shell; windows and doors require buil
   assert.ok(records.every(record => record.sectionId === 'ground-shell' || record.sectionId === 'upper-shell'));
   assert.equal(terrain.collisionWorld.getCollider('building:french_village_house'), null);
   assert.ok(!records.some(record => record.halfX === 6 && record.halfZ === 4.5), 'no solid footprint blocker');
-  assert.ok(records.some(record => record.id.endsWith(':ground-door')), 'door remains a movement blocker');
-  assert.ok(records.some(record => record.id.endsWith(':ground-left-window')), 'window remains a movement blocker');
+  assert.ok(
+    records.some(record => record.movementPolicy === 'portal_transit_required'),
+    'door remains a movement blocker'
+  );
+  assert.ok(
+    records.some(record => record.movementPolicy === 'fire_port_blocks_movement'),
+    'window remains a movement blocker'
+  );
 
+  const doorRecord = records.find(
+    record => record.movementPolicy === 'portal_transit_required'
+  );
+  const windowRecord = records.find(
+    record => record.movementPolicy === 'fire_port_blocks_movement'
+  );
+  const rotDoor = doorRecord.rotation ?? 0;
   const throughDoor = terrain.collisionWorld.resolveCircleMotion(
-    { x: 45, z: 69 }, { x: 0, z: -8 }, 0.25, { moverType: 'infantry' }
+    { x: doorRecord.centerX - Math.sin(rotDoor) * 3, z: doorRecord.centerZ - Math.cos(rotDoor) * 3 },
+    { x: Math.sin(rotDoor) * 6, z: Math.cos(rotDoor) * 6 },
+    0.25,
+    { moverType: 'infantry' }
   );
   assert.equal(throughDoor.blocked, true, 'ordinary infantry cannot bypass portal transit through the door');
 
+  const rotWin = windowRecord.rotation ?? 0;
   const throughWindow = terrain.collisionWorld.resolveCircleMotion(
-    { x: 41.8, z: 69 }, { x: 0, z: -8 }, 0.25, { moverType: 'infantry' }
+    { x: windowRecord.centerX - Math.sin(rotWin) * 3, z: windowRecord.centerZ - Math.cos(rotWin) * 3 },
+    { x: Math.sin(rotWin) * 6, z: Math.cos(rotWin) * 6 },
+    0.25,
+    { moverType: 'infantry' }
   );
   assert.equal(throughWindow.blocked, true, 'windows remain movement blockers despite projectile/LOS apertures');
 });
@@ -315,18 +613,26 @@ test('runtime building movement shell cannot bypass open door or window aperture
 
   const movementRecords = terrain.colliderRecords
     .filter(record => record.buildingId === 'french_village_house');
-  assert.equal(
-    movementRecords.find(record => record.partId === 'ground-door')?.movementPolicy,
-    'portal_transit_required'
-  );
-  assert.equal(
-    movementRecords.find(record => record.partId === 'ground-left-window')?.movementPolicy,
-    'fire_port_blocks_movement'
-  );
+  assert.ok(movementRecords.some(
+    record => record.movementPolicy === 'portal_transit_required'
+  ));
+  assert.ok(movementRecords.some(
+    record => record.movementPolicy === 'fire_port_blocks_movement'
+  ));
 
-  for (const start of [{ x: 45, z: 69 }, { x: 41.8, z: 69 }]) {
+  const doorRecord = movementRecords.find(
+    record => record.movementPolicy === 'portal_transit_required'
+  );
+  const windowRecord = movementRecords.find(
+    record => record.movementPolicy === 'fire_port_blocks_movement'
+  );
+  for (const record of [doorRecord, windowRecord]) {
+    const rot = record.rotation ?? 0;
     const result = terrain.collisionWorld.resolveCircleMotion(
-      start, { x: 0, z: -8 }, 0.25, { moverType: 'infantry' }
+      { x: record.centerX - Math.sin(rot) * 3, z: record.centerZ - Math.cos(rot) * 3 },
+      { x: Math.sin(rot) * 6, z: Math.cos(rot) * 6 },
+      0.25,
+      { moverType: 'infantry' }
     );
     assert.equal(result.blocked, true);
   }
@@ -353,7 +659,7 @@ test('building damage changes authored geometry at every LOD and collapse reveal
 
   buildings.applyProjectileDamage('house-damage', {
     sectionId: 'ground-shell',
-    colliderPartId: 'ground-back',
+    colliderPartId: 'ground-rear-left-inner',
     amount: 650,
     penetrationMm: 400
   });
@@ -368,7 +674,7 @@ test('building damage changes authored geometry at every LOD and collapse reveal
       `${tier.lod} independently receives section damage state`);
   }
   assert.equal(
-    house.getObjectByName('SectionPart:ground-shell:ground-back').visible,
+    house.getObjectByName('SectionPart:ground-shell:ground-rear-left-inner').visible,
     false,
     'the authoritative breach removes its exact detailed wall part'
   );
@@ -464,20 +770,33 @@ test('restoring an intact building state rehydrates all authored visual parts af
   });
 
   buildings.applyProjectileDamage('house-rollback', {
-    sectionId: 'ground-shell', colliderPartId: 'ground-back', amount: 650, penetrationMm: 400
+    sectionId: 'ground-shell',
+    colliderPartId: 'ground-rear-left-inner',
+    amount: 650,
+    penetrationMm: 400
   });
   applyFrenchHouseVisualState(house, FR_HOUSE_12X9_2F, buildings.getBuildingSnapshot('house-rollback'));
-  assert.equal(house.getObjectByName('SectionPart:ground-shell:ground-back').visible, false);
+  assert.equal(
+    house.getObjectByName('SectionPart:ground-shell:ground-rear-left-inner').visible,
+    false
+  );
 
   buildings.restoreState(intact);
-  applyFrenchHouseVisualState(house, FR_HOUSE_12X9_2F, buildings.getBuildingSnapshot('house-rollback'));
+  const restored = buildings.getBuildingSnapshot('house-rollback');
+  applyFrenchHouseVisualState(house, FR_HOUSE_12X9_2F, restored);
   for (const section of FR_HOUSE_12X9_2F.sections) {
     const group = house.getObjectByName(`BuildingSection:${section.id}`);
     assert.equal(group.visible, true, `${section.id} group restores`);
     for (const part of section.colliderParts) {
       if (section.kind === 'roof') continue;
       const piece = house.getObjectByName(`SectionPart:${section.id}:${part.id}`);
-      assert.equal(piece.visible, !part.openingId, `${section.id}:${part.id} restores authored baseline`);
+      const opening = part.openingId ? restored.openings[part.openingId] : null;
+      const isDoor = FR_HOUSE_12X9_2F.portals.some(portal => (
+        portal.kind === 'door' && portal.aperture?.id === part.openingId
+      ));
+      const expectedVisible = !part.openingId
+        || (!isDoor && !(opening?.open || opening?.breached || opening?.enabled === false));
+      assert.equal(piece.visible, expectedVisible, `${section.id}:${part.id} restores authored baseline`);
     }
   }
   assert.equal(house.getObjectByName('HouseGabledRoof').visible, true);
@@ -560,12 +879,13 @@ test('terrain runtime sync replaces only house movement colliders and LOS obstac
   });
   terrain.buildStructures();
   const buildingId = 'french_village_house';
-  const breachedColliderId = `${buildingId}:ground-shell:ground-back`;
+  const breachedPartId = 'ground-floor-rear-pier-0';
+  const breachedColliderId = `${buildingId}:ground-shell:${breachedPartId}`;
   assert.ok(terrain.collisionWorld.getCollider(breachedColliderId));
 
   buildings.applyProjectileDamage(buildingId, {
     sectionId: 'ground-shell',
-    colliderPartId: 'ground-back',
+    colliderPartId: breachedPartId,
     amount: 650,
     penetrationMm: 400
   });

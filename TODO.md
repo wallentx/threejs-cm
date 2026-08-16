@@ -83,19 +83,8 @@ even when a matching broader parent exists elsewhere in this file.
     materials, and a bounded five-spray terminal-branch canopy shared by every
     instance; retain depth writing, disposal ownership, and WebGL2/WebGPU
     material compatibility.
-- [ ] Add bounded terrain-following grass, weeds, and sparse flowers using the
-  installed EZ-Tree demo assets as optional source art rather than treating its
-  app-only `Grass` class as a production API.
-  - [ ] Implement seeded clump placement and rooted wind with TSL/node materials
-    compatible with the production WebGPU renderer and direct WebGL2 fallback;
-    do not copy the demo's `Math.random()`, `MeshPhongMaterial`, or
-    `onBeforeCompile` path.
-  - [ ] Conform blade roots to authoritative terrain height, exclude roads,
-    buildings, rivers, and authored bare-ground areas, and provide distance
-    density reduction plus a bounded low/mobile tier.
-  - [ ] Keep grass presentation-only with explicit resource disposal; do not let
-    decorative blades or flowers become collision, movement, cover, or LOS
-    authority.
+- ~~Add procedural terrain grass.~~ Removed after the first live map pass was
+  visually rejected; no grass renderer, map data, or simulation authority remains.
 - [ ] Replace the weak smoking-engine presentation with a bounded,
   state-driven WebGPU/TSL effect that distinguishes damage severity without
   becoming simulation authority; upgrade catastrophic tank fire and smoke effects to be punchy and responsive during turret-off explosions.
@@ -197,6 +186,20 @@ even when a matching broader parent exists elsewhere in this file.
   preferably cheap continuation terrain/vegetation and atmospheric blending
   beyond playable bounds, with no collision or simulation authority outside
   the map.
+  - [ ] First France 1940 presentation slice: add non-authoritative continuation
+    terrain, a fading boundary ribbon, and a matching atmospheric panorama;
+    scale the panorama from low through explicit ultra quality, release its
+    owned resources, and keep the translucent skirt behind battlefield smoke
+    and fire without contributing scene depth.
+    - [x] Source fix: give the skirt and boundary ribbon smooth transparent
+      fading, depth testing, no depth writes, and an explicit negative render
+      order; render the sky dome first so the visible stack is sky, OOB terrain,
+      battlefield geometry, then transparent VFX.
+    - [x] Split playable river water from two presentation-only OOB continuation
+      strips that share the land skirt's 160-550 m smooth fade and render above
+      OOB land but behind battlefield geometry and VFX.
+    - [ ] Live-accept OOB/VFX ordering. Distant continuation vegetation and
+      family-specific variants remain.
 
 ### All-vehicle geometry integrity audit
 
@@ -302,8 +305,21 @@ even when a matching broader parent exists elsewhere in this file.
 - [ ] Add scenario objectives as plain map/scenario data with deterministic
   scoring and victory state: hold a zone for time, destroy the enemy, capture a
   house or zone, capture all zones, hold a bridge crossing, or cross a bridge.
+  - [x] First Bridge breakthrough slice: give German mobile combat-effective
+    units victory for reaching the south road exit, give France victory for
+    eliminating every German combat-effective unit or holding for 15
+    simulation minutes, expose the mission clock/result in the top bar, and
+    preserve exact objective state through WEGO capture, restore, and replay.
 - [ ] Give enemy AI a deterministic setup plan and ongoing objective-aware
   movement, positioning, fire, defense, withdrawal, and victory behavior.
+  - [x] First Bridge attacker slice: choose one of three seed-driven German
+    combined-arms plans from a fresh recorded launch seed, assign stable setup
+    positions and coordinated center,
+    west, or east routes, scale start delays and replanning cadence by selected
+    difficulty, use the existing movement/combat authority, and capture/restore
+    the selected plan and assignments. Cover selection, building assault,
+    transport loading, mortar missions, reserve commitment, withdrawal, and a
+    defending-AI planner remain.
 - [ ] Add morale routing: sufficiently broken enemy or friendly units flee
   without accepting player commands until their individual/unit state recovers.
 - [ ] Add conditional individual vehicle-crew bailout. Crew may remain at a
@@ -351,6 +367,10 @@ even when a matching broader parent exists elsewhere in this file.
       the locked side silhouette at 92.60% IoU.
 - [ ] Add tactically meaningful authored cover, positions, terrain detail, and
   objective context to the enemy side of the Bridge map.
+  - [x] Add the south-road breakthrough exit context, two parallel village
+    lanes and a rear cross-lane, five additional enterable homes/outbuildings,
+    and four lateral sandbag/log positions so French defense can trade depth
+    and stage ambushes beyond the bridge chokepoint.
 - [ ] Add rifle grenades, including the French Tromblon VB ownership, loading,
   ammunition, firing, projectile, blast, animation, and AI-use slice.
 - [ ] Author a detailed, correctly handed Mousqueton Mle 1892 M16 8 mm model
@@ -687,9 +707,48 @@ authorized.
     - [x] Instance only the far-proxy presentation per squad while retaining every individual soldier hierarchy and renderer source; exact-force proxy drawables fell from 1,178 to 242 (-79.5%) with high/medium/core output and zero proxy-shadow policy unchanged.
     - [x] Limit medium/core shadow ownership to existing identity-defining silhouette meshes while preserving all visible geometry and high/proxy policies; exact-force configured casters fell from 13,102 to 4,534 (-65.4%).
     - [ ] Capture a valid post-change native-WebGPU frame distribution and near/design shadow-silhouette comparison; renderer counters and ready/backend state are recorded, but the available `requestAnimationFrame` sample did not produce valid timing evidence.
+  - [ ] Restore playable realtime performance for the current high-unit bridge
+    battle; the user currently reports 18-20 FPS paused at roughly 2.6k draws
+    and 585.9k triangles, falling to single digits after realtime starts.
+    - [x] First exact-output CPU slice: reject infantry separation pairs by
+      axis distance before `Math.hypot` in both convergence and telemetry scans,
+      and reject horizontally out-of-range infantry fire candidates before
+      full building/terrain LOS. Current-scene before/after measurement remains.
+    - [x] Add opt-in rolling fixed-step phase timing to the existing FPS panel
+      for unit updates, separation, buildings, spotting, targeting, remaining
+      systems, total step cost, and fixed steps executed per rendered frame;
+      wall-clock samples remain presentation-only and uncaptured.
+    - [x] Desktop default-force runtime slice: add a reusable CDP profiler with
+      fresh-battle and forced-clear-contact modes; spatially prefilter exact
+      static collision, terrain-pad, and nearby-cover queries; validate an
+      unchanged terrain snapshot only when its revision changes; cache
+      building projectile colliders by a non-authoritative collision revision;
+      retain a valid individual target before rescanning every opponent; and
+      focus the high-tier 1024 shadow map on a 96 m camera-target region. On
+      native WebGPU at 1036x1030, ordinary realtime improved from 12.14 to
+      19.47 FPS. The forced-contact scene with all eight enemy units directly
+      observed improved from 5.42 to 19.62 FPS, reduced fixed-step cost from
+      46.01 to 11.75 ms, and reduced current draws from 2,110 to 1,213 while
+      retaining directional shadows. The 56-unit / 252-soldier stress profile,
+      mobile, and WebGL2 remain incomplete.
   - [ ] Determine whether the five textures reported as potentially orphaned after repeated battle reloads are retained leaks or DevTools false positives; prove bounded renderer memory across repeated setup -> battle -> setup cycles.
   - [x] Validate battle setup against expanded individual rosters before launch: cap accepted formations so living infantry never exceeds the deterministic 256-candidate separation limit; accept exact 256, reject candidate 257 through one required composition-injected validation port before scenario construction, and report the crossing side/faction/formation contribution.
   - [ ] Reduce vehicle submission overhead without breaking articulation or damage ownership; the 15 factories currently contain 1,485 mesh objects and can expose 1,313 visible high-tier meshes before the shadow pass.
+  - [ ] Add measured camera-occlusion culling for meshes hidden behind opaque
+    terrain and structures without GPU-derived simulation feedback or visible
+    popping.
+    - [x] First building slice: use two-triangle outward-only wall geometry,
+      retain only the exterior-visible eave soffit ring, omit the hidden roof
+      underside, place window casing on the exterior wall face without default
+      floating shutter wings, extend only perimeter wall endpoints to seal the
+      shared exterior corner envelope, align door leaves against their exterior
+      casing, seal cheap-LOD window apertures with near-surface overlapping
+      cards, replace box plinths with miter-joined exterior-and-top open shells
+      that contain no inner or bottom faces, cull material back faces, and disable every
+      floor-slab and stair mesh at high/medium/core/proxy LOD unless that
+      building contains a selected occupying unit or breach/collapse damage
+      exposes its interior; retain renderer-neutral floors, portals, collision,
+      LOS, damage, occupancy, and rollback state.
   - [ ] Batch static terrain presentation where identity permits.
     - [x] Add a terrain-conforming, alpha-tested, non-blended fence-card profile with aligned front, back, top, and end faces; use it for the five scenario-authored farmhouse enclosure runs; retain authoritative oriented movement collision without making the cutout fence an opaque LOS blocker; preserve the village masonry profile; and reduce those boundaries from 51 submitted masonry meshes to 25 masonry plus 5 fence-card meshes.
     - [x] Give each fence panel independent health, collision, collapsed presentation, deterministic capture/restore, vehicle mass/speed/momentum crushing, and radius-falloff explosive damage while retaining one submitted mesh per authored run.
@@ -908,6 +967,9 @@ authorized.
   - [x] Keep authored footprint, facade openings, floor line, roof profile, damage state, and visual identity consistent across all building LOD tiers.
   - [x] Route occupied-infantry FACE orders through authoritative window ownership: retain and replay the requested directional bias, fill all unreserved same-floor firing positions in that arc before overflow positions, place a binocular-equipped observer first, temporarily shift toward a live target already tracked by an occupant, and return to the requested bias when tracking ends.
   - [x] Restore MOVE-click floor selection, individual-occupancy exit controls, and consistent open/closed door-leaf state across every LOD.
+  - [x] Start authored exterior doors closed, render brown timber hinged leaves
+    at high/medium/core/proxy LODs, and have individual entry/exit door transit
+    open and then close the authoritative rollback-owned aperture state.
   - [x] Enforce authored ENTER target capacity: assign only real valid requested-floor slots, exclude occupied, reserved, and rollback-owned pending claims, preserve deterministic partial acceptance and lifecycle release, and replay pending transit without a new side registry.
   - [x] Replace authored slots as a floor-capacity limit: every living member of an ordered unit can occupy the requested reachable floor under a finite physical policy; window/fire-port positions remain individually reserved, and remaining occupants receive deterministic visible support positions with collision-backed individual approach, exit/casualty cleanup, collapse invalidation, and deep capture/restore.
     - [x] Packet 11 accepted: derive support positions from a labeled floor lattice; partition multi-room positions stably; route six live soldiers through two collision-backed doors without teleporting; reject late/restored invalid claims; protect reservations during collapse relocation; retain deterministic cleanup and replay. Exact room polygons and arbitrary multi-hop interior routing remain part of broader building generalization.
@@ -915,6 +977,49 @@ authorized.
   - [x] Deterministically select the shortest valid exterior-door route and persist that stable portal through entry, stairs, exit, ejection, capture, restore, and replay.
   - [x] Add paired rear-facade firing windows to both floors of the large house; bind them to the existing rear individual slots, preserve projectile/LOS apertures and movement blockers, and render their openings across every LOD.
   - [x] Preserve authoritative per-soldier stair-transit and occupied-floor height through pose resets so movement upstairs remains visibly continuous.
+  - [ ] Refit the France village building family and Bridge-map settlement from
+    the supplied 1940 campaign photographs: narrow plaster/limestone street
+    fronts, muted slate/tile roof variety, attached or closely spaced blocks,
+    road-facing doors and shops, rear courts, outbuildings, and irregular
+    rooflines. Keep every occupied volume enterable and collision-backed; do
+    not use renderer-only fake annexes or shared walls.
+    - [x] First bounded slice: add source-inspired palettes, stone plinths,
+      hipped-roof variation, distinct shop fronts, and three additional
+      enterable buildings that tighten the Bridge approach into opposing
+      street fronts while preserving existing building simulation authority.
+    - [x] Give both current house compositions closed front/rear exterior
+      doors plus front, rear, left, and right firing windows as authoritative
+      portals and apertures at every LOD; retain the staggered street-facing
+      placement so riverfront doors open onto land rather than water.
+    - [x] Remove the dense river-village stone-lot enclosures; keep bounded
+      fences/walls around detached farm and mill compounds, and treat open
+      gaps between village buildings as passable alleys rather than yards.
+    - [x] Replace the disconnected Bridge roadside boxes with two exact
+      shared-boundary rows built from five distinct frozen descriptors: narrow
+      two-storey house, wide shop, tall three-storey house, deep inn, and low
+      workshop. Each volume owns its floors, rooms, front/rear doors and
+      windows, solid aperture-free party walls, collision, damage, rubble, and
+      all four LODs; adjoining footprints and gable ends meet without gaps.
+    - [x] Move both attached rows back from the river onto shared leveled
+      foundation pads; add a low cobblestone bank wall with a bridge opening,
+      river-facing end windows, smaller chest-height and varied three-across
+      windows, off-center doors, opaque window cards outside selected-interior
+      view, door-clearing plinths, and one continuous UV projection per planar
+      facade across aperture segments, storeys, and every LOD.
+    - [x] Enforce a 0.60 m minimum structural masonry pier between attached-
+      building openings; reposition noncompliant doors/windows; center the
+      non-repeating window mullion texture; make every LOD's opaque card fill
+      its complete aperture; and use a continuous 1.8 m physical masonry tile
+      so limestone blocks retain believable scale across differently sized
+      facades.
+    - [ ] Replace fixed rectangular house modules with a generic plain-data
+      building-primitive compiler: arbitrary exterior wall runs and footprints,
+      per-storey heights and floors, explicitly placed doors/windows/stairs,
+      multiple roof volumes, rooms, shared/party walls, collision, LOS,
+      reservations, destruction, rollback, and matching LOD presentation.
+    - [ ] Add new attached/shared-wall descriptors, internal routes, rear
+      extensions, barns, and yard topology rather than representing them with
+      disconnected decorative shells.
   - [ ] Generalize the authored-house slice into reusable building/map records with more floor plans, entrances, interior routes, firing positions, capacity rules, and AI-selected occupation.
 - [ ] Add destructible buildings with persistent tactical consequences.
   - [x] Add section health/resistance, projectile breaches, aperture state, support-loss collapse, rubble colliders, deterministic occupant damage/ejection, collision deltas, and rollback-safe events.
@@ -929,6 +1034,10 @@ authorized.
   - [x] First structure slice: targetable German MG34 bunker with authoritative reinforced-concrete health, penetrative/direct and blast damage, firing shutdown, visible rubble state, and WEGO capture/restore.
   - [x] Add current 3D building-section sweeps with door/window/breach pass-through, earliest-hit ordering against units and vehicles, resistance/penetration, blast damage, and support collapse.
   - [x] Replace endpoint-only terrain impact with a deterministic bounded height-field sweep that resolves the earliest sampled crossing, exposes its actual spacing-derived refinement tolerance, preserves hit ordering, and replays without new persistent projectile state.
+  - [x] Publish scenario-authored sandbag and timber-cover runs as stable finite
+    3D colliders and include them in earliest-hit projectile sweeps, impact
+    telemetry, and contact VFX without making renderer meshes authoritative.
+    Material-specific penetration and damage remain.
 - [ ] Improve procedural infantry firing, reload, transition, casualty, and movement animations.
   - [x] Rough pass: stable base pose reset, weapon recoil profiles (LMG, SMG, Rifle), top-fed LMG reload posture, and clear KIA casualty pose.
   - [x] Bind two-segment arms to exact trigger, support, and feed-specific reload grips; add deterministic breathing, head scanning, weapon sway, weight shift, and recognizable period-weapon defining parts.
@@ -962,14 +1071,57 @@ authorized.
 - [ ] Continue battlefield scale and environmental-fidelity pass.
   - [x] Define one metre-scale contract and normalize authored infantry to a 1.75 m standing reference.
   - [x] Replace oversized wall slabs with 72 closed, terrain-conforming masonry segments and matching collision bounds.
+    - [x] Mitre connected solid-masonry presentation endpoints into shared
+      corner footprints, suppress hidden straight-run butt caps, and trim
+      three-run intersections into one outward-wound shared T hub instead of
+      overlapping capped prisms; keep the original centerline segments
+      authoritative for collision and damage.
   - [x] Replace the later map-spanning wall layout with two bounded, gated domestic-lot/farmstead enclosures around actual building footprints; preserve matching grounded geometry, collision, stable enclosure/gate identity, and formation-safe navigation. The enclosure placement is explicitly scenario-authored rather than claimed as a surveyed historical Stonne boundary.
   - [x] Unify river bed, water, banks, and bridge dimensions so water stays visible and the bridge reaches both banks.
   - [x] Add a level terrain-conforming house foundation, calibrated house/bridge/tree dimensions, and metre-density masonry UVs.
+  - [x] Replace shared house-wall noise with subtle seamless plaster, vertical
+    weathered timber boards, and retained metre-scaled limestone courses;
+    replace regular masonry rectangles with irregular fieldstone/cobblestone,
+    render remaining sandbags as staggered bulged stitched burlap sacks, remove
+    the four clipping bridgehead sandbag runs, connect both riverbank wall runs
+    to their bridge abutments, and end the western wall at the farmhouse's
+    eastern fence boundary instead of continuing behind the fenced lot.
+  - [x] Move the Bridge map's broad floodplain and rotation-aware structure
+    grading out of generic terrain defaults into validated scenario data;
+    derive each pad from its real descriptor footprint, and separate explicit
+    commercial facades from ordinary homes across every building LOD.
+  - [x] Remove patterned panorama dithering and broad house wall/roof
+    shadow-map self-sampling while retaining scene shadow casting; remove the
+    provisional chimney and interlocking corner-quoin geometry from the house.
   - [x] Scenario-surface polygon slice: validate plain texture-space polygons alongside legacy rectangles; render deterministic ordered Canvas paths; and replace the three provisional Stonne field rectangles plus north/south road rectangle with irregular scenario-authored boundaries.
+  - [ ] Enrich the Bridge map's river approaches with settlement and natural
+    cover that supports the breakthrough objective without turning either bank
+    into an artificial wall.
+    - [x] Data implementation: add three enterable east-side French residences,
+      a fenced kitchen-garden/orchard surface, irregular tree groups on both
+      French flanks, and a German-bank dirt lane bordered by staggered trees and
+      short dense-bush hedgerows.
+    - [x] Road-clearance follow-up: move both German-bank fenced compounds and
+      their houses, gates, cover, hedges, and trees behind a shared `z = -23 m`
+      roadside boundary so neither enclosure occupies the dirt-road junction.
+    - [x] East-yard follow-up: relocate the one-storey timber shed from the
+      mill's overlapping `x = 34 m` brick-wall/hedgerow line to `[48, -42]` and
+      reverse its frontage toward the open yard.
+    - [ ] Complete user visual acceptance of spacing, density, clipping, and
+      tactical sight lines in the live Bridge map.
   - [x] Scenario-authored riverbank surface slice: render two bounded terrain-conforming north/south strips through an injected family material role while preserving existing height, collision, navigation, water, and bridge authority.
   - [x] Scenario surface-detail slice: add an irregular southeast field, two strictly inset field-detail polygons, and a wider north/south road shoulder beneath the unchanged road through the existing ordered visual-only layer owner.
   - [ ] Finish remaining scenario-authored ground-surface layering and field/road material refinement.
   - [ ] Expand the village, vegetation, fences, rubble, and small terrain props with authored near/medium/far representations.
+    - [x] Filter renderer-only tree placements against rotated authored
+      structure footprints with canopy clearance and against road/farm-lane
+      polygons with trunk clearance; preserve deterministic instancing and
+      expose excluded feature IDs for map review.
+    - [x] First compact French-table composition pass: cluster village fronts,
+      farm buildings, field boundaries, hedges, masonry, sandbag positions, and
+      timber cover around roads and chokepoints in the spirit of the supplied
+      1940 France tabletop reference. Exact historical site reconstruction,
+      rubble, and remaining prop/LOD variety remain.
 - [ ] Add additional authored LOD models and measure transition popping at near, design, and far cameras.
   - [ ] Add the missing distinct infantry LOD models: retain the authored high-detail soldiers, derive stripped medium/core meshes where their silhouettes remain valid (or author replacements where they do not), preserve faction, helmet, weapon, and pose identity, keep a viable far proxy, and measure transition popping.
     - [x] Add distinct articulated eight-sided medium and six-sided core body geometry for both factions, retain helmet/weapon/grip/muzzle/pose identity, reuse bounded squad resources, preserve the far proxy, and measure per-tier triangle/object counts plus silhouette-envelope continuity. Live camera-transition capture remains.
@@ -1056,6 +1208,12 @@ authorized.
 
 ## Completed
 
+- [x] Add one-shot, change-aware post-edit verification through `npm run verify`:
+  infer the nearest affected tests from the import graph, cap the automatic
+  focused set at eight files, run capped test workers concurrently with the
+  production build and `git diff --check`, stay single-worker on Termux, and
+  opportunistically report an already-open local Chrome runtime without making
+  a browser mandatory for non-runtime changes.
 - [x] Add resumable local and global Agy delegation guidance: Gemini 3.6 Flash
   high executes one bounded packet through `agy -c`; Codex owns live scope,
   diff review, corrections, validation, and integration; project-specific Agy
@@ -1087,7 +1245,7 @@ authorized.
 - [x] Add CANCEL TOOL, DESELECT, Escape, right-click, and empty-ground deselection.
 - [x] Make visible friendly and hostile unit models plus their badges explicit selection/inspection surfaces; keep badges pass-through while a command tool owns the pointer, keep friendly models out of opposing-target raycasts, and preserve separate command authority.
 - [x] Keep the current orbit target and camera framing unchanged across ordinary model/badge selection, inspection, deselection, empty-ground clicks, and right-button camera panning; intentionally frame a unit on model/badge double-click.
-- [x] Recenter the vehicle debug sandbox orbit target on the exact visible vehicle or ground point selected by a clean double tap/click; keep drag/pinch gestures distinct and cancel the pending gun-mode shot when the gesture becomes a double tap.
+- [x] Recenter the vehicle debug sandbox orbit target on the exact visible vehicle or ground point selected by a clean mobile double tap or desktop double-click; apply matching desktop terrain double-click homing in the battlefield, keep drag/pinch gestures distinct, and cancel pending gun-mode shots or command placement.
 - [x] Preview the complete model-click selection on hover with yellow support-surface rings around every living infantryman, declared equipment such as mortars, or the vehicle footprint plus a matching yellow badge border; update hover transitions synchronously, keep render-object pools isolated per unit so differently sized footprints cannot leak across transitions, conform footprints to terrain, and let opaque models occlude them.
 - [x] Center each floating badge independently of its name and damage rows, and hide the whole badge when a nearer visible unit model blocks its camera ray.
 - [x] Raise floating badge anchors from 3.5 to 5.5 metres, add a fixed 48-pixel upward screen clearance that survives long camera range, and reduce badge size from 34 to 28 pixels so unit models remain readable underneath.

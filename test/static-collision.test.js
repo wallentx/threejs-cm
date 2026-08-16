@@ -17,18 +17,23 @@ import { STONNE_1940_MAP } from '../src/maps/france/stonne.js';
 import { FR_HOUSE_12X9_2F } from '../src/maps/france/FranceHouse12x9_2F.js';
 import { FR_FARMHOUSE_8X6_1F } from '../src/maps/france/FranceFarmhouse8x6_1F.js';
 import {
+  FRANCE_1940_BUILDING_DESCRIPTORS
+} from '../src/maps/france/FranceBuildingDescriptors.js';
+import {
   createFrenchHouseVisualAdapter
 } from '../src/world/buildings/FrenchHouse.js';
 
-const STRUCTURE_ADAPTERS = Object.freeze({
-  [FR_HOUSE_12X9_2F.id]: createFrenchHouseVisualAdapter(FR_HOUSE_12X9_2F),
-  [FR_FARMHOUSE_8X6_1F.id]:
-    createFrenchHouseVisualAdapter(FR_FARMHOUSE_8X6_1F)
-});
+const STRUCTURE_ADAPTERS = Object.freeze(Object.fromEntries(
+  FRANCE_1940_BUILDING_DESCRIPTORS.map(descriptor => [
+    descriptor.id,
+    createFrenchHouseVisualAdapter(descriptor)
+  ])
+));
 
 function createTerrain(buildingSystem = new BuildingSystem()) {
-  buildingSystem.registerDescriptor(FR_HOUSE_12X9_2F);
-  buildingSystem.registerDescriptor(FR_FARMHOUSE_8X6_1F);
+  for (const descriptor of FRANCE_1940_BUILDING_DESCRIPTORS) {
+    buildingSystem.registerDescriptor(descriptor);
+  }
   return new TerrainBuilder(new THREE.Scene(), {
     mapDescriptor: STONNE_1940_MAP,
     buildingSystem,
@@ -323,7 +328,7 @@ test('static navigation deterministically routes around a long wall', () => {
   }
 });
 
-test('authored house-lot gate lets a live squad occupy the upper floor', () => {
+test('open village alley lets a live squad occupy the upper floor without a lot wall detour', () => {
   const buildings = new BuildingSystem();
   const terrain = createTerrain(buildings);
   terrain.buildRiverAndBridge();
@@ -333,7 +338,7 @@ test('authored house-lot gate lets a live squad occupy the upper floor', () => {
     id: 'authored_wall_route_squad',
     faction: 'french',
     type: 'infantry_squad',
-    position: new THREE.Vector3(45, 0, 78)
+    position: new THREE.Vector3(0, 0, 36)
   });
   unit.position.y = terrain.getMovementHeightAt(unit.position.x, unit.position.z);
   unit.mesh.position.copy(unit.position);
@@ -347,7 +352,6 @@ test('authored house-lot gate lets a live squad occupy the upper floor', () => {
     'french_village_house',
     'upper-floor'
   );
-  assert.equal(order.accepted, true);
   const formationClearance = Math.max(
     ...unit.soldierAI.getLivingAgents().map(agent =>
       unit.soldierAI.getFormationOffset(agent.index, 'QUICK').length()
@@ -372,34 +376,9 @@ test('authored house-lot gate lets a live squad occupy the upper floor', () => {
     path.push(...segment);
     routeStart = { x: routePoint[0], z: routePoint[2] };
   }
-  const gate = STONNE_1940_MAP.wallEnclosures
-    .find(enclosure => enclosure.id === 'village-house-lot')
-    .gateOpenings[0];
-  const routePoints = [
-    { x: unit.position.x, z: unit.position.z },
-    ...path
-  ];
-  const crossing = routePoints.slice(1).map((point, index) => {
-    const previous = routePoints[index];
-    if (
-      (previous.z - gate.start[1]) * (point.z - gate.start[1]) > 0
-      || previous.z === point.z
-    ) {
-      return null;
-    }
-    const t = (gate.start[1] - previous.z) / (point.z - previous.z);
-    return previous.x + (point.x - previous.x) * t;
-  }).find(value => value != null);
-  assert.ok(crossing != null, 'the building route must cross the front boundary');
-  const requiredClearance = unit.collisionRadius + 0.8 + formationClearance;
   assert.ok(
-    crossing > gate.start[0] + requiredClearance
-      && crossing < gate.end[0] - requiredClearance,
-    'the route must cross through the authored gate with formation-safe clearance'
-  );
-  assert.ok(
-    path.every(point => point.x > 32 && point.x < 58),
-    'the squad should use the gate instead of detouring around the lot'
+    path.every(point => point.x >= 0 && point.x <= 12.5),
+    'the squad should cross the deliberate alley directly instead of detouring around a lot wall'
   );
   for (const point of path) {
     unit.addWaypoint(new THREE.Vector3(

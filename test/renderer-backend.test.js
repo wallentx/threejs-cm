@@ -6,6 +6,7 @@ import {
   Renderer,
   getRenderProfile,
   normalizeRenderQualityTier,
+  resolveDepthOfFieldEnabled,
   resolveMeshShadowPolicy
 } from '../src/engine/Renderer.js';
 import { installWebGpuGlobalCompat } from '../src/engine/WebGpuGlobalCompat.js';
@@ -71,6 +72,13 @@ test('render profiles bound pixel and shadow cost with explicit ultra opt-in', (
     maxPixelRatio: 2,
     shadowMapSize: 2048
   });
+});
+
+test('depth of field is explicit and unavailable on the low render tier', () => {
+  assert.equal(resolveDepthOfFieldEnabled(), false);
+  assert.equal(resolveDepthOfFieldEnabled({ qualityTier: 'high', requested: true }), true);
+  assert.equal(resolveDepthOfFieldEnabled({ qualityTier: 'ultra', requested: true }), true);
+  assert.equal(resolveDepthOfFieldEnabled({ qualityTier: 'low', requested: true }), false);
 });
 
 test('shadow policy keeps core silhouettes and rejects detail, UI, and blended casters', () => {
@@ -147,6 +155,18 @@ test('scene shadow configuration restores authored policy after no-shadows mode'
   renderer.configureSceneShadows();
   assert.equal(core.castShadow, true);
   assert.equal(core.receiveShadow, true);
+});
+
+test('directional shadows use facade-safe depth bias', () => {
+  const renderer = Object.create(Renderer.prototype);
+  renderer.scene = new THREE.Scene();
+  renderer.renderProfile = getRenderProfile('high');
+  renderer.graphicsRenderer = { shadowMap: { enabled: true } };
+
+  renderer.setupLighting();
+
+  assert.equal(renderer.sunLight.shadow.bias, -0.0001);
+  assert.equal(renderer.sunLight.shadow.normalBias, 0.075);
 });
 
 test('Renderer.initialize falls back to WebGL2 when WebGPU init throws getCanvasTarget or null error', async () => {

@@ -4,12 +4,17 @@ import * as THREE from 'three';
 import {
   TerrainBuilder,
   createGroundConformingWallGeometry,
-  createGroundConformingFenceCardGeometry
+  createGroundConformingFenceCardGeometry,
+  resolveSkyPanoramaSize
 } from './helpers/France1940TestTerrain.js';
 import { TERRAIN_SCALE } from '../src/world/TerrainScale.js';
 import { FR_HOUSE_12X9_2F } from '../src/maps/france/FranceHouse12x9_2F.js';
 import { FR_FARMHOUSE_8X6_1F } from '../src/maps/france/FranceFarmhouse8x6_1F.js';
+import {
+  FRANCE_1940_BUILDING_DESCRIPTORS
+} from '../src/maps/france/FranceBuildingDescriptors.js';
 import { STONNE_1940_MAP } from '../src/maps/france/stonne.js';
+import { defineMapDescriptor } from '../src/maps/MapDescriptor.js';
 import { BuildingSystem } from '../src/simulation/buildings/index.js';
 import {
   createFrenchHouseVisualAdapter
@@ -17,16 +22,18 @@ import {
 
 const EPSILON = 1e-5;
 const STONE_WALL_PROFILE = STONNE_1940_MAP.wallProfiles['stone-wall'];
-const STRUCTURE_ADAPTERS = Object.freeze({
-  [FR_HOUSE_12X9_2F.id]: createFrenchHouseVisualAdapter(FR_HOUSE_12X9_2F),
-  [FR_FARMHOUSE_8X6_1F.id]:
-    createFrenchHouseVisualAdapter(FR_FARMHOUSE_8X6_1F)
-});
+const STRUCTURE_ADAPTERS = Object.freeze(Object.fromEntries(
+  FRANCE_1940_BUILDING_DESCRIPTORS.map(descriptor => [
+    descriptor.id,
+    createFrenchHouseVisualAdapter(descriptor)
+  ])
+));
 
 function createTerrain(scene) {
   const buildingSystem = new BuildingSystem();
-  buildingSystem.registerDescriptor(FR_HOUSE_12X9_2F);
-  buildingSystem.registerDescriptor(FR_FARMHOUSE_8X6_1F);
+  for (const descriptor of FRANCE_1940_BUILDING_DESCRIPTORS) {
+    buildingSystem.registerDescriptor(descriptor);
+  }
   return new TerrainBuilder(scene, {
     mapDescriptor: STONNE_1940_MAP,
     buildingSystem,
@@ -101,6 +108,35 @@ test('terrain scale uses metres and plausible human-relative dimensions', () => 
   assert.ok(STONNE_1940_MAP.bridge.span > STONNE_1940_MAP.river.cutWidth);
 });
 
+test('generic terrain remains ungraded when a map omits shaping declarations', () => {
+  const source = JSON.parse(JSON.stringify(STONNE_1940_MAP));
+  delete source.river.floodplainRadius;
+  for (const structure of source.structures) delete structure.terrainPad;
+  const terrain = new TerrainBuilder(new THREE.Scene(), {
+    mapDescriptor: defineMapDescriptor(source),
+    structureAdapters: STRUCTURE_ADAPTERS
+  });
+  const structure = source.structures[0];
+  const sampleX = structure.position[0] + 5;
+  const sampleZ = structure.position[1] + 2;
+  assertNear(
+    terrain.getOpenGroundHeightAt(sampleX, sampleZ),
+    terrain.getRawOpenGroundHeightAt(sampleX, sampleZ),
+    'structure proximity alone must not reshape generic terrain'
+  );
+  assertNear(
+    terrain.getRawOpenGroundHeightAt(0, source.river.centerZ + 20),
+    source.elevation.waves.reduce((height, wave) => {
+      const coordinate = wave.axis === 'x' ? 0 : source.river.centerZ + 20;
+      const sample = wave.function === 'sin'
+        ? Math.sin(coordinate * wave.frequency + (wave.phase ?? 0))
+        : Math.cos(coordinate * wave.frequency + (wave.phase ?? 0));
+      return height + sample * wave.amplitude;
+    }, source.elevation.baseHeight ?? 0),
+    'river proximity alone must not introduce a generic floodplain'
+  );
+});
+
 test('wall geometry is grounded, manifold, and outward-wound', () => {
   const getHeightAt = (x, z) => x * 0.12 - z * 0.05;
   const geometry = createGroundConformingWallGeometry({
@@ -108,6 +144,8 @@ test('wall geometry is grounded, manifold, and outward-wound', () => {
     end: { x: 3, z: 4 },
     height: STONE_WALL_PROFILE.height,
     thickness: STONE_WALL_PROFILE.thickness,
+    textureRepeatMeters: STONE_WALL_PROFILE.textureRepeatMeters,
+    textureRepeatHeightMeters: STONE_WALL_PROFILE.textureRepeatHeightMeters,
     getHeightAt
   });
 
@@ -115,6 +153,10 @@ test('wall geometry is grounded, manifold, and outward-wound', () => {
   assert.equal(geometry.attributes.normal.count, 36);
   assert.equal(geometry.attributes.uv.count, 36);
   assert.equal(geometry.userData.footprintCorners.length, 4);
+  assert.deepEqual(geometry.userData.textureRepeatMeters, {
+    horizontal: STONE_WALL_PROFILE.textureRepeatMeters,
+    vertical: STONE_WALL_PROFILE.textureRepeatHeightMeters
+  });
   for (const [x, y, z] of geometry.userData.footprintCorners) {
     assertNear(y, getHeightAt(x, z), 'wall footprint must touch terrain');
   }
@@ -136,7 +178,7 @@ test('stone wall runs use contiguous grounded segments and matching collisions',
   const terrain = createTerrain(scene);
   terrain.buildStoneWalls();
   const stoneRuns = STONNE_1940_MAP.wallRuns.filter(run => (
-    STONNE_1940_MAP.wallProfiles[run.profileId].presentationKind === 'solid-prism'
+    STONNE_1940_MAP.wallProfiles[run.profileId].collisionType === 'stonewall'
   ));
 
   const expectedSegmentCount = stoneRuns.reduce(
@@ -162,14 +204,19 @@ test('stone wall runs use contiguous grounded segments and matching collisions',
     const sourceRun = STONNE_1940_MAP.wallRuns.find(
       candidate => candidate.id === wall.userData.runId
     );
-    assert.equal(wall.userData.enclosureId, sourceRun.enclosureId);
-    assert.equal(wall.userData.boundarySide, sourceRun.boundarySide);
+    const sourceProfile = STONNE_1940_MAP.wallProfiles[sourceRun.profileId];
+    assert.equal(wall.userData.enclosureId, sourceRun.enclosureId ?? null);
+    assert.equal(wall.userData.boundarySide, sourceRun.boundarySide ?? null);
     assert.equal(wall.userData.adjacentGateId, sourceRun.adjacentGateId ?? null);
 
     const dimensions = wall.userData.dimensionsMeters;
-    assert.ok(dimensions.length <= STONE_WALL_PROFILE.maximumSegmentLength);
-    assert.equal(dimensions.height, STONE_WALL_PROFILE.height);
-    assert.equal(dimensions.thickness, STONE_WALL_PROFILE.thickness);
+    assert.ok(dimensions.length <= sourceProfile.maximumSegmentLength);
+    assert.equal(dimensions.height, sourceProfile.height);
+    assert.equal(dimensions.thickness, sourceProfile.thickness);
+    assert.deepEqual(wall.geometry.userData.textureRepeatMeters, {
+      horizontal: sourceProfile.textureRepeatMeters,
+      vertical: sourceProfile.textureRepeatHeightMeters
+    });
 
     for (const [x, y, z] of wall.geometry.userData.footprintCorners) {
       assertNear(y, terrain.getHeightAt(x, z), 'rendered corner grounding');
@@ -180,14 +227,22 @@ test('stone wall runs use contiguous grounded segments and matching collisions',
         === `${wall.userData.runId}_${wall.userData.segmentIndex}`
     );
     assert.ok(obstacle, 'wall segment must own a collision record');
-    assert.equal(obstacle.enclosureId, sourceRun.enclosureId);
+    assert.equal(obstacle.enclosureId, sourceRun.enclosureId ?? null);
     assert.equal(obstacle.adjacentGateId, sourceRun.adjacentGateId ?? null);
-    assertNear(obstacle.minX, wall.geometry.boundingBox.min.x, 'collision minX');
-    assertNear(obstacle.maxX, wall.geometry.boundingBox.max.x, 'collision maxX');
-    assertNear(obstacle.minY, wall.geometry.boundingBox.min.y, 'collision minY');
-    assertNear(obstacle.maxY, wall.geometry.boundingBox.max.y, 'collision maxY');
-    assertNear(obstacle.minZ, wall.geometry.boundingBox.min.z, 'collision minZ');
-    assertNear(obstacle.maxZ, wall.geometry.boundingBox.max.z, 'collision maxZ');
+    const collisionGeometry = createGroundConformingWallGeometry({
+      start: { x: wall.userData.start[0], z: wall.userData.start[2] },
+      end: { x: wall.userData.end[0], z: wall.userData.end[2] },
+      height: dimensions.height,
+      thickness: dimensions.thickness,
+      getHeightAt: (x, z) => terrain.getHeightAt(x, z)
+    });
+    assertNear(obstacle.minX, collisionGeometry.boundingBox.min.x, 'collision minX');
+    assertNear(obstacle.maxX, collisionGeometry.boundingBox.max.x, 'collision maxX');
+    assertNear(obstacle.minY, collisionGeometry.boundingBox.min.y, 'collision minY');
+    assertNear(obstacle.maxY, collisionGeometry.boundingBox.max.y, 'collision maxY');
+    assertNear(obstacle.minZ, collisionGeometry.boundingBox.min.z, 'collision minZ');
+    assertNear(obstacle.maxZ, collisionGeometry.boundingBox.max.z, 'collision maxZ');
+    collisionGeometry.dispose();
   }
 
   assert.equal(runs.size, stoneRuns.length);
@@ -203,6 +258,16 @@ test('stone wall runs use contiguous grounded segments and matching collisions',
       Math.ceil(runLength / profile.maximumSegmentLength)
     );
     segments.sort((a, b) => a.userData.segmentIndex - b.userData.segmentIndex);
+    assert.equal(
+      segments[0].geometry.userData.caps.start,
+      !segments[0].userData.cornerJoin.start,
+      'only an unjoined run start keeps its visible end cap'
+    );
+    assert.equal(
+      segments.at(-1).geometry.userData.caps.end,
+      !segments.at(-1).userData.cornerJoin.end,
+      'only an unjoined run end keeps its visible end cap'
+    );
     for (let index = 1; index < segments.length; index++) {
       const previousEnd = new THREE.Vector3().fromArray(
         segments[index - 1].userData.end
@@ -214,7 +279,53 @@ test('stone wall runs use contiguous grounded segments and matching collisions',
         previousEnd.distanceTo(currentStart) <= EPSILON,
         'adjacent wall centerlines must not gap'
       );
+      assert.equal(segments[index - 1].geometry.userData.caps.end, false);
+      assert.equal(segments[index].geometry.userData.caps.start, false);
     }
+  }
+
+  const northEnd = runs.get('north_mill_north').at(-1);
+  const eastStart = runs.get('north_mill_east')[0];
+  const northCorners = northEnd.geometry.userData.footprintCorners;
+  const eastCorners = eastStart.geometry.userData.footprintCorners;
+  assert.equal(northEnd.userData.cornerJoin.end, true);
+  assert.equal(eastStart.userData.cornerJoin.start, true);
+  assert.equal(northEnd.geometry.userData.caps.end, false);
+  assert.equal(eastStart.geometry.userData.caps.start, false);
+  for (const [northIndex, eastIndex] of [[3, 0], [2, 1]]) {
+    assertNear(northCorners[northIndex][0], eastCorners[eastIndex][0], 'mitre x');
+    assertNear(northCorners[northIndex][1], eastCorners[eastIndex][1], 'mitre y');
+    assertNear(northCorners[northIndex][2], eastCorners[eastIndex][2], 'mitre z');
+  }
+  const sandbagWall = terrain.boundaryMeshes.find(mesh => (
+    mesh.userData.profileId === 'sandbag-wall'
+  ));
+  assert.ok(sandbagWall, 'remaining tactical sandbags still render away from the bridgehead');
+  assert.deepEqual(sandbagWall.geometry.userData.textureRepeatMeters, {
+    horizontal: 1.6,
+    vertical: 0.64
+  });
+});
+
+test('authored ballistic-cover runs publish finite 3D projectile colliders', () => {
+  const terrain = createTerrain(new THREE.Scene());
+  terrain.buildStoneWalls();
+  const projectileColliders = terrain.getProjectileColliderRecords();
+  const expectedRunIds = new Set(
+    STONNE_1940_MAP.wallRuns
+      .filter(run => STONNE_1940_MAP.wallProfiles[run.profileId].blocksProjectiles)
+      .map(run => run.id)
+  );
+  assert.ok(projectileColliders.length > 0);
+  assert.deepEqual(
+    new Set(projectileColliders.map(collider => collider.mapFeatureId)),
+    expectedRunIds
+  );
+  for (const collider of projectileColliders) {
+    assert.equal(collider.blocksProjectiles, true);
+    assert.ok(Number.isFinite(collider.centerY));
+    assert.ok(collider.halfHeight > 0);
+    assert.match(collider.projectileCoverDataQuality, /ballistic cover/);
   }
 });
 
@@ -323,7 +434,8 @@ test('farmhouse fences use one alpha-tested mesh per run and separate collision'
   }
   assert.equal(
     terrain.stoneWallSegments.every(
-      wall => wall.userData.profileId === 'stone-wall'
+      wall => STONNE_1940_MAP.wallProfiles[wall.userData.profileId]
+        .presentationKind === 'solid-prism'
     ),
     true,
     'masonry runs must retain solid geometry'
@@ -390,7 +502,7 @@ test('fence panels own independent visual, collision, and rollback state', () =>
   assert.deepEqual(terrain.captureDestructibleObstacleState(), intact);
 });
 
-test('stone walls form gated lots around authored buildings instead of map-spanning barriers', () => {
+test('detached farm compounds retain bounded gates while the dense village uses open alleys', () => {
   const descriptors = new Map([
     [FR_HOUSE_12X9_2F.id, FR_HOUSE_12X9_2F],
     [FR_FARMHOUSE_8X6_1F.id, FR_FARMHOUSE_8X6_1F]
@@ -408,7 +520,10 @@ test('stone walls form gated lots around authored buildings instead of map-spann
   );
 
   assert.ok(
-    STONNE_1940_MAP.wallRuns.every(run => distance(run.start, run.end) <= 26),
+    STONNE_1940_MAP.wallRuns.every(run => (
+      run.profileId === 'cobblestone-bank-wall'
+      || distance(run.start, run.end) <= 26
+    )),
     'no authored wall run may cross the battlefield as a giant barrier'
   );
 
@@ -471,9 +586,12 @@ test('stone walls form gated lots around authored buildings instead of map-spann
     }
   }
 
-  const villageLot = STONNE_1940_MAP.wallRuns
-    .filter(run => run.enclosureId === 'village-house-lot')
-    .flatMap(run => [run.start, run.end]);
+  assert.ok(!STONNE_1940_MAP.wallEnclosures.some(enclosure => (
+    enclosure.id.startsWith('village-')
+  )));
+  assert.ok(!STONNE_1940_MAP.wallRuns.some(run => (
+    run.enclosureId?.startsWith('village-')
+  )));
   const farmhouseLot = STONNE_1940_MAP.wallRuns
     .filter(run => run.enclosureId === 'farmhouse-lot')
     .flatMap(run => [run.start, run.end]);
@@ -482,14 +600,6 @@ test('stone walls form gated lots around authored buildings instead of map-spann
     && position[0] < Math.max(...points.map(point => point[0]))
     && position[1] > Math.min(...points.map(point => point[1]))
     && position[1] < Math.max(...points.map(point => point[1]))
-  );
-  assert.equal(
-    insideBounds(
-      STONNE_1940_MAP.foliage.find(tree => tree.id === 'tree-northeast').position,
-      villageLot
-    ),
-    true,
-    'the village-house wall contains its yard tree'
   );
   assert.equal(
     insideBounds(
@@ -543,8 +653,12 @@ test('river bed remains below visible water and bridge reaches connected banks',
   water.geometry.computeBoundingBox();
   assertNear(
     water.geometry.boundingBox.max.z - water.geometry.boundingBox.min.z,
-    river.waterWidth,
+    river.cutWidth,
     'rendered water width'
+  );
+  assert.ok(
+    water.geometry.boundingBox.max.x - water.geometry.boundingBox.min.x >= terrain.width,
+    'rendered water length must cover playable width'
   );
   assert.equal(water.position.z, river.centerZ);
   assert.ok(
@@ -552,6 +666,36 @@ test('river bed remains below visible water and bridge reaches connected banks',
     'bridge deck ends must extend beyond both cut banks'
   );
   assert.equal(bridge.userData.dimensionsMeters.length, STONNE_1940_MAP.bridge.span);
+});
+
+test('foliage presentation excludes building canopies and road-centered trunks', () => {
+  const scene = new THREE.Scene();
+  const terrain = createTerrain(scene);
+  terrain.buildScenarioMap();
+
+  assert.deepEqual(terrain.foliageExcludedFeatureIds, [
+    'tree-northeast',
+    'tree-north-mill-orchard',
+    'tree-north-roadside'
+  ]);
+  assert.deepEqual(
+    terrain.renderedFoliageEntries.map(entry => entry.id),
+    STONNE_1940_MAP.foliage
+      .filter(entry => !terrain.foliageExcludedFeatureIds.includes(entry.id))
+      .map(entry => entry.id)
+  );
+  for (const name of [
+    'MatureTreeTrunks',
+    'MatureTreeCrownsPrimary',
+    'MatureTreeCrownsWest',
+    'MatureTreeCrownsEast'
+  ]) {
+    assert.equal(
+      scene.getObjectByName(name).count,
+      terrain.renderedFoliageEntries.length,
+      `${name} renders only clear placements`
+    );
+  }
 });
 
 test('riverbank strips conform to the existing height field without collision or navigation authority', () => {
@@ -698,6 +842,9 @@ test('bridge and house meshes expose calibrated metre dimensions', () => {
 
   const bridge = scene.getObjectByName('StoneBridge');
   const house = scene.getObjectByName('FrenchVillageHouse');
+  const houseDescriptor = FRANCE_1940_BUILDING_DESCRIPTORS.find(
+    descriptor => descriptor.id === house.userData.descriptorId
+  );
   assert.deepEqual(bridge.userData.dimensionsMeters, {
     width: TERRAIN_SCALE.bridge.roadwayWidth,
     length: STONNE_1940_MAP.bridge.span,
@@ -705,12 +852,14 @@ test('bridge and house meshes expose calibrated metre dimensions', () => {
     deckTop: bridge.userData.dimensionsMeters.deckTop
   });
   assert.deepEqual(house.userData.dimensionsMeters, {
-    width: TERRAIN_SCALE.house.width,
-    depth: TERRAIN_SCALE.house.depth,
-    height: FR_HOUSE_12X9_2F.bounds.max[1] - FR_HOUSE_12X9_2F.bounds.min[1]
+    width: houseDescriptor.bounds.max[0] - houseDescriptor.bounds.min[0],
+    depth: houseDescriptor.bounds.max[2] - houseDescriptor.bounds.min[2],
+    height: houseDescriptor.bounds.max[1] - houseDescriptor.bounds.min[1]
   });
-  const roof = house.getObjectByName('HouseGabledRoof');
-  assert.ok(roof, 'house must use a dimensioned gabled roof');
+  const roof = house.userData.detailedRoof;
+  assert.equal(roof.name, 'HouseGabledRoof');
+  assert.equal(house.userData.roofStyleId, 'gabled');
+  assert.ok(roof, 'house must use its authored dimensioned roof');
   const roofPositions = roof.geometry.attributes.position;
   for (let index = 0; index < roofPositions.count; index += 3) {
     const a = new THREE.Vector3().fromBufferAttribute(roofPositions, index);
@@ -759,4 +908,126 @@ test('bridge and house meshes expose calibrated metre dimensions', () => {
       >= STONNE_1940_MAP.bridge.span / TERRAIN_SCALE.bridge.masonryRepeatMeters,
     'bridge masonry must repeat by metre scale along full span'
   );
+});
+
+test('attached rows share level terrain pads and keep exterior doors at grade', () => {
+  const terrain = createTerrain(new THREE.Scene());
+  terrain.buildStructures();
+  const placementById = new Map(
+    STONNE_1940_MAP.structures.map(structure => [structure.id, structure])
+  );
+  const rowTopHeights = new Map();
+
+  for (const building of terrain.buildings) {
+    const placement = placementById.get(building.id);
+    if (!placement?.attachedRowId) continue;
+    const descriptor = FRANCE_1940_BUILDING_DESCRIPTORS.find(
+      candidate => candidate.id === building.descriptorId
+    );
+    const topY = building.object.userData.foundation.topY;
+    const heights = rowTopHeights.get(placement.attachedRowId) ?? [];
+    heights.push(topY);
+    rowTopHeights.set(placement.attachedRowId, heights);
+
+    for (const portal of descriptor.portals.filter(record => record.kind === 'door')) {
+      const [localX, localY, localZ] = portal.aperture.center;
+      const cosine = Math.cos(placement.rotationY);
+      const sine = Math.sin(placement.rotationY);
+      const worldX = placement.position[0] + localX * cosine + localZ * sine;
+      const worldZ = placement.position[1] - localX * sine + localZ * cosine;
+      const sillY = topY + localY - portal.aperture.size[1] * 0.5;
+      const groundY = terrain.getHeightAt(worldX, worldZ);
+      assert.ok(
+        Math.abs((sillY - groundY) - placement.foundationClearance) <= 1e-6,
+        `${building.id}:${portal.id} must meet its graded foundation`
+      );
+    }
+  }
+
+  assert.equal(rowTopHeights.size, 2);
+  for (const heights of rowTopHeights.values()) {
+    assert.ok(heights.every(height => Math.abs(height - heights[0]) <= 1e-6));
+  }
+});
+
+test('TerrainBuilder creates an out-of-bounds surrounding terrain skirt that connects to the map edge', () => {
+  const scene = new THREE.Scene();
+  const terrain = createTerrain(scene);
+  terrain.buildScenarioMap();
+
+  assert.ok(terrain.surroundingTerrainMesh, 'surrounding terrain mesh must be built');
+  assert.equal(terrain.surroundingTerrainMesh.name, 'SurroundingTerrainMesh');
+  assert.equal(terrain.surroundingTerrainMesh.userData.renderShadowPolicy.castShadow, false);
+  assert.equal(terrain.surroundingTerrainMesh.userData.renderShadowPolicy.receiveShadow, true);
+
+  assert.ok(terrain.mapBoundaryRibbonMesh, 'map boundary ribbon mesh must be built');
+  assert.equal(terrain.mapBoundaryRibbonMesh.name, 'MapBoundaryRibbonMesh');
+  assert.equal(terrain.mapBoundaryRibbonMesh.material.transparent, true);
+  assert.equal(terrain.mapBoundaryRibbonMesh.userData.renderShadowPolicy.castShadow, false);
+
+  assert.ok(terrain.skyDomeMesh, 'sky dome mesh must be built');
+  assert.equal(terrain.skyDomeMesh.name, 'AtmosphericSkyDome');
+  assert.equal(terrain.skyDomeMesh.userData.renderShadowPolicy.castShadow, false);
+  assert.equal(terrain.skyDomeMesh.material.side, THREE.BackSide);
+
+  const geometry = terrain.surroundingTerrainMesh.geometry;
+  const positions = geometry.attributes.position;
+  const colors = geometry.attributes.color;
+
+  assert.ok(positions.count > 0, 'surrounding terrain must contain vertices');
+  assert.ok(colors.count === positions.count, 'surrounding terrain must have vertex colors');
+
+  let hasOutOfBoundsVertex = false;
+  let hasRiverWaterColor = false;
+  const halfWidth = STONNE_1940_MAP.dimensions.width * 0.5;
+  const halfDepth = STONNE_1940_MAP.dimensions.depth * 0.5;
+
+  for (let i = 0; i < positions.count; i++) {
+    const x = positions.getX(i);
+    const y = positions.getY(i);
+    const z = positions.getZ(i);
+
+    const dx = Math.max(0, Math.abs(x) - halfWidth);
+    const dz = Math.max(0, Math.abs(z) - halfDepth);
+    const dist = Math.hypot(dx, dz);
+
+    if (dist > 1) {
+      hasOutOfBoundsVertex = true;
+    }
+
+    if (Math.abs(z - STONNE_1940_MAP.river.centerZ) < 3 && dist < 30) {
+      const r = colors.getX(i);
+      const b = colors.getZ(i);
+      if (b > 0.20 && b > r) hasRiverWaterColor = true;
+    }
+
+    if (dist < 0.01) {
+      assert.equal(colors.getW(i), 1.0, 'boundary vertex alpha must be 1.0');
+    } else if (dist > 400) {
+      assert.ok(colors.getW(i) < 0.5, 'distant perimeter vertex alpha must fade towards 0');
+    }
+
+    assertNear(y, terrain.getHeightAt(x, z), 'surrounding terrain elevation must match terrain height function');
+  }
+
+  assert.equal(hasOutOfBoundsVertex, true, 'surrounding terrain must extend beyond playable map bounds');
+  assert.equal(hasRiverWaterColor, true, 'river channel color must continue across surrounding terrain');
+  assert.equal(terrain.surroundingTerrainMesh.material.transparent, true, 'surrounding terrain material must be transparent');
+  assert.equal(
+    terrain.surroundingTerrainMesh.material.depthWrite,
+    false,
+    'fading out-of-bounds terrain must not occlude DoF-composited battlefield VFX'
+  );
+
+  const normals = geometry.getAttribute('normal');
+  assert.ok(normals && normals.count > 0, 'surrounding terrain must have computed normals');
+  for (let i = 0; i < normals.count; i++) {
+    assert.ok(normals.getY(i) > 0, `surrounding terrain vertex normal ${i} must point upward (+Y), got ${normals.getY(i)}`);
+  }
+});
+
+test('sky panorama allocation scales with render quality while preserving ultra opt-in', () => {
+  assert.deepEqual(resolveSkyPanoramaSize('low'), { width: 1024, height: 512 });
+  assert.deepEqual(resolveSkyPanoramaSize('high'), { width: 2048, height: 1024 });
+  assert.deepEqual(resolveSkyPanoramaSize('ultra'), { width: 4096, height: 2048 });
 });

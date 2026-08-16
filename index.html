@@ -25,8 +25,11 @@
         <div><span>DRAWS</span><strong id="debug-draw-calls">--</strong></div>
         <div><span>TRIS</span><strong id="debug-triangles">--</strong></div>
         <div><span>LOD H/M/C/F</span><strong id="debug-lod-counts">--</strong></div>
+        <div><span>SIM STEP</span><strong id="debug-simulation-step">-- ms</strong></div>
+        <div><span>SIM STEPS/FRAME</span><strong id="debug-simulation-steps">--</strong></div>
       </div>
       <div id="debug-renderer-detail" class="debug-renderer-detail">Renderer metrics unavailable</div>
+      <div id="debug-simulation-detail" class="debug-renderer-detail">Simulation metrics unavailable</div>
       <div class="debug-toggle-grid" aria-label="Debug visualization toggles">
         <button id="debug-toggle-fps" type="button" class="active" aria-pressed="true">FPS</button>
         <button id="debug-toggle-fov" type="button" aria-pressed="false">FIELD OF VIEW</button>
@@ -64,6 +67,7 @@
       <div class="phase-container">
         <div id="phase-badge" class="phase-badge command-phase">COMMAND PHASE</div>
         <div id="turn-timer" class="turn-timer">TURN 1 [00:60]</div>
+        <div id="mission-objective" class="mission-objective" hidden></div>
       </div>
       <div class="top-controls">
         <button id="btn-cancel-cmd" class="btn-top danger" title="Cancel Active Command Tool">

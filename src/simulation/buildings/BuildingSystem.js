@@ -77,6 +77,7 @@ export class BuildingSystem {
     this.random = random;
     this.descriptors = new Map();
     this.buildings = new Map();
+    this.collisionRevision = 0;
   }
 
   registerDescriptor(descriptor) {
@@ -114,11 +115,18 @@ export class BuildingSystem {
       destructionThresholds: normalizedThresholds
     });
     this.buildings.set(buildingId, state);
+    this.collisionRevision++;
     return this.getBuildingSnapshot(buildingId);
   }
 
   removeBuilding(id) {
-    return this.buildings.delete(String(id));
+    const removed = this.buildings.delete(String(id));
+    if (removed) this.collisionRevision++;
+    return removed;
+  }
+
+  getCollisionRevision() {
+    return this.collisionRevision;
   }
 
   getBuildingSnapshot(id) {
@@ -161,6 +169,7 @@ export class BuildingSystem {
       restored.set(String(record.id), state);
     }
     this.buildings = restored;
+    this.collisionRevision++;
   }
 
   resolveReservations(id, requests) {
@@ -454,8 +463,10 @@ export class BuildingSystem {
     const state = this.#state(id);
     const opening = state.openings[String(openingId)];
     if (!opening || !opening.enabled) return false;
+    const nextOpen = Boolean(open);
+    if (opening.open === nextOpen) return true;
     return this.#withCollisionChange(state, `opening:${openingId}`, () => {
-      opening.open = Boolean(open);
+      opening.open = nextOpen;
       this.#event(state, { type: 'opening_changed', openingId: opening.id, open: opening.open });
       return true;
     });
@@ -882,6 +893,7 @@ export class BuildingSystem {
     const removed = setDifference(before, after);
     if (added.length > 0 || removed.length > 0) {
       state.collisionVersion++;
+      this.collisionRevision++;
       state.collisionChanges.push({
         version: state.collisionVersion,
         reason,

@@ -35,6 +35,12 @@ const MAX_INFANTRY_ROUNDS_PER_STEP = 64;
 const INFANTRY_CADENCE_EPSILON = 1e-9;
 const INFANTRY_STATIONARY_SPEED_METERS_PER_SECOND = 0.12;
 
+function exceedsHorizontalRange(origin, target, rangeMeters) {
+  const deltaX = origin.x - target.x;
+  const deltaZ = origin.z - target.z;
+  return deltaX * deltaX + deltaZ * deltaZ > rangeMeters * rangeMeters;
+}
+
 function hash01(value) {
   let hash = 2166136261;
   for (let i = 0; i < value.length; i++) {
@@ -658,19 +664,46 @@ export class SoldierAgent {
     }
 
     let best = null;
-    const candidateUnits = this.unit.targetUnit?.isCombatEffective()
-      ? [this.unit.targetUnit]
-      : context.opposingUnits;
+    const orderedUnit = this.unit.targetUnit?.isCombatEffective()
+      ? this.unit.targetUnit
+      : null;
+    const retainedUnit = !orderedUnit && this.targetUnitId != null
+      ? context.opposingUnits.find(
+          unit => String(unit.id) === String(this.targetUnitId)
+        ) ?? null
+      : null;
+    const candidateUnits = orderedUnit
+      ? [orderedUnit]
+      : retainedUnit
+        ? [
+            retainedUnit,
+            ...context.opposingUnits.filter(unit => unit !== retainedUnit)
+          ]
+        : context.opposingUnits;
     for (const enemyUnit of candidateUnits) {
       const precisionGate = context.spotting?.canPrecisionTarget;
       if (!enemyUnit.isCombatEffective()
           || (typeof precisionGate === 'function'
             && !precisionGate.call(context.spotting, this.unit, enemyUnit))) continue;
-      const enemyAgents = enemyUnit.soldierAI?.getLivingAgents() ?? [];
+      const livingEnemyAgents = enemyUnit.soldierAI?.getLivingAgents() ?? [];
+      const retainedAgent = enemyUnit === retainedUnit && this.targetSoldierId != null
+        ? livingEnemyAgents.find(
+            agent => String(agent.id) === String(this.targetSoldierId)
+          ) ?? null
+        : null;
+      const enemyAgents = retainedAgent
+        ? [
+            retainedAgent,
+            ...livingEnemyAgents.filter(agent => agent !== retainedAgent)
+          ]
+        : livingEnemyAgents;
       if (enemyAgents.length === 0) {
         const exposedCommander =
           enemyUnit.getExposedCommanderTargetPosition?.() ?? null;
         const targetPosition = exposedCommander ?? enemyUnit.position;
+        if (exceedsHorizontalRange(this.position, targetPosition, weapon.maxRange)) {
+          continue;
+        }
         const los = checkLOS.call(
           context.spotting,
           this.position,
@@ -688,20 +721,33 @@ export class SoldierAgent {
             position: targetPosition,
             distance: los.dist
           };
+          if (enemyUnit === retainedUnit) break;
         }
         continue;
       }
       for (const enemy of enemyAgents) {
         if (!isBuildingOccupantExposed(enemy, enemyUnit)) continue;
+        if (exceedsHorizontalRange(this.position, enemy.position, weapon.maxRange)) {
+          continue;
+        }
         const los = checkLOS.call(context.spotting, this.position, enemy.position);
         if (los.clear && los.dist <= weapon.maxRange
             && context.buildingInteraction?.canFireAt?.(this, enemy.position) !== false
             && (!best || los.dist < best.distance)) {
           best = { unit: enemyUnit, agent: enemy, position: enemy.position, distance: los.dist };
+          if (enemy === retainedAgent) break;
         }
       }
+      if (best && enemyUnit === retainedUnit) break;
     }
     if (!best && this.unit.targetPos) {
+      if (exceedsHorizontalRange(this.position, this.unit.targetPos, weapon.maxRange)) {
+        this.targetUnitId = null;
+        this.targetSoldierId = null;
+        resetFireControlState(this.fireControl);
+        this.syncRecord();
+        return false;
+      }
       const los = checkLOS.call(context.spotting, this.position, this.unit.targetPos);
       if (los.clear && los.dist <= weapon.maxRange
           && context.buildingInteraction?.canFireAt?.(this, this.unit.targetPos) !== false) {

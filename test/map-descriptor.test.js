@@ -7,6 +7,15 @@ import {
 } from '../src/maps/MapDescriptor.js';
 import { STONNE_1940_MAP } from '../src/maps/france/stonne.js';
 import { STONNE_1940_SCENARIO } from '../src/scenarios/france1940/stonne1940.js';
+import {
+  FRANCE_1940_BUILDING_DESCRIPTORS
+} from '../src/maps/france/FranceBuildingDescriptors.js';
+import {
+  ATTACHED_BUILDING_MIN_MASONRY_PIER_METERS
+} from '../src/maps/france/FranceAttachedStreetBuildings.js';
+import {
+  validateBuildingDescriptor
+} from '../src/simulation/buildings/BuildingDescriptor.js';
 
 function assertDeepFrozen(value, path = 'map', seen = new Set()) {
   if (!value || typeof value !== 'object' || seen.has(value)) return;
@@ -275,35 +284,65 @@ test('Stonne map owns immutable terrain, surface, feature, structure, and deploy
   assert.deepEqual(
     STONNE_1940_MAP.wallRuns.map(run => run.id),
     [
-      'village_house_rear',
-      'village_house_west',
-      'village_house_east',
-      'village_house_front_west',
-      'village_house_front_east',
+      'french_bank_cobblestone_west',
+      'french_bank_cobblestone_east',
       'farmhouse_south',
       'farmhouse_north',
       'farmhouse_west',
       'farmhouse_east_south',
-      'farmhouse_east_north'
+      'farmhouse_east_north',
+      'north_mill_road_south',
+      'north_mill_road_north',
+      'north_mill_south',
+      'north_mill_north',
+      'north_mill_east',
+      'north_pasture_south',
+      'north_pasture_east_south',
+      'north_pasture_east_north',
+      'north_pasture_north',
+      'north_pasture_west',
+      'pasture_west_hedgerow_south',
+      'pasture_west_hedgerow_north',
+      'pasture_north_hedgerow_west',
+      'pasture_north_hedgerow_east',
+      'orchard_east_hedgerow_north',
+      'orchard_east_hedgerow_south',
+      'pasture_barn_log_pile',
+      'north_mill_lane_log_pile',
+      'village_west_forward_ambush',
+      'village_east_forward_ambush',
+      'village_west_rear_log_cover',
+      'village_east_rear_log_cover'
     ]
   );
   assert.deepEqual(
     Object.keys(STONNE_1940_MAP.wallProfiles),
-    ['stone-wall', 'wood-picket-fence']
+    [
+      'stone-wall',
+      'cobblestone-bank-wall',
+      'wood-picket-fence',
+      'hedgerow',
+      'sandbag-wall',
+      'timber-log-pile'
+    ]
   );
   assert.equal(
     STONNE_1940_MAP.wallProfiles['wood-picket-fence'].presentationKind,
     'alpha-tested-card'
   );
+  assert.equal(STONNE_1940_MAP.wallProfiles['cobblestone-bank-wall'].textureRepeatMeters, 1.6);
+  assert.equal(STONNE_1940_MAP.wallProfiles['cobblestone-bank-wall'].textureRepeatHeightMeters, 0.8);
+  assert.equal(STONNE_1940_MAP.wallProfiles['sandbag-wall'].textureRepeatMeters, 1.6);
+  assert.equal(STONNE_1940_MAP.wallProfiles['sandbag-wall'].textureRepeatHeightMeters, 0.64);
   assert.equal(
     STONNE_1940_MAP.wallRuns
-      .filter(run => run.enclosureId === 'farmhouse-lot')
+      .filter(run => run.enclosureId === 'farmhouse-lot' || run.enclosureId === 'north-pasture-lot')
       .every(run => run.profileId === 'wood-picket-fence'),
     true
   );
   assert.equal(
     STONNE_1940_MAP.wallRuns
-      .filter(run => run.enclosureId === 'village-house-lot')
+      .filter(run => run.enclosureId && run.enclosureId !== 'farmhouse-lot' && run.enclosureId !== 'north-pasture-lot')
       .every(run => run.profileId === 'stone-wall'),
     true
   );
@@ -315,14 +354,19 @@ test('Stonne map owns immutable terrain, surface, feature, structure, and deploy
     })),
     [
       {
-        id: 'village-house-lot',
-        structureId: 'french_village_house',
-        gateIds: ['village-house-front-gate']
-      },
-      {
         id: 'farmhouse-lot',
         structureId: 'french_farmhouse_outbuilding',
         gateIds: ['farmhouse-east-gate']
+      },
+      {
+        id: 'north-mill-compound',
+        structureId: 'french_north_mill',
+        gateIds: ['north-mill-road-gate']
+      },
+      {
+        id: 'north-pasture-lot',
+        structureId: 'french_north_barn',
+        gateIds: ['north-pasture-gate']
       }
     ]
   );
@@ -331,12 +375,122 @@ test('Stonne map owns immutable terrain, surface, feature, structure, and deploy
       enclosure => enclosure.dataQuality.includes('not a surveyed historical Stonne boundary')
     )
   );
-  assert.equal(STONNE_1940_MAP.structures.length, 2);
-  assert.deepEqual(STONNE_1940_MAP.structures[0].position, [45, 60]);
-  assert.deepEqual(STONNE_1940_MAP.structures[1], {
+  assert.equal(STONNE_1940_MAP.structures.length, 14);
+  const descriptorById = new Map(
+    FRANCE_1940_BUILDING_DESCRIPTORS.map(descriptor => [descriptor.id, descriptor])
+  );
+  const attachedRows = Map.groupBy(
+    STONNE_1940_MAP.structures.filter(structure => structure.attachedRowId),
+    structure => structure.attachedRowId
+  );
+  assert.deepEqual([...attachedRows.keys()].sort(), [
+    'village-east-attached-row',
+    'village-west-attached-row'
+  ]);
+  for (const structures of attachedRows.values()) {
+    const ordered = [...structures].sort((a, b) => a.attachedOrder - b.attachedOrder);
+    assert.equal(ordered.length, 5);
+    assert.equal(new Set(ordered.map(entry => entry.descriptorId)).size, 5);
+    assert.deepEqual(ordered.map(entry => entry.attachedOrder), [0, 1, 2, 3, 4]);
+    const spans = ordered.map(entry => {
+      const descriptor = descriptorById.get(entry.descriptorId);
+      assert.ok(descriptor, `missing descriptor ${entry.descriptorId}`);
+      assert.equal(validateBuildingDescriptor(descriptor), descriptor);
+      assert.equal(Object.isFrozen(descriptor), true);
+      const sideWindows = descriptor.firePorts.filter(
+        port => Math.abs(port.localNormal[0]) > 0.5
+      );
+      if (entry.attachedOrder === 0) {
+        assert.equal(descriptor.sharedWallPolicy.sides.length, 1);
+        assert.ok(sideWindows.length >= descriptor.floors.length * 2);
+        for (const port of sideWindows) {
+          const worldNormalZ = -port.localNormal[0] * Math.sin(entry.rotationY)
+            + port.localNormal[2] * Math.cos(entry.rotationY);
+          assert.ok(worldNormalZ < -0.99, `${port.id} must overlook the river`);
+        }
+      } else {
+        assert.deepEqual(descriptor.sharedWallPolicy.sides, ['left', 'right']);
+        assert.equal(sideWindows.length, 0, `${descriptor.id} opens into a party wall`);
+      }
+      const doors = descriptor.portals.filter(portal => portal.kind === 'door');
+      assert.ok(doors.some(portal => Math.abs(portal.aperture.center[0]) > 0.1));
+      for (const door of doors) {
+        const axis = Math.abs(door.localNormal[2]) > 0.5 ? 0 : 2;
+        const doorCenter = door.aperture.center[axis];
+        const doorHalfWidth = door.aperture.size[0] * 0.5;
+        const sameFacadeWindows = descriptor.firePorts.filter(port => (
+          port.sectionId === door.sectionId
+          && port.localNormal.every((value, normalIndex) => (
+            Math.abs(value - door.localNormal[normalIndex]) < 1e-9
+          ))
+        ));
+        for (const port of sameFacadeWindows) {
+          const windowCenter = port.aperture.center[axis];
+          const windowHalfWidth = port.aperture.size[0] * 0.5;
+          const pierWidth = Math.abs(windowCenter - doorCenter)
+            - windowHalfWidth
+            - doorHalfWidth;
+          assert.ok(
+            pierWidth + 1e-9 >= ATTACHED_BUILDING_MIN_MASONRY_PIER_METERS,
+            `${descriptor.id} ${door.id}/${port.id} retain a structural masonry pier`
+          );
+        }
+      }
+      for (const port of descriptor.firePorts) {
+        const floor = descriptor.rooms.find(room => room.id === port.roomId).floorId;
+        const elevation = descriptor.floors.find(record => record.id === floor).elevation;
+        const sill = port.aperture.center[1] - port.aperture.size[1] * 0.5 - elevation;
+        assert.ok(sill >= 1 && sill <= 1.1, `${port.id} sill must be chest-height`);
+        assert.ok(port.aperture.size[1] < doors[0].aperture.size[1]);
+      }
+      const halfWidth = (descriptor.bounds.max[0] - descriptor.bounds.min[0]) * 0.5;
+      return {
+        minZ: entry.position[1] - halfWidth,
+        maxZ: entry.position[1] + halfWidth
+      };
+    });
+    for (let index = 1; index < spans.length; index += 1) {
+      assert.ok(
+        Math.abs(spans[index - 1].maxZ - spans[index].minZ) <= 1e-9,
+        `attached buildings ${index - 1} and ${index} must share one exact wall boundary`
+      );
+    }
+    const frenchBankEdge = STONNE_1940_MAP.river.centerZ
+      + STONNE_1940_MAP.river.cutWidth * 0.5;
+    assert.ok(spans[0].minZ - frenchBankEdge >= 8);
+  }
+  assert.ok(FRANCE_1940_BUILDING_DESCRIPTORS.some(descriptor => (
+    descriptor.firePorts.filter(port => (
+      port.id.startsWith('upper-floor-front-window')
+    )).length === 3
+  )));
+  assert.deepEqual(
+    STONNE_1940_MAP.wallRuns
+      .filter(run => run.profileId === 'cobblestone-bank-wall')
+      .map(run => [run.start, run.end]),
+    [
+      [[-82, 24], [-3.5, 24]],
+      [[3.5, 24], [82, 24]]
+    ]
+  );
+  assert.equal(
+    STONNE_1940_MAP.wallRuns.some(run => run.id.startsWith('bridgehead_sandbag_')),
+    false
+  );
+  const farmhousePlacement = STONNE_1940_MAP.structures.find(
+    structure => structure.id === 'french_farmhouse_outbuilding'
+  );
+  assert.deepEqual(farmhousePlacement, {
     id: 'french_farmhouse_outbuilding',
     descriptorId: 'fr_farmhouse_8x6_1f',
     visualAdapterId: 'fr_farmhouse_8x6_1f',
+    styleId: 'rustic-barn-timber',
+    terrainPad: {
+      footprintMargin: 1.75,
+      blendDistance: 4,
+      dataQuality:
+        'scenario-authored grading approximation derived from each structure footprint'
+    },
     position: [-45, 34],
     rotationY: Math.PI / 2,
     foundationClearance: 0.12,
@@ -348,8 +502,8 @@ test('Stonne map owns immutable terrain, surface, feature, structure, and deploy
       ]
     }
   });
-  assert.equal(Object.isFrozen(STONNE_1940_MAP.structures[1]), true);
-  assert.equal(STONNE_1940_MAP.foliage.length, 5);
+  assert.equal(Object.isFrozen(farmhousePlacement), true);
+  assert.equal(STONNE_1940_MAP.foliage.length, 9);
   assert.equal(STONNE_1940_MAP.foliageRendering.mode, 'instanced');
   assert.match(STONNE_1940_MAP.foliageRendering.dataQuality, /EZ-Tree/);
   assert.ok(STONNE_1940_MAP.surfaces.layers.every(layer => layer.visualOnly));
@@ -363,7 +517,10 @@ test('Stonne map owns immutable terrain, surface, feature, structure, and deploy
       'field-southwest-detail',
       'field-southeast',
       'road-north-south-shoulder',
-      'road-north-south'
+      'road-north-south',
+      'village-west-rear-lane',
+      'village-east-rear-lane',
+      'village-rear-cross-lane'
     ]
   );
   assert.deepEqual(
@@ -392,9 +549,31 @@ test('Stonne map owns immutable terrain, surface, feature, structure, and deploy
         kind: 'road-shoulder',
         color: '#806a4d'
       },
-      { id: 'road-north-south', kind: 'road', color: '#92704a' }
+      { id: 'road-north-south', kind: 'road', color: '#92704a' },
+      {
+        id: 'village-west-rear-lane',
+        kind: 'farm-lane',
+        color: '#806b4d'
+      },
+      {
+        id: 'village-east-rear-lane',
+        kind: 'farm-lane',
+        color: '#806b4d'
+      },
+      {
+        id: 'village-rear-cross-lane',
+        kind: 'farm-lane',
+        color: '#786448'
+      }
     ]
   );
+  assert.equal(STONNE_1940_MAP.configuredMission.objective.type, 'BREAKTHROUGH');
+  assert.deepEqual(
+    STONNE_1940_MAP.configuredMission.objective.exitZone,
+    { minX: -9, maxX: 9, minZ: 106, maxZ: 120 }
+  );
+  assert.equal(STONNE_1940_MAP.configuredMission.enemyPlanSet.plans.length, 3);
+  assert.equal(Object.isFrozen(STONNE_1940_MAP.configuredMission), true);
   assert.ok(
     STONNE_1940_MAP.surfaces.layers.every(
       layer => Object.hasOwn(layer, 'polygon') && !Object.hasOwn(layer, 'rect')
@@ -618,8 +797,8 @@ test('map definition clones plain input before deep freezing it', () => {
   source.wallEnclosures[0].gateOpenings[0].start[0] = -1;
   source.deploymentZones.french.minX = -1;
 
-  assert.equal(defined.wallRuns[0].start[0], 32);
-  assert.equal(defined.wallEnclosures[0].gateOpenings[0].start[0], 42);
+  assert.equal(defined.wallRuns[0].start[0], -82);
+  assert.equal(defined.wallEnclosures[0].gateOpenings[0].start[0], -32);
   assert.equal(defined.deploymentZones.french.minX, -80);
   assertDeepFrozen(defined);
 });
@@ -699,7 +878,8 @@ test('map validation rejects malformed extents, duplicate IDs, bad features, and
     }, /gateOpenings\[0\] requires distinct endpoints/],
     [map => { map.wallRuns[0].enclosureId = 'missing'; }, /unknown enclosure/],
     [map => {
-      map.wallRuns[0].adjacentGateId = 'farmhouse-east-gate';
+      map.wallRuns.find(run => run.id === 'farmhouse_south').adjacentGateId =
+        'north-mill-road-gate';
     }, /gate outside enclosure/],
     [map => { map.foliage[0].visualOnly = false; }, /explicitly declare visualOnly/],
     [map => { map.deploymentZones.french.maxZ = 200; }, /outside map bounds/]
@@ -795,6 +975,46 @@ test('surface layers accept one legacy rectangle or ordered polygon and reject i
     const map = mutableMap();
     mutate(map);
     assert.throws(() => validateMapDescriptor(map), pattern);
+  }
+});
+
+test('map-owned floodplain, terrain-pad, facade, and projectile-cover metadata validate', () => {
+  const map = mutableMap();
+  assert.equal(map.river.floodplainRadius, 45);
+  assert.equal(map.structures[0].terrainPad.footprintMargin, 1.75);
+  assert.equal(map.structures[0].terrainPad.levelGroupId, 'village-east-attached-row');
+  assert.equal(map.structures[1].facadeId, 'commercial-cafe-ochre');
+  assert.equal(map.structures[1].roofStyleId, 'gabled');
+  assert.equal(map.structures[0].attachedRowId, 'village-east-attached-row');
+  assert.equal(map.structures[0].attachedOrder, 0);
+  assert.equal(map.wallProfiles['sandbag-wall'].blocksProjectiles, true);
+  assert.doesNotThrow(() => validateMapDescriptor(map));
+
+  const invalidCases = [
+    [candidate => { candidate.river.floodplainRadius = 0; }, /floodplainRadius/],
+    [candidate => {
+      candidate.structures[0].terrainPad.footprintMargin = -1;
+    }, /footprintMargin must not be negative/],
+    [candidate => {
+      candidate.structures[0].terrainPad.blendDistance = 0;
+    }, /blendDistance/],
+    [candidate => {
+      candidate.structures[0].terrainPad.levelGroupId = '';
+    }, /levelGroupId requires/],
+    [candidate => {
+      candidate.structures[0].roofStyleId = '';
+    }, /roofStyleId requires/],
+    [candidate => {
+      candidate.structures[0].attachedOrder = -1;
+    }, /attachedOrder must be a non-negative integer/],
+    [candidate => {
+      candidate.wallProfiles['sandbag-wall'].blocksProjectiles = 'yes';
+    }, /blocksProjectiles must be boolean/]
+  ];
+  for (const [mutate, pattern] of invalidCases) {
+    const candidate = mutableMap();
+    mutate(candidate);
+    assert.throws(() => validateMapDescriptor(candidate), pattern);
   }
 });
 

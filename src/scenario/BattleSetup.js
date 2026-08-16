@@ -595,6 +595,8 @@ function freezeScenario(scenario) {
   return Object.freeze({
     ...scenario,
     ai: Object.freeze({ ...scenario.ai }),
+    objective: scenario.objective ?? null,
+    enemyPlanSet: scenario.enemyPlanSet ?? null,
     communicationNets: Object.freeze(
       scenario.communicationNets.map(net => Object.freeze({ ...net }))
     ),
@@ -610,7 +612,8 @@ export function createConfiguredBattleScenario({
   enemyFactionId,
   playerForceSelection,
   enemyForceSelection,
-  enemyAiDifficulty = 'regular'
+  enemyAiDifficulty = 'regular',
+  battleSeed = null
 }) {
   const { playerForce, enemyForce } = resolveConfiguredBattleForces({
     catalog,
@@ -660,8 +663,21 @@ export function createConfiguredBattleScenario({
     enemyAiDifficulty,
     ...units.map(unit => unit.id)
   ].join(':');
-  const defaultSeed = hashString(seedSource) || 1;
+  if (battleSeed != null && (
+    !Number.isInteger(battleSeed)
+    || battleSeed < 0
+    || battleSeed > 0xffffffff
+  )) {
+    throw new Error('Configured battle seed must be an unsigned 32-bit integer');
+  }
+  const defaultSeed = (battleSeed ?? hashString(seedSource)) || 1;
   const mapName = mapDescriptor.title ?? mapDescriptor.id;
+  const configuredMission = mapDescriptor.configuredMission;
+  const missionApplies = Boolean(
+    configuredMission
+    && configuredMission.appliesTo.playerFactionId === playerFactionId
+    && configuredMission.appliesTo.enemyFactionId === enemyFactionId
+  );
   return freezeScenario({
     id: `configured-${mapDescriptor.id}-${playerFactionId}-vs-${enemyFactionId}`,
     gameFamilyId: family.id,
@@ -678,6 +694,8 @@ export function createConfiguredBattleScenario({
       leadership: difficulty.leadership,
       dataQuality: difficulty.dataQuality
     },
+    objective: missionApplies ? configuredMission.objective : null,
+    enemyPlanSet: missionApplies ? configuredMission.enemyPlanSet : null,
     communicationNets: [
       {
         id: playerNetId,

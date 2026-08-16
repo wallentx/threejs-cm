@@ -184,19 +184,19 @@ function projectCorrection(
 
 function unresolvedTelemetry(candidates) {
   const minimumDistance = INFANTRY_COLLISION_RADIUS * 2;
+  const rejectionDistance = minimumDistance - INFANTRY_SEPARATION_TOLERANCE;
   const unresolvedPairs = [];
   let unresolvedPairCount = 0;
   for (let first = 0; first < candidates.length; first++) {
     const left = candidates[first];
     for (let second = first + 1; second < candidates.length; second++) {
       const right = candidates[second];
-      const distance = Math.hypot(
-        left.agent.position.x - right.agent.position.x,
-        left.agent.position.z - right.agent.position.z
-      );
-      if (distance >= minimumDistance - INFANTRY_SEPARATION_TOLERANCE) {
-        continue;
-      }
+      const deltaX = left.agent.position.x - right.agent.position.x;
+      if (Math.abs(deltaX) >= rejectionDistance) continue;
+      const deltaZ = left.agent.position.z - right.agent.position.z;
+      if (Math.abs(deltaZ) >= rejectionDistance) continue;
+      const distance = Math.hypot(deltaX, deltaZ);
+      if (distance >= rejectionDistance) continue;
       unresolvedPairCount++;
       if (unresolvedPairs.length < MAX_UNRESOLVED_TELEMETRY) {
         unresolvedPairs.push({
@@ -243,6 +243,7 @@ export function resolveInfantrySeparation(units, terrain) {
   }
 
   const minimumDistance = INFANTRY_COLLISION_RADIUS * 2;
+  const rejectionDistance = minimumDistance - INFANTRY_SEPARATION_TOLERANCE;
   const correctedKeys = new Set();
   const correctedUnitIds = new Set();
   const leftDisplacement = { x: 0, z: 0 };
@@ -258,11 +259,11 @@ export function resolveInfantrySeparation(units, terrain) {
       for (let second = first + 1; second < candidates.length; second++) {
         const right = candidates[second];
         const deltaX = left.agent.position.x - right.agent.position.x;
+        if (Math.abs(deltaX) >= rejectionDistance) continue;
         const deltaZ = left.agent.position.z - right.agent.position.z;
+        if (Math.abs(deltaZ) >= rejectionDistance) continue;
         const distance = Math.hypot(deltaX, deltaZ);
-        if (distance >= minimumDistance - INFANTRY_SEPARATION_TOLERANCE) {
-          continue;
-        }
+        if (distance >= rejectionDistance) continue;
 
         let directionX;
         let directionZ;

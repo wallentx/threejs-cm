@@ -218,9 +218,25 @@ test('six individual soldiers enter upper floor (4 window slots + 2 support slot
     agent.position.fromArray(order.approachPosition);
   }
 
+  assert.equal(
+    buildings.getBuildingSnapshot('house').openings['front-door-aperture'].open,
+    false
+  );
   interactions.advance(0);
+  assert.equal(
+    buildings.getBuildingSnapshot('house').openings['front-door-aperture'].open,
+    true
+  );
+  assert.deepEqual(interactions.captureState().managedDoorOpenings, [{
+    buildingId: 'house',
+    openingId: 'front-door-aperture'
+  }]);
   assert.equal(interactions.getInteriorPresenceCount('house'), 6);
   interactions.advance(1.2);
+  assert.equal(
+    buildings.getBuildingSnapshot('house').openings['front-door-aperture'].open,
+    false
+  );
   assert.deepEqual(buildings.getBuildingSnapshot('house').occupancy, {});
   assert.equal(
     interactions.getInteriorPresenceCount('house'),
@@ -280,7 +296,15 @@ test('six individual soldiers enter upper floor (4 window slots + 2 support slot
   assert.equal(interactions.issueExit(unit).accepted, true);
   interactions.advance(0);
   interactions.advance(3.8);
+  assert.equal(
+    buildings.getBuildingSnapshot('house').openings['front-door-aperture'].open,
+    true
+  );
   interactions.advance(1.2);
+  assert.equal(
+    buildings.getBuildingSnapshot('house').openings['front-door-aperture'].open,
+    false
+  );
   assert.equal(
     agents.filter(agent => agent.buildingLocation).length,
     0

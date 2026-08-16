@@ -1254,11 +1254,10 @@ export class SpottingSystem {
 
     const snapshotProvider = this.terrain?.getSightOccluderSnapshot;
     if (typeof snapshotProvider === 'function') {
-      const snapshot = validateTerrainSightOccluderSnapshot(
-        snapshotProvider.call(this.terrain)
-      );
-      if (snapshot !== this.terrainSightSnapshot
-          || snapshot.revision !== this.terrainSightSnapshot?.revision) {
+      const candidateSnapshot = snapshotProvider.call(this.terrain);
+      if (candidateSnapshot !== this.terrainSightSnapshot
+          || candidateSnapshot?.revision !== this.terrainSightSnapshot?.revision) {
+        const snapshot = validateTerrainSightOccluderSnapshot(candidateSnapshot);
         const runs = createTerrainOccluderRuns(snapshot.records);
         this.terrainSightSnapshot = snapshot;
         this.terrainSightOccluders = snapshot.records;

@@ -413,7 +413,9 @@ export class CombatSystem {
       getUnits: options.getUnits ?? (() => []),
       random,
       buildingSystem: this.buildingSystem,
-      getBuildingColliders: options.getBuildingColliders ?? null
+      getBuildingColliders: options.getBuildingColliders ?? null,
+      getStaticProjectileColliders:
+        options.getStaticProjectileColliders ?? (() => [])
     });
   }
 
@@ -792,6 +794,12 @@ export class CombatSystem {
       buildingId: impact.buildingId ?? null,
       sectionId: impact.sectionId ?? result?.sectionId ?? null,
       colliderPartId: impact.colliderPartId ?? result?.colliderPartId ?? null,
+      colliderId: result?.colliderId ?? impact.colliderId ?? null,
+      mapFeatureId: result?.mapFeatureId ?? impact.mapFeatureId ?? null,
+      projectileCoverDataQuality:
+        result?.projectileCoverDataQuality
+        ?? impact.projectileCoverDataQuality
+        ?? null,
       buildingResult: result?.buildingResult
         ? JSON.parse(JSON.stringify(result.buildingResult))
         : null
@@ -1001,6 +1009,24 @@ export class CombatSystem {
         this.createExplosionEffect(impact.point, 0.65, weapon);
       } else {
         this.createImpactEffect(impact.point, result.penetrated ? 0xff7b46 : 0xd6b36a);
+      }
+      return false;
+    }
+
+    if (impact.kind === 'static_obstacle') {
+      this.telemetry.stops++;
+      this.recordImpact(projectile, impact, {
+        penetrated: false,
+        zone: 'static_cover',
+        colliderId: impact.colliderId,
+        mapFeatureId: impact.mapFeatureId,
+        projectileCoverDataQuality: impact.projectileCoverDataQuality
+      });
+      if (weapon.explosiveRadius > 0) {
+        this.applyBlast(impact.point, weapon, projectile.attacker);
+        this.createExplosionEffect(impact.point, 0.6, weapon);
+      } else {
+        this.createImpactEffect(impact.point, 0xd6b36a);
       }
       return false;
     }

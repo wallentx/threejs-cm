@@ -9,20 +9,14 @@ import { StaticCollisionWorld } from '../src/simulation/collision/StaticCollisio
 function createMultiDoorDescriptor({ reversePortals = false } = {}) {
   const descriptor = structuredClone(FR_HOUSE_12X9_2F);
   descriptor.id = 'fr_house_12x9_2f_multi_door_test';
-  descriptor.portals.push({
-    id: 'rear-door',
-    kind: 'door',
-    from: 'outside',
-    to: 'ground-room',
-    sectionId: 'rear-entry-shell',
-    aperture: {
-      id: 'rear-door-aperture',
-      center: [0, 1.05, -4.5],
-      size: [1.4, 2.1],
-      initiallyOpen: true
-    },
-    transitSeconds: 1.2
-  });
+  const rearPortal = descriptor.portals.find(portal => portal.id === 'rear-door');
+  rearPortal.sectionId = 'rear-entry-shell';
+  rearPortal.aperture.initiallyOpen = true;
+  const groundShell = descriptor.sections.find(section => section.id === 'ground-shell');
+  const rearPartIndex = groundShell.colliderParts.findIndex(
+    part => part.id === 'ground-rear-door'
+  );
+  const [rearDoorPart] = groundShell.colliderParts.splice(rearPartIndex, 1);
   descriptor.sections.push({
     id: 'rear-entry-shell',
     kind: 'wall',
@@ -30,12 +24,7 @@ function createMultiDoorDescriptor({ reversePortals = false } = {}) {
     maxHealth: 240,
     resistanceMm: 320,
     supports: [],
-    colliderParts: [{
-      id: 'rear-door',
-      center: [0, 1.05, -4.5],
-      halfExtents: [0.7, 1.05, 0.18],
-      openingId: 'rear-door-aperture'
-    }],
+    colliderParts: [{ ...rearDoorPart, id: 'rear-door' }],
     visualStages: structuredClone(descriptor.sections[0].visualStages),
     supportThreshold: 0.6,
     breachHealthFraction: 0.55

@@ -1,8 +1,12 @@
 import * as THREE from 'three';
-import { Renderer } from '../engine/Renderer.js';
+import {
+  Renderer,
+  resolveDepthOfFieldEnabled
+} from '../engine/Renderer.js';
 import { CameraManager } from '../engine/CameraManager.js';
 import { SoundEngine } from '../engine/SoundEngine.js';
 import { FrameProfiler } from '../engine/FrameProfiler.js';
+import { SimulationPhaseProfiler } from '../engine/SimulationPhaseProfiler.js';
 import { TerrainBuilder } from '../world/TerrainBuilder.js';
 import { VehicleDamageEffects } from '../world/VehicleDamageEffects.js';
 import { ShotTrajectoryOverlay } from '../world/debug/ShotTrajectoryOverlay.js';
@@ -33,6 +37,12 @@ import { BuildingSystem } from '../simulation/buildings/index.js';
 import {
   InfantrySeparationSystem
 } from '../simulation/infantry/InfantrySeparationSystem.js';
+import {
+  ScenarioObjectiveSystem
+} from '../simulation/objectives/ScenarioObjectiveSystem.js';
+import {
+  EnemyObjectivePlanner
+} from '../simulation/ai/EnemyObjectivePlanner.js';
 import {
   collisionRecordsForVehicle,
   createDynamicVehicleCollisionRecords
@@ -198,6 +208,12 @@ export class GameApp {
       this.qualityTier = ['low', 'ultra'].includes(params.get('quality'))
         ? params.get('quality')
         : 'high';
+      // DoF is an explicit desktop presentation option. Keeping it opt-in
+      // preserves transparent combat VFX readability and low-tier headroom.
+      this.depthOfFieldEnabled = resolveDepthOfFieldEnabled({
+        qualityTier: this.qualityTier,
+        requested: params.get('dof') === 'true'
+      });
       this.requestedPlayMode = params.get('mode') === 'realtime' ? 'realtime' : 'wego';
       this.startWithoutSelection = params.get('selected') === 'none';
       this.visualDebugMode = params.get('debug') || 'final';
@@ -206,6 +222,7 @@ export class GameApp {
         : 'design';
       this.lastDiagnosticsUpdate = 0;
       this.frameProfiler = new FrameProfiler();
+      this.simulationPhaseProfiler = new SimulationPhaseProfiler();
       this.debugDiagnostics = null;
       this.lastDebugMetricsUpdate = Number.NEGATIVE_INFINITY;
       this.formationDebugEnabled = this.visualDebugMode === 'agents';
@@ -223,6 +240,7 @@ export class GameApp {
       this.renderer = new Renderer(this.container, {
         qualityTier: this.qualityTier,
         debugMode: this.visualDebugMode,
+        enableDepthOfField: this.depthOfFieldEnabled,
         onDeviceLost: info => {
           const message = `${info.api} rendering device lost: ${info.message}`;
           document.body.dataset.gameStatus = 'error';
@@ -271,9 +289,13 @@ export class GameApp {
         buildingSystem: this.buildingSystem,
         structureAdapters: this.structureAdapters,
         terrainSurfaceProvider: this.visualFactories.terrainSurfaceProvider,
-        foliageTemplateProvider: this.visualFactories.foliageTemplateProvider
+        foliageTemplateProvider: this.visualFactories.foliageTemplateProvider,
+        qualityTier: this.qualityTier
       });
       this.terrain.buildScenarioMap();
+      window.addEventListener('pagehide', () => {
+        this.terrain?.disposeAtmosphere();
+      }, { once: true });
       await this.terrain.foliageReady;
       this.cameraManager.setGroundHeightProvider(
         (x, z) => this.terrain.getRenderedTerrainHeightAt(x, z)
@@ -289,6 +311,9 @@ export class GameApp {
       this.infantrySeparation = new InfantrySeparationSystem();
       this.buildingInteraction = new BuildingInteractionSystem({
         buildingSystem: this.buildingSystem,
+        getStaticProjectileColliders: () => (
+          this.terrain.getProjectileColliderRecords()
+        ),
         getUnits: () => this.units
       });
 
@@ -410,6 +435,22 @@ export class GameApp {
       // 6. Build Scenario
       log('Spawning scenario units...', 'info');
       this.setupScenario(this.scenario);
+      this.objectiveSystem = this.scenario.objective
+        ? new ScenarioObjectiveSystem(this.scenario.objective)
+        : null;
+      this.enemyObjectivePlanner = this.scenario.enemyPlanSet
+        ? new EnemyObjectivePlanner({
+            planSet: this.scenario.enemyPlanSet,
+            difficultyId: this.enemyAiDifficulty,
+            random: () => this.random()
+          })
+        : null;
+      if (this.enemyObjectivePlanner) {
+        this.applyEnemyPlannerCommands(
+          this.enemyObjectivePlanner.prepare(this.units)
+        );
+      }
+      this.updateMissionPresentation();
       const cameraLevels = { near: 2, design: 4, far: 8 };
       this.cameraManager.setHeightPreset(cameraLevels[this.cameraBookmark]);
       this.renderer.configureSceneShadows();
@@ -435,6 +476,8 @@ export class GameApp {
       document.body.dataset.playerFactionId = this.playerFactionId;
       document.body.dataset.enemyFactionId = this.enemyFactionId;
       document.body.dataset.enemyAiDifficulty = this.enemyAiDifficulty;
+      document.body.dataset.enemyPlanId =
+        this.enemyObjectivePlanner?.getDiagnostics().selectedPlanId ?? 'none';
       document.body.dataset.rendererBackend = this.renderer.backendName;
       document.body.dataset.vfxRuntime = this.vfxRuntime
         ? this.vfxRuntime.getDiagnostics().implementationId
@@ -505,8 +548,164 @@ export class GameApp {
   beginMatch() {
     if (this.matchStarted) return;
     this.matchStarted = true;
+    if (this.enemyObjectivePlanner) {
+      this.applyEnemyPlannerCommands(
+        this.enemyObjectivePlanner.beginBattle(this.units)
+      );
+      document.body.dataset.enemyPlanId =
+        this.enemyObjectivePlanner.getDiagnostics().selectedPlanId ?? 'none';
+    }
     this.terrain.removeSetupZones();
     document.body.dataset.deploymentStatus = 'closed';
+    if (this.objectiveSystem) {
+      this.ui?.showToast(
+        'MISSION: Stop German units reaching the road exit behind your deployment',
+        'info'
+      );
+    }
+  }
+
+  relocateUnitForEnemySetup(unit, position) {
+    if (!unit || !Array.isArray(position)) return false;
+    const destination = new THREE.Vector3(
+      position[0],
+      0,
+      position[1]
+    );
+    destination.y = this.terrain.getMovementHeightAt?.(
+      destination.x,
+      destination.z
+    ) ?? this.terrain.getHeightAt(destination.x, destination.z);
+    const displacement = destination.clone().sub(unit.position);
+    unit.clearWaypoints();
+    unit.position.copy(destination);
+    unit.mesh?.position.copy(destination);
+    if (unit.mesh) {
+      unit.mesh.rotation.y = unit.rotation;
+      unit.mesh.updateMatrixWorld(true);
+    }
+    for (const agent of unit.soldierAI?.agents ?? []) {
+      agent.position.add(displacement);
+      agent.position.y = this.terrain.getMovementHeightAt?.(
+        agent.position.x,
+        agent.position.z
+      ) ?? this.terrain.getHeightAt(agent.position.x, agent.position.z);
+      agent.velocity.set(0, 0, 0);
+      agent.commandWaypoint = -1;
+      agent.syncRecord();
+    }
+    unit.soldierAI?.syncMeshes();
+    return true;
+  }
+
+  addEnemyRouteWaypoint(unit, position, orderType, pauseSeconds = 0) {
+    const destination = new THREE.Vector3(position[0], 0, position[1]);
+    destination.y = this.terrain.getMovementHeightAt?.(
+      destination.x,
+      destination.z
+    ) ?? this.terrain.getHeightAt(destination.x, destination.z);
+    const routeStart = unit.waypoints.at(-1)?.position ?? unit.position;
+    const plannedRoute = unit.collisionWorld?.getNavigationPath?.(
+      { x: routeStart.x, z: routeStart.z },
+      { x: destination.x, z: destination.z },
+      unit.collisionRadius,
+      unit.vehicleSpec ? 'vehicle' : 'infantry',
+      {
+        clearance: unit.collisionRadius,
+        waypointClearance: ENTER_ROUTE_WAYPOINT_TOLERANCE,
+        longitudinalClearance: unit.vehicleSpec
+          ? unit.collisionRadius + Math.max(
+              0,
+              ...(unit.collisionOffsets ?? []).map(offset => Math.abs(offset.z))
+            )
+          : unit.collisionRadius + ENTER_ROUTE_WAYPOINT_TOLERANCE
+      }
+    );
+    const routePoints = Array.isArray(plannedRoute) && plannedRoute.length > 0
+      ? plannedRoute
+      : [{ x: destination.x, z: destination.z }];
+    for (const [index, routePoint] of routePoints.entries()) {
+      if (
+        index === 0
+        && Math.hypot(
+          routePoint.x - routeStart.x,
+          routePoint.z - routeStart.z
+        ) < 1e-5
+      ) {
+        continue;
+      }
+      const routePosition = new THREE.Vector3(
+        routePoint.x,
+        this.terrain.getMovementHeightAt?.(routePoint.x, routePoint.z)
+          ?? this.terrain.getHeightAt(routePoint.x, routePoint.z),
+        routePoint.z
+      );
+      const finalPoint = index === routePoints.length - 1;
+      unit.addWaypoint(
+        routePosition,
+        orderType,
+        finalPoint ? pauseSeconds : 0
+      );
+    }
+  }
+
+  applyEnemyPlannerCommands(commands) {
+    if (!Array.isArray(commands) || commands.length === 0) return 0;
+    const unitById = new Map(this.units.map(unit => [String(unit.id), unit]));
+    let applied = 0;
+    for (const command of commands) {
+      const unit = unitById.get(command.unitId);
+      if (!unit) continue;
+      if (command.type === 'SETUP_POSITION') {
+        applied += this.relocateUnitForEnemySetup(unit, command.position) ? 1 : 0;
+        continue;
+      }
+      if (command.type !== 'REPLACE_ROUTE') continue;
+      unit.clearWaypoints();
+      if (command.startDelaySeconds > 0) {
+        unit.addWaypoint(unit.position, 'PAUSE', command.startDelaySeconds);
+      }
+      for (const waypoint of command.waypoints) {
+        this.addEnemyRouteWaypoint(
+          unit,
+          waypoint.position,
+          waypoint.orderType,
+          waypoint.pauseSeconds
+        );
+      }
+      applied++;
+    }
+    return applied;
+  }
+
+  updateMissionPresentation(report = this.objectiveSystem?.getReport() ?? null) {
+    if (!report) {
+      document.body.dataset.missionStatus = 'none';
+      this.ui?.updateMissionDisplay?.(null);
+      return;
+    }
+    document.body.dataset.missionStatus = report.status.toLowerCase();
+    document.body.dataset.missionWinner = report.winnerFactionId ?? 'none';
+    document.body.dataset.missionResolution = report.resolution ?? 'none';
+    this.ui?.updateMissionDisplay?.(report);
+  }
+
+  advanceMission(delta) {
+    if (!this.objectiveSystem) return null;
+    const previousStatus = this.objectiveSystem.getReport().status;
+    const report = this.objectiveSystem.advance(delta, this.units);
+    this.updateMissionPresentation(report);
+    if (previousStatus !== 'COMPLETE' && report.status === 'COMPLETE') {
+      this.wego.isPlaying = false;
+      this.ui?.showToast(
+        `${String(report.winnerFactionId).toUpperCase()} VICTORY: ${
+          report.resolution.replaceAll('_', ' ')
+        }`,
+        report.winnerFactionId === this.playerFactionId ? 'success' : 'warn'
+      );
+      this.wego.updateDisplay();
+    }
+    return report;
   }
 
   issueBuildingOrder(
@@ -1030,6 +1229,9 @@ export class GameApp {
   captureSimulationState() {
     return {
       randomState: this.randomState,
+      objective: this.objectiveSystem?.captureState() ?? null,
+      enemyObjectivePlanner:
+        this.enemyObjectivePlanner?.captureState() ?? null,
       units: this.units.map(unit => unit.captureState()),
       buildings: this.buildingSystem.captureState(),
       linearObstacles:
@@ -1057,6 +1259,12 @@ export class GameApp {
       );
     }
     this.randomState = state.randomState >>> 0;
+    if (this.objectiveSystem && state.objective) {
+      this.objectiveSystem.restoreState(state.objective);
+    }
+    if (this.enemyObjectivePlanner && state.enemyObjectivePlanner) {
+      this.enemyObjectivePlanner.restoreState(state.enemyObjectivePlanner);
+    }
     this.buildingSystem.restoreState(state.buildings);
     this.terrain.restoreDestructibleObstacleState?.(
       state.linearObstacles ?? null
@@ -1098,6 +1306,7 @@ export class GameApp {
       this.deselectUnit(cameraOptions);
     }
     this.commands.renderOverlays();
+    this.updateMissionPresentation();
   }
 
   chooseTarget(attacker, opposingUnits) {
@@ -1148,7 +1357,17 @@ export class GameApp {
   }
 
   simulateStep(delta) {
+    this.simulationPhaseProfiler.begin();
     this.movedUnitIds.clear();
+    if (this.enemyObjectivePlanner) {
+      this.applyEnemyPlannerCommands(
+        this.enemyObjectivePlanner.advance(
+          delta,
+          this.units,
+          this.objectiveSystem?.getReport() ?? null
+        )
+      );
+    }
     let commandOverlaysDirty = false;
     const overlayUnits = new Set([
       ...(this.commands?.activeUnits ?? []),
@@ -1192,6 +1411,7 @@ export class GameApp {
     });
     this.advanceVehicleTransports(delta);
     if (commandOverlaysDirty) this.commands.renderOverlays();
+    this.simulationPhaseProfiler.mark('units');
     const separation = this.infantrySeparation?.resolve(this.units, this.terrain);
     if (separation?.correctedUnitIds.length > 0) {
       const correctedUnitIds = new Set(separation.correctedUnitIds);
@@ -1201,6 +1421,7 @@ export class GameApp {
         }
       }
     }
+    this.simulationPhaseProfiler.mark('separation');
     this.buildingInteraction.advance(delta);
     this.syncBuildingInteriorPresentation();
     // Building transit owns door/stair movement after ordinary unit movement.
@@ -1209,6 +1430,7 @@ export class GameApp {
     for (const unit of this.units) {
       unit.soldierAI?.advanceSupportAmmunitionTransfers(delta);
     }
+    this.simulationPhaseProfiler.mark('buildings');
     // Observation remains authoritative, but samples the fixed-step world at a
     // bounded deterministic cadence. The stepper carries exact elapsed time.
     GameApp.prototype.advanceSpotting.call(this, delta);
@@ -1223,6 +1445,7 @@ export class GameApp {
         hasDirectPrecisionObservation
       );
     }
+    this.simulationPhaseProfiler.mark('spotting');
 
     const attemptFire = (attacker, opposingUnits) => {
       if (!attacker.isCombatEffective()) return;
@@ -1282,9 +1505,12 @@ export class GameApp {
         attemptFire(unit, opposingUnits);
       }
     }
+    this.simulationPhaseProfiler.mark('targeting');
     this.combat.update(delta);
     this.support.update(delta);
+    this.advanceMission(delta);
     this.pruneUncontrollableSelections();
+    this.simulationPhaseProfiler.finish('systems');
   }
 
   advanceSpotting(delta) {
@@ -1546,6 +1772,9 @@ export class GameApp {
             this.commands.handleMapClick(pt);
             this.ui.renderCommandGrid();
             this.sound.playUIClick();
+          } else if ((e.detail ?? 1) >= 2) {
+            this.cameraManager.setHomeTarget?.(pt);
+            this.cameraManager.setFocusTarget(pt);
           } else {
             this.deselectUnit({ frameCamera: false });
           }
@@ -1577,13 +1806,19 @@ export class GameApp {
       const delta = Math.min(this.timer.getDelta(), 0.1);
 
       const simulationDelta = this.wego.getSimulationDelta(delta);
+      this.simulationPhaseProfiler.setEnabled(
+        this.ui?.isPerformanceProfilingEnabled?.() === true
+      );
+      let simulationStepsThisFrame = 0;
       if (simulationDelta > 0) {
-        this.simulationStepper.advance(simulationDelta, fixedStep => {
+        const simulationResult = this.simulationStepper.advance(simulationDelta, fixedStep => {
           this.simulateStep(fixedStep);
           this.wego.completeSimulationStep(fixedStep);
         });
+        simulationStepsThisFrame = simulationResult.steps;
         if (this.wego.phase !== 'ACTION_PHASE') this.simulationStepper.reset();
       }
+      this.simulationPhaseProfiler.recordFrameSteps(simulationStepsThisFrame);
 
       this.refreshVisibilityProjection();
       this.advanceBuildingPresentation(delta);
@@ -1616,12 +1851,18 @@ export class GameApp {
       );
       this.vfxRuntime?.update(delta, this.camera);
       this.ui.render(this.units, this.cameraManager, timestamp);
+      if (this.depthOfFieldEnabled && this.cameraManager?.controls?.target) {
+        const focusDistance = this.camera.position.distanceTo(this.cameraManager.controls.target);
+        this.renderer.setFocusDistance(focusDistance);
+      }
+      this.renderer.updateShadowFocus(this.cameraManager?.controls?.target);
       this.renderer.render();
 
       const now = timestamp;
       if (now - this.lastDebugMetricsUpdate >= DEBUG_METRICS_INTERVAL_MS) {
         this.debugDiagnostics = {
           frame: this.frameProfiler.snapshot(),
+          simulation: this.simulationPhaseProfiler.snapshot(),
           renderer: this.renderer.getDiagnostics(),
           overlays: debugOverlayStats,
           lod: { ...lodCounts },

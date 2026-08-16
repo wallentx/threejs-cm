@@ -103,6 +103,36 @@ test('open window permits a swept projectile to reach the occupant', () => {
   assert.equal(hit.agent, agent);
 });
 
+test('static map cover participates in the authoritative projectile sweep', () => {
+  const { unit } = createInfantryUnit({
+    position: new THREE.Vector3(0, 0.53, 0)
+  });
+  const cover = {
+    id: 'wall:sandbags:0',
+    mapFeatureId: 'sandbags',
+    centerX: 0,
+    centerY: 1.1,
+    centerZ: 4,
+    halfX: 2,
+    halfHeight: 0.85,
+    halfZ: 0.35,
+    rotation: 0,
+    blocksProjectiles: true,
+    projectileCoverDataQuality: 'test cover approximation'
+  };
+  const ballistics = new BallisticsSystem({
+    getUnits: () => [unit],
+    getStaticProjectileColliders: () => [cover]
+  });
+
+  const hit = ballistics.detectImpact(createProjectile());
+  assert.equal(hit.kind, 'static_obstacle');
+  assert.equal(hit.colliderId, cover.id);
+  assert.equal(hit.mapFeatureId, cover.mapFeatureId);
+  assert.equal(hit.projectileCoverDataQuality, cover.projectileCoverDataQuality);
+  assert.ok(hit.point.z > 0, 'cover is resolved before the infantry behind it');
+});
+
 test('wall is the earliest hit before an occupant and a breach permits the later shot', () => {
   const buildingSystem = createBuildingSystem();
   const { unit, agent } = createInfantryUnit({

@@ -103,6 +103,7 @@ export class VehicleDebugSandboxApp {
     this.onPointerDown = this.onPointerDown.bind(this);
     this.onPointerUp = this.onPointerUp.bind(this);
     this.onPointerCancel = this.onPointerCancel.bind(this);
+    this.onDoubleClick = this.onDoubleClick.bind(this);
     this.buildShell();
     this.ready = this.init().catch(error => {
       this.handleInitializationError(error);
@@ -207,6 +208,7 @@ export class VehicleDebugSandboxApp {
     this.viewport.addEventListener('pointerdown', this.onPointerDown);
     this.viewport.addEventListener('pointerup', this.onPointerUp);
     this.viewport.addEventListener('pointercancel', this.onPointerCancel);
+    this.viewport.addEventListener('dblclick', this.onDoubleClick);
     this.resizeObserver = new ResizeObserver(() => this.resizeViewport());
     this.resizeObserver.observe(this.viewport);
     window.addEventListener('resize', this.resizeViewport);
@@ -432,6 +434,13 @@ export class VehicleDebugSandboxApp {
     this.pointerStart = null;
   }
 
+  onDoubleClick(event) {
+    if ((event.button ?? 0) !== 0) return;
+    event.preventDefault?.();
+    this.clearPendingTap();
+    this.focusCameraAt(event.clientX, event.clientY);
+  }
+
   clearPendingTap() {
     if (this.pendingTap?.timerId != null) {
       globalThis.clearTimeout(this.pendingTap.timerId);
@@ -578,6 +587,7 @@ export class VehicleDebugSandboxApp {
     this.viewport?.removeEventListener('pointerdown', this.onPointerDown);
     this.viewport?.removeEventListener('pointerup', this.onPointerUp);
     this.viewport?.removeEventListener('pointercancel', this.onPointerCancel);
+    this.viewport?.removeEventListener('dblclick', this.onDoubleClick);
     this.clearPendingTap();
     this.controls?.dispose();
     this.trajectoryOverlay?.dispose();

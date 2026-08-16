@@ -7,7 +7,8 @@ import {
 
 export {
   createGroundConformingWallGeometry,
-  createGroundConformingFenceCardGeometry
+  createGroundConformingFenceCardGeometry,
+  resolveSkyPanoramaSize
 } from '../../src/world/TerrainBuilder.js';
 
 /**

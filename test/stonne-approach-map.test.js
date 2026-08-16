@@ -116,7 +116,17 @@ test('Stonne builds rolling ground, five buildings, and four foliage instances',
     'MatureTreeCrownsEast'
   ].map(name => scene.getObjectByName(name));
   assert.ok(foliageInstances.every(mesh => mesh?.isInstancedMesh));
-  assert.ok(foliageInstances.every(mesh => mesh.count === 152));
+  assert.deepEqual(terrain.foliageExcludedFeatureIds, [
+    'west-orchard-4-1',
+    'west-orchard-4-3',
+    'west-orchard-4-4',
+    'west-field-line-11',
+    'southeast-field-line-1'
+  ]);
+  const renderedTreeCount = STONNE_APPROACH_1940_MAP.foliage.length
+    - terrain.foliageExcludedFeatureIds.length;
+  assert.equal(renderedTreeCount, 147);
+  assert.ok(foliageInstances.every(mesh => mesh.count === renderedTreeCount));
   const submittedTriangles = foliageInstances.reduce((sum, mesh) => {
     const triangleCount = mesh.geometry.getIndex()
       ? mesh.geometry.getIndex().count / 3
@@ -124,9 +134,9 @@ test('Stonne builds rolling ground, five buildings, and four foliage instances',
     return sum + triangleCount * mesh.count;
   }, 0);
   assert.ok(
-    submittedTriangles <= 100 * 152,
+    submittedTriangles <= 100 * renderedTreeCount,
     `expected no more than 100 submitted triangles per tree, received ${
-      submittedTriangles / 152
+      submittedTriangles / renderedTreeCount
     }`
   );
   assert.equal(scene.getObjectByName('MatureTree'), undefined);
@@ -161,7 +171,9 @@ test('family foliage template replaces fallback geometry without losing instance
   );
 
   assert.equal(instances.length, 2);
-  assert.ok(instances.every(mesh => mesh.count === 152));
+  assert.ok(instances.every(mesh => (
+    mesh.count === terrain.renderedFoliageEntries.length
+  )));
   assert.ok(instances.every(mesh => mesh.userData.generator === 'test-template'));
   const branchMatrix = new THREE.Matrix4();
   const leafMatrix = new THREE.Matrix4();

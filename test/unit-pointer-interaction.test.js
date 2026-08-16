@@ -8,6 +8,8 @@ function createInteractionHarness() {
   let deselections = 0;
   let cancellations = 0;
   const cameraLocks = [];
+  const cameraFocuses = [];
+  const cameraHomes = [];
   const mapClicks = [];
   const app = Object.create(GameApp.prototype);
   app.renderer = {
@@ -30,7 +32,9 @@ function createInteractionHarness() {
   app.hoveredUnit = null;
   app.mortarAreaDrag = null;
   app.cameraManager = {
-    setInteractionLocked(locked) { cameraLocks.push(locked); }
+    setInteractionLocked(locked) { cameraLocks.push(locked); },
+    setFocusTarget(point) { cameraFocuses.push(point.clone()); },
+    setHomeTarget(point) { cameraHomes.push(point.clone()); }
   };
   app.unitHoverPreview = { setHoveredUnit() {} };
   app.terrain = { terrainMesh: null, buildings: [] };
@@ -59,6 +63,8 @@ function createInteractionHarness() {
     getDeselections: () => deselections,
     getCancellations: () => cancellations,
     cameraLocks,
+    cameraFocuses,
+    cameraHomes,
     mapClicks
   };
 }
@@ -197,6 +203,33 @@ test('double-clicking a visible unit intentionally focuses it', () => {
     assert.equal(selections.length, 1);
     assert.equal(selections[0][0], unit);
     assert.equal(selections[0][1].frameCamera, true);
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
+});
+
+test('double-clicking terrain homes and focuses the camera on the clicked point', () => {
+  const previousWindow = globalThis.window;
+  globalThis.window = { innerWidth: 1280, innerHeight: 720 };
+  try {
+    const { app, listeners, cameraFocuses, cameraHomes, getDeselections } =
+      createInteractionHarness();
+    const point = new THREE.Vector3(18, 2.5, -11);
+    app.terrain.terrainMesh = {};
+    app.raycaster.intersectObject = () => [{ point: point.clone() }];
+
+    listeners.get('mousedown')({ button: 0, clientX: 420, clientY: 310 });
+    listeners.get('mouseup')({
+      button: 0,
+      clientX: 420,
+      clientY: 310,
+      detail: 2
+    });
+
+    assert.deepEqual(cameraHomes, [point]);
+    assert.deepEqual(cameraFocuses, [point]);
+    assert.equal(getDeselections(), 0);
   } finally {
     if (previousWindow === undefined) delete globalThis.window;
     else globalThis.window = previousWindow;

@@ -91,6 +91,26 @@ test('double tapping the sandbox recenters orbit controls without firing a gun s
   assert.equal(app.pendingTap, null);
 });
 
+test('desktop double-click recenters the sandbox and cancels its pending gun shot', () => {
+  const app = Object.create(VehicleDebugSandboxApp.prototype);
+  const focused = [];
+  let cleared = 0;
+  app.focusCameraAt = (x, y) => focused.push([x, y]);
+  app.clearPendingTap = () => { cleared++; };
+  let prevented = 0;
+
+  app.onDoubleClick({
+    button: 0,
+    clientX: 410,
+    clientY: 265,
+    preventDefault() { prevented++; }
+  });
+
+  assert.deepEqual(focused, [[410, 265]]);
+  assert.equal(cleared, 1);
+  assert.equal(prevented, 1);
+});
+
 test('camera focus raycasts visible vehicle surfaces before the ground', () => {
   const app = Object.create(VehicleDebugSandboxApp.prototype);
   const scene = new THREE.Scene();

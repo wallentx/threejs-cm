@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { FR_HOUSE_12X9_2F } from '../src/maps/france/FranceHouse12x9_2F.js';
 import { FR_FARMHOUSE_8X6_1F } from '../src/maps/france/FranceFarmhouse8x6_1F.js';
+import {
+  FRANCE_1940_BUILDING_DESCRIPTORS
+} from '../src/maps/france/FranceBuildingDescriptors.js';
 import { STONNE_1940_MAP } from '../src/maps/france/stonne.js';
 import { BuildingSystem } from '../src/simulation/buildings/BuildingSystem.js';
 import { GameApp } from '../src/app/GameApp.js';
@@ -34,14 +37,16 @@ function createHarness() {
   return { buildingSystem, visual };
 }
 
-const STRUCTURE_ADAPTERS = Object.freeze({
-  [FR_HOUSE_12X9_2F.id]: createFrenchHouseVisualAdapter(FR_HOUSE_12X9_2F),
-  [FR_FARMHOUSE_8X6_1F.id]: createFrenchHouseVisualAdapter(FR_FARMHOUSE_8X6_1F)
-});
+const STRUCTURE_ADAPTERS = Object.freeze(Object.fromEntries(
+  FRANCE_1940_BUILDING_DESCRIPTORS.map(descriptor => [
+    descriptor.id,
+    createFrenchHouseVisualAdapter(descriptor)
+  ])
+));
 
 function createTerrainHarness() {
   const buildingSystem = new BuildingSystem();
-  for (const descriptor of [FR_HOUSE_12X9_2F, FR_FARMHOUSE_8X6_1F]) {
+  for (const descriptor of FRANCE_1940_BUILDING_DESCRIPTORS) {
     buildingSystem.registerDescriptor(descriptor);
   }
   const terrain = new TerrainBuilder(new THREE.Scene(), {

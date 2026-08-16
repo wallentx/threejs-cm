@@ -323,6 +323,10 @@ export class UIManager {
         'hidden',
         !active
       );
+      document.getElementById('debug-simulation-detail')?.classList.toggle(
+        'hidden',
+        !active
+      );
     } else if (name === 'logs' || name === 'shots') {
       const sectionId = name === 'logs'
         ? 'debug-console-section'
@@ -332,6 +336,10 @@ export class UIManager {
       this.runtime.setDebugOverlayEnabled(name, active);
     }
     return active;
+  }
+
+  isPerformanceProfilingEnabled() {
+    return this.debugPanelVisible && this.debugToggles.fps;
   }
 
   renderDebugMetrics(diagnostics, timestamp) {
@@ -357,6 +365,7 @@ export class UIManager {
       : '--';
     const frame = diagnostics.frame ?? {};
     const renderer = diagnostics.renderer ?? {};
+    const simulation = diagnostics.simulation ?? {};
     const lod = diagnostics.lod ?? {};
     setText('debug-fps', Number.isFinite(frame.fps) ? frame.fps.toFixed(0) : '--');
     setText(
@@ -374,12 +383,24 @@ export class UIManager {
     setText('debug-draw-calls', compact(renderer.drawCalls));
     setText('debug-triangles', compact(renderer.triangles));
     setText(
+      'debug-simulation-step',
+      Number.isFinite(simulation.averageStepMs)
+        ? `${simulation.averageStepMs.toFixed(1)} ms`
+        : '-- ms'
+    );
+    setText('debug-simulation-steps', simulation.lastFrameSteps ?? 0);
+    setText(
       'debug-lod-counts',
       `${lod.high ?? 0}/${lod.medium ?? 0}/${lod.core ?? 0}/${lod.low ?? 0}`
     );
     setText(
       'debug-renderer-detail',
       `${renderer.backend ?? renderer.backendName ?? 'unknown'} · ${renderer.qualityTier ?? 'unknown'} @ ${renderer.pixelRatio ?? '?'}x · ${renderer.geometries ?? 0} geometries · ${renderer.textures ?? 0} textures`
+    );
+    const phases = simulation.phaseMilliseconds ?? {};
+    setText(
+      'debug-simulation-detail',
+      `Simulation avg/step · units ${Number(phases.units ?? 0).toFixed(1)} · separation ${Number(phases.separation ?? 0).toFixed(1)} · buildings ${Number(phases.buildings ?? 0).toFixed(1)} · spotting ${Number(phases.spotting ?? 0).toFixed(1)} · targeting ${Number(phases.targeting ?? 0).toFixed(1)} · systems ${Number(phases.systems ?? 0).toFixed(1)} ms`
     );
     return true;
   }
@@ -1137,6 +1158,27 @@ export class UIManager {
 
     const slider = document.getElementById('timeline-slider');
     if (slider) slider.value = realtime ? turnTime % 60 : turnTime;
+  }
+
+  updateMissionDisplay(report) {
+    const element = document.getElementById('mission-objective');
+    if (!element) return;
+    if (!report) {
+      element.hidden = true;
+      element.textContent = '';
+      return;
+    }
+    element.hidden = false;
+    if (report.status === 'COMPLETE') {
+      element.textContent = `${String(report.winnerFactionId).toUpperCase()} VICTORY`;
+      element.classList.add('complete');
+      return;
+    }
+    const remaining = Math.max(0, Math.ceil(report.remainingSeconds));
+    const minutes = String(Math.floor(remaining / 60)).padStart(2, '0');
+    const seconds = String(remaining % 60).padStart(2, '0');
+    element.classList.remove('complete');
+    element.textContent = `DEFEND ROAD EXIT · ${minutes}:${seconds}`;
   }
 
   updatePlaybackDisplay(isPlaying, playbackSpeed) {

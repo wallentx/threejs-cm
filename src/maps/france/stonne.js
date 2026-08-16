@@ -1,4 +1,129 @@
 import { defineMapDescriptor } from '../MapDescriptor.js';
+import {
+  BRIDGE_BREAKTHROUGH_MISSION
+} from './BridgeBreakthroughMission.js';
+import {
+  FR_ATTACHED_DEEP_INN_8_8X10_2_2F,
+  FR_ATTACHED_NARROW_HOUSE_6_8X8_2_2F,
+  FR_ATTACHED_RIVER_DEEP_INN_8_8X10_2_2F,
+  FR_ATTACHED_RIVER_NARROW_HOUSE_6_8X8_2_2F,
+  FR_ATTACHED_TALL_HOUSE_7_4X8_7_3F,
+  FR_ATTACHED_WIDE_SHOP_9_6X9_4_2F,
+  FR_ATTACHED_WORKSHOP_6_4X7_6_1F
+} from './FranceAttachedStreetBuildings.js';
+
+const STRUCTURE_TERRAIN_PAD = Object.freeze({
+  footprintMargin: 1.75,
+  blendDistance: 4,
+  dataQuality:
+    'scenario-authored grading approximation derived from each structure footprint'
+});
+
+const STREET_HOUSE_DESTRUCTION = Object.freeze({
+  approximation: 'gameplay approximation; not historical survey evidence',
+  sectionCollapse: Object.freeze([
+    Object.freeze({ sectionId: 'ground-shell', atOrBelowHealthFraction: 0.12 }),
+    Object.freeze({ sectionId: 'roof', atOrBelowHealthFraction: 0.18 })
+  ])
+});
+
+const surfacePoint = (x, z) => [
+  ((x + 120) / 240) * 1024,
+  ((120 - z) / 240) * 1024
+];
+
+const EAST_ATTACHED_ROW = Object.freeze([
+  Object.freeze({
+    id: 'french_village_house',
+    descriptor: FR_ATTACHED_RIVER_NARROW_HOUSE_6_8X8_2_2F,
+    styleId: 'aisne-limestone'
+  }),
+  Object.freeze({
+    id: 'french_village_cafe',
+    descriptor: FR_ATTACHED_WIDE_SHOP_9_6X9_4_2F,
+    styleId: 'aisne-weathered-plaster',
+    facadeId: 'commercial-cafe-ochre'
+  }),
+  Object.freeze({
+    id: 'french_village_tall_house_east',
+    descriptor: FR_ATTACHED_TALL_HOUSE_7_4X8_7_3F,
+    styleId: 'ardennes-slate-stone'
+  }),
+  Object.freeze({
+    id: 'french_village_inn_east',
+    descriptor: FR_ATTACHED_DEEP_INN_8_8X10_2_2F,
+    styleId: 'aisne-weathered-plaster',
+    facadeId: 'commercial-inn-blue'
+  }),
+  Object.freeze({
+    id: 'french_village_workshop_east',
+    descriptor: FR_ATTACHED_WORKSHOP_6_4X7_6_1F,
+    styleId: 'aisne-limestone'
+  })
+]);
+
+const WEST_ATTACHED_ROW = Object.freeze([
+  Object.freeze({
+    id: 'french_bridge_house_west',
+    descriptor: FR_ATTACHED_RIVER_DEEP_INN_8_8X10_2_2F,
+    styleId: 'aisne-limestone'
+  }),
+  Object.freeze({
+    id: 'french_village_pharmacie',
+    descriptor: FR_ATTACHED_NARROW_HOUSE_6_8X8_2_2F,
+    styleId: 'aisne-weathered-plaster',
+    facadeId: 'commercial-pharmacy-green'
+  }),
+  Object.freeze({
+    id: 'french_village_shop_west',
+    descriptor: FR_ATTACHED_WIDE_SHOP_9_6X9_4_2F,
+    styleId: 'aisne-limestone',
+    facadeId: 'commercial-red-fascia'
+  }),
+  Object.freeze({
+    id: 'french_village_tall_house_west',
+    descriptor: FR_ATTACHED_TALL_HOUSE_7_4X8_7_3F,
+    styleId: 'ardennes-slate-stone'
+  }),
+  Object.freeze({
+    id: 'french_village_workshop_west',
+    descriptor: FR_ATTACHED_WORKSHOP_6_4X7_6_1F,
+    styleId: 'aisne-weathered-plaster'
+  })
+]);
+
+function createAttachedStreetRow({ rowId, side, startZ, buildings }) {
+  const east = side === 'east';
+  const roadEdgeX = 10.5;
+  let cursorZ = startZ;
+  return buildings.map((building, attachedOrder) => {
+    const width = building.descriptor.bounds.max[0] - building.descriptor.bounds.min[0];
+    const depth = building.descriptor.bounds.max[2] - building.descriptor.bounds.min[2];
+    const centerZ = cursorZ + width * 0.5;
+    cursorZ += width;
+    return {
+      id: building.id,
+      descriptorId: building.descriptor.id,
+      visualAdapterId: building.descriptor.id,
+      styleId: building.styleId,
+      ...(building.facadeId ? { facadeId: building.facadeId } : {}),
+      roofStyleId: 'gabled',
+      attachedRowId: rowId,
+      attachedOrder,
+      terrainPad: {
+        ...STRUCTURE_TERRAIN_PAD,
+        levelGroupId: rowId
+      },
+      position: [
+        (east ? 1 : -1) * (roadEdgeX + depth * 0.5),
+        centerZ
+      ],
+      rotationY: east ? -Math.PI / 2 : Math.PI / 2,
+      foundationClearance: 0.12,
+      destructionThresholds: STREET_HOUSE_DESTRUCTION
+    };
+  });
+}
 
 export const STONNE_1940_MAP = defineMapDescriptor({
   id: 'stonne-1940',
@@ -183,6 +308,92 @@ export const STONNE_1940_MAP = defineMapDescriptor({
           [481, 150]
         ],
         visualOnly: true
+      },
+      {
+        id: 'village-west-rear-lane',
+        kind: 'farm-lane',
+        color: '#806b4d',
+        polygon: [
+          surfacePoint(-34, 14),
+          surfacePoint(-27, 18),
+          surfacePoint(-25, 43),
+          surfacePoint(-28, 70),
+          surfacePoint(-25, 100),
+          surfacePoint(-34, 103),
+          surfacePoint(-37, 72),
+          surfacePoint(-34, 45)
+        ],
+        visualOnly: true
+      },
+      {
+        id: 'village-east-rear-lane',
+        kind: 'farm-lane',
+        color: '#806b4d',
+        polygon: [
+          surfacePoint(27, 17),
+          surfacePoint(35, 14),
+          surfacePoint(34, 43),
+          surfacePoint(38, 70),
+          surfacePoint(34, 103),
+          surfacePoint(25, 100),
+          surfacePoint(28, 69),
+          surfacePoint(25, 43)
+        ],
+        visualOnly: true
+      },
+      {
+        id: 'village-rear-cross-lane',
+        kind: 'farm-lane',
+        color: '#786448',
+        polygon: [
+          surfacePoint(-36, 58),
+          surfacePoint(-18, 55),
+          surfacePoint(0, 58),
+          surfacePoint(19, 56),
+          surfacePoint(37, 60),
+          surfacePoint(37, 67),
+          surfacePoint(18, 64),
+          surfacePoint(0, 66),
+          surfacePoint(-18, 63),
+          surfacePoint(-36, 66)
+        ],
+        visualOnly: true
+      },
+      {
+        id: 'french-east-kitchen-garden',
+        kind: 'garden',
+        color: '#68583a',
+        polygon: [
+          surfacePoint(55, 44),
+          surfacePoint(66, 42),
+          surfacePoint(68, 58),
+          surfacePoint(55, 61)
+        ],
+        visualOnly: true
+      },
+      {
+        id: 'german-riverbank-dirt-road',
+        kind: 'farm-lane',
+        color: '#795f3f',
+        polygon: [
+          surfacePoint(-108, -11),
+          surfacePoint(-78, -10),
+          surfacePoint(-48, -12.5),
+          surfacePoint(-16, -10.5),
+          surfacePoint(17, -12.5),
+          surfacePoint(49, -10),
+          surfacePoint(79, -12),
+          surfacePoint(108, -10.5),
+          surfacePoint(108, -18.5),
+          surfacePoint(79, -20),
+          surfacePoint(49, -18),
+          surfacePoint(17, -20.5),
+          surfacePoint(-16, -18.5),
+          surfacePoint(-48, -20.5),
+          surfacePoint(-78, -18),
+          surfacePoint(-108, -19)
+        ],
+        visualOnly: true
       }
     ],
     waterMaterial: {
@@ -203,7 +414,8 @@ export const STONNE_1940_MAP = defineMapDescriptor({
     waterWidth: 12,
     cutWidth: 24,
     waterLevel: -0.9,
-    bedLevel: -1.55
+    bedLevel: -1.55,
+    floodplainRadius: 45
   },
   bridge: {
     id: 'stone_bridge',
@@ -224,10 +436,27 @@ export const STONNE_1940_MAP = defineMapDescriptor({
       height: 1.2,
       thickness: 0.65,
       maximumSegmentLength: 4,
+      textureRepeatMeters: 1.6,
+      textureRepeatHeightMeters: 0.8,
       blocks: ['vehicle', 'infantry'],
       occludesSight: true,
       dataQuality:
         'scenario-authored masonry boundary approximation; dimensions are gameplay values'
+    },
+    'cobblestone-bank-wall': {
+      id: 'cobblestone-bank-wall',
+      presentationKind: 'solid-prism',
+      materialRole: 'masonry',
+      collisionType: 'stonewall',
+      height: 0.9,
+      thickness: 0.55,
+      maximumSegmentLength: 3,
+      textureRepeatMeters: 1.6,
+      textureRepeatHeightMeters: 0.8,
+      blocks: ['vehicle', 'infantry'],
+      occludesSight: false,
+      dataQuality:
+        'scenario-authored low cobblestone riverbank wall with a bridge-road opening; not a surveyed surviving wall'
     },
     'wood-picket-fence': {
       id: 'wood-picket-fence',
@@ -253,50 +482,63 @@ export const STONNE_1940_MAP = defineMapDescriptor({
       occludesSight: false,
       dataQuality:
         'scenario-authored rural wood fence and collision approximation; not surveyed Stonne evidence'
+    },
+    'hedgerow': {
+      id: 'hedgerow',
+      presentationKind: 'solid-prism',
+      materialRole: 'hedgerow',
+      collisionType: 'hedgerow',
+      height: 1.45,
+      thickness: 0.95,
+      maximumSegmentLength: 4,
+      blocks: ['vehicle', 'infantry'],
+      occludesSight: true,
+      dataQuality:
+        'scenario-authored rural hedgerow boundary approximation; dense sight and movement obstacle'
+    },
+    'sandbag-wall': {
+      id: 'sandbag-wall',
+      presentationKind: 'solid-prism',
+      materialRole: 'sandbag',
+      collisionType: 'sandbag',
+      height: 0.85,
+      thickness: 0.65,
+      maximumSegmentLength: 2.5,
+      textureRepeatMeters: 1.6,
+      textureRepeatHeightMeters: 0.64,
+      blocks: ['vehicle', 'infantry'],
+      blocksProjectiles: true,
+      occludesSight: false,
+      dataQuality:
+        'scenario-authored sandbag revetment; waist-high defensive ballistic cover'
+    },
+    'timber-log-pile': {
+      id: 'timber-log-pile',
+      presentationKind: 'solid-prism',
+      materialRole: 'foliageTrunk',
+      collisionType: 'timber-log-pile',
+      height: 0.95,
+      thickness: 1.1,
+      maximumSegmentLength: 3,
+      blocks: ['vehicle', 'infantry'],
+      blocksProjectiles: true,
+      occludesSight: false,
+      dataQuality:
+        'scenario-authored timber log stack; waist-high ballistic cover'
     }
   },
   wallRuns: [
     {
-      id: 'village_house_rear',
-      profileId: 'stone-wall',
-      enclosureId: 'village-house-lot',
-      boundarySide: 'rear',
-      start: [32, 48],
-      end: [58, 48]
+      id: 'french_bank_cobblestone_west',
+      profileId: 'cobblestone-bank-wall',
+      start: [-32, 24],
+      end: [-3.5, 24]
     },
     {
-      id: 'village_house_west',
-      profileId: 'stone-wall',
-      enclosureId: 'village-house-lot',
-      boundarySide: 'west',
-      start: [32, 48],
-      end: [32, 72]
-    },
-    {
-      id: 'village_house_east',
-      profileId: 'stone-wall',
-      enclosureId: 'village-house-lot',
-      boundarySide: 'east',
-      start: [58, 48],
-      end: [58, 72]
-    },
-    {
-      id: 'village_house_front_west',
-      profileId: 'stone-wall',
-      enclosureId: 'village-house-lot',
-      boundarySide: 'front',
-      adjacentGateId: 'village-house-front-gate',
-      start: [32, 72],
-      end: [42, 72]
-    },
-    {
-      id: 'village_house_front_east',
-      profileId: 'stone-wall',
-      enclosureId: 'village-house-lot',
-      boundarySide: 'front',
-      adjacentGateId: 'village-house-front-gate',
-      start: [48, 72],
-      end: [58, 72]
+      id: 'french_bank_cobblestone_east',
+      profileId: 'cobblestone-bank-wall',
+      start: [3.5, 24],
+      end: [82, 24]
     },
     {
       id: 'farmhouse_south',
@@ -339,23 +581,243 @@ export const STONNE_1940_MAP = defineMapDescriptor({
       adjacentGateId: 'farmhouse-east-gate',
       start: [-32, 37],
       end: [-32, 46]
+    },
+    {
+      id: 'east_kitchen_garden_south',
+      profileId: 'wood-picket-fence',
+      start: [55, 44],
+      end: [66, 42]
+    },
+    {
+      id: 'east_kitchen_garden_east',
+      profileId: 'wood-picket-fence',
+      start: [66, 42],
+      end: [68, 58]
+    },
+    {
+      id: 'east_kitchen_garden_north',
+      profileId: 'wood-picket-fence',
+      start: [68, 58],
+      end: [55, 61]
+    },
+    {
+      id: 'east_kitchen_garden_west_south',
+      profileId: 'wood-picket-fence',
+      start: [55, 44],
+      end: [55, 50]
+    },
+    {
+      id: 'east_kitchen_garden_west_north',
+      profileId: 'wood-picket-fence',
+      start: [55, 54],
+      end: [55, 61]
+    },
+    {
+      id: 'german_riverbank_bushes_southwest_outer',
+      profileId: 'hedgerow',
+      start: [-96, -7],
+      end: [-86, -7.5]
+    },
+    {
+      id: 'german_riverbank_bushes_southwest_inner',
+      profileId: 'hedgerow',
+      start: [-63, -7],
+      end: [-54, -8]
+    },
+    {
+      id: 'german_riverbank_bushes_southeast_inner',
+      profileId: 'hedgerow',
+      start: [24, -7.5],
+      end: [34, -7]
+    },
+    {
+      id: 'german_riverbank_bushes_southeast_outer',
+      profileId: 'hedgerow',
+      start: [72, -8],
+      end: [82, -7]
+    },
+    {
+      id: 'german_riverbank_bushes_northwest_outer',
+      profileId: 'hedgerow',
+      start: [-104, -24],
+      end: [-95, -25]
+    },
+    {
+      id: 'german_riverbank_bushes_northwest_inner',
+      profileId: 'hedgerow',
+      start: [-72, -25],
+      end: [-62, -24]
+    },
+    {
+      id: 'german_riverbank_bushes_northeast_inner',
+      profileId: 'hedgerow',
+      start: [48, -25],
+      end: [58, -24]
+    },
+    {
+      id: 'german_riverbank_bushes_northeast_outer',
+      profileId: 'hedgerow',
+      start: [88, -24],
+      end: [99, -25]
+    },
+    {
+      id: 'north_mill_road_south',
+      profileId: 'stone-wall',
+      enclosureId: 'north-mill-compound',
+      boundarySide: 'west',
+      adjacentGateId: 'north-mill-road-gate',
+      start: [12, -23],
+      end: [12, -29]
+    },
+    {
+      id: 'north_mill_road_north',
+      profileId: 'stone-wall',
+      enclosureId: 'north-mill-compound',
+      boundarySide: 'west',
+      adjacentGateId: 'north-mill-road-gate',
+      start: [12, -35],
+      end: [12, -45]
+    },
+    {
+      id: 'north_mill_south',
+      profileId: 'stone-wall',
+      enclosureId: 'north-mill-compound',
+      boundarySide: 'south',
+      start: [12, -23],
+      end: [34, -23]
+    },
+    {
+      id: 'north_mill_north',
+      profileId: 'stone-wall',
+      enclosureId: 'north-mill-compound',
+      boundarySide: 'north',
+      start: [12, -45],
+      end: [34, -45]
+    },
+    {
+      id: 'north_mill_east',
+      profileId: 'stone-wall',
+      enclosureId: 'north-mill-compound',
+      boundarySide: 'east',
+      start: [34, -45],
+      end: [34, -23]
+    },
+    {
+      id: 'north_pasture_south',
+      profileId: 'wood-picket-fence',
+      enclosureId: 'north-pasture-lot',
+      boundarySide: 'south',
+      start: [-46, -23],
+      end: [-20, -23]
+    },
+    {
+      id: 'north_pasture_east_south',
+      profileId: 'wood-picket-fence',
+      enclosureId: 'north-pasture-lot',
+      boundarySide: 'east',
+      adjacentGateId: 'north-pasture-gate',
+      start: [-20, -23],
+      end: [-20, -31]
+    },
+    {
+      id: 'north_pasture_east_north',
+      profileId: 'wood-picket-fence',
+      enclosureId: 'north-pasture-lot',
+      boundarySide: 'east',
+      adjacentGateId: 'north-pasture-gate',
+      start: [-20, -37],
+      end: [-20, -49]
+    },
+    {
+      id: 'north_pasture_north',
+      profileId: 'wood-picket-fence',
+      enclosureId: 'north-pasture-lot',
+      boundarySide: 'north',
+      start: [-46, -49],
+      end: [-20, -49]
+    },
+    {
+      id: 'north_pasture_west',
+      profileId: 'wood-picket-fence',
+      enclosureId: 'north-pasture-lot',
+      boundarySide: 'west',
+      start: [-46, -49],
+      end: [-46, -23]
+    },
+    {
+      id: 'pasture_west_hedgerow_south',
+      profileId: 'hedgerow',
+      start: [-58, -23],
+      end: [-58, -39]
+    },
+    {
+      id: 'pasture_west_hedgerow_north',
+      profileId: 'hedgerow',
+      start: [-58, -39],
+      end: [-58, -55]
+    },
+    {
+      id: 'pasture_north_hedgerow_west',
+      profileId: 'hedgerow',
+      start: [-58, -55],
+      end: [-39, -55]
+    },
+    {
+      id: 'pasture_north_hedgerow_east',
+      profileId: 'hedgerow',
+      start: [-39, -55],
+      end: [-20, -55]
+    },
+    {
+      id: 'orchard_east_hedgerow_north',
+      profileId: 'hedgerow',
+      start: [34, -23],
+      end: [34, -36]
+    },
+    {
+      id: 'orchard_east_hedgerow_south',
+      profileId: 'hedgerow',
+      start: [34, -36],
+      end: [34, -49]
+    },
+    {
+      id: 'pasture_barn_log_pile',
+      profileId: 'timber-log-pile',
+      start: [-22, -33],
+      end: [-17, -33]
+    },
+    {
+      id: 'north_mill_lane_log_pile',
+      profileId: 'timber-log-pile',
+      start: [8, -45],
+      end: [13, -45]
+    },
+    {
+      id: 'village_west_forward_ambush',
+      profileId: 'sandbag-wall',
+      start: [-24, 76],
+      end: [-15, 76]
+    },
+    {
+      id: 'village_east_forward_ambush',
+      profileId: 'sandbag-wall',
+      start: [15, 77],
+      end: [24, 77]
+    },
+    {
+      id: 'village_west_rear_log_cover',
+      profileId: 'timber-log-pile',
+      start: [-48, 79],
+      end: [-39, 79]
+    },
+    {
+      id: 'village_east_rear_log_cover',
+      profileId: 'timber-log-pile',
+      start: [39, 81],
+      end: [48, 81]
     }
   ],
   wallEnclosures: [
-    {
-      id: 'village-house-lot',
-      structureId: 'french_village_house',
-      kind: 'domestic-lot',
-      dataQuality:
-        'scenario-authored gameplay approximation; not a surveyed historical Stonne boundary',
-      gateOpenings: [
-        {
-          id: 'village-house-front-gate',
-          start: [42, 72],
-          end: [48, 72]
-        }
-      ]
-    },
     {
       id: 'farmhouse-lot',
       structureId: 'french_farmhouse_outbuilding',
@@ -369,23 +831,141 @@ export const STONNE_1940_MAP = defineMapDescriptor({
           end: [-32, 37]
         }
       ]
+    },
+    {
+      id: 'north-mill-compound',
+      structureId: 'french_north_mill',
+      kind: 'riverside-mill-compound',
+      dataQuality:
+        'scenario-authored gameplay approximation; not a surveyed historical Stonne boundary',
+      gateOpenings: [
+        {
+          id: 'north-mill-road-gate',
+          start: [12, -35],
+          end: [12, -29]
+        }
+      ]
+    },
+    {
+      id: 'north-pasture-lot',
+      structureId: 'french_north_barn',
+      kind: 'meadow-pasture',
+      dataQuality:
+        'scenario-authored gameplay approximation; not a surveyed historical Stonne boundary',
+      gateOpenings: [
+        {
+          id: 'north-pasture-gate',
+          start: [-20, -37],
+          end: [-20, -31]
+        }
+      ]
     }
   ],
   structures: [
+    ...createAttachedStreetRow({
+      rowId: 'village-east-attached-row',
+      side: 'east',
+      startZ: 30,
+      buildings: EAST_ATTACHED_ROW
+    }),
+    ...createAttachedStreetRow({
+      rowId: 'village-west-attached-row',
+      side: 'west',
+      startZ: 31.4,
+      buildings: WEST_ATTACHED_ROW
+    }),
     {
-      id: 'french_village_house',
+      id: 'french_east_residence_river',
       descriptorId: 'fr_house_12x9_2f',
       visualAdapterId: 'fr_house_12x9_2f',
-      position: [45, 60],
+      styleId: 'aisne-weathered-plaster',
+      terrainPad: STRUCTURE_TERRAIN_PAD,
+      position: [48, 38],
+      rotationY: Math.PI / 2,
+      foundationClearance: 0.12,
+      destructionThresholds: STREET_HOUSE_DESTRUCTION
+    },
+    {
+      id: 'french_east_residence_garden',
+      descriptorId: 'fr_farmhouse_8x6_1f',
+      visualAdapterId: 'fr_farmhouse_8x6_1f',
+      styleId: 'aisne-limestone',
+      terrainPad: STRUCTURE_TERRAIN_PAD,
+      position: [74, 55],
       rotationY: 0,
-      foundationClearance: 0.12
+      foundationClearance: 0.12,
+      destructionThresholds: STREET_HOUSE_DESTRUCTION
+    },
+    {
+      id: 'french_east_residence_rear',
+      descriptorId: 'fr_house_12x9_2f',
+      visualAdapterId: 'fr_house_12x9_2f',
+      styleId: 'ardennes-slate-stone',
+      terrainPad: STRUCTURE_TERRAIN_PAD,
+      position: [55, 82],
+      rotationY: Math.PI / 2,
+      foundationClearance: 0.12,
+      destructionThresholds: STREET_HOUSE_DESTRUCTION
     },
     {
       id: 'french_farmhouse_outbuilding',
       descriptorId: 'fr_farmhouse_8x6_1f',
       visualAdapterId: 'fr_farmhouse_8x6_1f',
+      styleId: 'rustic-barn-timber',
+      terrainPad: STRUCTURE_TERRAIN_PAD,
       position: [-45, 34],
       rotationY: Math.PI / 2,
+      foundationClearance: 0.12,
+      destructionThresholds: {
+        approximation: 'gameplay approximation; not historical survey evidence',
+        sectionCollapse: [
+          { sectionId: 'ground-shell', atOrBelowHealthFraction: 0.12 },
+          { sectionId: 'roof', atOrBelowHealthFraction: 0.18 }
+        ]
+      }
+    },
+    {
+      id: 'french_north_mill',
+      descriptorId: 'fr_house_12x9_2f',
+      visualAdapterId: 'fr_house_12x9_2f',
+      styleId: 'ardennes-slate-stone',
+      terrainPad: STRUCTURE_TERRAIN_PAD,
+      position: [23, -34],
+      rotationY: Math.PI / 2,
+      foundationClearance: 0.12,
+      destructionThresholds: {
+        approximation: 'gameplay approximation; not historical survey evidence',
+        sectionCollapse: [
+          { sectionId: 'ground-shell', atOrBelowHealthFraction: 0.12 },
+          { sectionId: 'roof', atOrBelowHealthFraction: 0.18 }
+        ]
+      }
+    },
+    {
+      id: 'french_north_barn',
+      descriptorId: 'fr_farmhouse_8x6_1f',
+      visualAdapterId: 'fr_farmhouse_8x6_1f',
+      styleId: 'rustic-barn-timber',
+      terrainPad: STRUCTURE_TERRAIN_PAD,
+      position: [-33, -36],
+      rotationY: -Math.PI / 2,
+      foundationClearance: 0.12,
+      destructionThresholds: {
+        approximation: 'gameplay approximation; not historical survey evidence',
+        sectionCollapse: [
+          { sectionId: 'ground-shell', atOrBelowHealthFraction: 0.12 },
+          { sectionId: 'roof', atOrBelowHealthFraction: 0.18 }
+        ]
+      }
+    },
+    {
+      id: 'french_north_shed',
+      descriptorId: 'fr_farmhouse_8x6_1f',
+      visualAdapterId: 'fr_farmhouse_8x6_1f',
+      styleId: 'rustic-barn-timber',
+      terrainPad: STRUCTURE_TERRAIN_PAD,
+      position: [48, -42],
+      rotationY: -Math.PI / 2,
       foundationClearance: 0.12,
       destructionThresholds: {
         approximation: 'gameplay approximation; not historical survey evidence',
@@ -418,13 +998,151 @@ export const STONNE_1940_MAP = defineMapDescriptor({
     {
       id: 'tree-northeast',
       profileId: 'mature-tree',
-      position: [40, 70],
+      position: [22, 32],
       visualOnly: true
     },
     {
       id: 'tree-southwest-outer',
       profileId: 'mature-tree',
       position: [-70, -70],
+      visualOnly: true
+    },
+    {
+      id: 'tree-north-mill-orchard',
+      profileId: 'mature-tree',
+      position: [28, -39],
+      visualOnly: true
+    },
+    {
+      id: 'tree-north-roadside',
+      profileId: 'mature-tree',
+      position: [6, -39],
+      visualOnly: true
+    },
+    {
+      id: 'tree-north-pasture-creek',
+      profileId: 'mature-tree',
+      position: [-40, -25],
+      visualOnly: true
+    },
+    {
+      id: 'tree-north-pasture-barn',
+      profileId: 'mature-tree',
+      position: [-42, -45],
+      visualOnly: true
+    },
+    {
+      id: 'tree-french-east-river-yard',
+      profileId: 'mature-tree',
+      position: [68, 33],
+      visualOnly: true
+    },
+    {
+      id: 'tree-french-east-garden-south',
+      profileId: 'mature-tree',
+      position: [60, 48],
+      visualOnly: true
+    },
+    {
+      id: 'tree-french-east-garden-north',
+      profileId: 'mature-tree',
+      position: [62, 56],
+      visualOnly: true
+    },
+    {
+      id: 'tree-french-east-orchard-outer',
+      profileId: 'mature-tree',
+      position: [92, 48],
+      visualOnly: true
+    },
+    {
+      id: 'tree-french-east-rear-yard',
+      profileId: 'mature-tree',
+      position: [78, 78],
+      visualOnly: true
+    },
+    {
+      id: 'tree-french-east-rear-field',
+      profileId: 'mature-tree',
+      position: [92, 92],
+      visualOnly: true
+    },
+    {
+      id: 'tree-french-west-river-yard',
+      profileId: 'mature-tree',
+      position: [-76, 34],
+      visualOnly: true
+    },
+    {
+      id: 'tree-french-west-farm-lane',
+      profileId: 'mature-tree',
+      position: [-72, 52],
+      visualOnly: true
+    },
+    {
+      id: 'tree-french-west-middle-field',
+      profileId: 'mature-tree',
+      position: [-86, 66],
+      visualOnly: true
+    },
+    {
+      id: 'tree-french-west-rear-yard',
+      profileId: 'mature-tree',
+      position: [-66, 78],
+      visualOnly: true
+    },
+    {
+      id: 'tree-french-west-rear-field',
+      profileId: 'mature-tree',
+      position: [-48, 94],
+      visualOnly: true
+    },
+    {
+      id: 'tree-german-road-river-west-outer',
+      profileId: 'mature-tree',
+      position: [-90, -4],
+      visualOnly: true
+    },
+    {
+      id: 'tree-german-road-river-west-inner',
+      profileId: 'mature-tree',
+      position: [-42, -5],
+      visualOnly: true
+    },
+    {
+      id: 'tree-german-road-river-east-inner',
+      profileId: 'mature-tree',
+      position: [43, -4],
+      visualOnly: true
+    },
+    {
+      id: 'tree-german-road-river-east-outer',
+      profileId: 'mature-tree',
+      position: [91, -5],
+      visualOnly: true
+    },
+    {
+      id: 'tree-german-road-north-west-outer',
+      profileId: 'mature-tree',
+      position: [-86, -29],
+      visualOnly: true
+    },
+    {
+      id: 'tree-german-road-north-west-inner',
+      profileId: 'mature-tree',
+      position: [-54, -27],
+      visualOnly: true
+    },
+    {
+      id: 'tree-german-road-north-east-inner',
+      profileId: 'mature-tree',
+      position: [58, -29],
+      visualOnly: true
+    },
+    {
+      id: 'tree-german-road-north-east-outer',
+      profileId: 'mature-tree',
+      position: [94, -28],
       visualOnly: true
     }
   ],
@@ -448,5 +1166,6 @@ export const STONNE_1940_MAP = defineMapDescriptor({
       maxZ: -60,
       color: 0xef4444
     }
-  }
+  },
+  configuredMission: BRIDGE_BREAKTHROUGH_MISSION
 });

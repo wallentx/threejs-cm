@@ -214,14 +214,34 @@ export class BallisticsSystem {
     getUnits = () => [],
     random = Math.random,
     buildingSystem = null,
-    getBuildingColliders = null
+    getBuildingColliders = null,
+    getStaticProjectileColliders = () => []
   } = {}) {
     this.terrain = terrain;
     this.getUnits = getUnits;
     this.random = random;
     this.buildingSystem = buildingSystem;
+    this.cachedBuildingColliderRevision = -1;
+    this.cachedBuildingColliders = [];
     this.getBuildingColliders = getBuildingColliders
-      ?? (() => collectBuildingColliderRecords(this.buildingSystem));
+      ?? (() => this.getCachedBuildingColliders());
+    this.getStaticProjectileColliders = getStaticProjectileColliders;
+  }
+
+  getCachedBuildingColliders() {
+    if (!this.buildingSystem) return [];
+    const revision = this.buildingSystem.getCollisionRevision?.();
+    if (Number.isSafeInteger(revision)
+        && revision === this.cachedBuildingColliderRevision) {
+      return this.cachedBuildingColliders;
+    }
+    this.cachedBuildingColliders = collectBuildingColliderRecords(
+      this.buildingSystem
+    );
+    this.cachedBuildingColliderRevision = Number.isSafeInteger(revision)
+      ? revision
+      : this.cachedBuildingColliderRevision + 1;
+    return this.cachedBuildingColliders;
   }
 
   integrate(projectile, delta) {
@@ -385,6 +405,25 @@ export class BallisticsSystem {
         normal: intersection.normal,
         distance: intersection.point.distanceTo(projectile.previousPosition),
         point: intersection.point
+      });
+    }
+    for (const collider of this.getStaticProjectileColliders?.() ?? []) {
+      if (collider.blocksProjectiles !== true) continue;
+      const intersection = segmentOrientedBoxIntersection(
+        projectile.previousPosition,
+        projectile.position,
+        collider
+      );
+      if (!intersection) continue;
+      consider({
+        kind: 'static_obstacle',
+        colliderId: collider.id,
+        mapFeatureId: collider.mapFeatureId ?? null,
+        collider,
+        normal: intersection.normal,
+        distance: intersection.point.distanceTo(projectile.previousPosition),
+        point: intersection.point,
+        projectileCoverDataQuality: collider.projectileCoverDataQuality ?? null
       });
     }
     if (projectile.armorIgnore

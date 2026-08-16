@@ -16,8 +16,9 @@ import {
   createFrance1940VisualFactories,
   FRANCE_1940_ASSET_RESOLVER
 } from './content/france1940/render/index.js';
-import { FR_HOUSE_12X9_2F } from './maps/france/FranceHouse12x9_2F.js';
-import { FR_FARMHOUSE_8X6_1F } from './maps/france/FranceFarmhouse8x6_1F.js';
+import {
+  FRANCE_1940_BUILDING_DESCRIPTORS
+} from './maps/france/FranceBuildingDescriptors.js';
 import { FRANCE_1940_MAPS } from './maps/france/index.js';
 import { BattleSetupScreen } from './ui/BattleSetupScreen.js';
 import {
@@ -29,11 +30,12 @@ const familyRegistry = createFamilyRegistry([family]);
 const visualFactories = createFrance1940VisualFactories({
   assetResolver: FRANCE_1940_ASSET_RESOLVER
 });
-const structureAdapters = Object.freeze({
-  [FR_HOUSE_12X9_2F.id]: createFrenchHouseVisualAdapter(FR_HOUSE_12X9_2F),
-  [FR_FARMHOUSE_8X6_1F.id]:
-    createFrenchHouseVisualAdapter(FR_FARMHOUSE_8X6_1F)
-});
+const structureAdapters = Object.freeze(Object.fromEntries(
+  FRANCE_1940_BUILDING_DESCRIPTORS.map(descriptor => [
+    descriptor.id,
+    createFrenchHouseVisualAdapter(descriptor)
+  ])
+));
 const availableMaps = Object.freeze(FRANCE_1940_MAPS.map(
   descriptor => Object.freeze({
     id: descriptor.id,
@@ -43,14 +45,20 @@ const availableMaps = Object.freeze(FRANCE_1940_MAPS.map(
     descriptor
   })
 ));
-const buildingDescriptors = Object.freeze([
-  FR_HOUSE_12X9_2F,
-  FR_FARMHOUSE_8X6_1F
-]);
+const buildingDescriptors = FRANCE_1940_BUILDING_DESCRIPTORS;
 const validateBattleSetup = createBattleSetupValidationPort({
   catalog: FRANCE_1940_BATTLE_SETUP,
   family
 });
+
+function createLaunchSeed() {
+  // Seed selection is browser setup input, not a simulation outcome. Once
+  // chosen, the recorded uint32 drives the existing deterministic RNG and is
+  // preserved by WEGO capture/restore.
+  const values = new Uint32Array(1);
+  globalThis.crypto.getRandomValues(values);
+  return values[0] || 1;
+}
 
 function createGameDefinition(selection) {
   const selectedMap = availableMaps.find(map => map.id === selection.mapId);
@@ -65,7 +73,8 @@ function createGameDefinition(selection) {
     enemyFactionId: selection.enemyFactionId,
     playerForceSelection: selection.playerForceSelection,
     enemyForceSelection: selection.enemyForceSelection,
-    enemyAiDifficulty: selection.enemyAiDifficulty
+    enemyAiDifficulty: selection.enemyAiDifficulty,
+    battleSeed: createLaunchSeed()
   });
   return Object.freeze({
     scenario,

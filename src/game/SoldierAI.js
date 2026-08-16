@@ -405,7 +405,11 @@ function coverCandidates(bounds, clearance, agentPosition) {
 }
 
 export function selectNearbyCover(agent, terrain, threatPosition, neighbors = [], maximumDistance = 9, dangerMap = null, preferRearVector = null) {
-  const obstacles = terrain?.bocageObstacles ?? [];
+  const obstacles = terrain?.queryCoverObstacles?.(
+    agent.position.x,
+    agent.position.z,
+    maximumDistance + 0.5
+  ) ?? terrain?.bocageObstacles ?? [];
   let best = null;
   for (let obstacleIndex = 0; obstacleIndex < obstacles.length; obstacleIndex++) {
     const obstacle = obstacles[obstacleIndex];

@@ -369,6 +369,7 @@ export class BuildingInteractionSystem {
     this.orderSequence = 0;
     this.orders = new Map();
     this.faceBiases = new Map();
+    this.managedDoorOpenings = new Map();
     this.slotIndexes = new WeakMap();
     this.supportInvalidationKeys = new Map();
   }
@@ -827,6 +828,7 @@ export class BuildingInteractionSystem {
       if (!pending) this.orders.delete(order.unitId);
       unit.soldierAI?.syncMeshes?.();
     }
+    this.#synchronizeDoorOpenings(knownUnits);
   }
 
   issueFace(unit, targetPosition) {
@@ -1081,13 +1083,17 @@ export class BuildingInteractionSystem {
 
   captureState() {
     return {
-      version: 2,
+      version: 3,
       orderSequence: this.orderSequence,
       orders: [...this.orders.values()]
         .sort((left, right) => compareId(left.unitId, right.unitId))
         .map(clone),
       faceBiases: [...this.faceBiases.values()]
         .sort((left, right) => compareId(left.unitId, right.unitId))
+        .map(clone),
+      managedDoorOpenings: [...this.managedDoorOpenings.values()]
+        .sort((left, right) => compareId(left.buildingId, right.buildingId)
+          || compareId(left.openingId, right.openingId))
         .map(clone)
     };
   }
@@ -1099,6 +1105,15 @@ export class BuildingInteractionSystem {
     );
     this.faceBiases = new Map(
       (state?.faceBiases ?? []).map(bias => [String(bias.unitId), clone(bias)])
+    );
+    this.managedDoorOpenings = new Map(
+      (state?.managedDoorOpenings ?? []).map(record => [
+        JSON.stringify([String(record.buildingId), String(record.openingId)]),
+        {
+          buildingId: String(record.buildingId),
+          openingId: String(record.openingId)
+        }
+      ])
     );
     this.slotIndexes = new WeakMap();
     this.supportInvalidationKeys = new Map();
@@ -1358,6 +1373,7 @@ export class BuildingInteractionSystem {
         return;
       }
       agent.buildingLocation = { ...started.location, ...this.#routeFields(location) };
+      this.#openDoorForPortal(buildingId, descriptor, portal.id);
       syncAgent(agent);
       return;
     }
@@ -1571,6 +1587,7 @@ export class BuildingInteractionSystem {
       toNodeId: 'outside'
     });
     if (!started.accepted) return false;
+    this.#openDoorForPortal(buildingId, descriptor, portal.id);
     agent.buildingLocation = {
       ...started.location,
       ...this.#routeFields(location),
@@ -1579,6 +1596,54 @@ export class BuildingInteractionSystem {
     };
     syncAgent(agent);
     return true;
+  }
+
+  #openDoorForPortal(buildingId, descriptor, portalId) {
+    const portal = descriptor.portals.find(candidate =>
+      String(candidate.id) === String(portalId));
+    if (portal?.kind !== 'door' || !portal.aperture?.id) return false;
+    const record = {
+      buildingId: String(buildingId),
+      openingId: String(portal.aperture.id)
+    };
+    const key = JSON.stringify([record.buildingId, record.openingId]);
+    if (!this.buildingSystem.setOpening(record.buildingId, record.openingId, true)) {
+      return false;
+    }
+    this.managedDoorOpenings.set(key, record);
+    return true;
+  }
+
+  #synchronizeDoorOpenings(units) {
+    const active = new Set();
+    for (const unit of units) {
+      for (const agent of [...(unit.soldierAI?.agents ?? [])]
+        .sort((left, right) => compareId(left.id, right.id))) {
+        const location = agent.buildingLocation;
+        if (!location?.buildingId
+            || location.routeStage !== 'door'
+            || !['transit', 'exiting'].includes(location.phase)
+            || !location.portalId) {
+          continue;
+        }
+        const descriptor = this.buildingSystem.getDescriptorForBuilding(
+          location.buildingId
+        );
+        const portal = descriptor.portals.find(candidate =>
+          String(candidate.id) === String(location.portalId));
+        if (portal?.kind !== 'door' || !portal.aperture?.id) continue;
+        active.add(JSON.stringify([
+          String(location.buildingId),
+          String(portal.aperture.id)
+        ]));
+      }
+    }
+    for (const [key, record] of [...this.managedDoorOpenings.entries()]
+      .sort((left, right) => left[0].localeCompare(right[0]))) {
+      if (active.has(key)) continue;
+      this.buildingSystem.setOpening(record.buildingId, record.openingId, false);
+      this.managedDoorOpenings.delete(key);
+    }
   }
 
   #setOccupiedPose(agent) {

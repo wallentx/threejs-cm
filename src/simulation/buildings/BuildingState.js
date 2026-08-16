@@ -42,7 +42,7 @@ export function createBuildingState({
     };
   };
   for (const portal of descriptor.portals) {
-    addOpening(portal.kind, portal.id, portal.sectionId ?? null, portal.aperture, portal.kind === 'door');
+    addOpening(portal.kind, portal.id, portal.sectionId ?? null, portal.aperture, false);
   }
   for (const firePort of descriptor.firePorts) {
     addOpening('fire_port', firePort.id, firePort.sectionId, firePort.aperture, false);

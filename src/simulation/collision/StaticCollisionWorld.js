@@ -3,6 +3,7 @@ const CONTACT_EPSILON = 1e-5;
 const DEFAULT_ITERATIONS = 4;
 const DEFAULT_ROUTE_CLEARANCE = 0.08;
 const ROUTE_VERTEX_MARGIN = 1e-3;
+const DEFAULT_SPATIAL_CELL_SIZE = 16;
 
 function finite(value, fallback = 0) {
   return Number.isFinite(value) ? value : fallback;
@@ -26,6 +27,13 @@ function normalizeRecord(record) {
       finite(record.halfDepth, Math.abs(finite(record.maxZ) - finite(record.minZ)) * 0.5)
     )
   );
+  const rotation = finite(record.rotation);
+  const collisionCosine = Math.cos(rotation);
+  const collisionSine = Math.sin(rotation);
+  const worldHalfX = Math.abs(collisionCosine) * halfX
+    + Math.abs(collisionSine) * halfZ;
+  const worldHalfZ = Math.abs(collisionSine) * halfX
+    + Math.abs(collisionCosine) * halfZ;
   return {
     ...record,
     id: String(record.id),
@@ -33,7 +41,15 @@ function normalizeRecord(record) {
     centerZ,
     halfX,
     halfZ,
-    rotation: finite(record.rotation),
+    rotation,
+    collisionCosine,
+    collisionSine,
+    collisionBounds: {
+      minX: centerX - worldHalfX,
+      maxX: centerX + worldHalfX,
+      minZ: centerZ - worldHalfZ,
+      maxZ: centerZ + worldHalfZ
+    },
     enabled: record.enabled !== false,
     blocks: [...(record.blocks ?? ['vehicle', 'infantry'])].sort()
   };
@@ -44,8 +60,8 @@ function blocksMover(record, moverType) {
 }
 
 function toLocal(record, x, z) {
-  const cosine = record.routeCosine ?? Math.cos(record.rotation);
-  const sine = record.routeSine ?? Math.sin(record.rotation);
+  const cosine = record.routeCosine ?? record.collisionCosine;
+  const sine = record.routeSine ?? record.collisionSine;
   const dx = x - record.centerX;
   const dz = z - record.centerZ;
   return {
@@ -55,8 +71,8 @@ function toLocal(record, x, z) {
 }
 
 function vectorToLocal(record, x, z) {
-  const cosine = record.routeCosine ?? Math.cos(record.rotation);
-  const sine = record.routeSine ?? Math.sin(record.rotation);
+  const cosine = record.routeCosine ?? record.collisionCosine;
+  const sine = record.routeSine ?? record.collisionSine;
   return {
     x: cosine * x - sine * z,
     z: sine * x + cosine * z
@@ -64,8 +80,8 @@ function vectorToLocal(record, x, z) {
 }
 
 function vectorToWorld(record, x, z) {
-  const cosine = record.routeCosine ?? Math.cos(record.rotation);
-  const sine = record.routeSine ?? Math.sin(record.rotation);
+  const cosine = record.routeCosine ?? record.collisionCosine;
+  const sine = record.routeSine ?? record.collisionSine;
   return {
     x: cosine * x + sine * z,
     z: -sine * x + cosine * z
@@ -220,6 +236,36 @@ function compareHits(a, b) {
   return a.offsetIndex - b.offsetIndex;
 }
 
+function footprintBounds(position, displacement, offsets, radius) {
+  const startX = finite(position.x);
+  const startZ = finite(position.z);
+  const endX = startX + finite(displacement.x);
+  const endZ = startZ + finite(displacement.z);
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  for (const offset of offsets) {
+    minX = Math.min(minX, startX + offset.x, endX + offset.x);
+    maxX = Math.max(maxX, startX + offset.x, endX + offset.x);
+    minZ = Math.min(minZ, startZ + offset.z, endZ + offset.z);
+    maxZ = Math.max(maxZ, startZ + offset.z, endZ + offset.z);
+  }
+  return {
+    minX: minX - radius - CONTACT_EPSILON,
+    maxX: maxX + radius + CONTACT_EPSILON,
+    minZ: minZ - radius - CONTACT_EPSILON,
+    maxZ: maxZ + radius + CONTACT_EPSILON
+  };
+}
+
+function boundsOverlap(left, right) {
+  return left.maxX >= right.minX
+    && left.minX <= right.maxX
+    && left.maxZ >= right.minZ
+    && left.minZ <= right.maxZ;
+}
+
 /**
  * Deterministic, renderer-independent static-world collision queries.
  *
@@ -230,6 +276,9 @@ function compareHits(a, b) {
 export class StaticCollisionWorld {
   constructor(records = [], navigationRecords = []) {
     this.colliders = new Map();
+    this.spatialCellSize = DEFAULT_SPATIAL_CELL_SIZE;
+    this.spatialCells = new Map();
+    this.colliderCellKeys = new Map();
     this.navigationRecords = [];
     this.setRecords(records);
     this.setNavigationRecords(navigationRecords);
@@ -237,7 +286,13 @@ export class StaticCollisionWorld {
 
   setRecords(records) {
     this.colliders.clear();
-    for (const record of records) this.upsertCollider(record);
+    this.spatialCells.clear();
+    this.colliderCellKeys.clear();
+    for (const record of records) {
+      const normalized = normalizeRecord(record);
+      this.colliders.set(normalized.id, normalized);
+      this.indexCollider(normalized);
+    }
   }
 
   setNavigationRecords(records) {
@@ -248,12 +303,93 @@ export class StaticCollisionWorld {
 
   upsertCollider(record) {
     const normalized = normalizeRecord(record);
+    this.unindexCollider(normalized.id);
     this.colliders.set(normalized.id, normalized);
+    this.indexCollider(normalized);
     return normalized;
   }
 
   removeCollider(id) {
-    return this.colliders.delete(String(id));
+    const key = String(id);
+    this.unindexCollider(key);
+    return this.colliders.delete(key);
+  }
+
+  spatialCellKey(cellX, cellZ) {
+    return `${cellX}:${cellZ}`;
+  }
+
+  spatialCellRange(bounds) {
+    return {
+      minX: Math.floor(bounds.minX / this.spatialCellSize),
+      maxX: Math.floor(bounds.maxX / this.spatialCellSize),
+      minZ: Math.floor(bounds.minZ / this.spatialCellSize),
+      maxZ: Math.floor(bounds.maxZ / this.spatialCellSize)
+    };
+  }
+
+  indexCollider(record) {
+    const range = this.spatialCellRange(record.collisionBounds);
+    const keys = [];
+    for (let cellZ = range.minZ; cellZ <= range.maxZ; cellZ++) {
+      for (let cellX = range.minX; cellX <= range.maxX; cellX++) {
+        const key = this.spatialCellKey(cellX, cellZ);
+        let records = this.spatialCells.get(key);
+        if (!records) {
+          records = new Map();
+          this.spatialCells.set(key, records);
+        }
+        records.set(record.id, record);
+        keys.push(key);
+      }
+    }
+    this.colliderCellKeys.set(record.id, keys);
+  }
+
+  unindexCollider(id) {
+    const keys = this.colliderCellKeys.get(id);
+    if (!keys) return;
+    for (const key of keys) {
+      const records = this.spatialCells.get(key);
+      records?.delete(id);
+      if (records?.size === 0) this.spatialCells.delete(key);
+    }
+    this.colliderCellKeys.delete(id);
+  }
+
+  queryStaticRecords(bounds) {
+    const range = this.spatialCellRange(bounds);
+    const candidates = new Map();
+    for (let cellZ = range.minZ; cellZ <= range.maxZ; cellZ++) {
+      for (let cellX = range.minX; cellX <= range.maxX; cellX++) {
+        const records = this.spatialCells.get(this.spatialCellKey(cellX, cellZ));
+        if (!records) continue;
+        for (const [id, record] of records) candidates.set(id, record);
+      }
+    }
+    return [...candidates.values()]
+      .filter(record => boundsOverlap(bounds, record.collisionBounds))
+      .sort((left, right) => left.id.localeCompare(right.id));
+  }
+
+  queryBlockingRecords(
+    bounds,
+    moverType,
+    ignored,
+    traversableTypes,
+    transientRecords,
+    includeTraversable
+  ) {
+    return [
+      ...this.queryStaticRecords(bounds),
+      ...transientRecords.filter(record => boundsOverlap(bounds, record.collisionBounds))
+    ]
+      .filter(record => (
+        blocksMover(record, moverType)
+        && !ignored.has(record.id)
+        && traversableTypes.has(record.type) === includeTraversable
+      ))
+      .sort((left, right) => left.id.localeCompare(right.id));
   }
 
   getCollider(id) {
@@ -335,12 +471,14 @@ export class StaticCollisionWorld {
             crossingId: crossing.id
           };
         }
-        return {
-          x: goal.x,
-          z: northExitZ,
-          routed: true,
-          crossingId: crossing.id
-        };
+        if (start.z <= northExitZ + margin) {
+          return {
+            x: goal.x,
+            z: northExitZ,
+            routed: true,
+            crossingId: crossing.id
+          };
+        }
       }
       if (southBankTrip
           && Math.abs(start.x - crossing.centerX) < lateralClearance - CONTACT_EPSILON
@@ -353,12 +491,14 @@ export class StaticCollisionWorld {
             crossingId: crossing.id
           };
         }
-        return {
-          x: goal.x,
-          z: southExitZ,
-          routed: true,
-          crossingId: crossing.id
-        };
+        if (start.z >= southExitZ - margin) {
+          return {
+            x: goal.x,
+            z: southExitZ,
+            routed: true,
+            crossingId: crossing.id
+          };
+        }
       }
 
       if (southToNorth) {
@@ -632,19 +772,23 @@ export class StaticCollisionWorld {
     );
     const transientRecords = (options.transientColliders ?? [])
       .map(normalizeRecord);
-    const blockingRecords = [
-      ...this.colliders.values(),
-      ...transientRecords
-    ]
-      .filter(record => blocksMover(record, moverType) && !ignored.has(record.id))
-      .sort((a, b) => a.id.localeCompare(b.id));
-    const traversalRecords = blockingRecords.filter(record =>
-      traversableTypes.has(record.type));
-    const records = blockingRecords.filter(record =>
-      !traversableTypes.has(record.type));
     const resolved = { x: finite(position.x), z: finite(position.z) };
     const contacts = [];
     const traversedColliderIds = [];
+    const traversalBounds = footprintBounds(
+      resolved,
+      displacement,
+      offsets,
+      radius
+    );
+    const traversalRecords = this.queryBlockingRecords(
+      traversalBounds,
+      moverType,
+      ignored,
+      traversableTypes,
+      transientRecords,
+      true
+    );
     for (const record of traversalRecords) {
       const crossed = offsets.some(offset => sweepCircleAgainstRecord(
         {
@@ -662,6 +806,14 @@ export class StaticCollisionWorld {
     // inside a static obstacle before resolving its requested motion.
     for (let pass = 0; pass < DEFAULT_ITERATIONS; pass++) {
       let best = null;
+      const records = this.queryBlockingRecords(
+        footprintBounds(resolved, { x: 0, z: 0 }, offsets, radius),
+        moverType,
+        ignored,
+        traversableTypes,
+        transientRecords,
+        false
+      );
       for (let offsetIndex = 0; offsetIndex < offsets.length; offsetIndex++) {
         const offset = offsets[offsetIndex];
         const center = { x: resolved.x + offset.x, z: resolved.z + offset.z };
@@ -687,6 +839,14 @@ export class StaticCollisionWorld {
       const distance = Math.hypot(remaining.x, remaining.z);
       if (distance <= CONTACT_EPSILON) break;
       const hits = [];
+      const records = this.queryBlockingRecords(
+        footprintBounds(resolved, remaining, offsets, radius),
+        moverType,
+        ignored,
+        traversableTypes,
+        transientRecords,
+        false
+      );
       for (let offsetIndex = 0; offsetIndex < offsets.length; offsetIndex++) {
         const offset = offsets[offsetIndex];
         const center = { x: resolved.x + offset.x, z: resolved.z + offset.z };

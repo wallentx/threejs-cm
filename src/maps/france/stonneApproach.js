@@ -402,6 +402,8 @@ export const STONNE_APPROACH_1940_MAP = defineMapDescriptor({
       height: 1.2,
       thickness: 0.65,
       maximumSegmentLength: 4,
+      textureRepeatMeters: 1.6,
+      textureRepeatHeightMeters: 0.8,
       blocks: ['vehicle', 'infantry'],
       occludesSight: true,
       dataQuality:

@@ -24,6 +24,8 @@ const MATERIAL_ROLES = Object.freeze([
   'water',
   'bridgeRoad',
   'masonry',
+  'sandbag',
+  'hedgerow',
   'fenceCard',
   'foliageTrunk',
   'foliageLeaves',

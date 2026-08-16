@@ -16,6 +16,7 @@
     "test:core": "node scripts/run-tests.mjs core",
     "test:full": "node scripts/run-tests.mjs full",
     "test:file": "node scripts/run-tests.mjs files",
+    "verify": "node scripts/verify-change.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

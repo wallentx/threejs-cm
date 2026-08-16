@@ -132,6 +132,13 @@ function validateWallProfiles(profiles) {
     for (const key of ['height', 'thickness', 'maximumSegmentLength']) {
       requireFinite(profile[key], `${path}.${key}`, { positive: true });
     }
+    if (profile.presentationKind === 'solid-prism') {
+      for (const key of ['textureRepeatMeters', 'textureRepeatHeightMeters']) {
+        if (profile[key] != null) {
+          requireFinite(profile[key], `${path}.${key}`, { positive: true });
+        }
+      }
+    }
     if (profile.presentationKind === 'alpha-tested-card') {
       requireFinite(
         profile.textureRepeatMeters,
@@ -176,6 +183,10 @@ function validateWallProfiles(profiles) {
     if (typeof profile.occludesSight !== 'boolean') {
       throw new Error(`${path}.occludesSight must be boolean`);
     }
+    if (profile.blocksProjectiles != null
+        && typeof profile.blocksProjectiles !== 'boolean') {
+      throw new Error(`${path}.blocksProjectiles must be boolean`);
+    }
     if (
       typeof profile.dataQuality !== 'string'
       || profile.dataQuality.trim().length === 0
@@ -219,6 +230,123 @@ function validateDeploymentZones(zones, dimensions) {
       || bounds.minZ < -halfDepth || bounds.maxZ > halfDepth
     ) {
       throw new Error(`map.deploymentZones.${factionId} lies outside map bounds`);
+    }
+  }
+}
+
+function validateConfiguredMission(mission, dimensions, deploymentZones) {
+  if (mission == null) return;
+  requireRecord(mission, 'map.configuredMission');
+  requireId(mission.id, 'map.configuredMission.id');
+  const appliesTo = requireRecord(
+    mission.appliesTo,
+    'map.configuredMission.appliesTo'
+  );
+  requireId(
+    appliesTo.playerFactionId,
+    'map.configuredMission.appliesTo.playerFactionId'
+  );
+  requireId(
+    appliesTo.enemyFactionId,
+    'map.configuredMission.appliesTo.enemyFactionId'
+  );
+  const objective = requireRecord(
+    mission.objective,
+    'map.configuredMission.objective'
+  );
+  requireId(objective.id, 'map.configuredMission.objective.id');
+  if (objective.type !== 'BREAKTHROUGH') {
+    throw new Error('map.configuredMission.objective.type must be BREAKTHROUGH');
+  }
+  requireId(
+    objective.attackerFactionId,
+    'map.configuredMission.objective.attackerFactionId'
+  );
+  requireId(
+    objective.defenderFactionId,
+    'map.configuredMission.objective.defenderFactionId'
+  );
+  requireFinite(
+    objective.timeLimitSeconds,
+    'map.configuredMission.objective.timeLimitSeconds',
+    { positive: true }
+  );
+  requireId(objective.dataQuality, 'map.configuredMission.objective.dataQuality');
+  const exitZone = requireRecord(
+    objective.exitZone,
+    'map.configuredMission.objective.exitZone'
+  );
+  for (const key of ['minX', 'maxX', 'minZ', 'maxZ']) {
+    requireFinite(exitZone[key], `map.configuredMission.objective.exitZone.${key}`);
+  }
+  if (exitZone.minX >= exitZone.maxX || exitZone.minZ >= exitZone.maxZ) {
+    throw new Error('map.configuredMission.objective.exitZone requires increasing bounds');
+  }
+  requireInsideMap(
+    [exitZone.minX, exitZone.minZ],
+    dimensions,
+    'map.configuredMission.objective.exitZone minimum'
+  );
+  requireInsideMap(
+    [exitZone.maxX, exitZone.maxZ],
+    dimensions,
+    'map.configuredMission.objective.exitZone maximum'
+  );
+
+  const planSet = requireRecord(
+    mission.enemyPlanSet,
+    'map.configuredMission.enemyPlanSet'
+  );
+  requireId(planSet.id, 'map.configuredMission.enemyPlanSet.id');
+  const factionId = requireId(
+    planSet.factionId,
+    'map.configuredMission.enemyPlanSet.factionId'
+  );
+  if (factionId !== objective.attackerFactionId) {
+    throw new Error('map configured mission AI faction must match objective attacker');
+  }
+  requireId(planSet.dataQuality, 'map.configuredMission.enemyPlanSet.dataQuality');
+  if (!Array.isArray(planSet.plans) || planSet.plans.length < 2) {
+    throw new Error('map.configuredMission.enemyPlanSet requires at least two plans');
+  }
+  const setupZone = deploymentZones[factionId];
+  if (!setupZone) {
+    throw new Error(`map configured mission requires deployment zone ${factionId}`);
+  }
+  for (const [planIndex, plan] of planSet.plans.entries()) {
+    const planPath = `map.configuredMission.enemyPlanSet.plans[${planIndex}]`;
+    requireId(plan.id, `${planPath}.id`);
+    if (!Array.isArray(plan.lanes) || plan.lanes.length === 0) {
+      throw new Error(`${planPath}.lanes requires at least one lane`);
+    }
+    for (const [laneIndex, lane] of plan.lanes.entries()) {
+      const lanePath = `${planPath}.lanes[${laneIndex}]`;
+      requireId(lane.id, `${lanePath}.id`);
+      if (!Array.isArray(lane.setupSlots) || lane.setupSlots.length === 0) {
+        throw new Error(`${lanePath}.setupSlots requires points`);
+      }
+      for (const [pointIndex, point] of lane.setupSlots.entries()) {
+        requireTuple(point, 2, `${lanePath}.setupSlots[${pointIndex}]`);
+        requireInsideMap(point, dimensions, `${lanePath}.setupSlots[${pointIndex}]`);
+        if (
+          point[0] < setupZone.minX || point[0] > setupZone.maxX
+          || point[1] < setupZone.minZ || point[1] > setupZone.maxZ
+        ) {
+          throw new Error(`${lanePath}.setupSlots[${pointIndex}] lies outside setup zone`);
+        }
+      }
+      if (!Array.isArray(lane.route) || lane.route.length === 0) {
+        throw new Error(`${lanePath}.route requires waypoints`);
+      }
+      for (const [waypointIndex, waypoint] of lane.route.entries()) {
+        requireRecord(waypoint, `${lanePath}.route[${waypointIndex}]`);
+        const point = requireTuple(
+          waypoint.position,
+          2,
+          `${lanePath}.route[${waypointIndex}].position`
+        );
+        requireInsideMap(point, dimensions, `${lanePath}.route[${waypointIndex}]`);
+      }
     }
   }
 }
@@ -410,6 +538,13 @@ export function validateMapDescriptor(map) {
     }
     requireFinite(river.waterLevel, 'map.river.waterLevel');
     requireFinite(river.bedLevel, 'map.river.bedLevel');
+    if (river.floodplainRadius != null) {
+      requireFinite(
+        river.floodplainRadius,
+        'map.river.floodplainRadius',
+        { positive: true }
+      );
+    }
     if (river.bedLevel >= river.waterLevel) {
       throw new Error('map.river.bedLevel must be below waterLevel');
     }
@@ -479,6 +614,54 @@ export function validateMapDescriptor(map) {
     registerFeatureId(ids, structure, `map.structures[${index}]`);
     requireId(structure.descriptorId, `map.structures[${index}].descriptorId`);
     requireId(structure.visualAdapterId, `map.structures[${index}].visualAdapterId`);
+    if (structure.styleId != null) {
+      requireId(structure.styleId, `map.structures[${index}].styleId`);
+    }
+    if (structure.facadeId != null) {
+      requireId(structure.facadeId, `map.structures[${index}].facadeId`);
+    }
+    if (structure.roofStyleId != null) {
+      requireId(structure.roofStyleId, `map.structures[${index}].roofStyleId`);
+    }
+    if (structure.attachedRowId != null) {
+      requireId(structure.attachedRowId, `map.structures[${index}].attachedRowId`);
+      if (!Number.isInteger(structure.attachedOrder) || structure.attachedOrder < 0) {
+        throw new Error(
+          `map.structures[${index}].attachedOrder must be a non-negative integer`
+        );
+      }
+    } else if (structure.attachedOrder != null) {
+      throw new Error(
+        `map.structures[${index}].attachedOrder requires attachedRowId`
+      );
+    }
+    if (structure.terrainPad != null) {
+      requireRecord(structure.terrainPad, `map.structures[${index}].terrainPad`);
+      requireFinite(
+        structure.terrainPad.footprintMargin,
+        `map.structures[${index}].terrainPad.footprintMargin`
+      );
+      if (structure.terrainPad.footprintMargin < 0) {
+        throw new Error(
+          `map.structures[${index}].terrainPad.footprintMargin must not be negative`
+        );
+      }
+      requireFinite(
+        structure.terrainPad.blendDistance,
+        `map.structures[${index}].terrainPad.blendDistance`,
+        { positive: true }
+      );
+      requireId(
+        structure.terrainPad.dataQuality,
+        `map.structures[${index}].terrainPad.dataQuality`
+      );
+      if (structure.terrainPad.levelGroupId != null) {
+        requireId(
+          structure.terrainPad.levelGroupId,
+          `map.structures[${index}].terrainPad.levelGroupId`
+        );
+      }
+    }
     requireInsideMap(
       requireTuple(structure.position, 2, `map.structures[${index}].position`),
       dimensions,
@@ -539,17 +722,19 @@ export function validateMapDescriptor(map) {
   map.wallRuns.forEach((wall, wallIndex) => {
     const path = `map.wallRuns[${wallIndex}]`;
     if (wallEnclosures.length === 0) return;
-    requireId(wall.enclosureId, `${path}.enclosureId`);
-    if (!enclosureIds.has(wall.enclosureId)) {
-      throw new Error(`${path}.enclosureId references unknown enclosure ${wall.enclosureId}`);
-    }
-    requireId(wall.boundarySide, `${path}.boundarySide`);
-    if (wall.adjacentGateId != null) {
-      requireId(wall.adjacentGateId, `${path}.adjacentGateId`);
-      if (!gateIdsByEnclosure.get(wall.enclosureId)?.has(wall.adjacentGateId)) {
-        throw new Error(
-          `${path}.adjacentGateId references a gate outside enclosure ${wall.enclosureId}`
-        );
+    if (wall.enclosureId != null) {
+      requireId(wall.enclosureId, `${path}.enclosureId`);
+      if (!enclosureIds.has(wall.enclosureId)) {
+        throw new Error(`${path}.enclosureId references unknown enclosure ${wall.enclosureId}`);
+      }
+      requireId(wall.boundarySide, `${path}.boundarySide`);
+      if (wall.adjacentGateId != null) {
+        requireId(wall.adjacentGateId, `${path}.adjacentGateId`);
+        if (!gateIdsByEnclosure.get(wall.enclosureId)?.has(wall.adjacentGateId)) {
+          throw new Error(
+            `${path}.adjacentGateId references a gate outside enclosure ${wall.enclosureId}`
+          );
+        }
       }
     }
   });
@@ -582,6 +767,11 @@ export function validateMapDescriptor(map) {
   }
 
   validateDeploymentZones(map.deploymentZones, dimensions);
+  validateConfiguredMission(
+    map.configuredMission,
+    dimensions,
+    map.deploymentZones
+  );
   return map;
 }
 

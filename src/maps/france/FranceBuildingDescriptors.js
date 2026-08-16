@@ -1,0 +1,17 @@
+import { FR_FARMHOUSE_8X6_1F } from './FranceFarmhouse8x6_1F.js';
+import { FR_HOUSE_12X9_2F } from './FranceHouse12x9_2F.js';
+import {
+  FRANCE_ATTACHED_STREET_BUILDING_DESCRIPTORS
+} from './FranceAttachedStreetBuildings.js';
+
+export const FRANCE_1940_BUILDING_DESCRIPTORS = Object.freeze([
+  FR_HOUSE_12X9_2F,
+  FR_FARMHOUSE_8X6_1F,
+  ...FRANCE_ATTACHED_STREET_BUILDING_DESCRIPTORS
+]);
+
+export {
+  FR_FARMHOUSE_8X6_1F,
+  FR_HOUSE_12X9_2F,
+  FRANCE_ATTACHED_STREET_BUILDING_DESCRIPTORS
+};

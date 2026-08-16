@@ -183,6 +183,19 @@ test('enemy difficulty applies existing deterministic soft factors', () => {
   }
 });
 
+test('configured battle accepts a recorded launch seed for varied deterministic plans', () => {
+  const first = createScenario({ battleSeed: 123456789 });
+  const replay = createScenario({ battleSeed: 123456789 });
+  const nextBattle = createScenario({ battleSeed: 987654321 });
+  assert.equal(first.defaultSeed, 123456789);
+  assert.equal(replay.defaultSeed, first.defaultSeed);
+  assert.notEqual(nextBattle.defaultSeed, first.defaultSeed);
+  assert.throws(
+    () => createScenario({ battleSeed: -1 }),
+    /unsigned 32-bit integer/
+  );
+});
+
 test('battle setup rejects illegal force combinations and counts', () => {
   assert.throws(
     () => createScenario({

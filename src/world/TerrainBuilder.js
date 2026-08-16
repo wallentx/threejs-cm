@@ -22,6 +22,8 @@ const RIVER_BANK_CROSS_SLOPE_SUBDIVISIONS = 6;
 const RIVER_BANK_SURFACE_OFFSET = 0.03;
 const RIVER_BANK_RENDERER_APPROXIMATION =
   'renderer-only bounded terrain samples and surface offset to prevent z-fighting';
+const OOB_EXTENSION_METERS = 550;
+const OOB_FADE_START_METERS = 160;
 
 function deterministicFoliageUnit(id, channel) {
   let hash = 2166136261;
@@ -38,6 +40,49 @@ function foliagePresentation(entry) {
     rotationY: deterministicFoliageUnit(entry.id, 'rotation') * Math.PI * 2,
     scale: 0.88 + deterministicFoliageUnit(entry.id, 'scale') * 0.24
   };
+}
+
+function pointInPolygonXZ([x, z], polygon) {
+  let inside = false;
+  for (let index = 0, previous = polygon.length - 1;
+    index < polygon.length;
+    previous = index++) {
+    const [x0, z0] = polygon[index];
+    const [x1, z1] = polygon[previous];
+    if (
+      (z0 > z) !== (z1 > z)
+      && x < (x1 - x0) * (z - z0) / (z1 - z0) + x0
+    ) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function pointToSegmentDistanceXZ([x, z], [x0, z0], [x1, z1]) {
+  const dx = x1 - x0;
+  const dz = z1 - z0;
+  const lengthSq = dx * dx + dz * dz;
+  const t = lengthSq > 0
+    ? THREE.MathUtils.clamp(((x - x0) * dx + (z - z0) * dz) / lengthSq, 0, 1)
+    : 0;
+  return Math.hypot(x - (x0 + dx * t), z - (z0 + dz * t));
+}
+
+function surfaceLayerWorldPolygon(mapDescriptor, layer) {
+  const [textureWidth, textureHeight] = mapDescriptor.surfaces.textureResolution;
+  const source = layer.polygon ?? (layer.rect
+    ? [
+        [layer.rect[0], layer.rect[1]],
+        [layer.rect[0] + layer.rect[2], layer.rect[1]],
+        [layer.rect[0] + layer.rect[2], layer.rect[1] + layer.rect[3]],
+        [layer.rect[0], layer.rect[1] + layer.rect[3]]
+      ]
+    : []);
+  return source.map(([textureX, textureY]) => [
+    (textureX / textureWidth - 0.5) * mapDescriptor.dimensions.width,
+    (0.5 - textureY / textureHeight) * mapDescriptor.dimensions.depth
+  ]);
 }
 
 function uniqueSortedCoordinates(values) {
@@ -137,6 +182,512 @@ function createTerrainGridGeometry(options) {
   return geometry;
 }
 
+export function createSurroundingTerrainGeometry({
+  width,
+  depth,
+  xCoordinates,
+  zCoordinates,
+  getHeightAt,
+  river = null,
+  bridge = null,
+  extensionMeters = 380,
+  marginSegments = 16
+}) {
+  const halfWidth = width * 0.5;
+  const halfDepth = depth * 0.5;
+  const outerXMin = -halfWidth - extensionMeters;
+  const outerZMin = -halfDepth - extensionMeters;
+
+  const leftX = [];
+  for (let i = 0; i < marginSegments; i++) {
+    leftX.push(outerXMin + (i / marginSegments) * extensionMeters);
+  }
+  const rightX = [];
+  for (let i = 1; i <= marginSegments; i++) {
+    rightX.push(halfWidth + (i / marginSegments) * extensionMeters);
+  }
+  const allX = [...leftX, ...xCoordinates, ...rightX];
+
+  const bottomZ = [];
+  for (let i = 0; i < marginSegments; i++) {
+    bottomZ.push(outerZMin + (i / marginSegments) * extensionMeters);
+  }
+  const topZ = [];
+  for (let i = 1; i <= marginSegments; i++) {
+    topZ.push(halfDepth + (i / marginSegments) * extensionMeters);
+  }
+  const allZ = [...bottomZ, ...zCoordinates, ...topZ];
+
+  const positions = [];
+  const uvs = [];
+  const colors = [];
+  const indices = [];
+
+  const defaultBaseR = 0.13;
+  const defaultBaseG = 0.21;
+  const defaultBaseB = 0.06;
+
+  const riverWaterR = 0.08, riverWaterG = 0.16, riverWaterB = 0.24;
+  const riverBankR = 0.22, riverBankG = 0.20, riverBankB = 0.12;
+  const roadR = 0.26, roadG = 0.23, roadB = 0.16;
+
+  const vertexIndices = new Int32Array(allZ.length * allX.length);
+  vertexIndices.fill(-1);
+
+  const lerp = (a, b, t) => a + (b - a) * t;
+
+  let vertexCount = 0;
+  for (let row = 0; row < allZ.length; row++) {
+    const z = allZ[row];
+    for (let col = 0; col < allX.length; col++) {
+      const x = allX[col];
+
+      const isStrictInterior = (x > -halfWidth + 0.001 && x < halfWidth - 0.001)
+        && (z > -halfDepth + 0.001 && z < halfDepth - 0.001);
+
+      if (isStrictInterior) {
+        continue;
+      }
+
+      const dx = Math.max(0, Math.abs(x) - halfWidth);
+      const dz = Math.max(0, Math.abs(z) - halfDepth);
+      const dist = Math.hypot(dx, dz);
+
+      const y = getHeightAt(x, z);
+      positions.push(x, y, z);
+      uvs.push((x + halfWidth) / width, (z + halfDepth) / depth);
+
+      let baseR = defaultBaseR;
+      let baseG = defaultBaseG;
+      let baseB = defaultBaseB;
+
+      if (river && Number.isFinite(river.centerZ) && Number.isFinite(river.cutWidth)) {
+        const distZ = Math.abs(z - river.centerZ);
+        const waterHalf = (river.waterWidth ?? 12) * 0.5;
+        const cutHalf = river.cutWidth * 0.5;
+        if (distZ <= waterHalf) {
+          baseR = riverWaterR;
+          baseG = riverWaterG;
+          baseB = riverWaterB;
+        } else if (distZ <= cutHalf) {
+          const bankT = (distZ - waterHalf) / (cutHalf - waterHalf);
+          baseR = lerp(riverWaterR, riverBankR, bankT);
+          baseG = lerp(riverWaterG, riverBankG, bankT);
+          baseB = lerp(riverWaterB, riverBankB, bankT);
+        } else if (distZ <= cutHalf + 8) {
+          const transT = (distZ - cutHalf) / 8;
+          baseR = lerp(riverBankR, defaultBaseR, transT);
+          baseG = lerp(riverBankG, defaultBaseG, transT);
+          baseB = lerp(riverBankB, defaultBaseB, transT);
+        }
+      }
+
+      const roadCenterX = bridge?.centerX ?? 0;
+      const roadHalfWidth = 5.5;
+      const shoulderHalfWidth = 9.0;
+      const distX = Math.abs(x - roadCenterX);
+      const inRiverBed = river && Math.abs(z - river.centerZ) <= (river.waterWidth ?? 12) * 0.5;
+      if (!inRiverBed && distX <= shoulderHalfWidth) {
+        if (distX <= roadHalfWidth) {
+          baseR = roadR;
+          baseG = roadG;
+          baseB = roadB;
+        } else {
+          const roadT = (distX - roadHalfWidth) / (shoulderHalfWidth - roadHalfWidth);
+          baseR = lerp(roadR, baseR, roadT);
+          baseG = lerp(roadG, baseG, roadT);
+          baseB = lerp(roadB, baseB, roadT);
+        }
+      }
+
+      // Gradual edge transparency: 100% opaque near map (dist <= 160m), smoothly fading to 0% at perimeter (550m)
+      const fadeStart = OOB_FADE_START_METERS;
+      const fadeEnd = extensionMeters;
+      let alpha = 1.0;
+      if (dist > fadeStart) {
+        const t = Math.min(1.0, (dist - fadeStart) / (fadeEnd - fadeStart));
+        alpha = 1.0 - t * t * (3 - 2 * t);
+      }
+
+      colors.push(baseR, baseG, baseB, alpha);
+
+      vertexIndices[row * allX.length + col] = vertexCount++;
+    }
+  }
+
+  for (let row = 0; row < allZ.length - 1; row++) {
+    for (let col = 0; col < allX.length - 1; col++) {
+      const sw = vertexIndices[row * allX.length + col];
+      const se = vertexIndices[row * allX.length + (col + 1)];
+      const nw = vertexIndices[(row + 1) * allX.length + col];
+      const ne = vertexIndices[(row + 1) * allX.length + (col + 1)];
+
+      if (sw === -1 || se === -1 || nw === -1 || ne === -1) {
+        continue;
+      }
+
+      indices.push(
+        sw,
+        nw,
+        se,
+        se,
+        nw,
+        ne
+      );
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 4));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function createOobRiverWaterGeometry({
+  channelWidth,
+  extensionMeters,
+  side,
+  widthSegments = 24
+}) {
+  const geometry = new THREE.PlaneGeometry(
+    extensionMeters,
+    channelWidth,
+    widthSegments,
+    1
+  );
+  geometry.rotateX(-Math.PI / 2);
+  const positions = geometry.attributes.position;
+  const colors = [];
+  const halfExtension = extensionMeters * 0.5;
+  for (let index = 0; index < positions.count; index++) {
+    const localX = positions.getX(index);
+    const outwardDistance = side === 'east'
+      ? localX + halfExtension
+      : halfExtension - localX;
+    const fadeProgress = THREE.MathUtils.clamp(
+      (outwardDistance - OOB_FADE_START_METERS)
+        / (extensionMeters - OOB_FADE_START_METERS),
+      0,
+      1
+    );
+    const alpha = 1 - fadeProgress * fadeProgress * (3 - 2 * fadeProgress);
+    colors.push(1, 1, 1, alpha);
+  }
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 4));
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+export function createAtmosphericSkyDomeGeometry({
+  radius = 1400,
+  widthSegments = 32,
+  heightSegments = 20
+} = {}) {
+  const geometry = new THREE.SphereGeometry(radius, widthSegments, heightSegments);
+  const pos = geometry.attributes.position;
+  const colors = [];
+
+  const zenithR = 0.27, zenithG = 0.48, zenithB = 0.62;
+  const midR = 0.45, midG = 0.64, midB = 0.73;
+  const horizonR = 0.61, horizonG = 0.73, horizonB = 0.76;
+  const groundR = 0.55, groundG = 0.66, groundB = 0.69;
+
+  const lerp = (a, b, t) => a + (b - a) * t;
+
+  for (let i = 0; i < pos.count; i++) {
+    const yNormalized = pos.getY(i) / radius;
+
+    let r, g, b;
+    if (yNormalized >= 0.35) {
+      const t = THREE.MathUtils.clamp((yNormalized - 0.35) / 0.65, 0, 1);
+      r = lerp(midR, zenithR, t);
+      g = lerp(midG, zenithG, t);
+      b = lerp(midB, zenithB, t);
+    } else if (yNormalized >= 0.0) {
+      const t = THREE.MathUtils.clamp(yNormalized / 0.35, 0, 1);
+      r = lerp(horizonR, midR, t);
+      g = lerp(horizonG, midG, t);
+      b = lerp(horizonB, midB, t);
+    } else {
+      const t = THREE.MathUtils.clamp(-yNormalized / 0.3, 0, 1);
+      r = lerp(horizonR, groundR, t);
+      g = lerp(horizonG, groundG, t);
+      b = lerp(horizonB, groundB, t);
+    }
+    colors.push(r, g, b);
+  }
+
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+export function resolveSkyPanoramaSize(qualityTier = 'high') {
+  if (qualityTier === 'ultra') return { width: 4096, height: 2048 };
+  if (qualityTier === 'low') return { width: 1024, height: 512 };
+  return { width: 2048, height: 1024 };
+}
+
+export function createGoogleEarthAtmosphericSkyTexture({
+  qualityTier = 'high'
+} = {}) {
+  if (typeof document === 'undefined') return null;
+  const { width: w, height: h } = resolveSkyPanoramaSize(qualityTier);
+  const scaleX = w / 4096;
+  const scaleY = h / 2048;
+  const detailScale = Math.min(scaleX, scaleY);
+  const margin = Math.max(32, Math.round(128 * scaleX));
+  const totalW = w + margin * 2;
+
+  const renderCanvas = document.createElement('canvas');
+  renderCanvas.width = totalW;
+  renderCanvas.height = h;
+  const ctx = renderCanvas.getContext('2d');
+  if (!ctx) return null;
+
+  const horizonY = h * 0.5;
+
+  // 1. Physically-inspired atmospheric Rayleigh scattering sky dome gradient
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, h);
+  skyGrad.addColorStop(0.00, '#1d4873'); // Deep Rayleigh zenith blue
+  skyGrad.addColorStop(0.15, '#2e6394'); // High atmosphere
+  skyGrad.addColorStop(0.30, '#4b84b3'); // Mid sky
+  skyGrad.addColorStop(0.42, '#76a8ce'); // Lower sky atmospheric haze
+  skyGrad.addColorStop(0.48, '#a2c6db'); // Sky-horizon boundary haze
+  skyGrad.addColorStop(0.50, '#586e50'); // Horizon hill line (matches fog green)
+  skyGrad.addColorStop(0.54, '#485e40'); // Upper ground slope
+  skyGrad.addColorStop(0.65, '#35482d'); // Lower ground slope
+  skyGrad.addColorStop(1.00, '#1c2817'); // Deep ground nadir
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(0, 0, totalW, h);
+
+  // 2. Solar Mie forward-scatter atmospheric glow (sun at azimuth ~135°, elevation ~35°)
+  const sunX = margin + w * 0.38;
+  const sunY = h * 0.30;
+  const sunGlow = ctx.createRadialGradient(
+    sunX,
+    sunY,
+    Math.max(2, 10 * detailScale),
+    sunX,
+    sunY,
+    900 * detailScale
+  );
+  sunGlow.addColorStop(0.0, 'rgba(255, 252, 235, 0.45)');
+  sunGlow.addColorStop(0.12, 'rgba(255, 245, 210, 0.25)');
+  sunGlow.addColorStop(0.40, 'rgba(220, 238, 250, 0.12)');
+  sunGlow.addColorStop(1.0, 'rgba(180, 215, 240, 0.0)');
+  ctx.fillStyle = sunGlow;
+  ctx.fillRect(0, 0, totalW, h);
+
+  // 3. High-altitude soft wispy cirrus and gentle scattered cumulus clouds with toroidal wrapping
+  const drawSoftCloud = (cx, cy, radiusX, radiusY, opacity) => {
+    ctx.save();
+    if (ctx.filter !== undefined) {
+      ctx.filter = `blur(${Math.max(1.5, 6 * detailScale)}px)`;
+    }
+    const cloudGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(radiusX, radiusY));
+    cloudGrad.addColorStop(0.0, `rgba(255, 255, 255, ${opacity})`);
+    cloudGrad.addColorStop(0.45, `rgba(245, 250, 255, ${opacity * 0.6})`);
+    cloudGrad.addColorStop(0.80, `rgba(230, 242, 252, ${opacity * 0.2})`);
+    cloudGrad.addColorStop(1.0, 'rgba(220, 235, 250, 0.0)');
+    ctx.translate(cx, cy);
+    ctx.scale(radiusX / Math.max(radiusX, radiusY), radiusY / Math.max(radiusX, radiusY));
+    ctx.fillStyle = cloudGrad;
+    ctx.beginPath();
+    ctx.arc(0, 0, Math.max(radiusX, radiusY), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  };
+
+  const cloudPuffs = [
+    { x: 0.12, y: 0.22, rx: 320, ry: 45, op: 0.18 },
+    { x: 0.18, y: 0.21, rx: 240, ry: 38, op: 0.22 },
+    { x: 0.25, y: 0.24, rx: 280, ry: 40, op: 0.16 },
+    { x: 0.45, y: 0.16, rx: 420, ry: 55, op: 0.20 },
+    { x: 0.52, y: 0.18, rx: 310, ry: 42, op: 0.24 },
+    { x: 0.68, y: 0.26, rx: 380, ry: 50, op: 0.18 },
+    { x: 0.76, y: 0.24, rx: 290, ry: 44, op: 0.22 },
+    { x: 0.88, y: 0.20, rx: 350, ry: 48, op: 0.17 },
+    { x: 0.94, y: 0.22, rx: 260, ry: 36, op: 0.20 }
+  ];
+  for (const p of cloudPuffs) {
+    const primaryX = margin + p.x * w;
+    const radiusX = p.rx * scaleX;
+    const radiusY = p.ry * scaleY;
+    drawSoftCloud(primaryX, p.y * h, radiusX, radiusY, p.op);
+    if (p.x < 0.2) drawSoftCloud(primaryX + w, p.y * h, radiusX, radiusY, p.op);
+    if (p.x > 0.8) drawSoftCloud(primaryX - w, p.y * h, radiusX, radiusY, p.op);
+  }
+
+  // 4. Multi-tier French Ardennes rolling horizon terrain ridges with seamless periodic wrapping
+  const drawDetailedHorizonRidge = (baseY, harmonics, fillStyle, treeNoise = false) => {
+    ctx.save();
+    if (ctx.filter !== undefined) {
+      ctx.filter = `blur(${Math.max(1, 3.5 * detailScale)}px)`;
+    }
+    ctx.fillStyle = fillStyle;
+    ctx.beginPath();
+    ctx.moveTo(0, h);
+    for (let x = 0; x <= totalW; x += Math.max(1, Math.round(2 * scaleX))) {
+      const theta = ((x - margin) / w) * Math.PI * 2;
+      let y = baseY;
+      for (const { amp, freq, phase = 0 } of harmonics) {
+        y += Math.sin(theta * freq + phase) * amp * scaleY;
+      }
+      if (treeNoise) {
+        const microTheta = theta * 64;
+        y += (
+          Math.sin(microTheta) * 1.6
+          + Math.cos(microTheta * 2) * 1.0
+        ) * scaleY;
+      }
+      if (x === 0) ctx.lineTo(0, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.lineTo(totalW, h);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  };
+
+  // Tier 1: Distant atmospheric haze ridges (~15km) - fully opaque
+  drawDetailedHorizonRidge(
+    horizonY - 24,
+    [
+      { amp: 20, freq: 2, phase: 0.2 },
+      { amp: 14, freq: 5, phase: 1.8 },
+      { amp: 8, freq: 11, phase: 3.1 }
+    ],
+    '#748f7d'
+  );
+
+  // Tier 2: Mid-distance rolling pastoral plateaus (~8km) - fully opaque
+  drawDetailedHorizonRidge(
+    horizonY - 12,
+    [
+      { amp: 16, freq: 3, phase: 0.9 },
+      { amp: 10, freq: 7, phase: 2.4 },
+      { amp: 6, freq: 15, phase: 4.2 }
+    ],
+    '#607c57'
+  );
+
+  // Tier 3: Near horizon rolling hills and tree copses (~3km) - fully opaque
+  drawDetailedHorizonRidge(
+    horizonY - 4,
+    [
+      { amp: 12, freq: 4, phase: 1.4 },
+      { amp: 7, freq: 8, phase: 0.5 },
+      { amp: 4, freq: 18, phase: 2.9 }
+    ],
+    '#4c6740',
+    true
+  );
+
+  // Tier 4: Base foreground terrain ridge - fully opaque
+  drawDetailedHorizonRidge(
+    horizonY + 2,
+    [
+      { amp: 8, freq: 5, phase: 2.1 },
+      { amp: 4, freq: 12, phase: 1.1 }
+    ],
+    '#3e5534',
+    true
+  );
+
+  // 5. Transfer seamless center slice to final 4096x2048 canvas
+  const finalCanvas = document.createElement('canvas');
+  finalCanvas.width = w;
+  finalCanvas.height = h;
+  const finalCtx = finalCanvas.getContext('2d');
+  if (!finalCtx) return null;
+
+  finalCtx.drawImage(renderCanvas, margin, 0, w, h, 0, 0, w, h);
+  renderCanvas.width = 1;
+  renderCanvas.height = 1;
+
+  const texture = new THREE.Texture(finalCanvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = true;
+  texture.anisotropy = qualityTier === 'ultra' ? 8 : qualityTier === 'low' ? 2 : 4;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+export function createCombatMissionSkyPanoramaTexture(options) {
+  return createGoogleEarthAtmosphericSkyTexture(options);
+}
+
+export function createMapBoundaryRibbonGeometry({
+  width,
+  depth,
+  xCoordinates,
+  zCoordinates,
+  getHeightAt,
+  ribbonWidth = 1.0,
+  liftY = 0.04
+}) {
+  const halfWidth = width * 0.5;
+  const halfDepth = depth * 0.5;
+  const positions = [];
+  const uvs = [];
+  const indices = [];
+
+  const addStrip = (coords, isZAxis, fixedCoord, inwardSign) => {
+    const baseIndex = positions.length / 3;
+    for (let i = 0; i < coords.length; i++) {
+      const val = coords[i];
+      const outerX = isZAxis ? fixedCoord : val;
+      const outerZ = isZAxis ? val : fixedCoord;
+      const innerX = isZAxis ? fixedCoord - inwardSign * ribbonWidth : val;
+      const innerZ = isZAxis ? val : fixedCoord - inwardSign * ribbonWidth;
+
+      const outerY = getHeightAt(outerX, outerZ) + liftY;
+      const innerY = getHeightAt(innerX, innerZ) + liftY;
+
+      positions.push(outerX, outerY, outerZ);
+      uvs.push(i / (coords.length - 1), 0);
+
+      positions.push(innerX, innerY, innerZ);
+      uvs.push(i / (coords.length - 1), 1);
+    }
+
+    for (let i = 0; i < coords.length - 1; i++) {
+      const p0 = baseIndex + i * 2;
+      const p1 = baseIndex + i * 2 + 1;
+      const p2 = baseIndex + (i + 1) * 2;
+      const p3 = baseIndex + (i + 1) * 2 + 1;
+
+      indices.push(p0, p1, p2, p1, p3, p2);
+    }
+  };
+
+  addStrip(xCoordinates, false, halfDepth, 1);
+  addStrip(xCoordinates, false, -halfDepth, -1);
+  addStrip(zCoordinates, true, halfWidth, 1);
+  addStrip(zCoordinates, true, -halfWidth, -1);
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
 function findCoordinateInterval(coordinates, value) {
   if (value <= coordinates[0]) return 0;
   const last = coordinates.length - 1;
@@ -208,21 +759,42 @@ export function createGroundConformingWallGeometry({
   end,
   height,
   thickness,
-  getHeightAt
+  getHeightAt,
+  startFootprint = null,
+  endFootprint = null,
+  capStart = true,
+  capEnd = true,
+  textureRepeatMeters = 0.6,
+  textureRepeatHeightMeters = 0.3
 }) {
   const dx = end.x - start.x;
   const dz = end.z - start.z;
   const length = Math.hypot(dx, dz);
   if (!(length > 0)) throw new Error('Wall segment length must be positive');
+  if (!(textureRepeatMeters > 0) || !(textureRepeatHeightMeters > 0)) {
+    throw new Error('Wall texture repeat dimensions must be positive');
+  }
 
   const halfThickness = thickness * 0.5;
   const nx = -dz / length * halfThickness;
   const nz = dx / length * halfThickness;
   const groundPoint = (x, z) => new THREE.Vector3(x, getHeightAt(x, z), z);
-  const bottomStartLeft = groundPoint(start.x + nx, start.z + nz);
-  const bottomStartRight = groundPoint(start.x - nx, start.z - nz);
-  const bottomEndRight = groundPoint(end.x - nx, end.z - nz);
-  const bottomEndLeft = groundPoint(end.x + nx, end.z + nz);
+  const bottomStartLeft = groundPoint(
+    startFootprint?.left?.x ?? start.x + nx,
+    startFootprint?.left?.z ?? start.z + nz
+  );
+  const bottomStartRight = groundPoint(
+    startFootprint?.right?.x ?? start.x - nx,
+    startFootprint?.right?.z ?? start.z - nz
+  );
+  const bottomEndRight = groundPoint(
+    endFootprint?.right?.x ?? end.x - nx,
+    endFootprint?.right?.z ?? end.z - nz
+  );
+  const bottomEndLeft = groundPoint(
+    endFootprint?.left?.x ?? end.x + nx,
+    endFootprint?.left?.z ?? end.z + nz
+  );
   const top = (point) => point.clone().add(new THREE.Vector3(0, height, 0));
   const topStartLeft = top(bottomStartLeft);
   const topStartRight = top(bottomStartRight);
@@ -231,9 +803,9 @@ export function createGroundConformingWallGeometry({
 
   const positions = [];
   const uvs = [];
-  const heightScale = height / 0.3;
-  const lengthScale = length / 0.6;
-  const thicknessScale = thickness / 0.6;
+  const heightScale = height / textureRepeatHeightMeters;
+  const lengthScale = length / textureRepeatMeters;
+  const thicknessScale = thickness / textureRepeatMeters;
 
   addQuad(
     positions, uvs,
@@ -255,16 +827,20 @@ export function createGroundConformingWallGeometry({
     bottomStartRight, topStartRight, topEndRight, bottomEndRight,
     heightScale, lengthScale
   );
-  addQuad(
-    positions, uvs,
-    bottomStartLeft, topStartLeft, topStartRight, bottomStartRight,
-    heightScale, thicknessScale
-  );
-  addQuad(
-    positions, uvs,
-    bottomEndLeft, bottomEndRight, topEndRight, topEndLeft,
-    thicknessScale, heightScale
-  );
+  if (capStart) {
+    addQuad(
+      positions, uvs,
+      bottomStartLeft, topStartLeft, topStartRight, bottomStartRight,
+      heightScale, thicknessScale
+    );
+  }
+  if (capEnd) {
+    addQuad(
+      positions, uvs,
+      bottomEndLeft, bottomEndRight, topEndRight, topEndLeft,
+      thicknessScale, heightScale
+    );
+  }
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
@@ -278,6 +854,187 @@ export function createGroundConformingWallGeometry({
     bottomEndRight.toArray(),
     bottomEndLeft.toArray()
   ];
+  geometry.userData.caps = { start: capStart, end: capEnd };
+  geometry.userData.textureRepeatMeters = {
+    horizontal: textureRepeatMeters,
+    vertical: textureRepeatHeightMeters
+  };
+  return geometry;
+}
+
+function wallEndpointMatches(point, endpoint) {
+  return Math.abs(point[0] - endpoint[0]) <= 1e-6
+    && Math.abs(point[1] - endpoint[1]) <= 1e-6;
+}
+
+function intersectOffsetLines(originA, directionA, originB, directionB) {
+  const denominator = directionA.x * directionB.z - directionA.z * directionB.x;
+  if (Math.abs(denominator) <= 1e-6) return null;
+  const offsetX = originB.x - originA.x;
+  const offsetZ = originB.z - originA.z;
+  const distance = (offsetX * directionB.z - offsetZ * directionB.x) / denominator;
+  return {
+    x: originA.x + directionA.x * distance,
+    z: originA.z + directionA.z * distance
+  };
+}
+
+function resolveWallEndpointFootprint({ run, endpoint, runs, thickness }) {
+  const point = endpoint === 'start' ? run.start : run.end;
+  const connections = runs.flatMap(candidate => {
+    if (candidate.profileId !== run.profileId) {
+      return [];
+    }
+    const matches = [];
+    if (wallEndpointMatches(candidate.start, point)) matches.push({ run: candidate, endpoint: 'start' });
+    if (wallEndpointMatches(candidate.end, point)) matches.push({ run: candidate, endpoint: 'end' });
+    return matches;
+  });
+  if (connections.length === 3) {
+    const directions = connections.map(connection => {
+      const other = connection.endpoint === 'start'
+        ? connection.run.end
+        : connection.run.start;
+      const length = Math.hypot(other[0] - point[0], other[1] - point[1]);
+      return length > 0
+        ? { x: (other[0] - point[0]) / length, z: (other[1] - point[1]) / length }
+        : null;
+    });
+    const hasOpposedPair = directions.some((left, leftIndex) => left
+      && directions.some((right, rightIndex) => right
+        && rightIndex > leftIndex
+        && left.x * right.x + left.z * right.z < -0.999));
+    if (!hasOpposedPair) return null;
+    const currentDx = run.end[0] - run.start[0];
+    const currentDz = run.end[1] - run.start[1];
+    const currentLength = Math.hypot(currentDx, currentDz);
+    if (!(currentLength > 0)) return null;
+    const direction = { x: currentDx / currentLength, z: currentDz / currentLength };
+    const away = endpoint === 'start'
+      ? direction
+      : { x: -direction.x, z: -direction.z };
+    const halfThickness = thickness * 0.5;
+    const center = {
+      x: point[0] + away.x * halfThickness,
+      z: point[1] + away.z * halfThickness
+    };
+    const normal = {
+      x: -direction.z * halfThickness,
+      z: direction.x * halfThickness
+    };
+    return {
+      kind: 'tee',
+      left: { x: center.x + normal.x, z: center.z + normal.z },
+      right: { x: center.x - normal.x, z: center.z - normal.z }
+    };
+  }
+  if (connections.length !== 2) return null;
+  const neighbor = connections.find(connection => connection.run.id !== run.id);
+  if (!neighbor) return null;
+
+  const currentOther = endpoint === 'start' ? run.end : run.start;
+  const neighborOther = neighbor.endpoint === 'start' ? neighbor.run.end : neighbor.run.start;
+  const intoLength = Math.hypot(point[0] - currentOther[0], point[1] - currentOther[1]);
+  const outLength = Math.hypot(neighborOther[0] - point[0], neighborOther[1] - point[1]);
+  if (!(intoLength > 0) || !(outLength > 0)) return null;
+  const into = {
+    x: (point[0] - currentOther[0]) / intoLength,
+    z: (point[1] - currentOther[1]) / intoLength
+  };
+  const out = {
+    x: (neighborOther[0] - point[0]) / outLength,
+    z: (neighborOther[1] - point[1]) / outLength
+  };
+  const turn = into.x * out.z - into.z * out.x;
+  if (Math.abs(turn) <= 1e-4) return null;
+
+  const halfThickness = thickness * 0.5;
+  const intoNormal = { x: -into.z * halfThickness, z: into.x * halfThickness };
+  const outNormal = { x: -out.z * halfThickness, z: out.x * halfThickness };
+  const origin = { x: point[0], z: point[1] };
+  const left = intersectOffsetLines(
+    { x: origin.x + intoNormal.x, z: origin.z + intoNormal.z },
+    into,
+    { x: origin.x + outNormal.x, z: origin.z + outNormal.z },
+    out
+  );
+  const right = intersectOffsetLines(
+    { x: origin.x - intoNormal.x, z: origin.z - intoNormal.z },
+    into,
+    { x: origin.x - outNormal.x, z: origin.z - outNormal.z },
+    out
+  );
+  if (!left || !right) return null;
+
+  // Geometry labels are based on start-to-end direction. At the start point
+  // that direction is opposite the incoming tangent used for the mitre.
+  return endpoint === 'start'
+    ? { kind: 'mitre', left: right, right: left }
+    : { kind: 'mitre', left, right };
+}
+
+function createGroundConformingTeeJunctionGeometry({
+  center,
+  directions,
+  height,
+  thickness,
+  textureRepeatMeters = 0.6,
+  textureRepeatHeightMeters = 0.3,
+  getHeightAt
+}) {
+  const halfThickness = thickness * 0.5;
+  const axis = directions[0];
+  const normal = { x: -axis.z, z: axis.x };
+  const offsets = [
+    [-halfThickness, -halfThickness],
+    [halfThickness, -halfThickness],
+    [halfThickness, halfThickness],
+    [-halfThickness, halfThickness]
+  ];
+  const bottom = offsets.map(([along, across]) => new THREE.Vector3(
+    center.x + axis.x * along + normal.x * across,
+    0,
+    center.z + axis.z * along + normal.z * across
+  )).map(point => point.setY(getHeightAt(point.x, point.z)));
+  const top = bottom.map(point => point.clone().setY(point.y + height));
+  const positions = [];
+  const uvs = [];
+  const heightScale = height / textureRepeatHeightMeters;
+  const widthScale = thickness / textureRepeatMeters;
+  addQuad(positions, uvs, top[0], top[3], top[2], top[1], widthScale, widthScale);
+  addQuad(positions, uvs, bottom[0], bottom[1], bottom[2], bottom[3], widthScale, widthScale);
+  const outwardNormals = [
+    { x: -normal.x, z: -normal.z },
+    axis,
+    normal,
+    { x: -axis.x, z: -axis.z }
+  ];
+  for (let index = 0; index < 4; index++) {
+    const attached = directions.some(direction =>
+      direction.x * outwardNormals[index].x
+        + direction.z * outwardNormals[index].z > 0.999);
+    if (attached) continue;
+    const next = (index + 1) % 4;
+    addQuad(
+      positions,
+      uvs,
+      bottom[next], bottom[index], top[index], top[next],
+      widthScale,
+      heightScale
+    );
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  geometry.userData.presentationOnly = true;
+  geometry.userData.junctionKind = 'tee';
+  geometry.userData.textureRepeatMeters = {
+    horizontal: textureRepeatMeters,
+    vertical: textureRepeatHeightMeters
+  };
   return geometry;
 }
 
@@ -620,7 +1377,8 @@ export class TerrainBuilder {
     buildingSystem = null,
     structureAdapters = {},
     terrainSurfaceProvider,
-    foliageTemplateProvider = null
+    foliageTemplateProvider = null,
+    qualityTier = 'high'
   } = {}) {
     if (!mapDescriptor?.id || !mapDescriptor?.dimensions) {
       throw new Error('TerrainBuilder requires a validated mapDescriptor');
@@ -638,12 +1396,20 @@ export class TerrainBuilder {
       throw new Error('TerrainBuilder foliage template provider requires createTemplate');
     }
     this.scene = scene;
+    this.qualityTier = ['low', 'high', 'ultra'].includes(qualityTier)
+      ? qualityTier
+      : 'high';
     this.mapDescriptor = mapDescriptor;
     this.deploymentZoneDefinitions = mapDescriptor.deploymentZones;
     this.width = mapDescriptor.dimensions.width;
     this.depth = mapDescriptor.dimensions.depth;
     this.segments = mapDescriptor.dimensions.segments;
     this.terrainMesh = null;
+    this.surroundingTerrainMesh = null;
+    this.mapBoundaryRibbonMesh = null;
+    this.skyDomeMesh = null;
+    this.oobRiverWaterMeshes = [];
+    this.oobRiverWaterMaterial = null;
     this.heightData = new Float32Array();
     this.terrainGridCoordinates = createTerrainGridCoordinates({
       width: this.width,
@@ -652,6 +1418,8 @@ export class TerrainBuilder {
       additionalZCoordinates: createRiverBankZCoordinates(mapDescriptor.river)
     });
     this.bocageObstacles = [];
+    this.coverObstacleCellSize = 16;
+    this.coverObstacleCells = new Map();
     this.sightOccluderRevision = 0;
     this.sightOccluderSnapshot = createTerrainSightOccluderSnapshot(0, []);
     this.sightOccluderPublicationDepth = 0;
@@ -664,11 +1432,93 @@ export class TerrainBuilder {
     this.riverBankStrips = [];
     this.buildingSystem = buildingSystem;
     this.structureAdapters = structureAdapters;
+    this.structurePadTargetHeights = new Map();
+    const padGroups = new Map();
+    for (const structure of mapDescriptor.structures ?? []) {
+      if (!structure.terrainPad) continue;
+      const groupId = structure.terrainPad.levelGroupId ?? `structure:${structure.id}`;
+      const group = padGroups.get(groupId) ?? [];
+      group.push(structure);
+      padGroups.set(groupId, group);
+    }
+    for (const group of padGroups.values()) {
+      const targetHeight = group.reduce(
+        (sum, structure) => sum + this.getRawOpenGroundHeightAt(
+          structure.position[0],
+          structure.position[1]
+        ),
+        0
+      ) / group.length;
+      for (const structure of group) {
+        this.structurePadTargetHeights.set(structure.id, targetHeight);
+      }
+    }
+    this.structureTerrainPadCellSize = 16;
+    this.structureTerrainPadCells = new Map();
+    this.structureTerrainPads = [];
+    for (const structure of mapDescriptor.structures ?? []) {
+      const terrainPad = structure.terrainPad;
+      if (!terrainPad) continue;
+      const descriptor = this.structureAdapters[structure.visualAdapterId]?.descriptor;
+      if (!descriptor?.bounds) continue;
+      const [centerX, centerZ] = structure.position;
+      const rotation = structure.rotationY ?? 0;
+      const cosine = Math.cos(rotation);
+      const sine = Math.sin(rotation);
+      const halfWidth = (
+        descriptor.bounds.max[0] - descriptor.bounds.min[0]
+      ) * 0.5 + terrainPad.footprintMargin;
+      const halfDepth = (
+        descriptor.bounds.max[2] - descriptor.bounds.min[2]
+      ) * 0.5 + terrainPad.footprintMargin;
+      const blendDistance = terrainPad.blendDistance;
+      const worldHalfX = Math.abs(cosine) * halfWidth
+        + Math.abs(sine) * halfDepth
+        + blendDistance;
+      const worldHalfZ = Math.abs(sine) * halfWidth
+        + Math.abs(cosine) * halfDepth
+        + blendDistance;
+      const pad = {
+        id: structure.id,
+        centerX,
+        centerZ,
+        cosine,
+        sine,
+        halfWidth,
+        halfDepth,
+        blendDistance,
+        targetHeight: this.structurePadTargetHeights.get(structure.id)
+          ?? this.getRawOpenGroundHeightAt(centerX, centerZ)
+      };
+      this.structureTerrainPads.push(pad);
+      const minCellX = Math.floor(
+        (centerX - worldHalfX) / this.structureTerrainPadCellSize
+      );
+      const maxCellX = Math.floor(
+        (centerX + worldHalfX) / this.structureTerrainPadCellSize
+      );
+      const minCellZ = Math.floor(
+        (centerZ - worldHalfZ) / this.structureTerrainPadCellSize
+      );
+      const maxCellZ = Math.floor(
+        (centerZ + worldHalfZ) / this.structureTerrainPadCellSize
+      );
+      for (let cellZ = minCellZ; cellZ <= maxCellZ; cellZ++) {
+        for (let cellX = minCellX; cellX <= maxCellX; cellX++) {
+          const key = `${cellX}:${cellZ}`;
+          const pads = this.structureTerrainPadCells.get(key) ?? [];
+          pads.push(pad);
+          this.structureTerrainPadCells.set(key, pads);
+        }
+      }
+    }
     this.terrainSurfaceProvider = terrainSurfaceProvider;
     this.foliageTemplateProvider = foliageTemplateProvider;
     this.surfaceAssets = null;
     this.fenceMeshesByRunId = new Map();
     this.foliageInstances = [];
+    this.renderedFoliageEntries = [];
+    this.foliageExcludedFeatureIds = [];
     this.foliageReady = Promise.resolve(this.foliageInstances);
     this.destructibleLinearObstacles = new DestructibleLinearObstacleSystem({
       onSegmentChanged: (state, segment) => {
@@ -713,7 +1563,13 @@ export class TerrainBuilder {
     }
     this.scene.add(this.terrainMesh);
 
-    // 3. Environment Features
+    // 3. Out-of-bounds surrounding terrain skirt (de-emphasized background)
+    this.buildSurroundingTerrain();
+
+    // 4. Atmospheric sky dome blending into horizon fog
+    this.buildSkyDome();
+
+    // 5. Environment Features
     this.buildRiverAndBridge();
     this.buildStoneWalls();
     this.buildStructures();
@@ -723,14 +1579,150 @@ export class TerrainBuilder {
     return this.terrainMesh;
   }
 
-  getOpenGroundHeightAt(x, z) {
+  buildSurroundingTerrain() {
+    const geometry = createSurroundingTerrainGeometry({
+      width: this.width,
+      depth: this.depth,
+      xCoordinates: this.terrainGridCoordinates.x,
+      zCoordinates: this.terrainGridCoordinates.z,
+      getHeightAt: (x, z) => this.getHeightAt(x, z),
+      river: this.mapDescriptor.river,
+      bridge: this.mapDescriptor.bridge,
+      extensionMeters: OOB_EXTENSION_METERS,
+      marginSegments: 48
+    });
+
+    const material = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 1.0,
+      color: 0xffffff,
+      roughness: 1.0,
+      metalness: 0.0,
+      fog: true,
+      // Normal transparency preserves the smooth vertex fade. The explicit
+      // negative render order places the skirt before every battlefield VFX,
+      // while depth testing keeps it behind opaque battlefield geometry.
+      depthTest: true,
+      depthWrite: false
+    });
+
+    this.surroundingTerrainMesh = new THREE.Mesh(geometry, material);
+    this.surroundingTerrainMesh.name = 'SurroundingTerrainMesh';
+    this.surroundingTerrainMesh.renderOrder = -1000;
+    this.surroundingTerrainMesh.userData.renderShadowPolicy = {
+      castShadow: false,
+      receiveShadow: true
+    };
+    this.scene.add(this.surroundingTerrainMesh);
+
+    const boundaryGeometry = createMapBoundaryRibbonGeometry({
+      width: this.width,
+      depth: this.depth,
+      xCoordinates: this.terrainGridCoordinates.x,
+      zCoordinates: this.terrainGridCoordinates.z,
+      getHeightAt: (x, z) => this.getHeightAt(x, z),
+      ribbonWidth: 1.2,
+      liftY: 0.03
+    });
+
+    const boundaryMaterial = new THREE.MeshBasicMaterial({
+      color: '#34452a',
+      transparent: true,
+      opacity: 0.15,
+      depthTest: true,
+      depthWrite: false,
+      side: THREE.DoubleSide
+    });
+
+    this.mapBoundaryRibbonMesh = new THREE.Mesh(boundaryGeometry, boundaryMaterial);
+    this.mapBoundaryRibbonMesh.name = 'MapBoundaryRibbonMesh';
+    this.mapBoundaryRibbonMesh.renderOrder = -999;
+    this.mapBoundaryRibbonMesh.userData.renderShadowPolicy = {
+      castShadow: false,
+      receiveShadow: false
+    };
+    this.scene.add(this.mapBoundaryRibbonMesh);
+
+    return this.surroundingTerrainMesh;
+  }
+
+  buildSkyDome() {
+    const geometry = createAtmosphericSkyDomeGeometry({ radius: 1400 });
+    const skyMap = createCombatMissionSkyPanoramaTexture({
+      qualityTier: this.qualityTier
+    });
+    const material = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      map: skyMap,
+      vertexColors: skyMap ? false : true,
+      side: THREE.BackSide,
+      fog: false,
+      depthWrite: false
+    });
+    this.skyDomeMesh = new THREE.Mesh(geometry, material);
+    this.skyDomeMesh.name = 'AtmosphericSkyDome';
+    this.skyDomeMesh.renderOrder = -2000;
+    this.skyDomeMesh.userData.renderShadowPolicy = {
+      castShadow: false,
+      receiveShadow: false
+    };
+    this.scene.add(this.skyDomeMesh);
+    return this.skyDomeMesh;
+  }
+
+  getRawOpenGroundHeightAt(x, z) {
     const elevation = this.mapDescriptor.elevation;
-    return elevation.waves.reduce((height, wave) => {
+    const rawHeight = elevation.waves.reduce((height, wave) => {
       const coordinate = wave.axis === 'x' ? x : z;
       const angle = coordinate * wave.frequency + (wave.phase ?? 0);
       const sample = wave.function === 'sin' ? Math.sin(angle) : Math.cos(angle);
       return height + sample * wave.amplitude;
     }, elevation.baseHeight ?? 0);
+
+    const river = this.mapDescriptor.river;
+    if (!river
+        || !Number.isFinite(river.centerZ)
+        || !Number.isFinite(river.floodplainRadius)) {
+      return rawHeight;
+    }
+
+    // Natural European river valley floodplain:
+    // Terrain naturally flattens and levels out into a broad, gentle meadow near the river
+    // rather than creating steep hill crests and canyon-like cuts directly at the water's edge.
+    const floodplainRadius = river.floodplainRadius;
+    const distToRiver = Math.abs(z - river.centerZ);
+    if (distToRiver >= floodplainRadius) {
+      return rawHeight;
+    }
+    const t = distToRiver / floodplainRadius;
+    const smoothT = t * t * (3 - 2 * t);
+    const valleyFloorElevation = elevation.baseHeight ?? 0;
+    return THREE.MathUtils.lerp(valleyFloorElevation, rawHeight, smoothT);
+  }
+
+  getOpenGroundHeightAt(x, z) {
+    let height = this.getRawOpenGroundHeightAt(x, z);
+    const cellX = Math.floor(x / this.structureTerrainPadCellSize);
+    const cellZ = Math.floor(z / this.structureTerrainPadCellSize);
+    const pads = this.structureTerrainPadCells.get(`${cellX}:${cellZ}`) ?? [];
+    for (const pad of pads) {
+      const worldDx = x - pad.centerX;
+      const worldDz = z - pad.centerZ;
+      const dx = Math.abs(pad.cosine * worldDx - pad.sine * worldDz);
+      const dz = Math.abs(pad.sine * worldDx + pad.cosine * worldDz);
+
+      const excessX = Math.max(0, dx - pad.halfWidth);
+      const excessZ = Math.max(0, dz - pad.halfDepth);
+      const distFromPad = Math.hypot(excessX, excessZ);
+
+      if (distFromPad < pad.blendDistance) {
+        const t = distFromPad / pad.blendDistance;
+        const smoothT = t * t * (3 - 2 * t);
+        height = THREE.MathUtils.lerp(pad.targetHeight, height, smoothT);
+      }
+    }
+    return height;
   }
 
   getHeightAt(x, z) {
@@ -839,6 +1831,12 @@ export class TerrainBuilder {
     return normalized;
   }
 
+  getProjectileColliderRecords() {
+    return this.collisionWorld.getRecords()
+      .filter(record => record.blocksProjectiles === true)
+      .map(record => ({ ...record, blocks: [...record.blocks] }));
+  }
+
   removeColliderRecord(id) {
     const stableId = String(id);
     this.collisionWorld.removeCollider(stableId);
@@ -859,12 +1857,65 @@ export class TerrainBuilder {
       this.sightOccluderRevision,
       this.bocageObstacles
     );
+    this.rebuildCoverObstacleIndex();
     this.sightOccluderPublicationPending = false;
     return this.sightOccluderSnapshot;
   }
 
   getSightOccluderSnapshot() {
     return this.sightOccluderSnapshot;
+  }
+
+  rebuildCoverObstacleIndex() {
+    this.coverObstacleCells.clear();
+    for (let index = 0; index < this.bocageObstacles.length; index++) {
+      const obstacle = this.bocageObstacles[index];
+      if (![obstacle.minX, obstacle.maxX, obstacle.minZ, obstacle.maxZ]
+        .every(Number.isFinite)) {
+        continue;
+      }
+      const minCellX = Math.floor(obstacle.minX / this.coverObstacleCellSize);
+      const maxCellX = Math.floor(obstacle.maxX / this.coverObstacleCellSize);
+      const minCellZ = Math.floor(obstacle.minZ / this.coverObstacleCellSize);
+      const maxCellZ = Math.floor(obstacle.maxZ / this.coverObstacleCellSize);
+      const entry = { index, obstacle };
+      for (let cellZ = minCellZ; cellZ <= maxCellZ; cellZ++) {
+        for (let cellX = minCellX; cellX <= maxCellX; cellX++) {
+          const key = `${cellX}:${cellZ}`;
+          const entries = this.coverObstacleCells.get(key) ?? [];
+          entries.push(entry);
+          this.coverObstacleCells.set(key, entries);
+        }
+      }
+    }
+  }
+
+  queryCoverObstacles(x, z, radius) {
+    const extent = Math.max(0, Number(radius) || 0);
+    const minX = x - extent;
+    const maxX = x + extent;
+    const minZ = z - extent;
+    const maxZ = z + extent;
+    const minCellX = Math.floor(minX / this.coverObstacleCellSize);
+    const maxCellX = Math.floor(maxX / this.coverObstacleCellSize);
+    const minCellZ = Math.floor(minZ / this.coverObstacleCellSize);
+    const maxCellZ = Math.floor(maxZ / this.coverObstacleCellSize);
+    const entries = new Map();
+    for (let cellZ = minCellZ; cellZ <= maxCellZ; cellZ++) {
+      for (let cellX = minCellX; cellX <= maxCellX; cellX++) {
+        for (const entry of this.coverObstacleCells.get(`${cellX}:${cellZ}`) ?? []) {
+          const obstacle = entry.obstacle;
+          if (obstacle.maxX < minX || obstacle.minX > maxX
+              || obstacle.maxZ < minZ || obstacle.minZ > maxZ) {
+            continue;
+          }
+          entries.set(entry.index, entry);
+        }
+      }
+    }
+    return [...entries.values()]
+      .sort((left, right) => left.index - right.index)
+      .map(entry => entry.obstacle);
   }
 
   addBocageObstacle(record) {
@@ -972,6 +2023,8 @@ export class TerrainBuilder {
       'water',
       'bridgeRoad',
       'masonry',
+      'sandbag',
+      'hedgerow',
       'fenceCard',
       'foliageTrunk',
       'foliageLeaves',
@@ -1007,7 +2060,7 @@ export class TerrainBuilder {
     }
     const bridge = TERRAIN_SCALE.bridge;
     const surfaceMaterials = this.getSurfaceAssets().materials;
-    const waterGeo = new THREE.PlaneGeometry(this.width, river.waterWidth);
+    const waterGeo = new THREE.PlaneGeometry(this.width, river.cutWidth);
     waterGeo.rotateX(-Math.PI / 2);
     const waterMat = surfaceMaterials.water;
     const water = new THREE.Mesh(waterGeo, waterMat);
@@ -1015,11 +2068,46 @@ export class TerrainBuilder {
     water.position.set(0, river.waterLevel, river.centerZ);
     water.userData.dimensionsMeters = {
       width: this.width,
-      channelWidth: river.waterWidth,
+      channelWidth: river.cutWidth,
       waterLevel: river.waterLevel,
       bedLevel: river.bedLevel
     };
     this.scene.add(water);
+
+    const oobWaterMaterial = waterMat.clone();
+    oobWaterMaterial.name = 'OobRiverWaterMaterial';
+    oobWaterMaterial.vertexColors = true;
+    oobWaterMaterial.transparent = true;
+    oobWaterMaterial.depthTest = true;
+    oobWaterMaterial.depthWrite = false;
+    this.oobRiverWaterMaterial = oobWaterMaterial;
+    this.oobRiverWaterMeshes = ['west', 'east'].map(side => {
+      const geometry = createOobRiverWaterGeometry({
+        channelWidth: river.cutWidth,
+        extensionMeters: OOB_EXTENSION_METERS,
+        side
+      });
+      const continuation = new THREE.Mesh(geometry, oobWaterMaterial);
+      continuation.name = `OobRiverWater_${side}`;
+      continuation.position.set(
+        (side === 'east' ? 1 : -1)
+          * (this.width * 0.5 + OOB_EXTENSION_METERS * 0.5),
+        river.waterLevel,
+        river.centerZ
+      );
+      continuation.renderOrder = -998;
+      continuation.userData = {
+        presentationOnly: true,
+        continuationOf: 'RiverWater',
+        side,
+        dimensionsMeters: {
+          width: OOB_EXTENSION_METERS,
+          channelWidth: river.cutWidth
+        }
+      };
+      this.scene.add(continuation);
+      return continuation;
+    });
 
     this.buildRiverBankStrips();
 
@@ -1031,7 +2119,9 @@ export class TerrainBuilder {
     const halfSpan = mapBridge.span * 0.5;
     const deckTop = Math.max(
       this.getHeightAt(mapBridge.centerX, mapBridge.centerZ - halfSpan),
-      this.getHeightAt(mapBridge.centerX, mapBridge.centerZ + halfSpan)
+      this.getHeightAt(mapBridge.centerX, mapBridge.centerZ + halfSpan),
+      this.getHeightAt(mapBridge.centerX, mapBridge.centerZ - halfSpan - mapBridge.approachLength),
+      this.getHeightAt(mapBridge.centerX, mapBridge.centerZ + halfSpan + mapBridge.approachLength)
     ) + 0.1;
     const deck = new THREE.Mesh(
       new THREE.BoxGeometry(
@@ -1306,9 +2396,11 @@ export class TerrainBuilder {
   buildStoneWalls() {
     this.stoneWallSegments = [];
     this.fenceCardRuns = [];
+    this.wallJunctionMeshes = [];
     this.boundaryMeshes = [];
     this.fenceMeshesByRunId.clear();
     this.destructibleLinearObstacles.clear();
+    const allWallRuns = this.mapDescriptor.wallRuns;
 
     const createWallRun = (run) => {
       const profile = this.mapDescriptor.wallProfiles[run.profileId];
@@ -1357,11 +2449,15 @@ export class TerrainBuilder {
           enclosureId: run.enclosureId ?? null,
           adjacentGateId: run.adjacentGateId ?? null,
           centerX: (start.x + end.x) * 0.5,
+          centerY: (bounds.min.y + bounds.max.y) * 0.5,
           centerZ: (start.z + end.z) * 0.5,
           halfX: profile.thickness * 0.5,
+          halfHeight: (bounds.max.y - bounds.min.y) * 0.5,
           halfZ: length * 0.5,
           rotation: Math.atan2(end.x - start.x, end.z - start.z),
-          blocks: profile.blocks
+          blocks: profile.blocks,
+          blocksProjectiles: profile.blocksProjectiles === true,
+          projectileCoverDataQuality: profile.dataQuality
         });
         return { obstacleRecord, colliderRecord };
       };
@@ -1468,24 +2564,65 @@ export class TerrainBuilder {
           x: startX + dx * endT,
           z: startZ + dz * endT
         };
+        const startFootprint = index === 0
+          ? resolveWallEndpointFootprint({
+              run,
+              endpoint: 'start',
+              runs: allWallRuns,
+              thickness: profile.thickness
+            })
+          : null;
+        const endFootprint = index === segmentCount - 1
+          ? resolveWallEndpointFootprint({
+              run,
+              endpoint: 'end',
+              runs: allWallRuns,
+              thickness: profile.thickness
+            })
+          : null;
         const geometry = createGroundConformingWallGeometry({
           start,
           end,
           height: profile.height,
           thickness: profile.thickness,
-          getHeightAt: (x, z) => this.getHeightAt(x, z)
+          getHeightAt: (x, z) => this.getHeightAt(x, z),
+          startFootprint,
+          endFootprint,
+          capStart: index === 0 && !startFootprint,
+          capEnd: index === segmentCount - 1 && !endFootprint,
+          textureRepeatMeters: profile.textureRepeatMeters,
+          textureRepeatHeightMeters: profile.textureRepeatHeightMeters
         });
+        let collisionBounds = geometry.boundingBox;
+        if (startFootprint || endFootprint) {
+          const collisionGeometry = createGroundConformingWallGeometry({
+            start,
+            end,
+            height: profile.height,
+            thickness: profile.thickness,
+            getHeightAt: (x, z) => this.getHeightAt(x, z)
+          });
+          collisionBounds = collisionGeometry.boundingBox.clone();
+          collisionGeometry.dispose();
+        }
         const wall = new THREE.Mesh(geometry, material);
         wall.name = `StoneWall_${runId}_${index}`;
         wall.castShadow = true;
         wall.receiveShadow = true;
-        wall.userData.terrainFeature = 'stonewall';
+        wall.userData.terrainFeature = profile.collisionType;
         wall.userData.runId = runId;
         wall.userData.profileId = profile.id;
         wall.userData.enclosureId = run.enclosureId ?? null;
         wall.userData.boundarySide = run.boundarySide ?? null;
         wall.userData.adjacentGateId = run.adjacentGateId ?? null;
         wall.userData.segmentIndex = index;
+        wall.userData.cornerJoin = {
+          start: Boolean(startFootprint),
+          end: Boolean(endFootprint),
+          startKind: startFootprint?.kind ?? null,
+          endKind: endFootprint?.kind ?? null,
+          presentationOnly: true
+        };
         wall.userData.start = [start.x, this.getHeightAt(start.x, start.z), start.z];
         wall.userData.end = [end.x, this.getHeightAt(end.x, end.z), end.z];
         wall.userData.dimensionsMeters = {
@@ -1494,20 +2631,83 @@ export class TerrainBuilder {
           length: runLength / segmentCount
         };
         this.scene.add(wall);
-        this.stoneWallSegments.push(wall);
+        if (profile.collisionType === 'stonewall') {
+          this.stoneWallSegments.push(wall);
+        }
         this.boundaryMeshes.push(wall);
 
         addBoundaryRecords({
           index,
           start,
           end,
-          bounds: geometry.boundingBox,
+          bounds: collisionBounds,
           length: runLength / segmentCount
         });
       }
     };
 
     for (const run of this.mapDescriptor.wallRuns) createWallRun(run);
+    const endpointGroups = new Map();
+    for (const run of this.mapDescriptor.wallRuns) {
+      const profile = this.mapDescriptor.wallProfiles[run.profileId];
+      if (profile.presentationKind !== 'solid-prism') continue;
+      for (const [endpoint, point] of [['start', run.start], ['end', run.end]]) {
+        const key = `${run.profileId}:${point[0]}:${point[1]}`;
+        const group = endpointGroups.get(key) ?? {
+          key,
+          point,
+          profile,
+          connections: []
+        };
+        const other = endpoint === 'start' ? run.end : run.start;
+        const length = Math.hypot(other[0] - point[0], other[1] - point[1]);
+        if (length > 0) {
+          group.connections.push({
+            run,
+            direction: {
+              x: (other[0] - point[0]) / length,
+              z: (other[1] - point[1]) / length
+            }
+          });
+        }
+        endpointGroups.set(key, group);
+      }
+    }
+    for (const group of [...endpointGroups.values()]
+      .sort((left, right) => left.key.localeCompare(right.key))) {
+      if (group.connections.length !== 3) continue;
+      const directions = group.connections.map(connection => connection.direction);
+      const hasOpposedPair = directions.some((left, leftIndex) =>
+        directions.some((right, rightIndex) => rightIndex > leftIndex
+          && left.x * right.x + left.z * right.z < -0.999));
+      if (!hasOpposedPair) continue;
+      const material = this.getSurfaceAssets().materials[group.profile.materialRole];
+      const geometry = createGroundConformingTeeJunctionGeometry({
+        center: { x: group.point[0], z: group.point[1] },
+        directions,
+        height: group.profile.height,
+        thickness: group.profile.thickness,
+        textureRepeatMeters: group.profile.textureRepeatMeters,
+        textureRepeatHeightMeters: group.profile.textureRepeatHeightMeters,
+        getHeightAt: (x, z) => this.getHeightAt(x, z)
+      });
+      const junction = new THREE.Mesh(geometry, material);
+      junction.name = `StoneWallJunction_T_${group.point[0]}_${group.point[1]}`;
+      junction.castShadow = true;
+      junction.receiveShadow = true;
+      junction.userData = {
+        semantic: 'wall-junction',
+        junctionKind: 'tee',
+        profileId: group.profile.id,
+        connectedRunIds: group.connections
+          .map(connection => connection.run.id)
+          .sort((left, right) => String(left).localeCompare(String(right))),
+        presentationOnly: true
+      };
+      this.scene.add(junction);
+      this.wallJunctionMeshes.push(junction);
+      this.boundaryMeshes.push(junction);
+    }
     this.publishSightOccluderSnapshot();
   }
 
@@ -1702,7 +2902,10 @@ export class TerrainBuilder {
         centerX,
         centerZ,
         foundationTopY,
-        getHeightAt: (x, z) => this.getHeightAt(x, z)
+        getHeightAt: (x, z) => this.getHeightAt(x, z),
+        styleId: placement.styleId,
+        facadeId: placement.facadeId,
+        roofStyleId: placement.roofStyleId
       });
       this.scene.add(object);
       this.buildings.push({
@@ -1748,8 +2951,8 @@ export class TerrainBuilder {
       treeDimensions.canopyRadius,
       0
     );
+    const entries = this.getRenderableFoliageEntries();
     if (this.mapDescriptor.foliageRendering?.mode === 'instanced') {
-      const entries = this.mapDescriptor.foliage;
       const mapFeatureIds = entries.map(entry => entry.id);
       const dummy = new THREE.Object3D();
       const buildInstances = ({
@@ -1795,6 +2998,9 @@ export class TerrainBuilder {
         mesh.userData.mapFeatureIds = mapFeatureIds;
         mesh.userData.profileId = 'mature-tree';
         mesh.userData.renderMode = 'instanced';
+        mesh.userData.excludedMapFeatureIds = [
+          ...this.foliageExcludedFeatureIds
+        ];
         mesh.userData.dataQuality =
           this.mapDescriptor.foliageRendering.dataQuality;
         this.scene.add(mesh);
@@ -1836,7 +3042,7 @@ export class TerrainBuilder {
       return this.foliageInstances;
     }
 
-    this.mapDescriptor.foliage.forEach((entry) => {
+    entries.forEach((entry) => {
       const [x, z] = entry.position;
       const tree = new THREE.Group();
       tree.name = 'MatureTree';
@@ -1877,6 +3083,68 @@ export class TerrainBuilder {
     this.foliageReady = Promise.resolve([]);
   }
 
+  getRenderableFoliageEntries() {
+    const roadPolygons = (this.mapDescriptor.surfaces?.layers ?? [])
+      .filter(layer => ['road', 'farm-lane', 'bridge-road'].includes(layer.kind))
+      .map(layer => ({
+        id: layer.id,
+        polygon: surfaceLayerWorldPolygon(this.mapDescriptor, layer)
+      }))
+      .filter(record => record.polygon.length >= 3);
+    const exclusions = [];
+    const entries = this.mapDescriptor.foliage.filter(entry => {
+      const presentation = foliagePresentation(entry);
+      const canopyClearance = TERRAIN_SCALE.matureTree.canopyRadius
+        * presentation.scale + 0.35;
+      for (const structure of this.mapDescriptor.structures ?? []) {
+        const descriptor = this.structureAdapters[structure.visualAdapterId]?.descriptor;
+        if (!descriptor?.bounds) continue;
+        const dx = entry.position[0] - structure.position[0];
+        const dz = entry.position[1] - structure.position[1];
+        const rotationY = structure.rotationY ?? 0;
+        const cosine = Math.cos(rotationY);
+        const sine = Math.sin(rotationY);
+        const localX = dx * cosine - dz * sine;
+        const localZ = dx * sine + dz * cosine;
+        const nearestX = THREE.MathUtils.clamp(
+          localX,
+          descriptor.bounds.min[0],
+          descriptor.bounds.max[0]
+        );
+        const nearestZ = THREE.MathUtils.clamp(
+          localZ,
+          descriptor.bounds.min[2],
+          descriptor.bounds.max[2]
+        );
+        if (Math.hypot(localX - nearestX, localZ - nearestZ) <= canopyClearance) {
+          exclusions.push({ entry, reason: `structure:${structure.id}` });
+          return false;
+        }
+      }
+
+      const roadClearance = TERRAIN_SCALE.matureTree.trunkRadius
+        * presentation.scale + 0.5;
+      for (const road of roadPolygons) {
+        const inRoad = pointInPolygonXZ(entry.position, road.polygon);
+        const nearRoad = road.polygon.some((point, index) => (
+          pointToSegmentDistanceXZ(
+            entry.position,
+            point,
+            road.polygon[(index + 1) % road.polygon.length]
+          ) <= roadClearance
+        ));
+        if (inRoad || nearRoad) {
+          exclusions.push({ entry, reason: `road:${road.id}` });
+          return false;
+        }
+      }
+      return true;
+    });
+    this.renderedFoliageEntries = entries;
+    this.foliageExcludedFeatureIds = exclusions.map(({ entry }) => entry.id);
+    return entries;
+  }
+
   async upgradeInstancedFoliageWithTemplate(expectedInstances) {
     try {
       const template = await this.foliageTemplateProvider.createTemplate({
@@ -1903,7 +3171,7 @@ export class TerrainBuilder {
       leaves.userData.generator = template.generator;
       leaves.userData.dataQuality = template.dataQuality;
       const dummy = new THREE.Object3D();
-      this.mapDescriptor.foliage.forEach((entry, index) => {
+      this.renderedFoliageEntries.forEach((entry, index) => {
         const [x, z] = entry.position;
         const presentation = foliagePresentation(entry);
         dummy.position.set(x, this.getHeightAt(x, z), z);
@@ -1996,5 +3264,33 @@ export class TerrainBuilder {
       else zone.material?.dispose();
     }
     this.deploymentZones = {};
+  }
+
+  disposeAtmosphere() {
+    for (const water of this.oobRiverWaterMeshes) {
+      this.scene.remove(water);
+      water.geometry?.dispose();
+    }
+    this.oobRiverWaterMaterial?.dispose();
+    this.oobRiverWaterMeshes = [];
+    this.oobRiverWaterMaterial = null;
+    for (const object of [
+      this.surroundingTerrainMesh,
+      this.mapBoundaryRibbonMesh,
+      this.skyDomeMesh
+    ]) {
+      if (!object) continue;
+      this.scene.remove(object);
+      object.geometry?.dispose();
+      for (const ownedMaterial of Array.isArray(object.material)
+        ? object.material
+        : [object.material]) {
+        ownedMaterial?.map?.dispose?.();
+        ownedMaterial?.dispose?.();
+      }
+    }
+    this.surroundingTerrainMesh = null;
+    this.mapBoundaryRibbonMesh = null;
+    this.skyDomeMesh = null;
   }
 }

@@ -3,6 +3,12 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { FR_FARMHOUSE_8X6_1F } from '../src/maps/france/FranceFarmhouse8x6_1F.js';
 import { FR_HOUSE_12X9_2F } from '../src/maps/france/FranceHouse12x9_2F.js';
+import {
+  FRANCE_1940_BUILDING_DESCRIPTORS
+} from '../src/maps/france/FranceBuildingDescriptors.js';
+import {
+  FRANCE_ATTACHED_STREET_BUILDING_DESCRIPTORS
+} from '../src/maps/france/FranceAttachedStreetBuildings.js';
 import { STONNE_1940_MAP } from '../src/maps/france/stonne.js';
 import { STONNE_1940_SCENARIO } from '../src/scenarios/france1940/stonne1940.js';
 import {
@@ -28,10 +34,7 @@ import { TerrainBuilder } from './helpers/France1940TestTerrain.js';
 import { Unit } from './helpers/France1940TestUnit.js';
 
 const FARMHOUSE_ID = 'french_farmhouse_outbuilding';
-const DESCRIPTORS = Object.freeze([
-  FR_HOUSE_12X9_2F,
-  FR_FARMHOUSE_8X6_1F
-]);
+const DESCRIPTORS = FRANCE_1940_BUILDING_DESCRIPTORS;
 const ADAPTERS = Object.freeze(Object.fromEntries(
   DESCRIPTORS.map(descriptor => [
     descriptor.id,
@@ -327,9 +330,9 @@ test('compact farmhouse is frozen plain data with one exact tactical room', () =
     [
       ['ground-front-left', 1],
       ['ground-front-right', 1],
-      ['ground-rear-interior', 1],
-      ['ground-middle-left', 1],
-      ['ground-middle-right', 1],
+      ['ground-rear-right', 1],
+      ['ground-side-left', 1],
+      ['ground-side-right', 1],
       ['ground-rear-left', 1]
     ]
   );
@@ -344,7 +347,10 @@ test('compact farmhouse is frozen plain data with one exact tactical room', () =
       portal.from,
       portal.to
     ]),
-    [['front-door', 'door', 'outside', 'ground-room']]
+    [
+      ['front-door', 'door', 'outside', 'ground-room'],
+      ['rear-door', 'door', 'outside', 'ground-room']
+    ]
   );
   assert.equal(
     FR_FARMHOUSE_8X6_1F.portals.some(portal => portal.kind === 'stair'),
@@ -360,7 +366,11 @@ test('compact farmhouse is frozen plain data with one exact tactical room', () =
     ]),
     [
       ['front-window-left', 'ground-front-left', true, [0, 0, 1], 1],
-      ['front-window-right', 'ground-front-right', true, [0, 0, 1], 1]
+      ['front-window-right', 'ground-front-right', true, [0, 0, 1], 1],
+      ['rear-window-left', 'ground-rear-left', true, [0, 0, -1], 1],
+      ['rear-window-right', 'ground-rear-right', true, [0, 0, -1], 1],
+      ['side-window-left', 'ground-side-left', true, [-1, 0, 0], 1],
+      ['side-window-right', 'ground-side-right', true, [1, 0, 0], 1]
     ]
   );
   assert.deepEqual(

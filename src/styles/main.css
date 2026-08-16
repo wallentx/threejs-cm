@@ -630,7 +630,8 @@ body.battle-setup-active #app {
 
 .debug-section.hidden,
 .debug-performance.hidden,
-.debug-renderer-detail.hidden {
+.debug-renderer-detail.hidden,
+#debug-simulation-detail.hidden {
   display: none;
 }
 
@@ -823,6 +824,21 @@ canvas {
   font-weight: 700;
   font-size: 12px;
   color: var(--accent-gold);
+}
+
+.mission-objective {
+  color: #f7d67a;
+  font-family: 'Roboto Mono', monospace;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.mission-objective.complete {
+  color: #9fe3a7;
 }
 
 .top-controls {

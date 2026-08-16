@@ -30,14 +30,16 @@ function request(nodeId, orderSequence, unitId, soldierId) {
 test('French house descriptor validates its topology and authored tactical features', () => {
   assert.equal(validateBuildingDescriptor(FR_HOUSE_12X9_2F), FR_HOUSE_12X9_2F);
   assert.equal(FR_HOUSE_12X9_2F.floors.length, 2);
-  assert.deepEqual(FR_HOUSE_12X9_2F.rooms.map(room => room.slots.length), [4, 4]);
-  assert.equal(FR_HOUSE_12X9_2F.portals.filter(portal => portal.kind === 'door').length, 1);
+  assert.deepEqual(FR_HOUSE_12X9_2F.rooms.map(room => room.slots.length), [6, 6]);
+  assert.equal(FR_HOUSE_12X9_2F.portals.filter(portal => portal.kind === 'door').length, 2);
   assert.equal(FR_HOUSE_12X9_2F.portals.filter(portal => portal.kind === 'stair').length, 1);
   assert.deepEqual(
     FR_HOUSE_12X9_2F.firePorts.map(port => port.roomId),
     [
       'ground-room', 'ground-room', 'ground-room', 'ground-room',
-      'upper-room', 'upper-room', 'upper-room', 'upper-room'
+      'ground-room', 'ground-room',
+      'upper-room', 'upper-room', 'upper-room', 'upper-room',
+      'upper-room', 'upper-room'
     ]
   );
   for (const floor of ['ground', 'upper']) {
@@ -51,6 +53,20 @@ test('French house descriptor validates its topology and authored tactical featu
       assert.equal(rear.aperture.center[2], -4.5);
     }
   }
+  for (const floor of ['ground', 'upper']) {
+    for (const side of ['left', 'right']) {
+      const sideWindow = FR_HOUSE_12X9_2F.firePorts.find(
+        port => port.id === `${floor}-side-window-${side}`
+      );
+      assert.ok(sideWindow, `${floor} ${side} side window is authored`);
+      assert.deepEqual(sideWindow.localNormal, [side === 'left' ? -1 : 1, 0, 0]);
+      assert.equal(sideWindow.approachSlotId, `${floor}-side-${side}`);
+    }
+  }
+  const rearDoor = FR_HOUSE_12X9_2F.portals.find(portal => portal.id === 'rear-door');
+  assert.deepEqual(rearDoor.localNormal, [0, 0, -1]);
+  assert.equal(rearDoor.aperture.center[2], -4.5);
+  assert.equal(rearDoor.aperture.initiallyOpen, false);
   assert.ok(FR_HOUSE_12X9_2F.sections.every(section => section.colliderParts.length > 0));
 
   const invalid = structuredClone(FR_HOUSE_12X9_2F);
@@ -73,25 +89,34 @@ test('plain transforms and portal paths preserve the metre-authored coordinate c
   assert.equal(findPortalPath(createPortalGraph(FR_HOUSE_12X9_2F, ['main-stair']), 'outside', 'upper-room'), null);
 });
 
-test('movement shell blocks doors and windows while ballistic shell preserves apertures', () => {
+test('movement shell blocks doors and windows while ballistic shell preserves open apertures', () => {
   const system = createSystem();
+  system.setOpening('house-1', 'front-door-aperture', true);
+  system.setOpening('house-1', 'rear-door-aperture', true);
   const ballistic = system.getCollisionSnapshot('house-1').records;
   const movement = system.getMovementCollisionSnapshot('house-1').records;
 
   assert.ok(!ballistic.some(record => record.partId === 'ground-door'));
   assert.ok(!ballistic.some(record => record.partId === 'ground-left-window'));
   assert.ok(!ballistic.some(record => record.partId === 'ground-rear-left-window'));
+  assert.ok(!ballistic.some(record => record.partId === 'ground-side-left-window'));
   const door = movement.find(record => record.partId === 'ground-door');
   const window = movement.find(record => record.partId === 'ground-left-window');
   const rearWindow = movement.find(
     record => record.partId === 'ground-rear-left-window'
   );
+  const rearDoor = movement.find(record => record.partId === 'ground-rear-door');
+  const sideWindow = movement.find(record => record.partId === 'ground-side-left-window');
   assert.deepEqual(door.blocks, ['infantry', 'vehicle']);
   assert.equal(door.movementPolicy, 'portal_transit_required');
   assert.deepEqual(window.blocks, ['infantry', 'vehicle']);
   assert.equal(window.movementPolicy, 'fire_port_blocks_movement');
   assert.deepEqual(rearWindow.blocks, ['infantry', 'vehicle']);
   assert.equal(rearWindow.movementPolicy, 'fire_port_blocks_movement');
+  assert.deepEqual(rearDoor.blocks, ['infantry', 'vehicle']);
+  assert.equal(rearDoor.movementPolicy, 'portal_transit_required');
+  assert.deepEqual(sideWindow.blocks, ['infantry', 'vehicle']);
+  assert.equal(sideWindow.movementPolicy, 'fire_port_blocks_movement');
 });
 
 test('reservation conflicts resolve by sequence, unit, and soldier independent of request order', () => {
@@ -270,12 +295,12 @@ test('capture and restore are deep, plain, and preserve authoritative state', ()
 test('projectile breach removes only its stable collider part and records a delta', () => {
   const system = createSystem();
   const before = system.getCollisionSnapshot('house-1');
-  const targetId = 'house-1:ground-shell:ground-back';
+  const targetId = 'house-1:ground-shell:ground-rear-left-inner';
   assert.ok(before.records.some(record => record.id === targetId));
 
   const damage = system.applyProjectileDamage('house-1', {
     sectionId: 'ground-shell',
-    colliderPartId: 'ground-back',
+    colliderPartId: 'ground-rear-left-inner',
     amount: 500,
     penetrationMm: 400
   });
@@ -284,26 +309,29 @@ test('projectile breach removes only its stable collider part and records a delt
   const after = system.getCollisionSnapshot('house-1', before.version);
   assert.ok(!after.records.some(record => record.id === targetId));
   assert.deepEqual(after.changes.at(-1).removed, [targetId]);
-  assert.ok(system.getBuildingSnapshot('house-1').openings['breach:ground-shell:ground-back'].breached);
+  assert.ok(
+    system.getBuildingSnapshot('house-1')
+      .openings['breach:ground-shell:ground-rear-left-inner'].breached
+  );
 });
 
 test('opening snapshots add and remove aperture blockers without rebuilding unrelated records', () => {
   const system = createSystem('house-1', { position: [10, 0, 20], rotationY: Math.PI / 2 });
-  const initiallyOpen = system.getCollisionSnapshot('house-1');
+  const initiallyClosed = system.getCollisionSnapshot('house-1');
   const doorId = 'house-1:ground-shell:ground-door';
-  assert.ok(!initiallyOpen.records.some(record => record.id === doorId));
-
-  system.setOpening('house-1', 'front-door-aperture', false);
-  const closed = system.getCollisionSnapshot('house-1', initiallyOpen.version);
-  const door = closed.records.find(record => record.id === doorId);
-  assert.ok(door);
-  assert.deepEqual([door.centerX, door.centerZ].map(value => Math.round(value)), [15, 20]);
-  assert.deepEqual(closed.changes.at(-1).added, [doorId]);
+  assert.ok(initiallyClosed.records.some(record => record.id === doorId));
 
   system.setOpening('house-1', 'front-door-aperture', true);
-  const reopened = system.getCollisionSnapshot('house-1', closed.version);
-  assert.ok(!reopened.records.some(record => record.id === doorId));
-  assert.deepEqual(reopened.changes.at(-1).removed, [doorId]);
+  const opened = system.getCollisionSnapshot('house-1', initiallyClosed.version);
+  assert.ok(!opened.records.some(record => record.id === doorId));
+  assert.deepEqual(opened.changes.at(-1).removed, [doorId]);
+
+  system.setOpening('house-1', 'front-door-aperture', false);
+  const reclosed = system.getCollisionSnapshot('house-1', opened.version);
+  const door = reclosed.records.find(record => record.id === doorId);
+  assert.ok(door);
+  assert.deepEqual([door.centerX, door.centerZ].map(value => Math.round(value)), [15, 20]);
+  assert.deepEqual(reclosed.changes.at(-1).added, [doorId]);
 });
 
 test('roof collapse invalidates upper ports before moving occupants to nearest lower slots', () => {

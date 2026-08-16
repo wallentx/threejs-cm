@@ -25,11 +25,11 @@ function slot(id, localPosition, dataQuality = null) {
   };
 }
 
-function aperture(id, center, size) {
-  return { id, center, size, initiallyOpen: true };
+function aperture(id, center, size, initiallyOpen = true) {
+  return { id, center, size, initiallyOpen };
 }
 
-function frontWallParts() {
+function facadeWallParts(prefix, z, doorOpeningId) {
   const windowBottom = 0.85;
   const windowTop = 2.05;
   const windowCenterY = (windowBottom + windowTop) * 0.5;
@@ -41,28 +41,58 @@ function frontWallParts() {
   const doorHeight = 2.05;
 
   return [
-    part('front-left-end', [-3.5125, WALL_HEIGHT * 0.5, FRONT_Z], [0.4875, WALL_HEIGHT * 0.5, HALF_WALL]),
-    part('front-left-inner', [-1.1625, WALL_HEIGHT * 0.5, FRONT_Z], [0.6125, WALL_HEIGHT * 0.5, HALF_WALL]),
-    part('front-right-inner', [1.1625, WALL_HEIGHT * 0.5, FRONT_Z], [0.6125, WALL_HEIGHT * 0.5, HALF_WALL]),
-    part('front-right-end', [3.5125, WALL_HEIGHT * 0.5, FRONT_Z], [0.4875, WALL_HEIGHT * 0.5, HALF_WALL]),
-    part('front-left-window-apron', [-2.4, windowBottom * 0.5, FRONT_Z], [windowHalfWidth, windowBottom * 0.5, HALF_WALL]),
-    part('front-left-window-lintel', [-2.4, lintelCenterY, FRONT_Z], [windowHalfWidth, lintelHalfHeight, HALF_WALL]),
-    part('front-left-window', [-2.4, windowCenterY, FRONT_Z], [windowHalfWidth, windowHalfHeight, HALF_WALL], {
-      openingId: 'front-left-window-aperture'
+    part(`${prefix}-left-end`, [-3.5125, WALL_HEIGHT * 0.5, z], [0.4875, WALL_HEIGHT * 0.5, HALF_WALL]),
+    part(`${prefix}-left-inner`, [-1.1625, WALL_HEIGHT * 0.5, z], [0.6125, WALL_HEIGHT * 0.5, HALF_WALL]),
+    part(`${prefix}-right-inner`, [1.1625, WALL_HEIGHT * 0.5, z], [0.6125, WALL_HEIGHT * 0.5, HALF_WALL]),
+    part(`${prefix}-right-end`, [3.5125, WALL_HEIGHT * 0.5, z], [0.4875, WALL_HEIGHT * 0.5, HALF_WALL]),
+    part(`${prefix}-left-window-apron`, [-2.4, windowBottom * 0.5, z], [windowHalfWidth, windowBottom * 0.5, HALF_WALL]),
+    part(`${prefix}-left-window-lintel`, [-2.4, lintelCenterY, z], [windowHalfWidth, lintelHalfHeight, HALF_WALL]),
+    part(`${prefix}-left-window`, [-2.4, windowCenterY, z], [windowHalfWidth, windowHalfHeight, HALF_WALL], {
+      openingId: `${prefix}-left-window-aperture`
     }),
-    part('front-right-window-apron', [2.4, windowBottom * 0.5, FRONT_Z], [windowHalfWidth, windowBottom * 0.5, HALF_WALL]),
-    part('front-right-window-lintel', [2.4, lintelCenterY, FRONT_Z], [windowHalfWidth, lintelHalfHeight, HALF_WALL]),
-    part('front-right-window', [2.4, windowCenterY, FRONT_Z], [windowHalfWidth, windowHalfHeight, HALF_WALL], {
-      openingId: 'front-right-window-aperture'
+    part(`${prefix}-right-window-apron`, [2.4, windowBottom * 0.5, z], [windowHalfWidth, windowBottom * 0.5, HALF_WALL]),
+    part(`${prefix}-right-window-lintel`, [2.4, lintelCenterY, z], [windowHalfWidth, lintelHalfHeight, HALF_WALL]),
+    part(`${prefix}-right-window`, [2.4, windowCenterY, z], [windowHalfWidth, windowHalfHeight, HALF_WALL], {
+      openingId: `${prefix}-right-window-aperture`
     }),
-    part('front-door-lintel', [0, (doorHeight + WALL_HEIGHT) * 0.5, FRONT_Z], [
+    part(`${prefix}-door-lintel`, [0, (doorHeight + WALL_HEIGHT) * 0.5, z], [
       doorHalfWidth,
       (WALL_HEIGHT - doorHeight) * 0.5,
       HALF_WALL
     ]),
-    part('front-door', [0, doorHeight * 0.5, FRONT_Z], [doorHalfWidth, doorHeight * 0.5, HALF_WALL], {
-      openingId: 'front-door-aperture'
+    part(`${prefix}-door`, [0, doorHeight * 0.5, z], [doorHalfWidth, doorHeight * 0.5, HALF_WALL], {
+      openingId: doorOpeningId
     })
+  ];
+}
+
+function sideWallParts(prefix, x, openingId) {
+  const windowBottom = 0.85;
+  const windowTop = 2.05;
+  const windowCenterY = (windowBottom + windowTop) * 0.5;
+  const windowHalfHeight = (windowTop - windowBottom) * 0.5;
+  const windowHalfWidth = 0.625;
+  const lintelCenterY = (windowTop + WALL_HEIGHT) * 0.5;
+  const lintelHalfHeight = (WALL_HEIGHT - windowTop) * 0.5;
+  const sideEndHalfWidth = (FRONT_Z - windowHalfWidth) * 0.5;
+  const sideEndCenter = windowHalfWidth + sideEndHalfWidth;
+  const rotationY = Math.PI / 2;
+  return [
+    part(`${prefix}-rear-end`, [x, WALL_HEIGHT * 0.5, -sideEndCenter], [
+      sideEndHalfWidth, WALL_HEIGHT * 0.5, HALF_WALL
+    ], { rotationY }),
+    part(`${prefix}-front-end`, [x, WALL_HEIGHT * 0.5, sideEndCenter], [
+      sideEndHalfWidth, WALL_HEIGHT * 0.5, HALF_WALL
+    ], { rotationY }),
+    part(`${prefix}-window-apron`, [x, windowBottom * 0.5, 0], [
+      windowHalfWidth, windowBottom * 0.5, HALF_WALL
+    ], { rotationY }),
+    part(`${prefix}-window-lintel`, [x, lintelCenterY, 0], [
+      windowHalfWidth, lintelHalfHeight, HALF_WALL
+    ], { rotationY }),
+    part(`${prefix}-window`, [x, windowCenterY, 0], [
+      windowHalfWidth, windowHalfHeight, HALF_WALL
+    ], { rotationY, openingId })
   ];
 }
 
@@ -90,7 +120,7 @@ export const FR_FARMHOUSE_8X6_1F = deepFreeze({
     damageThresholds: 'gameplay approximation for deterministic structural damage',
     materials: 'scenario presentation and resistance approximation',
     concealment: 'gameplay approximation for one compact masonry room',
-    transitTiming: 'gameplay approximation for individual front-door transit'
+    transitTiming: 'gameplay approximation for individual front- or rear-door transit'
   },
   floors: [
     {
@@ -108,16 +138,20 @@ export const FR_FARMHOUSE_8X6_1F = deepFreeze({
       slots: [
         slot('ground-front-left', [-2.4, 0.15, 2.25]),
         slot('ground-front-right', [2.4, 0.15, 2.25]),
-        slot('ground-rear-interior', [0, 0.15, -1.8]),
         slot(
-          'ground-middle-left',
-          [-1.6, 0.15, 0.2],
-          'gameplay approximation for individual interior spacing'
+          'ground-rear-right',
+          [2.2, 0.15, -1.8],
+          'gameplay approximation for a rear firing position'
         ),
         slot(
-          'ground-middle-right',
-          [1.6, 0.15, 0.2],
-          'gameplay approximation for individual interior spacing'
+          'ground-side-left',
+          [-3.25, 0.15, 0],
+          'gameplay approximation for a side firing position'
+        ),
+        slot(
+          'ground-side-right',
+          [3.25, 0.15, 0],
+          'gameplay approximation for a side firing position'
         ),
         slot(
           'ground-rear-left',
@@ -134,8 +168,19 @@ export const FR_FARMHOUSE_8X6_1F = deepFreeze({
       from: 'outside',
       to: 'ground-room',
       sectionId: 'ground-shell',
-      aperture: aperture('front-door-aperture', [0, 1.025, FRONT_Z], [1.1, 2.05]),
+      aperture: aperture('front-door-aperture', [0, 1.025, FRONT_Z], [1.1, 2.05], false),
       localNormal: [0, 0, 1],
+      transitSeconds: 1,
+      transitTimingDataQuality: 'gameplay approximation'
+    },
+    {
+      id: 'rear-door',
+      kind: 'door',
+      from: 'outside',
+      to: 'ground-room',
+      sectionId: 'ground-shell',
+      aperture: aperture('rear-door-aperture', [0, 1.025, REAR_Z], [1.1, 2.05], false),
+      localNormal: [0, 0, -1],
       transitSeconds: 1,
       transitTimingDataQuality: 'gameplay approximation'
     }
@@ -161,6 +206,64 @@ export const FR_FARMHOUSE_8X6_1F = deepFreeze({
       sectionId: 'ground-shell',
       aperture: aperture('front-right-window-aperture', [2.4, 1.45, FRONT_Z], [1.25, 1.2]),
       localNormal: [0, 0, 1],
+      horizontalArcDeg: 68,
+      elevationDeg: -2,
+      capacity: 1,
+      cover: 0.64,
+      coverDataQuality: 'gameplay approximation'
+    },
+    {
+      id: 'rear-window-left',
+      roomId: 'ground-room',
+      approachSlotId: 'ground-rear-left',
+      sectionId: 'ground-shell',
+      aperture: aperture('rear-left-window-aperture', [-2.4, 1.45, REAR_Z], [1.25, 1.2]),
+      localNormal: [0, 0, -1],
+      horizontalArcDeg: 68,
+      elevationDeg: -2,
+      capacity: 1,
+      cover: 0.64,
+      coverDataQuality: 'gameplay approximation'
+    },
+    {
+      id: 'rear-window-right',
+      roomId: 'ground-room',
+      approachSlotId: 'ground-rear-right',
+      sectionId: 'ground-shell',
+      aperture: aperture('rear-right-window-aperture', [2.4, 1.45, REAR_Z], [1.25, 1.2]),
+      localNormal: [0, 0, -1],
+      horizontalArcDeg: 68,
+      elevationDeg: -2,
+      capacity: 1,
+      cover: 0.64,
+      coverDataQuality: 'gameplay approximation'
+    },
+    {
+      id: 'side-window-left',
+      roomId: 'ground-room',
+      approachSlotId: 'ground-side-left',
+      sectionId: 'ground-shell',
+      aperture: {
+        ...aperture('side-left-window-aperture', [-SIDE_X, 1.45, 0], [1.25, 1.2]),
+        shutters: false
+      },
+      localNormal: [-1, 0, 0],
+      horizontalArcDeg: 68,
+      elevationDeg: -2,
+      capacity: 1,
+      cover: 0.64,
+      coverDataQuality: 'gameplay approximation'
+    },
+    {
+      id: 'side-window-right',
+      roomId: 'ground-room',
+      approachSlotId: 'ground-side-right',
+      sectionId: 'ground-shell',
+      aperture: {
+        ...aperture('side-right-window-aperture', [SIDE_X, 1.45, 0], [1.25, 1.2]),
+        shutters: false
+      },
+      localNormal: [1, 0, 0],
       horizontalArcDeg: 68,
       elevationDeg: -2,
       capacity: 1,
@@ -214,14 +317,10 @@ export const FR_FARMHOUSE_8X6_1F = deepFreeze({
       damageDataQuality: 'gameplay approximation',
       supports: ['roof'],
       colliderParts: [
-        ...frontWallParts(),
-        part('rear-wall', [0, WALL_HEIGHT * 0.5, REAR_Z], [4, WALL_HEIGHT * 0.5, HALF_WALL]),
-        part('left-wall', [-SIDE_X, WALL_HEIGHT * 0.5, 0], [FRONT_Z, WALL_HEIGHT * 0.5, HALF_WALL], {
-          rotationY: Math.PI / 2
-        }),
-        part('right-wall', [SIDE_X, WALL_HEIGHT * 0.5, 0], [FRONT_Z, WALL_HEIGHT * 0.5, HALF_WALL], {
-          rotationY: Math.PI / 2
-        })
+        ...facadeWallParts('front', FRONT_Z, 'front-door-aperture'),
+        ...facadeWallParts('rear', REAR_Z, 'rear-door-aperture'),
+        ...sideWallParts('side-left', -SIDE_X, 'side-left-window-aperture'),
+        ...sideWallParts('side-right', SIDE_X, 'side-right-window-aperture')
       ],
       visualStages: VISUAL_STAGES,
       supportThreshold: 0.58,
