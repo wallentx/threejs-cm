@@ -132,6 +132,17 @@ The first boundary slice now exists:
   verify that render timing does not change aim work. Version 1 is explicitly a
   gameplay approximation: it has no historical reticle, optic, rangefinder,
   target-lead, stabilization, or crew-handoff records yet.
+- `src/simulation/combat/VehicleEngagementLearning.js` owns rollback-persistent
+  evidence from resolved cannon impacts against one stable vehicle ID. Its
+  bounded first-order policy advances authored armor aim points after repeated
+  impacts while the target remains visibly combat-effective; only observable
+  burning, destruction, or secondary explosion resets escalation. Auto fire
+  may then select an available alternate main-gun round and finally reconsider
+  an automatically acquired target. `VehicleArmorCollision` supplies candidate
+  points from authoritative armor volumes, `CombatSystem` reports resolved
+  impact outcomes, and `GameApp` ranks only current precision-visible armor by
+  threat, aspect, penetration margin, range, and stable ID. Explicit player aim
+  points and explicit ammunition modes are never overridden.
 - `src/content/france1940/render/` owns faction-to-presentation binding plus
   infantry, structure, and vehicle mesh-factory registrations. Composition
   injects matching visual factories through `ScenarioRuntime` and `Unit` into
@@ -320,6 +331,7 @@ These seams are usable now, before the staged directory migration is complete:
 | Reference-guided Stonne terrain and placement records | `maps/france/stonneApproach.js`, validated by `maps/MapDescriptor.js` | Scenario generation, `TerrainBuilder`, command/deployment systems |
 | Individual infantry state and choices | `SoldierAgent`, `SoldierAI` | Infantry pose renderer, roster HUD |
 | Weapon target acquisition, aim work, tracking, and range estimation | `simulation/combat/FireControl.js` plus per-soldier and per-mount state | `GameApp` target/motion inputs, `CombatSystem` holdover/telemetry, HUD presenters |
+| Infantry target suitability and fire discipline | `simulation/combat/InfantryTargetEligibility.js` plus each `SoldierAgent` weapon | `GameApp` squad candidate prefilter, individual fire control |
 | Vehicle crew, components, mounts, ammo, damage events | `Unit`, `VehicleSystems` | Combat telemetry, damage report |
 | Static movement collision and bridge routing | `StaticCollisionWorld`, plain terrain collider records | `Unit`, `SoldierAgent`, terrain height adapter |
 | Building topology, occupancy, damage, collapse, consequences | `simulation/buildings/*` | Building interaction, collision, spotting, ballistics, renderer |
@@ -374,8 +386,32 @@ UIManager
 `GameApp` may feed a unit target into fire control only after
 `SpottingSystem.canPrecisionTarget` confirms direct precision observation and
 LOS/range remain valid. A still-valid target is retained to avoid artificial
-per-step target switching. Relayed contacts remain useful presentation and
-tactical cues but do not grant precision fire.
+per-step target switching. A vehicle may replace its retained automatic target
+only after its captured engagement evidence reaches the retarget threshold and
+another current precision-visible armored threat offers a materially better
+penetration, aspect, threat, and range score. Stops, ricochets, penetrations,
+and partial internal damage continue that escalation while the target remains
+visibly combat-effective; destruction, burning, or a secondary explosion reset
+it. Explicit player targets are never replaced by this automatic policy.
+Issuing or clearing a direct target atomically resets every main/auxiliary
+weapon channel, fire-control target key, aim intent, and engagement-evidence
+target. A temporarily unobservable explicit target retains only its ordered
+spatial aim rather than falling through to a stale automatic channel.
+Automatic armored-threat selection reads current cannon capability: destruction,
+burning, loss of the gun/breech/gunner, or ammunition exhaustion immediately
+permits another precision-visible operational cannon threat to replace the
+target. Mobility loss alone does not neutralize a tank whose cannon can still
+fight. This replacement also ends an explicit order against a neutralized tank.
+Relayed contacts remain useful presentation and tactical cues but do not grant
+precision fire.
+
+Individual infantry fire control also applies a renderer-neutral suitability
+gate before LOS and aim work. Infantry and structures remain valid, as do open
+or unarmored vehicles and exposed commanders. Buttoned armored vehicles require
+the firing weapon's cataloged 100 m penetration to reach at least one listed
+positive armor aspect; exact plate, angle, velocity, penetration, and damage
+remain owned by ballistics. Each soldier's rollback-owned target-scan cooldown
+paces new acquisition while a retained target is still validated immediately.
 
 Armor deflection policy lives under `simulation/ballistics/` as plain numeric
 state. `BallisticsSystem` supplies resolved plate geometry and penetration.

@@ -945,6 +945,11 @@ export class CombatSystem {
 
     if (impact.kind === 'vehicle') {
       const result = this.ballistics.resolveVehicleImpact(projectile, impact);
+      projectile.attacker.recordVehicleEngagementImpact?.({
+        targetUnitId: impact.unit?.id ?? null,
+        weapon,
+        result
+      });
       const suppression = vehicleImpactSuppression({
         weapon,
         target: impact.unit,
@@ -1394,6 +1399,7 @@ export class CombatSystem {
   }
 
   update(delta) {
+    this.ballistics.beginStep();
     const steps = Math.max(1, Math.ceil(delta / (1 / 120)));
     const step = delta / steps;
     for (let substep = 0; substep < steps; substep++) {

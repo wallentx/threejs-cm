@@ -237,9 +237,86 @@ function registerGeometryVariants(mesh, exterior, interior) {
 }
 
 function setInteriorGeometryVisible(mesh, visible) {
+  const batchedParts = mesh.userData?.batchedSectionParts;
+  if (batchedParts) {
+    if (mesh.userData.interiorGeometryVisible === visible) return;
+    for (const part of batchedParts) {
+      mesh.setGeometryAt(
+        part.geometryId,
+        visible ? part.interiorGeometry : part.exteriorGeometry
+      );
+    }
+    mesh.userData.interiorGeometryVisible = visible;
+    return;
+  }
   const variants = GEOMETRY_VARIANTS.get(mesh);
   if (!variants) return;
   mesh.geometry = visible ? variants.interior : variants.exterior;
+}
+
+function batchSectionParts(sectionGroup, section, level) {
+  const pieces = sectionGroup.children.filter(object => object.isMesh);
+  if (pieces.length < 2) return pieces[0] ?? null;
+  const records = pieces.map(piece => {
+    piece.updateMatrix();
+    const variants = GEOMETRY_VARIANTS.get(piece);
+    const exteriorGeometry = variants?.exterior ?? piece.geometry;
+    const interiorGeometry = variants?.interior ?? piece.geometry;
+    const exteriorVertices = exteriorGeometry.getAttribute('position').count;
+    const interiorVertices = interiorGeometry.getAttribute('position').count;
+    const exteriorIndices = exteriorGeometry.index?.count ?? exteriorVertices;
+    const interiorIndices = interiorGeometry.index?.count ?? interiorVertices;
+    return {
+      piece,
+      exteriorGeometry,
+      interiorGeometry,
+      reservedVertices: Math.max(exteriorVertices, interiorVertices),
+      reservedIndices: Math.max(exteriorIndices, interiorIndices)
+    };
+  });
+  const batch = new THREE.BatchedMesh(
+    records.length,
+    records.reduce((sum, record) => sum + record.reservedVertices, 0),
+    records.reduce((sum, record) => sum + record.reservedIndices, 0),
+    records[0].piece.material
+  );
+  batch.name = `SectionPartsBatch:${level}:${section.id}`;
+  batch.castShadow = records.some(record => record.piece.castShadow);
+  batch.receiveShadow = records.some(record => record.piece.receiveShadow);
+  batch.userData = {
+    semantic: 'building-section-part',
+    sectionId: section.id,
+    lod: level,
+    interiorOnly: section.kind === 'floor',
+    batchedSectionParts: [],
+    interiorGeometryVisible: false
+  };
+  for (const record of records) {
+    const geometryId = batch.addGeometry(
+      record.exteriorGeometry,
+      record.reservedVertices,
+      record.reservedIndices
+    );
+    const instanceId = batch.addInstance(geometryId);
+    batch.setMatrixAt(instanceId, record.piece.matrix);
+    batch.setVisibleAt(instanceId, record.piece.visible);
+    batch.userData.batchedSectionParts.push({
+      instanceId,
+      geometryId,
+      partId: record.piece.userData.partId,
+      openingId: record.piece.userData.openingId,
+      exteriorGeometry: record.exteriorGeometry,
+      interiorGeometry: record.interiorGeometry
+    });
+  }
+  for (let index = 1; index < records.length; index++) {
+    records[index].piece.material.dispose();
+  }
+  sectionGroup.clear();
+  sectionGroup.add(batch);
+  batch.computeBoundingBox();
+  batch.computeBoundingSphere();
+  return batch;
 }
 
 function applyContinuousFacadeUV(mesh, part, descriptor, metersPerTile) {
@@ -408,6 +485,7 @@ function applyDamageVariant(group, stage) {
       object.material.color.lerp(DAMAGE_COLORS.breached, 0.62);
       object.material.roughness = 1;
     }
+    object.updateMatrix();
     object.material.needsUpdate = true;
   });
 }
@@ -1245,8 +1323,9 @@ function buildCheapShell(
         interiorOnly: section.kind === 'floor'
       };
       sectionGroup.add(piece);
-      if (section.kind === 'wall' && !shell) shell = piece;
     }
+    const sectionParts = batchSectionParts(sectionGroup, section, level);
+    if (section.kind === 'wall' && !shell) shell = sectionParts;
     sectionGroup.visible = section.kind !== 'floor';
     group.add(sectionGroup);
     sections.set(section.id, sectionGroup);
@@ -1545,6 +1624,22 @@ export function applyFrenchHouseVisualState(root, descriptor, runtime, {
           setInteriorGeometryVisible(piece, interiorGeometryVisible);
         }
         piece.userData.stage = stage;
+        if (piece.userData?.batchedSectionParts) {
+          for (const part of piece.userData.batchedSectionParts) {
+            const breached = breachedParts.has(
+              `${section.id}:${part.partId}`
+            );
+            piece.setVisibleAt(
+              part.instanceId,
+              !breached && sectionPartIsVisible(
+                descriptor,
+                runtime,
+                part.openingId
+              )
+            );
+          }
+          continue;
+        }
         if (piece.userData?.semantic === 'building-section-part') {
           // Re-establish the authored baseline before applying this runtime's
           // apertures and breaches. A rewind may otherwise leave a part hidden
@@ -1580,6 +1675,7 @@ export function applyFrenchHouseVisualState(root, descriptor, runtime, {
         object.rotation.y = open
           ? object.userData.openRotationY
           : object.userData.closedRotationY;
+        object.updateMatrix();
       }
       if (object.userData?.openingId === openingId
           && object.userData.semantic === 'opening') {
@@ -1599,6 +1695,7 @@ export function applyFrenchHouseVisualState(root, descriptor, runtime, {
   }
   root.traverse(object => {
     if (object.userData?.semantic !== 'building-section-part') return;
+    if (object.userData?.batchedSectionParts) return;
     const key = `${object.userData.sectionId}:${object.userData.partId}`;
     if (breachedParts.has(key)) object.visible = false;
   });

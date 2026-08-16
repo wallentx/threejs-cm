@@ -3,7 +3,11 @@ import {
   effectiveArmorMm,
   penetrationAtVelocity
 } from '../simulation/ballistics/ArmorMath.js';
-import { intersectSegmentOrientedBox3D } from '../simulation/geometry/OrientedBox.js';
+import {
+  deriveOrientedBoxWorldAabb3D,
+  intersectSegmentOrientedBox3D,
+  segmentIntersectsWorldAabb3D
+} from '../simulation/geometry/OrientedBox.js';
 import {
   intersectVehicleArmor,
   traceVehicleArmorExit
@@ -180,6 +184,100 @@ export function collectBuildingColliderRecords(buildingSystem) {
   return records.sort((a, b) => String(a.id).localeCompare(String(b.id)));
 }
 
+function createBuildingColliderRuns(colliders) {
+  const runs = [];
+  let index = 0;
+  while (index < colliders.length) {
+    const startIndex = index;
+    const buildingId = colliders[index].buildingId;
+    let bounds = null;
+    let valid = true;
+    while (index < colliders.length
+        && colliders[index].buildingId === buildingId) {
+      const next = deriveOrientedBoxWorldAabb3D(colliders[index]);
+      if (!next) {
+        valid = false;
+      } else if (valid && !bounds) {
+        bounds = next;
+      } else if (valid) {
+        bounds.minX = Math.min(bounds.minX, next.minX);
+        bounds.maxX = Math.max(bounds.maxX, next.maxX);
+        bounds.minY = Math.min(bounds.minY, next.minY);
+        bounds.maxY = Math.max(bounds.maxY, next.maxY);
+        bounds.minZ = Math.min(bounds.minZ, next.minZ);
+        bounds.maxZ = Math.max(bounds.maxZ, next.maxZ);
+      }
+      index++;
+    }
+    runs.push({
+      startIndex,
+      endIndex: index,
+      bounds: valid ? bounds : null
+    });
+  }
+  return runs;
+}
+
+function deriveUnitProjectileBounds(unit) {
+  if (unit?.type === 'infantry_squad') {
+    const agents = unit.soldierAI?.getLivingAgents() ?? [];
+    if (agents.length === 0) return null;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    // The prone profile reaches 1.88 m from its authoritative origin. Two
+    // metres is therefore a conservative facing-independent union margin.
+    for (const agent of agents) {
+      minX = Math.min(minX, agent.position.x - 2);
+      maxX = Math.max(maxX, agent.position.x + 2);
+      minY = Math.min(minY, agent.position.y - 0.25);
+      maxY = Math.max(maxY, agent.position.y + 2);
+      minZ = Math.min(minZ, agent.position.z - 2);
+      maxZ = Math.max(maxZ, agent.position.z + 2);
+    }
+    return { minX, maxX, minY, maxY, minZ, maxZ };
+  }
+  if (unit?.vehicleSpec) {
+    const dimensions = unit.vehicleSpec.dimensionsMeters ?? {};
+    const length = Number(dimensions.length);
+    const width = Number(dimensions.width);
+    const height = Number(dimensions.height);
+    if (![length, width, height].every(value => Number.isFinite(value) && value > 0)) {
+      return null;
+    }
+    const halfLength = length * 0.5;
+    const halfWidth = width * 0.5;
+    const horizontalExtent = Math.hypot(halfLength, halfWidth) + 1;
+    return {
+      minX: unit.position.x - horizontalExtent,
+      maxX: unit.position.x + horizontalExtent,
+      minY: unit.position.y - 1,
+      maxY: unit.position.y + height + 2,
+      minZ: unit.position.z - horizontalExtent,
+      maxZ: unit.position.z + horizontalExtent
+    };
+  }
+  if (unit?.structureSpec) {
+    const radius = Number(unit.structureSpec.hitRadius);
+    const height = Number(unit.structureSpec.height);
+    if (![radius, height].every(value => Number.isFinite(value) && value > 0)) {
+      return null;
+    }
+    return {
+      minX: unit.position.x - radius,
+      maxX: unit.position.x + radius,
+      minY: unit.position.y,
+      maxY: unit.position.y + height,
+      minZ: unit.position.z - radius,
+      maxZ: unit.position.z + radius
+    };
+  }
+  return null;
+}
+
 export function calculateBuildingProjectileDamage(weapon, velocity) {
   const speed = Math.max(0, Number(velocity) || 0);
   const mass = Math.max(0, Number(weapon?.projectileMassKg) || 0);
@@ -223,9 +321,32 @@ export class BallisticsSystem {
     this.buildingSystem = buildingSystem;
     this.cachedBuildingColliderRevision = -1;
     this.cachedBuildingColliders = [];
+    this.cachedBuildingColliderRuns = [];
+    this.unitProjectileBounds = new Map();
+    this.diagnostics = this.createDiagnostics();
     this.getBuildingColliders = getBuildingColliders
       ?? (() => this.getCachedBuildingColliders());
     this.getStaticProjectileColliders = getStaticProjectileColliders;
+  }
+
+  createDiagnostics() {
+    return {
+      projectileSweeps: 0,
+      unitBoundsTested: 0,
+      unitBoundsRejected: 0,
+      unitExactCandidates: 0,
+      buildingRunsTested: 0,
+      buildingRunsRejected: 0,
+      buildingExactCandidates: 0
+    };
+  }
+
+  resetDiagnostics() {
+    this.diagnostics = this.createDiagnostics();
+  }
+
+  getDiagnostics() {
+    return { ...this.diagnostics };
   }
 
   getCachedBuildingColliders() {
@@ -238,10 +359,23 @@ export class BallisticsSystem {
     this.cachedBuildingColliders = collectBuildingColliderRecords(
       this.buildingSystem
     );
+    this.cachedBuildingColliderRuns = createBuildingColliderRuns(
+      this.cachedBuildingColliders
+    );
     this.cachedBuildingColliderRevision = Number.isSafeInteger(revision)
       ? revision
       : this.cachedBuildingColliderRevision + 1;
     return this.cachedBuildingColliders;
+  }
+
+  beginStep() {
+    this.unitProjectileBounds.clear();
+    for (const unit of this.getUnits()) {
+      this.unitProjectileBounds.set(unit, deriveUnitProjectileBounds(unit));
+    }
+    // Refresh both the collider list and its revision-owned broadphase once
+    // before any projectile substeps consume them.
+    this.getBuildingColliders?.();
   }
 
   integrate(projectile, delta) {
@@ -254,6 +388,7 @@ export class BallisticsSystem {
   }
 
   detectImpact(projectile) {
+    this.diagnostics.projectileSweeps++;
     let closest = null;
     const segmentDistance = projectile.previousPosition.distanceTo(projectile.position);
     const segmentStartDistance = Math.max(0, projectile.distanceTravelled - segmentDistance);
@@ -278,6 +413,23 @@ export class BallisticsSystem {
       // physical existence. Disabled and knocked-out vehicle hulls remain
       // valid swept armor collision targets.
       if (!unit.vehicleSpec && !unit.isCombatEffective?.()) continue;
+      let unitBounds = this.unitProjectileBounds.get(unit);
+      if (unitBounds === undefined) {
+        unitBounds = deriveUnitProjectileBounds(unit);
+        this.unitProjectileBounds.set(unit, unitBounds);
+      }
+      if (unitBounds) {
+        this.diagnostics.unitBoundsTested++;
+        if (!segmentIntersectsWorldAabb3D(
+          projectile.previousPosition,
+          projectile.position,
+          unitBounds
+        )) {
+          this.diagnostics.unitBoundsRejected++;
+          continue;
+        }
+      }
+      this.diagnostics.unitExactCandidates++;
 
       if (unit.type === 'infantry_squad') {
         for (const agent of unit.soldierAI?.getLivingAgents() ?? []) {
@@ -388,24 +540,43 @@ export class BallisticsSystem {
       }
     }
 
-    for (const collider of this.getBuildingColliders?.() ?? []) {
-      if (collider.blocks?.includes('projectile') === false) continue;
-      const intersection = segmentOrientedBoxIntersection(
-        projectile.previousPosition,
-        projectile.position,
-        collider
-      );
-      if (!intersection) continue;
-      consider({
-        kind: 'building',
-        buildingId: collider.buildingId,
-        sectionId: collider.sectionId,
-        colliderPartId: collider.partId,
-        collider,
-        normal: intersection.normal,
-        distance: intersection.point.distanceTo(projectile.previousPosition),
-        point: intersection.point
-      });
+    const buildingColliders = this.getBuildingColliders?.() ?? [];
+    const buildingRuns = buildingColliders === this.cachedBuildingColliders
+      ? this.cachedBuildingColliderRuns
+      : [{ startIndex: 0, endIndex: buildingColliders.length, bounds: null }];
+    for (const run of buildingRuns) {
+      if (run.bounds) {
+        this.diagnostics.buildingRunsTested++;
+        if (!segmentIntersectsWorldAabb3D(
+          projectile.previousPosition,
+          projectile.position,
+          run.bounds
+        )) {
+          this.diagnostics.buildingRunsRejected++;
+          continue;
+        }
+      }
+      for (let index = run.startIndex; index < run.endIndex; index++) {
+        const collider = buildingColliders[index];
+        if (collider.blocks?.includes('projectile') === false) continue;
+        this.diagnostics.buildingExactCandidates++;
+        const intersection = segmentOrientedBoxIntersection(
+          projectile.previousPosition,
+          projectile.position,
+          collider
+        );
+        if (!intersection) continue;
+        consider({
+          kind: 'building',
+          buildingId: collider.buildingId,
+          sectionId: collider.sectionId,
+          colliderPartId: collider.partId,
+          collider,
+          normal: intersection.normal,
+          distance: intersection.point.distanceTo(projectile.previousPosition),
+          point: intersection.point
+        });
+      }
     }
     for (const collider of this.getStaticProjectileColliders?.() ?? []) {
       if (collider.blocksProjectiles !== true) continue;

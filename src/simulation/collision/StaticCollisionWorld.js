@@ -279,15 +279,157 @@ export class StaticCollisionWorld {
     this.spatialCellSize = DEFAULT_SPATIAL_CELL_SIZE;
     this.spatialCells = new Map();
     this.colliderCellKeys = new Map();
+    this.sortedColliderRecords = null;
+    this.sortedBlockingColliderRecords = new Map();
+    this.expandedRouteRecordCaches = new Map();
     this.navigationRecords = [];
     this.setRecords(records);
     this.setNavigationRecords(navigationRecords);
+  }
+
+  invalidateDerivedColliderCaches() {
+    this.sortedColliderRecords = null;
+    this.sortedBlockingColliderRecords.clear();
+    this.expandedRouteRecordCaches.clear();
+  }
+
+  getSortedColliderRecords() {
+    if (!this.sortedColliderRecords) {
+      this.sortedColliderRecords = [...this.colliders.values()]
+        .sort((left, right) => left.id.localeCompare(right.id));
+    }
+    return this.sortedColliderRecords;
+  }
+
+  getSortedBlockingColliderRecords(moverType) {
+    let records = this.sortedBlockingColliderRecords.get(moverType);
+    if (!records) {
+      records = this.getSortedColliderRecords()
+        .filter(record => blocksMover(record, moverType));
+      this.sortedBlockingColliderRecords.set(moverType, records);
+    }
+    return records;
+  }
+
+  getExpandedRouteRecord(record, expansion) {
+    let cache = this.expandedRouteRecordCaches.get(expansion);
+    if (!cache) {
+      // A battle normally uses only a few footprint sizes. Keep this derived,
+      // uncaptured cache bounded if content introduces many distinct radii.
+      if (this.expandedRouteRecordCaches.size >= 16) {
+        const oldestKey = this.expandedRouteRecordCaches.keys().next().value;
+        this.expandedRouteRecordCaches.delete(oldestKey);
+      }
+      cache = {
+        records: new Map(),
+        arrays: new WeakMap(),
+        graphs: new WeakMap()
+      };
+      this.expandedRouteRecordCaches.set(expansion, cache);
+    }
+    const cached = cache.records.get(record.id);
+    if (cached?.source === record) return cached.routeRecord;
+
+    const routeCosine = record.collisionCosine ?? Math.cos(record.rotation);
+    const routeSine = record.collisionSine ?? Math.sin(record.rotation);
+    const halfX = record.halfX + expansion;
+    const halfZ = record.halfZ + expansion;
+    const worldHalfX = Math.abs(routeCosine) * halfX + Math.abs(routeSine) * halfZ;
+    const worldHalfZ = Math.abs(routeSine) * halfX + Math.abs(routeCosine) * halfZ;
+    const routeRecord = {
+      ...record,
+      routeCosine,
+      routeSine,
+      routeBounds: {
+        minX: record.centerX - worldHalfX,
+        maxX: record.centerX + worldHalfX,
+        minZ: record.centerZ - worldHalfZ,
+        maxZ: record.centerZ + worldHalfZ
+      }
+    };
+    cache.records.set(record.id, { source: record, routeRecord });
+    return routeRecord;
+  }
+
+  getExpandedRouteRecords(records, expansion) {
+    let cache = this.expandedRouteRecordCaches.get(expansion);
+    const cached = cache?.arrays.get(records);
+    if (cached) return cached;
+    if (records.length === 0) return records;
+    const routeRecords = records.map(record =>
+      this.getExpandedRouteRecord(record, expansion)
+    );
+    cache = this.expandedRouteRecordCaches.get(expansion);
+    cache.arrays.set(records, routeRecords);
+    return routeRecords;
+  }
+
+  getStaticRouteGraph(records, routeRecords, expansion, waypointClearance) {
+    const cache = this.expandedRouteRecordCaches.get(expansion);
+    let graphsByClearance = cache.graphs.get(records);
+    if (!graphsByClearance) {
+      graphsByClearance = new Map();
+      cache.graphs.set(records, graphsByClearance);
+    }
+    const cached = graphsByClearance.get(waypointClearance);
+    if (cached) return cached;
+
+    const nodes = [];
+    for (const record of routeRecords) {
+      for (const [cornerIndex, [localX, localZ]] of [
+        [-1, -1],
+        [-1, 1],
+        [1, -1],
+        [1, 1]
+      ].entries()) {
+        const corner = routeCorner(
+          record,
+          localX,
+          localZ,
+          expansion + waypointClearance
+        );
+        if (routeRecords.some(other =>
+          other.id !== record.id
+          && pointInsideRecord(
+            corner,
+            other,
+            expansion + waypointClearance,
+            ROUTE_VERTEX_MARGIN * 2
+          )
+        )) {
+          continue;
+        }
+        nodes.push({
+          key: `2:${record.id}:${cornerIndex}`,
+          x: corner.x,
+          z: corner.z
+        });
+      }
+    }
+    nodes.sort(compareRouteNodes);
+
+    const visibility = new Uint8Array(nodes.length * nodes.length);
+    for (let left = 0; left < nodes.length; left++) {
+      visibility[left * nodes.length + left] = 1;
+      for (let right = left + 1; right < nodes.length; right++) {
+        const isVisible = !routeRecords.some(record =>
+          segmentIntersectsRecord(nodes[left], nodes[right], record, expansion)
+        );
+        if (!isVisible) continue;
+        visibility[left * nodes.length + right] = 1;
+        visibility[right * nodes.length + left] = 1;
+      }
+    }
+    const graph = { nodes, visibility };
+    graphsByClearance.set(waypointClearance, graph);
+    return graph;
   }
 
   setRecords(records) {
     this.colliders.clear();
     this.spatialCells.clear();
     this.colliderCellKeys.clear();
+    this.invalidateDerivedColliderCaches();
     for (const record of records) {
       const normalized = normalizeRecord(record);
       this.colliders.set(normalized.id, normalized);
@@ -306,13 +448,16 @@ export class StaticCollisionWorld {
     this.unindexCollider(normalized.id);
     this.colliders.set(normalized.id, normalized);
     this.indexCollider(normalized);
+    this.invalidateDerivedColliderCaches();
     return normalized;
   }
 
   removeCollider(id) {
     const key = String(id);
     this.unindexCollider(key);
-    return this.colliders.delete(key);
+    const removed = this.colliders.delete(key);
+    if (removed) this.invalidateDerivedColliderCaches();
+    return removed;
   }
 
   spatialCellKey(cellX, cellZ) {
@@ -397,8 +542,7 @@ export class StaticCollisionWorld {
   }
 
   getRecords() {
-    return [...this.colliders.values()]
-      .sort((a, b) => a.id.localeCompare(b.id))
+    return this.getSortedColliderRecords()
       .map(record => ({ ...record, blocks: [...record.blocks] }));
   }
 
@@ -611,14 +755,16 @@ export class StaticCollisionWorld {
         stagedCrossingColliderIds.add(String(colliderId));
       }
     }
-    const records = [...this.colliders.values()]
-      .filter(record => (
-        blocksMover(record, moverType)
-        && !ignored.has(record.id)
-        && !traversableTypes.has(record.type)
-        && !stagedCrossingColliderIds.has(record.id)
-      ))
-      .sort((a, b) => a.id.localeCompare(b.id));
+    const blockingRecords = this.getSortedBlockingColliderRecords(moverType);
+    const records = ignored.size === 0
+        && traversableTypes.size === 0
+        && stagedCrossingColliderIds.size === 0
+      ? blockingRecords
+      : blockingRecords.filter(record => (
+          !ignored.has(record.id)
+          && !traversableTypes.has(record.type)
+          && !stagedCrossingColliderIds.has(record.id)
+        ));
     const path = [];
     let segmentStart = routeStart;
     for (const stage of stages) {
@@ -639,69 +785,33 @@ export class StaticCollisionWorld {
     if (Math.hypot(goal.x - start.x, goal.z - start.z) <= CONTACT_EPSILON) {
       return [];
     }
-    const routeRecords = records.map(record => {
-      const routeCosine = Math.cos(record.rotation);
-      const routeSine = Math.sin(record.rotation);
-      const halfX = record.halfX + expansion;
-      const halfZ = record.halfZ + expansion;
-      const worldHalfX = Math.abs(routeCosine) * halfX + Math.abs(routeSine) * halfZ;
-      const worldHalfZ = Math.abs(routeSine) * halfX + Math.abs(routeCosine) * halfZ;
-      return {
-        ...record,
-        routeCosine,
-        routeSine,
-        routeBounds: {
-          minX: record.centerX - worldHalfX,
-          maxX: record.centerX + worldHalfX,
-          minZ: record.centerZ - worldHalfZ,
-          maxZ: record.centerZ + worldHalfZ
-        }
-      };
-    });
+    const routeRecords = this.getExpandedRouteRecords(records, expansion);
     const visible = (from, to) => !routeRecords.some(record =>
       segmentIntersectsRecord(from, to, record, expansion)
     );
     if (visible(start, goal)) return [{ x: goal.x, z: goal.z }];
 
+    const staticGraph = this.getStaticRouteGraph(
+      records,
+      routeRecords,
+      expansion,
+      waypointClearance
+    );
     const nodes = [
       { key: '0:start', x: start.x, z: start.z },
-      { key: '1:goal', x: goal.x, z: goal.z }
+      { key: '1:goal', x: goal.x, z: goal.z },
+      ...staticGraph.nodes
     ];
-    for (const record of routeRecords) {
-      for (const [cornerIndex, [localX, localZ]] of [
-        [-1, -1],
-        [-1, 1],
-        [1, -1],
-        [1, 1]
-      ].entries()) {
-        const corner = routeCorner(
-          record,
-          localX,
-          localZ,
-          expansion + waypointClearance
-        );
-        if (routeRecords.some(other =>
-          other.id !== record.id
-          && pointInsideRecord(
-            corner,
-            other,
-            expansion + waypointClearance,
-            ROUTE_VERTEX_MARGIN * 2
-          )
-        )) {
-          continue;
-        }
-        nodes.push({
-          key: `2:${record.id}:${cornerIndex}`,
-          x: corner.x,
-          z: corner.z
-        });
-      }
-    }
-    nodes.sort(compareRouteNodes);
 
-    const startIndex = nodes.findIndex(node => node.key === '0:start');
-    const goalIndex = nodes.findIndex(node => node.key === '1:goal');
+    const startIndex = 0;
+    const goalIndex = 1;
+    const edgeIsVisible = (left, right) => {
+      if (left >= 2 && right >= 2) {
+        const staticCount = staticGraph.nodes.length;
+        return staticGraph.visibility[(left - 2) * staticCount + (right - 2)] === 1;
+      }
+      return visible(nodes[left], nodes[right]);
+    };
     const distances = new Array(nodes.length).fill(Infinity);
     const previous = new Array(nodes.length).fill(-1);
     const visited = new Array(nodes.length).fill(false);
@@ -722,7 +832,7 @@ export class StaticCollisionWorld {
       visited[current] = true;
 
       for (let next = 0; next < nodes.length; next++) {
-        if (next === current || visited[next] || !visible(nodes[current], nodes[next])) continue;
+        if (next === current || visited[next] || !edgeIsVisible(current, next)) continue;
         const edgeDistance = Math.hypot(
           nodes[next].x - nodes[current].x,
           nodes[next].z - nodes[current].z

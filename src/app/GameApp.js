@@ -44,6 +44,10 @@ import {
   EnemyObjectivePlanner
 } from '../simulation/ai/EnemyObjectivePlanner.js';
 import {
+  isOperationalArmoredCannonThreat,
+  selectAdaptiveVehicleTarget
+} from '../simulation/combat/VehicleEngagementLearning.js';
+import {
   collisionRecordsForVehicle,
   createDynamicVehicleCollisionRecords
 } from '../simulation/collision/DynamicVehicleCollision.js';
@@ -297,6 +301,7 @@ export class GameApp {
         this.terrain?.disposeAtmosphere();
       }, { once: true });
       await this.terrain.foliageReady;
+      this.terrain.freezeStaticPresentationTransforms();
       this.cameraManager.setGroundHeightProvider(
         (x, z) => this.terrain.getRenderedTerrainHeightAt(x, z)
       );
@@ -400,7 +405,8 @@ export class GameApp {
         getDebugDiagnostics: () => this.debugDiagnostics,
         getDebugOverlayState: () => ({
           ...this.debugOverlay.getState(),
-          formationAI: this.formationDebugEnabled
+          formationAI: this.formationDebugEnabled,
+          shadows: this.renderer.getDiagnostics().shadows
         }),
         getHoveredUnitId: () => this.hoveredUnit?.id ?? null,
         setDebugOverlayEnabled: (name, enabled) =>
@@ -531,6 +537,9 @@ export class GameApp {
   }
 
   setDebugOverlayEnabled(name, enabled) {
+    if (name === 'shadows') {
+      return this.renderer.setShadowsEnabled(enabled);
+    }
     if (name === 'formationAI') {
       this.formationDebugEnabled = Boolean(enabled);
       for (const unit of this.units ?? []) {
@@ -1313,19 +1322,79 @@ export class GameApp {
     const isTargetable = target => {
       if (!target?.isCombatEffective()) return false;
       if (!this.spotting.canPrecisionTarget(attacker, target)) return false;
-      const los = this.spotting.checkLOS(attacker.position, target.position);
+      const los = this.spotting.checkLOS(
+        attacker.position,
+        target.position,
+        { cacheStableRay: true }
+      );
       return los.clear && los.dist <= (attacker.vehicleSpec ? 220 : 150);
     };
-    if (isTargetable(attacker.targetUnit)) {
-      return attacker.targetUnit;
+    if (attacker.targetUnit) {
+      const orderedVehicleThreatNeutralized = Boolean(
+        attacker.vehicleSpec?.mainGun
+        && attacker.targetUnit.vehicleSpec
+        && !isOperationalArmoredCannonThreat(attacker.targetUnit)
+      );
+      if (orderedVehicleThreatNeutralized) {
+        attacker.clearTargetOrder?.('TARGET_NEUTRALIZED');
+      } else if (isTargetable(attacker.targetUnit)) {
+        return attacker.targetUnit;
+      }
+      // A direct player order owns targeting until cleared or its target is no
+      // longer combat-effective. During a precision-contact dropout, fire only
+      // at the retained spatial point instead of substituting a stale automatic
+      // weapon-channel target.
+      if (attacker.targetUnit?.isCombatEffective() && attacker.targetPos) {
+        return null;
+      }
     }
     const trackedTargetId = attacker.vehicleWeapon?.targetUnitId ?? null;
     const trackedTarget = trackedTargetId
       ? opposingUnits.find(target => target.id === trackedTargetId)
       : null;
-    if (isTargetable(trackedTarget)) return trackedTarget;
     const visibleTargets = opposingUnits.filter(isTargetable);
     if (visibleTargets.length === 0) return null;
+    if (isTargetable(trackedTarget)) {
+      if (
+        attacker.vehicleSpec?.mainGun
+        && (
+          !isOperationalArmoredCannonThreat(trackedTarget)
+          || attacker.shouldReconsiderVehicleTarget?.(trackedTarget.id)
+        )
+      ) {
+        const weaponId = attacker.vehicleSpec.mainGun?.ap
+          ?? attacker.vehicleSpec.mainGun?.[
+            attacker.vehicleWeapon?.loadedType ?? 'he'
+          ];
+        const selectedTarget = selectAdaptiveVehicleTarget({
+          attacker,
+          candidates: visibleTargets,
+          currentTarget: trackedTarget,
+          weapon: attacker.weaponLookup(weaponId)
+        });
+        if (selectedTarget?.id !== trackedTarget.id) {
+          attacker.recordAdaptiveVehicleRetarget?.(
+            trackedTarget.id,
+            selectedTarget.id
+          );
+        }
+        return selectedTarget;
+      }
+      return trackedTarget;
+    }
+    if (attacker.vehicleSpec?.mainGun) {
+      const weaponId = attacker.vehicleSpec.mainGun?.ap
+        ?? attacker.vehicleSpec.mainGun?.[
+          attacker.vehicleWeapon?.loadedType ?? 'he'
+        ];
+      const armoredTarget = selectAdaptiveVehicleTarget({
+        attacker,
+        candidates: visibleTargets,
+        currentTarget: null,
+        weapon: attacker.weaponLookup(weaponId)
+      });
+      if (armoredTarget) return armoredTarget;
+    }
     return visibleTargets[Math.floor(this.random() * visibleTargets.length)];
   }
 
@@ -1388,7 +1457,10 @@ export class GameApp {
       );
       const updateOptions = {
         haltMovement: huntStopped,
-        hasDirectPrecisionObservation
+        hasDirectPrecisionObservation,
+        // Project individual soldier transforms after the frame's fixed-step
+        // batch, except when combat needs a current modeled muzzle.
+        syncPresentation: false
       };
       if (unit.vehicleSpec) {
         updateOptions.contacts = this.getDirectVehicleThreatContacts(
@@ -1447,10 +1519,21 @@ export class GameApp {
     }
     this.simulationPhaseProfiler.mark('spotting');
 
+    const livingTargetAgents = new Map(
+      this.units.map(unit => [
+        unit,
+        unit.soldierAI?.getLivingAgents() ?? []
+      ])
+    );
+
     const attemptFire = (attacker, opposingUnits) => {
       if (!attacker.isCombatEffective()) return;
 
       if (attacker.type === 'infantry_squad') {
+        const precisionOpposingUnits = opposingUnits.filter(target =>
+          this.spotting.canPrecisionTarget(attacker, target)
+          && attacker.soldierAI?.canAnyLivingAgentEngageTarget(target) !== false
+        );
         if (!attacker.holdFire) {
           attacker.updateMortarCombat?.({
             terrain: this.terrain,
@@ -1459,10 +1542,18 @@ export class GameApp {
           });
         }
         attacker.updateIndividualCombat(delta, {
-          opposingUnits,
+          opposingUnits: precisionOpposingUnits,
+          opposingUnitsById: new Map(
+            precisionOpposingUnits.map(unit => [String(unit.id), unit])
+          ),
+          livingTargetAgents,
           spotting: this.spotting,
           combat: this.combat,
           buildingInteraction: this.buildingInteraction,
+          precisionCandidatesPrevalidated: true,
+          // Combat presentation is projected once after the frame's fixed
+          // steps. Authoritative agent records still update every step.
+          syncPresentation: false,
           random: () => this.random()
         });
         return;
@@ -1819,6 +1910,9 @@ export class GameApp {
         if (this.wego.phase !== 'ACTION_PHASE') this.simulationStepper.reset();
       }
       this.simulationPhaseProfiler.recordFrameSteps(simulationStepsThisFrame);
+      if (simulationStepsThisFrame > 0) {
+        for (const unit of this.units) unit.soldierAI?.syncMeshes();
+      }
 
       this.refreshVisibilityProjection();
       this.advanceBuildingPresentation(delta);

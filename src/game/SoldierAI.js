@@ -46,6 +46,9 @@ import {
   evaluateInfantryCasualtyReaction,
   INFANTRY_CASUALTY_REACTION_POLICY
 } from '../simulation/infantry/InfantryCasualtyReaction.js';
+import {
+  canInfantryWeaponEngageTarget
+} from '../simulation/combat/InfantryTargetEligibility.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const scratchGoal = new THREE.Vector3();
@@ -181,10 +184,11 @@ function obstacleVerticalBounds(obstacle, terrain) {
     : Number.isFinite(obstacle.z)
       ? obstacle.z
       : ((obstacle.minZ ?? 0) + (obstacle.maxZ ?? 0)) * 0.5;
-  const groundY = typeof terrain?.getHeightAt === 'function'
-    ? terrain.getHeightAt(centerX, centerZ)
-    : 0;
-  const minY = Number.isFinite(obstacle.minY) ? obstacle.minY : groundY;
+  const minY = Number.isFinite(obstacle.minY)
+    ? obstacle.minY
+    : typeof terrain?.getHeightAt === 'function'
+      ? terrain.getHeightAt(centerX, centerZ)
+      : 0;
   const maxY = Number.isFinite(obstacle.maxY)
     ? obstacle.maxY
     : minY + Math.max(0, Number(obstacle.height) || 2);
@@ -931,6 +935,30 @@ export class SoldierAI {
         const isDead = !agent.isAlive || agent.status === 'KIA' || agent.status === 'DEAD';
         const isIncapped = agent.status === 'INCAPACITATED';
         const isSurrendered = agent.status === 'SURRENDERED' || agent.state === 'SURRENDERED';
+        const casualtyDistance = Math.hypot(
+          agent.position.x - cEvent.position[0],
+          agent.position.z - cEvent.position[2]
+        );
+        if (alreadyProcessed) {
+          if (casualtyDistance
+                <= INFANTRY_CASUALTY_REACTION_POLICY.maximumDistanceMeters
+              && (soldier.casualtyResponseTicksRemaining ?? 0) > 0) {
+            casualtyProximityResponse = true;
+            minCasualtyDist = Math.min(minCasualtyDist, casualtyDistance);
+          }
+          continue;
+        }
+        const available = agent.isAlive && !isBuildingTransitActive([agent]);
+        if (agent.id === cEvent.casualtyId
+            || cEvent.unitId !== this.unit.id
+            || !available
+            || isDead
+            || isIncapped
+            || isSurrendered
+            || casualtyDistance
+              > INFANTRY_CASUALTY_REACTION_POLICY.maximumDistanceMeters) {
+          continue;
+        }
         const hasLOS = checkCasualtyLOS(agent.position, cEvent.position, terrain);
         const reactionInput = {
           soldierId: agent.id,
@@ -938,7 +966,7 @@ export class SoldierAI {
           eventId: cEvent.eventId,
           observerPosition: [agent.position.x, agent.position.z],
           casualtyPosition: [cEvent.position[0], cEvent.position[2]],
-          available: agent.isAlive && !isBuildingTransitActive([agent]),
+          available,
           living: !isDead,
           incapacitated: isIncapped,
           surrendered: isSurrendered,
@@ -964,16 +992,6 @@ export class SoldierAI {
           newCasualtyReaction = true;
           casualtyProximityResponse = true;
           minCasualtyDist = Math.min(minCasualtyDist, reaction.distanceMeters);
-        } else if (reaction.reason === 'already-processed') {
-          const dist = Math.hypot(
-            agent.position.x - cEvent.position[0],
-            agent.position.z - cEvent.position[2]
-          );
-          if (dist <= INFANTRY_CASUALTY_REACTION_POLICY.maximumDistanceMeters
-              && (soldier.casualtyResponseTicksRemaining ?? 0) > 0) {
-            casualtyProximityResponse = true;
-            minCasualtyDist = Math.min(minCasualtyDist, dist);
-          }
         }
       }
       if ((soldier.casualtyResponseTicksRemaining ?? 0) > 0) {
@@ -1427,7 +1445,7 @@ export class SoldierAI {
       soldier.lastSuppression = agent.suppression;
     }
 
-    this.syncMeshes();
+    if (context.syncPresentation !== false) this.syncMeshes();
   }
 
   advanceSupportAmmunitionTransfers(deltaSeconds) {
@@ -1551,7 +1569,7 @@ export class SoldierAI {
 
   updateCombat(delta, context) {
     for (const agent of this.agents) agent.updateCombat(delta, context);
-    this.syncMeshes();
+    if (context.syncPresentation !== false) this.syncMeshes();
   }
 
   syncMeshes() {
@@ -1573,6 +1591,20 @@ export class SoldierAI {
       this.unit.roster.length
     );
     this.updateDebug();
+  }
+
+  syncAgentMesh(agent) {
+    const mesh = this.unit.mesh?.userData.soldiers?.[agent?.index];
+    if (!mesh || !agent) return;
+    agent.syncRecord();
+    scratchPosition.copy(agent.position)
+      .sub(this.unit.position)
+      .applyAxisAngle(UP, -this.unit.rotation);
+    mesh.position.copy(scratchPosition);
+    mesh.userData.poseBaseY = scratchPosition.y;
+    mesh.rotation.order = 'YXZ';
+    mesh.rotation.y = agent.facing - this.unit.rotation;
+    this.applyPose(mesh, agent.record);
   }
 
   setDebug(enabled) {
@@ -1822,6 +1854,17 @@ export class SoldierAI {
 
   getLivingAgents() {
     return this.agents.filter(agent => agent.isAlive);
+  }
+
+  canAnyLivingAgentEngageTarget(target) {
+    return this.agents.some(agent => (
+      agent.isAlive
+      && !['INCAPACITATED', 'DEAD', 'SURRENDERED'].includes(agent.status)
+      && canInfantryWeaponEngageTarget(
+        agent.weaponLookup(agent.weaponId),
+        target
+      )
+    ));
   }
 
   getReadyShooters() {

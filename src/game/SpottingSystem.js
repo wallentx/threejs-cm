@@ -745,6 +745,47 @@ function attentionPhase(observerUnitId, observerPersonId, targetUnitId) {
   return (hash >>> 0) % ATTENTION_COLD_CADENCE_TICKS;
 }
 
+function observerPlanEffectiveness(capabilities) {
+  let score = 0;
+  for (const capability of capabilities) {
+    const range = Math.max(0, finite(capability.rangeMultiplier, 1));
+    const acquisition = Math.max(
+      0.01,
+      finite(capability.acquisitionTimeMultiplier, 1)
+    );
+    score = Math.max(score, range / acquisition);
+  }
+  return score;
+}
+
+function selectUrgentObserverKeys({
+  observerUnit,
+  targetUnit,
+  plans,
+  observations,
+  attentionTick
+}) {
+  const activePlans = plans.filter(plan => observationNeedsUrgentAttention(
+    observations.get(plan.key)?.get(targetUnit.id)
+  ));
+  const primaryPool = activePlans.length > 0 ? activePlans : plans;
+  const primary = [...primaryPool].sort((left, right) => (
+    right.effectiveness - left.effectiveness
+    || String(left.observer.id).localeCompare(String(right.observer.id))
+  ))[0];
+  const selected = new Set(primary ? [primary.key] : []);
+  const secondary = plans.filter(plan => plan !== primary);
+  if (secondary.length > 0) {
+    const phase = attentionPhase(
+      observerUnit.id,
+      'secondary-observer',
+      targetUnit.id
+    );
+    selected.add(secondary[(attentionTick + phase) % secondary.length].key);
+  }
+  return selected;
+}
+
 function canonicalAttentionTick(
   intervalStartClock,
   intervalEndClock,
@@ -1071,13 +1112,16 @@ export class SpottingSystem {
     this.buildingColliders = [];
     this.buildingColliderRuns = [];
     this.buildingCollidersDirty = true;
+    this.losResultCache = new Map();
     this.terrainSightSnapshot = null;
     this.terrainSightOccluders = [];
     this.terrainSightRuns = [];
     this.losDiagnostics = {
       buildingBroadphaseTests: 0,
       buildingBroadphaseRejects: 0,
-      buildingExactObbTests: 0
+      buildingExactObbTests: 0,
+      losCacheHits: 0,
+      losCacheMisses: 0
     };
     this.terrainLosDiagnostics = {
       terrainSnapshotRefreshes: 0,
@@ -1208,11 +1252,12 @@ export class SpottingSystem {
     if (!clipAxis(p1.x, dx, box.minX, box.maxX)) return false;
     if (!clipAxis(p1.z, dz, box.minZ, box.maxZ)) return false;
 
-    const terrainHeight = this.terrain?.getHeightAt?.(
-      (finite(box.minX) + finite(box.maxX)) * 0.5,
-      (finite(box.minZ) + finite(box.maxZ)) * 0.5
-    ) ?? 0;
-    const bottom = finite(box.minY, terrainHeight);
+    const bottom = Number.isFinite(box.minY)
+      ? box.minY
+      : this.terrain?.getHeightAt?.(
+        (finite(box.minX) + finite(box.maxX)) * 0.5,
+        (finite(box.minZ) + finite(box.maxZ)) * 0.5
+      ) ?? 0;
     const top = Number.isFinite(box.maxY)
       ? box.maxY
       : Number.isFinite(box.height) ? bottom + box.height : Infinity;
@@ -1231,6 +1276,34 @@ export class SpottingSystem {
     );
 
     if (this.buildingCollidersDirty) this.refreshBuildingColliders();
+    const cacheStableRay = options.cacheStableRay === true;
+    const snapshotProvider = this.terrain?.getSightOccluderSnapshot;
+    const candidateTerrainSnapshot = cacheStableRay
+      && typeof snapshotProvider === 'function'
+      ? snapshotProvider.call(this.terrain)
+      : null;
+    const terrainSnapshotCurrent = cacheStableRay
+      && candidateTerrainSnapshot != null
+      && candidateTerrainSnapshot === this.terrainSightSnapshot
+      && candidateTerrainSnapshot.revision === this.terrainSightSnapshot?.revision;
+    const cacheKey = terrainSnapshotCurrent
+      ? [origin.x, origin.y, origin.z, target.x, target.y, target.z].join('|')
+      : null;
+    if (cacheKey != null) {
+      const cached = this.losResultCache.get(cacheKey);
+      if (cached) {
+        this.losDiagnostics.losCacheHits++;
+        return cached;
+      }
+      this.losDiagnostics.losCacheMisses++;
+    }
+    const finish = result => {
+      if (cacheKey != null) {
+        if (this.losResultCache.size >= 32768) this.losResultCache.clear();
+        this.losResultCache.set(cacheKey, result);
+      }
+      return result;
+    };
     for (const run of this.buildingColliderRuns) {
       this.losDiagnostics.buildingBroadphaseTests++;
       if (run.bounds
@@ -1242,19 +1315,19 @@ export class SpottingSystem {
         const collider = this.buildingColliders[index];
         this.losDiagnostics.buildingExactObbTests++;
         if (!intersectSegmentOrientedBox3D(origin, target, collider)) continue;
-        return {
+        return finish({
           clear: false,
           coverType: collider.sectionId === 'rubble' ? 'Building rubble' : 'Building',
           buildingId: collider.buildingId,
           sectionId: collider.sectionId,
           dist
-        };
+        });
       }
     }
 
-    const snapshotProvider = this.terrain?.getSightOccluderSnapshot;
     if (typeof snapshotProvider === 'function') {
-      const candidateSnapshot = snapshotProvider.call(this.terrain);
+      const candidateSnapshot = candidateTerrainSnapshot
+        ?? snapshotProvider.call(this.terrain);
       if (candidateSnapshot !== this.terrainSightSnapshot
           || candidateSnapshot?.revision !== this.terrainSightSnapshot?.revision) {
         const snapshot = validateTerrainSightOccluderSnapshot(candidateSnapshot);
@@ -1262,6 +1335,7 @@ export class SpottingSystem {
         this.terrainSightSnapshot = snapshot;
         this.terrainSightOccluders = snapshot.records;
         this.terrainSightRuns = runs;
+        this.losResultCache.clear();
         this.terrainLosDiagnostics.terrainSnapshotRefreshes++;
         this.terrainLosDiagnostics.terrainSnapshotRevision = snapshot.revision;
         this.terrainLosDiagnostics.terrainOccluderCount = snapshot.records.length;
@@ -1280,7 +1354,11 @@ export class SpottingSystem {
           const obstacle = this.terrainSightOccluders[index];
           this.terrainLosDiagnostics.terrainExactBoxTests++;
           if (this.segmentIntersectsBox(origin, target, obstacle)) {
-            return { clear: false, coverType: obstacle.type ?? 'Obstacle', dist };
+            return finish({
+              clear: false,
+              coverType: obstacle.type ?? 'Obstacle',
+              dist
+            });
           }
         }
       }
@@ -1291,7 +1369,11 @@ export class SpottingSystem {
         if (obstacle.occludesSight === false) continue;
         this.terrainLosDiagnostics.terrainExactBoxTests++;
         if (this.segmentIntersectsBox(origin, target, obstacle)) {
-          return { clear: false, coverType: obstacle.type ?? 'Obstacle', dist };
+          return finish({
+            clear: false,
+            coverType: obstacle.type ?? 'Obstacle',
+            dist
+          });
         }
       }
     }
@@ -1305,16 +1387,19 @@ export class SpottingSystem {
         const z = origin.z + (target.z - origin.z) * t;
         const rayHeight = origin.y + (target.y - origin.y) * t;
         if (getHeightAt.call(this.terrain, x, z) >= rayHeight - 0.08) {
-          return { clear: false, coverType: 'Terrain', dist };
+          return finish({ clear: false, coverType: 'Terrain', dist });
         }
       }
     }
 
-    return { clear: true, coverType: 'Open Ground', dist };
+    return finish({ clear: true, coverType: 'Open Ground', dist });
   }
 
   getLosDiagnostics() {
-    return { ...this.losDiagnostics };
+    return {
+      ...this.losDiagnostics,
+      losCacheEntries: this.losResultCache.size
+    };
   }
 
   getTerrainLosDiagnostics() {
@@ -1420,7 +1505,8 @@ export class SpottingSystem {
     observerUnit,
     observer,
     targetUnit,
-    capabilityInput = null
+    capabilityInput = null,
+    targetPointInput = null
   ) {
     const observerPosition = personPosition(observerUnit, observer);
     const observerStance = stanceName(observer, observerUnit);
@@ -1428,7 +1514,11 @@ export class SpottingSystem {
     const capabilities = Array.isArray(capabilityInput)
       ? capabilityInput
       : resolveObserverCapabilities(observerUnit, observer, profile);
-    let best = null;
+    const targets = Array.isArray(targetPointInput)
+      ? targetPointInput
+      : targetPoints(targetUnit);
+    const candidates = [];
+    let sequence = 0;
 
     for (const capability of capabilities) {
       const facingYaw = observerCapabilityFacingYaw(
@@ -1436,7 +1526,7 @@ export class SpottingSystem {
         observer,
         capability
       );
-      for (const target of targetPoints(targetUnit)) {
+      for (const target of targets) {
         if (!pointInsideObserverFov(
           observerPosition,
           target.position,
@@ -1465,32 +1555,44 @@ export class SpottingSystem {
           losOptions
         );
         if (dist > maximumRange) continue;
-        const los = this.checkLOS(
-          observerPosition,
-          target.position,
-          losOptions
-        );
-        if (!los.clear || los.dist > maximumRange) continue;
         const acquisitionSeconds = this.acquisitionSeconds(
           observerUnit,
           observer,
           targetUnit,
           target.person,
-          los.dist,
+          dist,
           capability
         );
-        if (!best || acquisitionSeconds < best.acquisitionSeconds) {
-          best = {
-            distance: los.dist,
-            acquisitionSeconds,
-            targetPosition: target.position,
-            targetSoldierId: target.targetSoldierId ?? null,
-            observerCapabilityId: capability.id
-          };
-        }
+        candidates.push({
+          sequence: sequence++,
+          capability,
+          target,
+          losOptions,
+          distance: dist,
+          acquisitionSeconds
+        });
       }
     }
-    return best;
+    candidates.sort((left, right) => (
+      left.acquisitionSeconds - right.acquisitionSeconds
+      || left.sequence - right.sequence
+    ));
+    for (const candidate of candidates) {
+      const los = this.checkLOS(
+        observerPosition,
+        candidate.target.position,
+        candidate.losOptions
+      );
+      if (!los.clear) continue;
+      return {
+        distance: candidate.distance,
+        acquisitionSeconds: candidate.acquisitionSeconds,
+        targetPosition: candidate.target.position,
+        targetSoldierId: candidate.target.targetSoldierId ?? null,
+        observerCapabilityId: candidate.capability.id
+      };
+    }
+    return null;
   }
 
   updateObservation(
@@ -1499,7 +1601,8 @@ export class SpottingSystem {
     targetUnit,
     deltaNanoseconds,
     intervalStartClock,
-    capabilityInput = null
+    capabilityInput = null,
+    targetPointInput = null
   ) {
     const key = observerKey(observerUnit.id, observer.id);
     let targetMap = this.observations.get(key);
@@ -1546,7 +1649,8 @@ export class SpottingSystem {
       observerUnit,
       observer,
       targetUnit,
-      capabilities
+      capabilities,
+      targetPointInput
     );
 
     if (evaluation) {
@@ -1951,6 +2055,34 @@ export class SpottingSystem {
     const unitAttention = new Map(
       units.map(unit => [unit, unitAttentionFacts(unit)])
     );
+    const targetPointsByUnit = new Map(
+      units.filter(unitCanBeObserved)
+        .map(unit => [unit, targetPoints(unit)])
+    );
+    const observerPlansByUnit = new Map();
+    for (const unit of units) {
+      if (unit.morale === 'Broken') {
+        observerPlansByUnit.set(unit, []);
+        continue;
+      }
+      const profile = unitProfile(unit, this.unitProfiles);
+      const plans = sortedPeople(unit)
+        .filter(observer => canPerformDirectVisualObservation(unit, observer))
+        .map(observer => {
+          const capabilities = resolveObserverCapabilities(
+            unit,
+            observer,
+            profile
+          );
+          return {
+            observer,
+            capabilities,
+            effectiveness: observerPlanEffectiveness(capabilities),
+            key: observerKey(unit.id, observer.id)
+          };
+        });
+      observerPlansByUnit.set(unit, plans);
+    }
     for (const targetMap of this.observations.values()) {
       for (const observation of targetMap.values()) {
         if (observation.lastSeenAt !== null) {
@@ -1964,38 +2096,63 @@ export class SpottingSystem {
     }
 
     for (const observerUnit of units) {
-      if (observerUnit.morale === 'Broken') continue;
-      for (const observer of sortedPeople(observerUnit)) {
-        if (!canPerformDirectVisualObservation(observerUnit, observer)) {
-          continue;
-        }
-        const profile = unitProfile(observerUnit, this.unitProfiles);
-        const capabilities = resolveObserverCapabilities(
-          observerUnit,
-          observer,
-          profile
+      const plans = observerPlansByUnit.get(observerUnit) ?? [];
+      if (plans.length === 0) continue;
+      const attentionByTarget = new Map();
+      for (const targetUnit of units) {
+        if (targetUnit.faction === observerUnit.faction
+            || !unitCanBeObserved(targetUnit)) continue;
+        const factsUrgent = attentionTick !== null && (
+          unitAttention.get(observerUnit).moving
+          || unitAttention.get(observerUnit).firing
+          || unitAttention.get(targetUnit).moving
+          || unitAttention.get(targetUnit).firing
+          || withinAttentionCloseRange(
+            unitAttention.get(observerUnit),
+            unitAttention.get(targetUnit)
+          )
         );
-        const key = observerKey(observerUnit.id, observer.id);
+        const observationUrgent = attentionTick !== null && plans.some(plan =>
+          observationNeedsUrgentAttention(
+            this.observations.get(plan.key)?.get(targetUnit.id)
+          )
+        );
+        const urgent = factsUrgent || observationUrgent;
+        attentionByTarget.set(targetUnit.id, {
+          urgent,
+          selectedKeys: urgent
+            ? selectUrgentObserverKeys({
+                observerUnit,
+                targetUnit,
+                plans,
+                observations: this.observations,
+                attentionTick
+              })
+            : null
+        });
+      }
+      for (const plan of plans) {
+        const { observer, capabilities, key } = plan;
         liveObserverKeys.add(key);
         for (const targetUnit of units) {
           if (targetUnit.faction === observerUnit.faction || !unitCanBeObserved(targetUnit)) continue;
           this.attentionDiagnostics.eligibleCandidates++;
           const existing = this.observations.get(key)?.get(targetUnit.id);
-          const urgent = attentionTick !== null && (
-            unitAttention.get(observerUnit).moving
-            || unitAttention.get(observerUnit).firing
-            || unitAttention.get(targetUnit).moving
-            || unitAttention.get(targetUnit).firing
-            || withinAttentionCloseRange(
-              unitAttention.get(observerUnit),
-              unitAttention.get(targetUnit)
-            )
-            || observationNeedsUrgentAttention(existing)
-          );
-          if (attentionTick !== null && !urgent
-              && attentionPhase(observerUnit.id, observer.id, targetUnit.id) !== attentionTick) {
-            this.attentionDiagnostics.deferredCandidates++;
-            continue;
+          const attention = attentionByTarget.get(targetUnit.id);
+          const urgent = attention?.urgent === true;
+          if (attentionTick !== null) {
+            const selectedUrgentObserver = urgent
+              && attention.selectedKeys.has(key);
+            const selectedColdObserver = !urgent
+              && attentionPhase(
+                observerUnit.id,
+                observer.id,
+                targetUnit.id
+              ) === attentionTick;
+            if (!selectedUrgentObserver && !selectedColdObserver) {
+              this.attentionDiagnostics.deferredCandidates++;
+              continue;
+            }
           }
           if (attentionTick === null) {
             this.attentionDiagnostics.failOpenEvaluations++;
@@ -2027,7 +2184,8 @@ export class SpottingSystem {
             targetUnit,
             deltaNanoseconds,
             intervalStartClock,
-            capabilities
+            capabilities,
+            targetPointsByUnit.get(targetUnit)
           );
           if (!updatedTargetsByObserver.has(key)) {
             updatedTargetsByObserver.set(key, new Set());
@@ -2213,6 +2371,7 @@ export class SpottingSystem {
 
   refreshBuildingColliders() {
     if (!this.buildingCollidersDirty) return this.buildingColliders;
+    this.losResultCache.clear();
     if (!this.buildingSystem) {
       this.buildingColliders = [];
       this.buildingColliderRuns = [];

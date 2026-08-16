@@ -79,6 +79,8 @@ export class Renderer {
     this.deviceLost = false;
     this.onDeviceLost = options.onDeviceLost ?? null;
     this.shadowStats = { casters: 0, receivers: 0 };
+    this.shadowsEnabled = options.shadowsEnabled === true
+      && this.renderProfile.shadowMapSize > 0;
     this.enableDepthOfField = options.enableDepthOfField ?? false;
     this.renderPipeline = null;
     this.dofNode = null;
@@ -90,6 +92,14 @@ export class Renderer {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color('#8bb7c9');
     this.scene.fog = new THREE.FogExp2(SCENE_FOG_COLOR, SCENE_FOG_DENSITY);
+    // The scene root never moves. Updating its identity transform every frame
+    // marks the whole hierarchy dirty and forces every descendant world matrix
+    // to be multiplied again. Dynamic children still update from their own
+    // transform state.
+    this.scene.updateMatrix();
+    this.scene.updateMatrixWorld(true);
+    this.scene.matrixAutoUpdate = false;
+    this.scene.matrixWorldNeedsUpdate = false;
 
     // 2. Camera setup
     this.camera = new THREE.PerspectiveCamera(
@@ -132,7 +142,7 @@ export class Renderer {
     graphicsRenderer.outputColorSpace = THREE.SRGBColorSpace;
     graphicsRenderer.toneMapping = THREE.ACESFilmicToneMapping;
     graphicsRenderer.toneMappingExposure = 0.84;
-    graphicsRenderer.shadowMap.enabled = this.renderProfile.shadowMapSize > 0;
+    graphicsRenderer.shadowMap.enabled = this.shadowsEnabled;
     graphicsRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
     const reportDeviceLost = graphicsRenderer.onDeviceLost.bind(graphicsRenderer);
     graphicsRenderer.onDeviceLost = info => {
@@ -190,11 +200,12 @@ export class Renderer {
     hemiLight.position.set(0, 60, 0);
     this.scene.add(hemiLight);
 
-    // One bounded directional shadow covers the 240 m scenario map.
+    // Dynamic shadows are opt-in through the debug panel. The configured map
+    // size remains a quality capability rather than a default frame cost.
     this.sunLight = new THREE.DirectionalLight('#fff3df', 2.0);
     this.sunLight.name = 'BattlefieldSun';
     this.sunLight.position.set(85, 140, 60);
-    this.sunLight.castShadow = this.renderProfile.shadowMapSize > 0;
+    this.sunLight.castShadow = this.shadowsEnabled;
     const shadowSize = Math.max(1, this.renderProfile.shadowMapSize);
     const shadowHalfExtent = Math.max(1, this.renderProfile.shadowHalfExtent);
     this.sunLight.shadow.mapSize.set(shadowSize, shadowSize);
@@ -250,10 +261,22 @@ export class Renderer {
     this.shadowStats = { casters, receivers };
   }
 
+  setShadowsEnabled(enabled) {
+    this.shadowsEnabled = Boolean(enabled)
+      && this.renderProfile.shadowMapSize > 0;
+    this.graphicsRenderer.shadowMap.enabled = this.shadowsEnabled;
+    if (this.sunLight) {
+      this.sunLight.castShadow = this.shadowsEnabled
+        && this.debugMode !== 'no-shadows';
+    }
+    this.configureSceneShadows();
+    return Boolean(this.sunLight?.castShadow);
+  }
+
   setDebugMode(mode = 'final') {
     this.debugMode = ['final', 'no-shadows', 'no-fog', 'agents'].includes(mode) ? mode : 'final';
     if (this.sunLight) {
-      this.sunLight.castShadow = this.graphicsRenderer.shadowMap.enabled && this.debugMode !== 'no-shadows';
+      this.sunLight.castShadow = this.shadowsEnabled && this.debugMode !== 'no-shadows';
     }
     this.scene.fog = this.debugMode === 'no-fog'
       ? null
@@ -277,9 +300,13 @@ export class Renderer {
       toneMapping: 'ACESFilmic',
       exposure: this.graphicsRenderer.toneMappingExposure,
       shadows: this.sunLight.castShadow,
-      shadowMapSize: this.renderProfile.shadowMapSize,
+      shadowMapSize: this.sunLight.castShadow
+        ? this.renderProfile.shadowMapSize
+        : 0,
+      shadowMapCapability: this.renderProfile.shadowMapSize,
       shadowCasters: this.shadowStats.casters,
       shadowReceivers: this.shadowStats.receivers,
+      staticTransforms: this.scene.userData.staticTransformStats ?? null,
       depthOfField: Boolean(this.renderPipeline)
     };
   }

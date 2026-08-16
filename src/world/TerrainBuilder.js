@@ -1396,10 +1396,40 @@ export class TerrainBuilder {
       throw new Error('TerrainBuilder foliage template provider requires createTemplate');
     }
     this.scene = scene;
+    this.initialSceneChildren = new Set(scene.children);
+    this.presentationRoots = new Set();
+    this.staticTransformStats = null;
     this.qualityTier = ['low', 'high', 'ultra'].includes(qualityTier)
       ? qualityTier
       : 'high';
     this.mapDescriptor = mapDescriptor;
+    const elevation = mapDescriptor.elevation;
+    this.openGroundBaseHeight = elevation.baseHeight ?? 0;
+    this.openGroundWaves = elevation.waves.map(wave => ({
+      useX: wave.axis === 'x',
+      useSine: wave.function === 'sin',
+      frequency: wave.frequency,
+      phase: wave.phase ?? 0,
+      amplitude: wave.amplitude
+    }));
+    const river = mapDescriptor.river;
+    this.openGroundFloodplain = river
+      && Number.isFinite(river.centerZ)
+      && Number.isFinite(river.floodplainRadius)
+      ? {
+          centerZ: river.centerZ,
+          radius: river.floodplainRadius
+        }
+      : null;
+    this.terrainRiverProfile = river
+      ? {
+          centerZ: river.centerZ,
+          waterHalfWidth: river.waterWidth * 0.5,
+          cutHalfWidth: river.cutWidth * 0.5,
+          inverseBankWidth: 1 / ((river.cutWidth - river.waterWidth) * 0.5),
+          bedLevel: river.bedLevel
+        }
+      : null;
     this.deploymentZoneDefinitions = mapDescriptor.deploymentZones;
     this.width = mapDescriptor.dimensions.width;
     this.depth = mapDescriptor.dimensions.depth;
@@ -1455,6 +1485,7 @@ export class TerrainBuilder {
     }
     this.structureTerrainPadCellSize = 16;
     this.structureTerrainPadCells = new Map();
+    this.structureTerrainPadRows = new Map();
     this.structureTerrainPads = [];
     for (const structure of mapDescriptor.structures ?? []) {
       const terrainPad = structure.terrainPad;
@@ -1509,6 +1540,12 @@ export class TerrainBuilder {
           const pads = this.structureTerrainPadCells.get(key) ?? [];
           pads.push(pad);
           this.structureTerrainPadCells.set(key, pads);
+          let row = this.structureTerrainPadRows.get(cellZ);
+          if (!row) {
+            row = new Map();
+            this.structureTerrainPadRows.set(cellZ, row);
+          }
+          row.set(cellX, pads);
         }
       }
     }
@@ -1576,7 +1613,49 @@ export class TerrainBuilder {
     this.buildFoliage();
     this.buildSetupZones();
 
+    this.presentationRoots = new Set(
+      this.scene.children.filter(object => !this.initialSceneChildren.has(object))
+    );
+
     return this.terrainMesh;
+  }
+
+  freezeStaticPresentationTransforms() {
+    const reactiveObjects = new Set();
+    for (const building of this.buildings) {
+      const animator = building.object.userData?.collapseAnimator;
+      for (const record of animator?.sectionRecordList ?? []) {
+        for (const target of record.targets ?? []) {
+          if (target.object) reactiveObjects.add(target.object);
+        }
+      }
+      building.object.traverse(object => {
+        if (object.userData?.semantic === 'door-hinge') {
+          reactiveObjects.add(object);
+        }
+      });
+    }
+
+    let roots = 0;
+    let frozen = 0;
+    for (const root of this.presentationRoots) {
+      if (root.parent !== this.scene) continue;
+      root.updateMatrixWorld(true);
+      root.traverse(object => {
+        object.updateMatrix();
+        object.matrixAutoUpdate = false;
+        frozen++;
+      });
+      root.updateMatrixWorld(true);
+      roots++;
+    }
+    this.staticTransformStats = Object.freeze({
+      roots,
+      frozen,
+      reactive: reactiveObjects.size
+    });
+    this.scene.userData.staticTransformStats = this.staticTransformStats;
+    return this.staticTransformStats;
   }
 
   buildSurroundingTerrain() {
@@ -1672,32 +1751,28 @@ export class TerrainBuilder {
   }
 
   getRawOpenGroundHeightAt(x, z) {
-    const elevation = this.mapDescriptor.elevation;
-    const rawHeight = elevation.waves.reduce((height, wave) => {
-      const coordinate = wave.axis === 'x' ? x : z;
-      const angle = coordinate * wave.frequency + (wave.phase ?? 0);
-      const sample = wave.function === 'sin' ? Math.sin(angle) : Math.cos(angle);
-      return height + sample * wave.amplitude;
-    }, elevation.baseHeight ?? 0);
-
-    const river = this.mapDescriptor.river;
-    if (!river
-        || !Number.isFinite(river.centerZ)
-        || !Number.isFinite(river.floodplainRadius)) {
-      return rawHeight;
+    let rawHeight = this.openGroundBaseHeight;
+    for (let index = 0; index < this.openGroundWaves.length; index++) {
+      const wave = this.openGroundWaves[index];
+      const coordinate = wave.useX ? x : z;
+      const angle = coordinate * wave.frequency + wave.phase;
+      rawHeight += (wave.useSine ? Math.sin(angle) : Math.cos(angle)) * wave.amplitude;
     }
+
+    const floodplain = this.openGroundFloodplain;
+    if (!floodplain) return rawHeight;
 
     // Natural European river valley floodplain:
     // Terrain naturally flattens and levels out into a broad, gentle meadow near the river
     // rather than creating steep hill crests and canyon-like cuts directly at the water's edge.
-    const floodplainRadius = river.floodplainRadius;
-    const distToRiver = Math.abs(z - river.centerZ);
+    const floodplainRadius = floodplain.radius;
+    const distToRiver = Math.abs(z - floodplain.centerZ);
     if (distToRiver >= floodplainRadius) {
       return rawHeight;
     }
     const t = distToRiver / floodplainRadius;
     const smoothT = t * t * (3 - 2 * t);
-    const valleyFloorElevation = elevation.baseHeight ?? 0;
+    const valleyFloorElevation = this.openGroundBaseHeight;
     return THREE.MathUtils.lerp(valleyFloorElevation, rawHeight, smoothT);
   }
 
@@ -1705,7 +1780,8 @@ export class TerrainBuilder {
     let height = this.getRawOpenGroundHeightAt(x, z);
     const cellX = Math.floor(x / this.structureTerrainPadCellSize);
     const cellZ = Math.floor(z / this.structureTerrainPadCellSize);
-    const pads = this.structureTerrainPadCells.get(`${cellX}:${cellZ}`) ?? [];
+    const pads = this.structureTerrainPadRows.get(cellZ)?.get(cellX);
+    if (!pads) return height;
     for (const pad of pads) {
       const worldDx = x - pad.centerX;
       const worldDz = z - pad.centerZ;
@@ -1726,18 +1802,16 @@ export class TerrainBuilder {
   }
 
   getHeightAt(x, z) {
-    const river = this.mapDescriptor.river;
+    const river = this.terrainRiverProfile;
     const openGround = this.getOpenGroundHeightAt(x, z);
     if (!river) return openGround;
     const distanceFromCenter = Math.abs(z - river.centerZ);
-    const waterHalfWidth = river.waterWidth * 0.5;
-    const cutHalfWidth = river.cutWidth * 0.5;
+    const waterHalfWidth = river.waterHalfWidth;
+    const cutHalfWidth = river.cutHalfWidth;
     if (distanceFromCenter <= waterHalfWidth) return river.bedLevel;
     if (distanceFromCenter >= cutHalfWidth) return openGround;
 
-    const bankProgress = (
-      distanceFromCenter - waterHalfWidth
-    ) / (cutHalfWidth - waterHalfWidth);
+    const bankProgress = (distanceFromCenter - waterHalfWidth) * river.inverseBankWidth;
     return THREE.MathUtils.lerp(
       river.bedLevel,
       openGround,

@@ -231,6 +231,7 @@ export class UIManager {
       'debug-toggle-components': 'vehicleComponents',
       'debug-toggle-crew': 'vehicleCrew',
       'debug-toggle-formation': 'formationAI',
+      'debug-toggle-shadows': 'shadows',
       'debug-toggle-logs': 'logs',
       'debug-toggle-shots': 'shots'
     };
@@ -333,7 +334,13 @@ export class UIManager {
         : 'shot-inspector';
       document.getElementById(sectionId)?.classList.toggle('hidden', !active);
     } else {
-      this.runtime.setDebugOverlayEnabled(name, active);
+      const resolved = this.runtime.setDebugOverlayEnabled(name, active);
+      if (typeof resolved === 'boolean' && resolved !== active) {
+        this.debugToggles[name] = resolved;
+        button?.classList.toggle('active', resolved);
+        button?.setAttribute('aria-pressed', String(resolved));
+        return resolved;
+      }
     }
     return active;
   }

@@ -60,10 +60,20 @@ import {
   selectVehicleTargetWeapons
 } from '../simulation/combat/VehicleWeaponSelection.js';
 import {
+  captureVehicleEngagementLearningState,
+  createVehicleEngagementLearningState,
+  recordAdaptiveVehicleRetarget as recordResolvedAdaptiveVehicleRetarget,
+  recordVehicleEngagementImpact as recordResolvedVehicleEngagementImpact,
+  selectAdaptiveVehicleAmmoType,
+  selectVehicleEngagementAim,
+  setVehicleEngagementTarget
+} from '../simulation/combat/VehicleEngagementLearning.js';
+import {
   captureVehicleAimIntent,
   resolveVehicleLocalAimPoint,
   selectVehicleTargetSoldier
 } from '../simulation/combat/VehicleTargeting.js';
+import { getVehicleArmorAimPoints } from '../simulation/vehicles/VehicleArmorCollision.js';
 import {
   advanceVehiclePhysicsState,
   captureVehiclePhysicsState,
@@ -335,6 +345,9 @@ export class Unit {
     this.targetPos = null;
     this.targetAimIntent = null;
     this.targetMode = null;
+    this.vehicleEngagementLearning = this.vehicleSpec
+      ? createVehicleEngagementLearningState(config.vehicleEngagementLearning)
+      : null;
 
     // Vehicle Damage
     this.vehicleDamage = {
@@ -1399,6 +1412,29 @@ export class Unit {
       && !this.vehicleDamageState.destroyed;
   }
 
+  getVehicleMainGunBlockedPhase({
+    remainingTurretYawError,
+    shooterMoving,
+    mainGunnerDelta
+  }) {
+    if (!this.vehicleComponents.main_gun?.operational
+        || !this.vehicleComponents.breech?.operational) {
+      return 'GUN DISABLED';
+    }
+    if (this.vehicleComponents.turret_traverse?.operational === false) {
+      return 'TRAVERSE DISABLED';
+    }
+    if (!this.isCrewRoleAlive(this.vehicleSpec.gunnerRoles)) {
+      return this.vehicleCrewTasks?.mainGunnerReplacement?.phase === 'TRANSFERRING'
+        ? 'CREW TRANSFER'
+        : 'NO GUNNER';
+    }
+    if (!(mainGunnerDelta > 0)) return 'CREW BUSY';
+    if (shooterMoving) return 'MOVING';
+    if (Math.abs(remainingTurretYawError) > 0.06) return 'TRAVERSING';
+    return 'DISABLED';
+  }
+
   hasOperationalDriver() {
     return !this.vehicleSpec || (
       this.isCrewRoleAlive(this.vehicleSpec.driverRoles)
@@ -1928,14 +1964,28 @@ export class Unit {
       };
     }
     if (state) state.targetSoldierId = null;
-    if (target?.vehicleSpec && this.targetAimIntent) {
+    if (target?.vehicleSpec && target === this.targetUnit && this.targetAimIntent) {
       const point = resolveVehicleLocalAimPoint(target, this.targetAimIntent);
-      if (target === this.targetUnit) this.targetPos.copy(point);
+      if (target === this.targetUnit) this.targetPos.fromArray(point);
       return {
         soldier: null,
         position: new THREE.Vector3().fromArray(point),
         explicitAimPoint: point
       };
+    }
+    if (target?.vehicleSpec && this.vehicleEngagementLearning) {
+      setVehicleEngagementTarget(this.vehicleEngagementLearning, target.id);
+      const aim = selectVehicleEngagementAim(
+        getVehicleArmorAimPoints(target),
+        this.vehicleEngagementLearning
+      );
+      if (aim) {
+        return {
+          soldier: null,
+          position: new THREE.Vector3().fromArray(aim.point),
+          explicitAimPoint: aim.point
+        };
+      }
     }
     const position = target?.position ?? (allowPointTarget ? this.targetPos : null);
     return position
@@ -1944,13 +1994,17 @@ export class Unit {
   }
 
   abandonVehicleCombatIntent(reason = 'ABANDONED') {
-    if (!this.vehicleSpec) return;
+    this.clearTargetOrder(reason);
+  }
+
+  clearVehicleTargetChannels(reason = 'TARGET_CLEARED') {
     const clearState = state => {
       if (!state) return;
       state.isFiring = false;
       state.targetUnitId = null;
       state.targetSoldierId = null;
       state.targetPos = null;
+      state.targetMode = null;
       state.fireState = reason;
       resetFireControlState(state.fireControl, reason);
     };
@@ -1958,9 +2012,36 @@ export class Unit {
     for (const mount of this.vehicleSpec.weaponMounts ?? []) {
       clearState(this.vehicleMounts[mount.id]);
     }
+    setVehicleEngagementTarget(this.vehicleEngagementLearning, null);
+  }
+
+  clearTargetOrder(reason = 'TARGET_CLEARED') {
+    if (this.vehicleSpec) this.clearVehicleTargetChannels(reason);
     this.targetUnit = null;
     this.targetPos = null;
     this.targetAimIntent = null;
+    this.targetMode = null;
+    this.clearMortarTargetOrder?.();
+    return true;
+  }
+
+  setTargetOrder({ targetUnit, targetPos, targetAimIntent, targetMode } = {}) {
+    if (!targetPos) return false;
+    if (this.vehicleSpec) this.clearVehicleTargetChannels('TARGET_CHANGED');
+    this.clearMortarTargetOrder?.();
+    this.targetUnit = targetUnit ?? null;
+    this.targetPos = targetPos.isVector3
+      ? targetPos.clone()
+      : new THREE.Vector3().fromArray(targetPos);
+    this.targetAimIntent = captureVehicleAimIntent(targetAimIntent);
+    this.targetMode = targetMode ?? null;
+    if (this.vehicleEngagementLearning) {
+      setVehicleEngagementTarget(
+        this.vehicleEngagementLearning,
+        this.targetUnit?.id ?? null
+      );
+    }
+    return true;
   }
 
   updateVehicleCombat(delta, context) {
@@ -2152,7 +2233,14 @@ export class Unit {
       this.vehicleWeapon.targetUnitId = targetReferenceId;
       this.vehicleWeapon.targetPos = targetPosition.toArray();
       this.vehicleWeapon.targetMode = this.targetMode;
-      const desiredAmmoType = weaponSelection.mainAmmoType;
+      const desiredAmmoType = selectAdaptiveVehicleAmmoType({
+        state: this.vehicleEngagementLearning,
+        mode: this.targetMode,
+        defaultAmmoType: weaponSelection.mainAmmoType,
+        vehicleSpec: this.vehicleSpec,
+        weaponLookup: this.weaponLookup,
+        ammunitionState: this.vehicleWeapon
+      });
       const aimWeapon = this.weaponLookup(
         this.vehicleSpec.mainGun[this.vehicleWeapon.loadedType ?? desiredAmmoType]
       );
@@ -2161,6 +2249,11 @@ export class Unit {
         && mainGunnerDelta > 0
         && !this.vehicleDamageState.burning
         && !shooterMoving;
+      const mainBlockedPhase = this.getVehicleMainGunBlockedPhase({
+        remainingTurretYawError,
+        shooterMoving,
+        mainGunnerDelta
+      });
       const mainAim = advanceFireControlState(this.vehicleWeapon.fireControl, {
         deltaSeconds: mainGunnerDelta,
         shooterKey: `${this.id}:main`,
@@ -2172,9 +2265,7 @@ export class Unit {
         targetMoving,
         opticsStatus: this.vehicleComponents.optics?.status ?? 'OK',
         canAim: mainCanAim,
-        blockedPhase: Math.abs(remainingTurretYawError) > 0.06
-          ? 'SLEWING'
-          : (shooterMoving ? 'MOVING' : 'DISABLED')
+        blockedPhase: mainBlockedPhase
       });
       if (mainAim.becameReady) {
         this.vehicleWeapon.cooldown = Math.max(
@@ -2268,6 +2359,30 @@ export class Unit {
     return firedMain || firedMountedWeapon;
   }
 
+  recordVehicleEngagementImpact({ targetUnitId, weapon, result } = {}) {
+    if (!this.vehicleEngagementLearning) return;
+    recordResolvedVehicleEngagementImpact(this.vehicleEngagementLearning, {
+      targetUnitId,
+      weapon,
+      result
+    });
+  }
+
+  shouldReconsiderVehicleTarget(targetUnitId) {
+    return Boolean(
+      this.vehicleEngagementLearning?.retargetRequested
+      && this.vehicleEngagementLearning.targetUnitId === targetUnitId
+    );
+  }
+
+  recordAdaptiveVehicleRetarget(fromTargetUnitId, toTargetUnitId) {
+    if (!this.vehicleEngagementLearning) return;
+    recordResolvedAdaptiveVehicleRetarget(this.vehicleEngagementLearning, {
+      fromTargetUnitId,
+      toTargetUnitId
+    });
+  }
+
   updateVehicleMountedWeaponCombat(context, aiming) {
     let firedAny = false;
     for (const mount of this.vehicleSpec.weaponMounts ?? []) {
@@ -2343,6 +2458,12 @@ export class Unit {
       }
       const operational = this.isVehicleMountOperational(mount.id);
       const aligned = Math.abs(alignmentError) <= (mount.traverse === 'turret' ? 0.08 : 0.12);
+      const alignmentPhase = mount.traverse === 'turret'
+        ? 'TRAVERSING'
+        : (mount.kind === 'cannon'
+            && (this.vehicleSpec.hullAimTraverseRadPerSecond ?? 0) > 0
+          ? 'SLEWING'
+          : 'OUT OF ARC');
       const mountAim = advanceFireControlState(state.fireControl, {
         deltaSeconds: aiming.deltaSeconds,
         shooterKey: `${this.id}:${mount.id}`,
@@ -2356,7 +2477,9 @@ export class Unit {
         canAim: operational && aligned && !crewBusy && !aiming.shooterMoving,
         blockedPhase: crewBusy
           ? 'CREW_BUSY'
-          : (!operational ? 'DISABLED' : (aiming.shooterMoving ? 'MOVING' : 'SLEWING'))
+          : (!operational
+              ? 'DISABLED'
+              : (aiming.shooterMoving ? 'MOVING' : alignmentPhase))
       });
       if (mountAim.becameReady) {
         state.cooldown = Math.max(state.cooldown, -mountAim.overshootSeconds);
@@ -2710,6 +2833,9 @@ export class Unit {
       targetPos: this.targetPos?.toArray() ?? null,
       targetAimIntent: captureVehicleAimIntent(this.targetAimIntent),
       targetMode: this.targetMode,
+      vehicleEngagementLearning: captureVehicleEngagementLearningState(
+        this.vehicleEngagementLearning
+      ),
       ammo: { ...this.ammo },
       vehicleDamage: { ...this.vehicleDamage },
       vehicleComponents: Object.fromEntries(
@@ -2815,6 +2941,9 @@ export class Unit {
       state.targetAimIntent ?? null
     );
     this.targetMode = state.targetMode;
+    this.vehicleEngagementLearning = this.vehicleSpec
+      ? createVehicleEngagementLearningState(state.vehicleEngagementLearning)
+      : null;
     this.ammo = { ...state.ammo };
     this.vehicleDamage = { ...this.vehicleDamage, ...state.vehicleDamage };
     this.vehicleComponents = createVehicleComponents(this.vehicleSpec, state.vehicleComponents);
@@ -3269,7 +3398,8 @@ export class Unit {
       anchorMoving,
       orderType: activeOrderType,
       hasDirectPrecisionObservation,
-      haltAnchorMovement: haltMovement
+      haltAnchorMovement: haltMovement,
+      syncPresentation: options.syncPresentation
     });
     if (infantryAwaitingArrival
         && this.areLivingInfantryAtFormation(activeOrderType)) {

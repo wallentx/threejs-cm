@@ -29,11 +29,15 @@ import {
 import {
   classifyIndividualMorale
 } from '../simulation/infantry/InfantrySuppression.js';
+import {
+  canInfantryWeaponEngageTarget
+} from '../simulation/combat/InfantryTargetEligibility.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const MAX_INFANTRY_ROUNDS_PER_STEP = 64;
 const INFANTRY_CADENCE_EPSILON = 1e-9;
 const INFANTRY_STATIONARY_SPEED_METERS_PER_SECOND = 0.12;
+const INFANTRY_TARGET_SCAN_INTERVAL_SECONDS = 0.2;
 
 function exceedsHorizontalRange(origin, target, rangeMeters) {
   const deltaX = origin.x - target.x;
@@ -115,6 +119,8 @@ export class SoldierAgent {
     this.moraleTier = record.moraleTier ?? 'READY';
     this.targetUnitId = record.targetUnitId ?? null;
     this.targetSoldierId = record.targetSoldierId ?? null;
+    this.targetScanCooldown = record.targetScanCooldown
+      ?? variation * INFANTRY_TARGET_SCAN_INTERVAL_SECONDS;
     this.fireControl = createFireControlState(record.fireControl);
     this.buildingLocation = record.buildingLocation
       ? JSON.parse(JSON.stringify(record.buildingLocation))
@@ -218,6 +224,10 @@ export class SoldierAgent {
     this.recoilTime = record.recoilTime ?? 0;
     this.targetUnitId = record.targetUnitId ?? null;
     this.targetSoldierId = record.targetSoldierId ?? null;
+    this.targetScanCooldown = Math.max(
+      0,
+      Number(record.targetScanCooldown) || 0
+    );
     this.fireControl = createFireControlState(record.fireControl);
     this.buildingLocation = record.buildingLocation ? JSON.parse(JSON.stringify(record.buildingLocation)) : null;
     this.vehicleLocation = record.vehicleLocation
@@ -253,6 +263,7 @@ export class SoldierAgent {
       recoilTime: this.recoilTime,
       targetUnitId: this.targetUnitId,
       targetSoldierId: this.targetSoldierId,
+      targetScanCooldown: this.targetScanCooldown,
       fireControl: captureFireControlState(this.fireControl),
       threatMemory: this.threatMemory.captureState(),
       buildingLocation: this.buildingLocation
@@ -585,6 +596,10 @@ export class SoldierAgent {
 
   updateCombat(delta, context) {
     const elapsed = Math.max(delta, 0);
+    this.targetScanCooldown = Math.max(
+      0,
+      this.targetScanCooldown - elapsed
+    );
     const weapon = this.weaponLookup(this.weaponId);
     if (!weapon || !this.isAlive
         || ['INCAPACITATED', 'DEAD', 'SURRENDERED'].includes(this.status)
@@ -668,11 +683,20 @@ export class SoldierAgent {
       ? this.unit.targetUnit
       : null;
     const retainedUnit = !orderedUnit && this.targetUnitId != null
-      ? context.opposingUnits.find(
+      ? context.opposingUnitsById?.get(String(this.targetUnitId))
+        ?? context.opposingUnits.find(
           unit => String(unit.id) === String(this.targetUnitId)
-        ) ?? null
+        )
+        ?? null
       : null;
-    const candidateUnits = orderedUnit
+    const canScanForUnitTarget = Boolean(
+      orderedUnit
+      || retainedUnit
+      || this.targetScanCooldown <= 0
+    );
+    const candidateUnits = !canScanForUnitTarget
+      ? []
+      : orderedUnit
       ? [orderedUnit]
       : retainedUnit
         ? [
@@ -683,9 +707,13 @@ export class SoldierAgent {
     for (const enemyUnit of candidateUnits) {
       const precisionGate = context.spotting?.canPrecisionTarget;
       if (!enemyUnit.isCombatEffective()
-          || (typeof precisionGate === 'function'
+          || !canInfantryWeaponEngageTarget(weapon, enemyUnit)
+          || (context.precisionCandidatesPrevalidated !== true
+            && typeof precisionGate === 'function'
             && !precisionGate.call(context.spotting, this.unit, enemyUnit))) continue;
-      const livingEnemyAgents = enemyUnit.soldierAI?.getLivingAgents() ?? [];
+      const livingEnemyAgents = context.livingTargetAgents?.get(enemyUnit)
+        ?? enemyUnit.soldierAI?.getLivingAgents()
+        ?? [];
       const retainedAgent = enemyUnit === retainedUnit && this.targetSoldierId != null
         ? livingEnemyAgents.find(
             agent => String(agent.id) === String(this.targetSoldierId)
@@ -707,7 +735,8 @@ export class SoldierAgent {
         const los = checkLOS.call(
           context.spotting,
           this.position,
-          targetPosition
+          targetPosition,
+          { cacheStableRay: true }
         );
         if (los.clear && los.dist <= weapon.maxRange
             && context.buildingInteraction?.canFireAt?.(
@@ -730,7 +759,12 @@ export class SoldierAgent {
         if (exceedsHorizontalRange(this.position, enemy.position, weapon.maxRange)) {
           continue;
         }
-        const los = checkLOS.call(context.spotting, this.position, enemy.position);
+        const los = checkLOS.call(
+          context.spotting,
+          this.position,
+          enemy.position,
+          { cacheStableRay: true }
+        );
         if (los.clear && los.dist <= weapon.maxRange
             && context.buildingInteraction?.canFireAt?.(this, enemy.position) !== false
             && (!best || los.dist < best.distance)) {
@@ -748,7 +782,12 @@ export class SoldierAgent {
         this.syncRecord();
         return false;
       }
-      const los = checkLOS.call(context.spotting, this.position, this.unit.targetPos);
+      const los = checkLOS.call(
+        context.spotting,
+        this.position,
+        this.unit.targetPos,
+        { cacheStableRay: true }
+      );
       if (los.clear && los.dist <= weapon.maxRange
           && context.buildingInteraction?.canFireAt?.(this, this.unit.targetPos) !== false) {
         best = { unit: null, agent: null, position: this.unit.targetPos, distance: los.dist };
@@ -757,6 +796,9 @@ export class SoldierAgent {
     if (!best) {
       this.targetUnitId = null;
       this.targetSoldierId = null;
+      if (canScanForUnitTarget) {
+        this.targetScanCooldown = INFANTRY_TARGET_SCAN_INTERVAL_SECONDS;
+      }
       resetFireControlState(this.fireControl);
       this.syncRecord();
       return false;
@@ -764,6 +806,7 @@ export class SoldierAgent {
 
     this.targetUnitId = best.unit?.id ?? null;
     this.targetSoldierId = best.agent?.id ?? null;
+    if (best.unit) this.targetScanCooldown = 0;
     this.facing = Math.atan2(best.position.x - this.position.x, best.position.z - this.position.z);
     this.state = 'AIMING';
     const targetKey = createFireControlTargetKey({
@@ -804,6 +847,9 @@ export class SoldierAgent {
       * (this.unit.targetMode === 'TARGET_LIGHT' ? 1.25 : 1)
       / suppressionAccuracyFactor
       * aim.dispersionScale;
+    // Project only the actual shooter immediately before emission. The rest
+    // of the squad is projected once after the frame's fixed-step batch.
+    this.unit.soldierAI?.syncAgentMesh?.(this);
     const muzzlePosition = this.getMuzzleWorldPosition();
     const cyclicRPM = weapon.cyclicRPM ?? weapon.rateOfFireRpm ?? weapon.practicalRPM ?? 600;
     const practicalRPM = weapon.practicalRPM ?? cyclicRPM;

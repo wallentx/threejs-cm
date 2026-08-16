@@ -413,15 +413,19 @@ export class CommandSystem {
         }
         return result.accepted;
       }
-      this.activeUnit.targetUnit = targetUnit;
-      this.activeUnit.targetPos = pointVec3.clone();
-      this.activeUnit.targetAimIntent = targetUnit?.vehicleSpec
+      const targetAimIntent = targetUnit?.vehicleSpec
         ? createVehicleLocalAimPoint(
             targetUnit,
             context.targetSurfacePoint ?? pointVec3
           )
         : null;
-      this.activeUnit.targetMode = this.activeMode;
+      const accepted = this.activeUnit.setTargetOrder?.({
+        targetUnit,
+        targetPos: pointVec3,
+        targetAimIntent,
+        targetMode: this.activeMode
+      }) ?? false;
+      if (!accepted) return false;
       this.activeMode = null;
       this.renderOverlays();
       return true;

@@ -204,6 +204,7 @@ export class BuildingCollapseAnimator {
       object.scale.x = base.scale[0];
       object.scale.y = base.scale[1] * scaleY;
       object.scale.z = base.scale[2];
+      object.updateMatrix();
     }
   }
 

@@ -230,10 +230,7 @@ export function createUIRuntimePort({
     },
     clearTarget() {
       return selectedAction(getSelectedUnit, unit => {
-        unit.targetUnit = null;
-        unit.targetPos = null;
-        unit.targetMode = null;
-        unit.clearMortarTargetOrder?.();
+        unit.clearTargetOrder?.();
         commands.renderOverlays();
         return true;
       });

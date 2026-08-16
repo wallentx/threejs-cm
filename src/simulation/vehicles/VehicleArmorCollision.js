@@ -465,6 +465,75 @@ export function getVehicleArmorAimPoint(unit) {
   };
 }
 
+function worldAimPoint(unit, volume, localPoint) {
+  const transform = worldTransform(unit, volume);
+  const offset = transformDirection(transform.orientation, localPoint);
+  return [
+    transform.centerX + offset[0],
+    transform.centerY + offset[1],
+    transform.centerZ + offset[2]
+  ];
+}
+
+/**
+ * Supplies deterministic, renderer-neutral alternatives inside the same
+ * authored armor volumes used by swept projectile collision. These points are
+ * a first-order gunner adaptation policy, not claims about historical weak
+ * spots or a replacement for plate-level penetration resolution.
+ */
+export function getVehicleArmorAimPoints(unit) {
+  const centerMass = getVehicleArmorAimPoint(unit);
+  if (!centerMass) return [];
+  const volumes = (unit?.vehicleSpec?.armorCollision?.volumes ?? [])
+    .filter(volume => !isVehicleTurretSeparated(unit) || !volume.followsTurret);
+  const points = [{
+    id: 'center-mass',
+    point: [...centerMass.point],
+    armorVolumeId: centerMass.armorVolumeId,
+    modelVersion: 'authored-armor-adaptive-aim-v1',
+    dataQuality: centerMass.dataQuality
+  }];
+  const append = (id, volume, localPoint) => {
+    const point = worldAimPoint(unit, volume, localPoint);
+    if (points.some(candidate => Math.hypot(
+      candidate.point[0] - point[0],
+      candidate.point[1] - point[1],
+      candidate.point[2] - point[2]
+    ) < 0.08)) return;
+    points.push({
+      id,
+      point,
+      armorVolumeId: volume.id,
+      modelVersion: 'authored-armor-adaptive-aim-v1',
+      dataQuality: volume.geometryQuality
+        ?? unit.vehicleSpec.armorCollision.quality
+        ?? 'unspecified'
+    });
+  };
+
+  const orderedVolumes = [...volumes].sort((left, right) => {
+    const priority = { turret: 0, hull: 1, track: 2 };
+    return (priority[left.part] ?? 3) - (priority[right.part] ?? 3)
+      || String(left.id).localeCompare(String(right.id));
+  });
+  for (const volume of orderedVolumes) {
+    const bounds = volumeAimBounds(volume);
+    append(`${volume.id}:center`, volume, bounds.center);
+    if (volume.part !== 'hull') continue;
+    append(`${volume.id}:lower-left`, volume, [
+      bounds.center[0] + bounds.halfExtents[0] * 0.28,
+      bounds.center[1] - bounds.halfExtents[1] * 0.18,
+      bounds.center[2]
+    ]);
+    append(`${volume.id}:lower-right`, volume, [
+      bounds.center[0] - bounds.halfExtents[0] * 0.28,
+      bounds.center[1] - bounds.halfExtents[1] * 0.18,
+      bounds.center[2]
+    ]);
+  }
+  return points;
+}
+
 /**
  * Finds the outward plate reached after a projectile has entered one named
  * armor volume. Unlike the ordinary segment query, an OBB start-inside result

@@ -22,12 +22,32 @@ even when a matching broader parent exists elsewhere in this file.
   the selected main, hull, or auxiliary weapon's modeled muzzle and terminate
   it with a small aim marker at that armor point while normal fire-control
   dispersion, projectile flight, and armor resolution remain authoritative.
+  - [x] Make manual retarget and Clear Target atomic across unit aim intent,
+    main gun, auxiliary mounts, fire-control target keys, and engagement
+    learning. Fix the array-to-Vector3 conversion that made retained aim points
+    non-finite, and prevent a brief precision-contact dropout from silently
+    substituting an older automatic target. Add a reusable CDP raw-state trace
+    (`PROFILE_TARGET_TRACE=1`) that directly issues two target orders, clears
+    them, advances fixed steps, and prints every target owner and turret yaw.
+  - [x] Treat current cannon capability as the automatic armored-threat gate:
+    immediately reconsider a destroyed, burning, gun/breech/gunner-disabled, or
+    ammunition-exhausted target when another precision-visible operational
+    cannon threat exists, including after an explicit order; retain an
+    immobilized target while its cannon remains dangerous. Expose every
+    retained neutralized target in the raw stress-profiler output.
 - [x] Keep ordinary turreted vehicles from commandeering the driver to slew the
   hull while aiming; preserve whole-hull gun laying only for a selected fixed
   cannon such as the Char B1 bis 75 mm. Retain an ordered direct-fire aim point
   through a brief precision-contact dropout so a traversing turret does not
   silently refuse to fire, while the spatial projectile can still miss a moved
   target or strike intervening cover.
+  - [x] Correct fire-control projection terminology: ordinary main guns and
+    turret mounts report `TRAVERSING`; only a fixed cannon with modeled
+    whole-hull laying reports `SLEWING`; fixed non-laying mounts report
+    `OUT OF ARC`. A shot interruption now reports its real blocker—gun or
+    traverse damage, no gunner, crew transfer/busy state, or movement—instead
+    of claiming traverse while the turret is stationary; recoverable crew
+    transfer retains the target and resumes ordinary traversal when complete.
 - [x] Fix current direct-visibility loss after a spotted vehicle is hit by a
   mortar, damaged by direct fire, or continues firing/tracking in clear LOS;
   smoke or dust may obscure only when an authoritative obscurant actually
@@ -320,6 +340,42 @@ even when a matching broader parent exists elsewhere in this file.
     the selected plan and assignments. Cover selection, building assault,
     transport loading, mortar missions, reserve commitment, withdrawal, and a
     defending-AI planner remain.
+- [ ] Validate and live-tune deterministic sustained armored-vehicle engagement
+  learning: after repeated resolved cannon impacts with no useful effect, shift
+  among points derived from the target's authored armor volumes; in Auto mode,
+  try an available alternate main-gun round; then reconsider only automatic
+  targets using current precision-visible armor threat, aspect, penetration
+  margin, and range. Preserve explicit player surface aim and AP/HE orders.
+  Implementation and rollback wiring are present; deferred behavioral coverage
+  and live acceptance remain.
+  - [x] Native-WebGPU tank stress acceptance: in a legal 56-unit / 252-soldier
+    forced-contact battle with 12 main-gun tanks staged 28 m apart, all 12 tanks
+    acquired targets and fired 60 rounds, producing 36 resolved vehicle
+    impacts. Six tanks advanced to alternate authored armor aim points and the
+    ammo-trial threshold; 24 hits classified as useful by the initial policy
+    reset escalation. That run exposed that hidden partial damage was preventing
+    target reconsideration. The fresh 10-second sample averaged
+    6.76 FPS and 33.68 ms per fixed step with shadows disabled.
+  - [x] Tank-only native-WebGPU stress acceptance: stage 60 tanks across every
+    current tank model (five each of six French models and six each of five
+    German models) at 28 m with no infantry, armored cars, or trucks; round-robin
+    each faction's models across its line so every type appears once before any
+    type repeats. All 30
+    enemies were visible; 54 tanks held targets, 190 rounds
+    produced 91 resolved vehicle impacts, 19 tanks shifted authored aim points,
+    and 87 hits classified as useful by the initial policy reset escalation,
+    exposing the same over-broad reset. The fresh 10-second high-tier
+    sample with shadows disabled averaged 40.71 FPS, 24.57 ms per rendered frame,
+    and 8.46 ms per fixed step at 1,049 draws and 557,525 triangles.
+  - [x] Adaptive-retarget correction and live acceptance: only an observable
+    decisive effect now resets escalation; partial crew/component damage while
+    the target remains combat-effective continues aim, ammunition, and target
+    reconsideration. Automatic alternatives must beat the retained target by a
+    material penetration/aspect/threat/range margin, and retarget history is
+    rollback-owned. In a fresh 60-tank, 11-model, frontal-pairing WebGPU run,
+    five Panzer II crews abandoned poor frontal targets for adjacent AMC 35s;
+    169 rounds produced 90 vehicle impacts over 10 seconds. The run averaged
+    48.88 FPS and 8.11 ms per fixed step with shadows disabled.
 - [ ] Add morale routing: sufficiently broken enemy or friendly units flee
   without accepting player commands until their individual/unit state recovers.
 - [ ] Add conditional individual vehicle-crew bailout. Crew may remain at a
@@ -731,6 +787,96 @@ authorized.
       46.01 to 11.75 ms, and reduced current draws from 2,110 to 1,213 while
       retaining directional shadows. The 56-unit / 252-soldier stress profile,
       mobile, and WebGL2 remain incomplete.
+    - [x] Native-WebGPU 60 FPS limitation audit at 1036x1030 DPR 1: extend the
+      controlled profiler with paused simulation, quality selection, and CPU
+      ownership summaries. High-tier paused rendering measured 26.35 FPS with
+      shadows versus 62.05 FPS without them; ordinary realtime without shadows
+      measured 49.58 FPS with a 6.04 ms fixed step; forced clear contact without
+      shadows measured 39.36 FPS with a 12.18 ms fixed step. Current blockers
+      are dynamic shadow submission, the remaining 1,328-draw normal scene,
+      Three.js/WebGPU object/matrix/material-cache submission overhead, and
+      contact-time collision/navigation, unit AI, LOS, and targeting work.
+    - [x] Make dynamic directional shadows an opt-in debug cost.
+      - [x] Every quality tier starts with the shadow pass disabled; high and
+        ultra retain 1024/2048 capabilities behind a real SHADOWS debug toggle,
+        with active/capability diagnostics kept separate. The last accepted
+        back-to-back native-WebGPU capture measured shadows off at 66.33 FPS
+        and the ultra shadow pass at 22.54 FPS at 1036x1030 DPR 1.
+      - [x] Live-accept the UI control on native WebGPU: the button changed from
+        false/off/0 casters to true/on/7,558 casters at 1024, then restored
+        false/off/0 without leaving the game below `data-game-status="ready"`.
+    - [x] Stop static world transforms from consuming every render frame: keep
+      the identity scene root from forcing descendant updates, freeze every
+      TerrainBuilder-owned transform across 174 roots, and explicitly refresh
+      reactive building meshes only when damage, collapse, or a door changes
+      their pose. Before building batching, native WebGPU warm paused improved
+      from 66.33 to 76.29 FPS and ordinary realtime from 49.58 to 57.79 FPS;
+      door and collapse matrices still changed while frozen between events.
+    - [x] Batch cheap building wall/floor parts per building section with
+      `BatchedMesh` while retaining stable per-part geometry, transforms,
+      opening visibility, breach visibility, interior variants, damage,
+      collapse, and collision identity. Visible building meshes fell from
+      1,084 to 386; native-WebGPU warm paused reached 92.16 FPS, ordinary
+      realtime 64.48 FPS, and a fresh forced-contact battle with all eight
+      enemies visible reached 60.85 FPS.
+    - [x] Remove repeated contact-time collision/navigation and terrain-height
+      setup without changing authoritative formulas: cache stable-ID collider
+      order, mover blocking sets, and expanded route metadata with explicit
+      collider-change invalidation; compile immutable elevation, floodplain,
+      river-bank, and numeric terrain-pad lookup data once. On matched fresh
+      eight-enemy forced-contact native-WebGPU captures, FPS increased from
+      54.68 to 66.21, average fixed-step cost fell from 10.64 to 8.32 ms, and
+      p95 frame time fell from 27.9 to 20.9 ms.
+    - [x] Add an exact legal 56-unit / 252-soldier profiler mode and remove
+      fixed-step presentation duplication: project infantry meshes once after
+      the frame's simulation batch, retain a current modeled muzzle only for
+      squads able to fire, and filter precision-eligible enemy units once per
+      squad while preserving stable order and individual target/shot authority.
+      In the quiet opening stress scene, FPS increased from 5.30 to 11.05 and
+      average fixed-step cost fell from 42.30 to 9.42 ms; targeting fell from
+      16.83 to 0.35 ms and unit updates from 17.74 to 1.49 ms.
+    - [x] Cache the immutable obstacle-corner visibility graph by collider
+      revision, mover expansion, record set, and waypoint clearance while
+      retaining exact live start/goal edges and deterministic Dijkstra ties.
+      The initial 56-unit / 252-soldier forced-contact reaction improved from
+      2.07 to 2.94 FPS and 161.39 to 84.62 ms per fixed step. A warm battle
+      reached 5.98 FPS / 37.21 ms; sustained individual combat LOS, projectile
+      collision, casualty response, and terrain sampling remain the next
+      contact-scale bottlenecks.
+    - [x] Add conservative per-step unit projectile bounds and revision-cached
+      building-run bounds before exact swept collision while retaining unit,
+      collider, and nearest-impact order; reject eager terrain-height fallback
+      work for LOS records that already own vertical bounds; cache only stable
+      precision-fire LOS rays until an endpoint or occluder revision changes;
+      and reject processed, ineligible, or out-of-range casualty reactions
+      before casualty LOS. In the 56-unit / 252-soldier forced-contact capture,
+      83,566 of 83,887 unit bounds and 51,554 of 51,561 building runs were
+      rejected before exact projectile work, leaving 321 exact unit and 462
+      exact building candidates; the systems phase fell from 12.99 to 1.75 ms.
+      A contact-bearing warm capture reached 7.09 FPS / 20.79 ms versus the
+      previous 5.98 FPS / 37.21 ms. The fresh mass-contact spike still spends
+      34.94 ms in spotting, 19.10 ms in unit updates, and 18.61 ms in targeting,
+      so playable 60 FPS at the maximum legal roster remains incomplete.
+    - [x] Bound mass-contact observation and individual targeting work: resolve
+      observer capabilities and target-person points once per spotting tick;
+      keep one best primary observer at 10 Hz plus one stable rotating secondary
+      observer so the remaining squad members receive 0.5-second bounded scan
+      opportunities; rank target-person/capability candidates by the existing
+      acquisition formula before exact LOS while retaining stable ties and
+      occluded fallback; scan for a new individual fire-control target at 5 Hz
+      while validating retained targets immediately; share living-target
+      snapshots; and project only an actual shooter before reading its modeled
+      muzzle. Add renderer-neutral infantry fire discipline that rejects
+      buttoned armored vehicles when the individual weapon cannot penetrate the
+      weakest listed aspect, while retaining exposed commanders, open or
+      unarmored vehicles, and future weapons with sufficient cataloged
+      penetration. On fresh 56-unit / 252-soldier forced-contact captures,
+      average fixed-step cost fell from 78.44 to 34.52 ms, spotting from 34.94
+      to 10.92 ms, targeting from 18.61 to 4.02 ms, and FPS rose from 3.16 to
+      5.89. A warm contact-bearing capture reached 6.48 ms per fixed step with
+      1.51 ms spotting and 1.01 ms targeting, but only 14.71 FPS / 67.99 ms per
+      rendered frame; maximum-roster presentation and render submission are now
+      the measured sustained-play ceiling.
   - [ ] Determine whether the five textures reported as potentially orphaned after repeated battle reloads are retained leaks or DevTools false positives; prove bounded renderer memory across repeated setup -> battle -> setup cycles.
   - [x] Validate battle setup against expanded individual rosters before launch: cap accepted formations so living infantry never exceeds the deterministic 256-candidate separation limit; accept exact 256, reject candidate 257 through one required composition-injected validation port before scenario construction, and report the crossing side/faction/formation contribution.
   - [ ] Reduce vehicle submission overhead without breaking articulation or damage ownership; the 15 factories currently contain 1,485 mesh objects and can expose 1,313 visible high-tier meshes before the shadow pass.
@@ -750,6 +896,13 @@ authorized.
       exposes its interior; retain renderer-neutral floors, portals, collision,
       LOS, damage, occupancy, and rollback state.
   - [ ] Batch static terrain presentation where identity permits.
+    - [x] Freeze static scene and TerrainBuilder transform matrices without
+      merging render, collision, destructible, aperture, or building identities;
+      compatible draw-call batching remains.
+    - [x] Batch medium/core/proxy building section parts per section while
+      retaining independent per-part visibility and geometry; remaining static
+      roads, walls, facade details, opening cards, and other compatible meshes
+      remain candidates.
     - [x] Add a terrain-conforming, alpha-tested, non-blended fence-card profile with aligned front, back, top, and end faces; use it for the five scenario-authored farmhouse enclosure runs; retain authoritative oriented movement collision without making the cutout fence an opaque LOS blocker; preserve the village masonry profile; and reduce those boundaries from 51 submitted masonry meshes to 25 masonry plus 5 fence-card meshes.
     - [x] Give each fence panel independent health, collision, collapsed presentation, deterministic capture/restore, vehicle mass/speed/momentum crushing, and radius-falloff explosive damage while retaining one submitted mesh per authored run.
     - [x] Let individual infantry vault fence colliders only during QUICK or FAST orders, with rollback-owned vault progress and state-driven presentation.
