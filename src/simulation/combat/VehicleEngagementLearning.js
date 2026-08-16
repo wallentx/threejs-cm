@@ -213,7 +213,7 @@ export function scoreVehicleThreatTarget({ attacker, target, weapon } = {}) {
   );
 }
 
-function isArmoredCannonThreat(target) {
+export function isArmoredCannonThreat(target) {
   const armed = Boolean(target?.vehicleSpec?.mainGun)
     || (target?.vehicleSpec?.weaponMounts ?? [])
       .some(mount => mount.kind === 'cannon');

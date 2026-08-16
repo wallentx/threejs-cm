@@ -14,6 +14,8 @@ const PAUSE_SIMULATION = process.env.PROFILE_PAUSED === '1';
 const STRESS_FORCE = process.env.PROFILE_STRESS === '1';
 const TANK_STRESS_FORCE = process.env.PROFILE_TANK_STRESS === '1';
 const TRACE_VEHICLE_TARGETING = process.env.PROFILE_TARGET_TRACE === '1';
+const TRACE_VEHICLE_FIRE_CONTROL =
+  process.env.PROFILE_FIRE_CONTROL_TRACE === '1';
 const QUALITY_TIER = ['low', 'high', 'ultra'].includes(process.env.PROFILE_QUALITY)
   ? process.env.PROFILE_QUALITY
   : 'high';
@@ -547,6 +549,21 @@ async function captureVehicleFiringState(session) {
               cacheStableRay: true
             })
           : null;
+        const opposingUnits = app.factionRoster.opposingUnitsFor(unit.faction) ?? [];
+        const precisionCandidates = opposingUnits.filter(candidate => {
+          if (!candidate?.isCombatEffective?.()) return false;
+          if (!app.spotting.canPrecisionTarget(unit, candidate)) return false;
+          const candidateLos = app.spotting.checkLOS(
+            unit.position,
+            candidate.position,
+            { cacheStableRay: true }
+          );
+          return candidateLos.clear && candidateLos.dist <= 220;
+        });
+        const operationalCandidates = precisionCandidates
+          .filter(hasOperationalCannon)
+          .map(candidate => candidate.id)
+          .sort((left, right) => String(left).localeCompare(String(right)));
         return {
           unitId: unit.id,
           vehicleId: unit.vehicleId,
@@ -579,6 +596,8 @@ async function captureVehicleFiringState(session) {
           targetId: weapon?.targetUnitId ?? null,
           targetCombatEffective: target?.isCombatEffective?.() ?? null,
           targetOperationalCannon: target ? hasOperationalCannon(target) : null,
+          precisionCandidateCount: precisionCandidates.length,
+          operationalCandidateIds: operationalCandidates,
           precisionVisible: target
             ? app.spotting.canPrecisionTarget(unit, target)
             : false,
@@ -594,6 +613,78 @@ async function captureVehicleFiringState(session) {
   })()`);
 }
 
+async function traceVehicleFireControl(session, stepCount = 12) {
+  return session.evaluate(`(() => {
+    const app = window.__CMBN_GAME__;
+    const count = ${stepCount};
+    const wrap = angle => Math.atan2(Math.sin(angle), Math.cos(angle));
+    const traces = new Map();
+    const restorers = [];
+    const candidates = app.units.filter(unit =>
+      unit.vehicleSpec?.mainGun
+      && unit.isCombatEffective?.()
+      && unit.vehicleComponents?.main_gun?.operational
+      && unit.vehicleComponents?.breech?.operational
+      && unit.hasOperationalGunner?.()
+    );
+    for (const unit of candidates) {
+      const original = unit.updateVehicleCombat;
+      traces.set(unit.id, []);
+      unit.updateVehicleCombat = function profileVehicleCombat(delta, context) {
+        const weapon = this.vehicleWeapon;
+        const beforeYaw = weapon?.turretYaw ?? null;
+        const targetPosition = context.target?.position ?? this.targetPos;
+        const desiredYaw = targetPosition
+          ? wrap(Math.atan2(
+              targetPosition.x - this.position.x,
+              targetPosition.z - this.position.z
+            ) - this.rotation)
+          : null;
+        const availableSeconds = this.vehicleMainGunnerCombatSeconds;
+        const fired = original.call(this, delta, context);
+        const afterYaw = weapon?.turretYaw ?? null;
+        traces.get(this.id).push({
+          delta,
+          targetId: context.target?.id ?? this.targetUnit?.id ?? null,
+          availableSeconds,
+          beforeYaw,
+          afterYaw,
+          yawDelta: beforeYaw == null || afterYaw == null
+            ? null
+            : wrap(afterYaw - beforeYaw),
+          desiredYaw,
+          remainingError: desiredYaw == null || afterYaw == null
+            ? null
+            : wrap(desiredYaw - afterYaw),
+          traverseRate: this.vehicleSpec?.turretTraverseRadPerSecond ?? null,
+          traverseOperational:
+            this.vehicleComponents?.turret_traverse?.operational ?? null,
+          gunnerOperational: this.hasOperationalGunner?.() ?? null,
+          fireControlPhase: weapon?.fireControl?.phase ?? null,
+          fireState: weapon?.fireState ?? null,
+          fired
+        });
+        return fired;
+      };
+      restorers.push(() => { unit.updateVehicleCombat = original; });
+    }
+    const previousPlaying = app.wego.isPlaying;
+    app.wego.isPlaying = false;
+    try {
+      for (let index = 0; index < count; index++) app.simulateStep(1 / 30);
+    } finally {
+      for (const restore of restorers) restore();
+      app.wego.isPlaying = previousPlaying;
+    }
+    return [...traces.entries()]
+      .map(([unitId, steps]) => ({ unitId, steps }))
+      .filter(row => row.steps.some(step =>
+        step.fireControlPhase === 'TRAVERSING'
+        || Math.abs(step.remainingError ?? 0) > 0.06
+      ));
+  })()`);
+}
+
 function wrappedAngleDelta(after, before) {
   if (!Number.isFinite(after) || !Number.isFinite(before)) return null;
   return Math.atan2(Math.sin(after - before), Math.cos(after - before));
@@ -604,7 +695,14 @@ function buildVehicleFiringAudit(beforeRows, afterRows) {
   const classify = (before, after, shotDelta, turretYawDelta) => {
     if (!after.mechanicallyCapable) return 'MECHANICALLY_DISABLED';
     if (!after.gunnerAvailable) return 'NO_GUNNER';
-    if (!after.targetId) return 'NO_TARGET';
+    if (!after.targetId) {
+      if (after.operationalCandidateIds.length > 0) {
+        return 'NO_TARGET_WITH_OPERATIONAL_CANDIDATE';
+      }
+      return after.precisionCandidateCount > 0
+        ? 'NO_OPERATIONAL_TARGET'
+        : 'NO_PRECISION_TARGET';
+    }
     if (after.targetCombatEffective === false) return 'TARGET_DESTROYED';
     if (after.targetOperationalCannon === false) return 'TARGET_NEUTRALIZED';
     if (!after.precisionVisible && !after.orderedTargetId) return 'NO_PRECISION_OBSERVATION';
@@ -711,6 +809,9 @@ async function main() {
       vehicleFiringBefore,
       vehicleFiringAfter
     );
+    const vehicleFireControlTrace = TRACE_VEHICLE_FIRE_CONTROL
+      ? await traceVehicleFireControl(session)
+      : null;
 
     const runtime = await session.evaluate(`(() => {
       const app = window.__CMBN_GAME__;
@@ -861,6 +962,7 @@ async function main() {
       contactStaging,
       targetTrace,
       vehicleFiringAudit,
+      vehicleFireControlTrace,
       runtime,
       cpuCategories: summarizeCpuCategories(profile),
       topCpuFunctions: summarizeCpuProfile(profile),

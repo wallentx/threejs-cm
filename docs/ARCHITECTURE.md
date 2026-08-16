@@ -402,6 +402,13 @@ burning, loss of the gun/breech/gunner, or ammunition exhaustion immediately
 permits another precision-visible operational cannon threat to replace the
 target. Mobility loss alone does not neutralize a tank whose cannon can still
 fight. This replacement also ends an explicit order against a neutralized tank.
+Idle vehicle threat-facing may orient an uncommitted turret toward a current
+direct contact. Once explicit or automatic fire control owns a weapon target,
+that fire-control path is the sole writer of authoritative turret yaw;
+threat-facing must not counter-rotate or double-advance it. A neutralized
+armored cannon target is neither an adaptive score baseline nor a generic
+visible-target fallback. If no operational armored threat or valid non-armored
+target remains, acquisition returns null and clears the stale weapon channel.
 Relayed contacts remain useful presentation and tactical cues but do not grant
 precision fire.
 

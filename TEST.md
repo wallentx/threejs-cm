@@ -1,5 +1,11 @@
 # Deferred Test Work
 
+- [ ] Cover destroyed-unit badge projection for both factions: a destroyed
+  vehicle, destroyed structure, or infantry unit with no living agents must
+  remove its existing floating badge on the next bounded UI update while its
+  wreck/casualty presentation remains in the world. Disabled-but-living
+  vehicles and transported infantry must retain their appropriate badge state.
+
 - [ ] Cover atomic direct vehicle target orders through the public command and
   clear ports: retarget must immediately clear old main/auxiliary target IDs,
   fire-control keys, and engagement evidence; the resolved model-local aim
@@ -12,6 +18,9 @@
   explicit-order release and deterministic stable candidate ordering. Preserve
   an immobilized target while its cannon remains operational, preserve a Char
   B1 bis as a threat while either its turret 47 mm or hull 75 mm can fight, and
+  reject a neutralized armored target as both the adaptive score baseline and
+  the generic visible-target fallback. Return no target without throwing when
+  no operational armored threat or valid non-armored fallback remains, and
   prove capture/restore plus frame-partition equivalence.
 
 - [ ] Cover vehicle alignment status projection: ordinary turret main guns and
@@ -21,7 +30,10 @@
   Interrupt turret traverse with gun/traverse damage, gunner loss, crew
   transfer, crew unavailability, and movement; require the exact blocker phase,
   no unmodeled turret motion, and deterministic traversal resumption when a
-  recoverable crew transfer completes.
+  recoverable crew transfer completes. Prove idle threat-facing may lay an
+  unowned turret, but cannot write turret yaw once explicit or automatic fire
+  control owns a target; authoritative and rendered yaw must accumulate at the
+  authored traverse rate rather than being counter-rotated each fixed step.
 
 - [ ] Cover sustained vehicle-engagement learning with stable target IDs:
   harmless stops, ricochets, and penetrations must advance authored armor aim

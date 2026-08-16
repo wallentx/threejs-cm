@@ -44,6 +44,7 @@ import {
   EnemyObjectivePlanner
 } from '../simulation/ai/EnemyObjectivePlanner.js';
 import {
+  isArmoredCannonThreat,
   isOperationalArmoredCannonThreat,
   selectAdaptiveVehicleTarget
 } from '../simulation/combat/VehicleEngagementLearning.js';
@@ -1355,10 +1356,14 @@ export class GameApp {
     const visibleTargets = opposingUnits.filter(isTargetable);
     if (visibleTargets.length === 0) return null;
     if (isTargetable(trackedTarget)) {
+      const trackedTargetNeutralized = Boolean(
+        attacker.vehicleSpec?.mainGun
+        && !isOperationalArmoredCannonThreat(trackedTarget)
+      );
       if (
         attacker.vehicleSpec?.mainGun
         && (
-          !isOperationalArmoredCannonThreat(trackedTarget)
+          trackedTargetNeutralized
           || attacker.shouldReconsiderVehicleTarget?.(trackedTarget.id)
         )
       ) {
@@ -1369,10 +1374,13 @@ export class GameApp {
         const selectedTarget = selectAdaptiveVehicleTarget({
           attacker,
           candidates: visibleTargets,
-          currentTarget: trackedTarget,
+          // A neutralized target is no longer a valid score baseline. Keeping
+          // it here could reject every live alternative merely because the
+          // disabled tank had been the highest-priority threat before damage.
+          currentTarget: trackedTargetNeutralized ? null : trackedTarget,
           weapon: attacker.weaponLookup(weaponId)
         });
-        if (selectedTarget?.id !== trackedTarget.id) {
+        if (selectedTarget && selectedTarget.id !== trackedTarget.id) {
           attacker.recordAdaptiveVehicleRetarget?.(
             trackedTarget.id,
             selectedTarget.id
@@ -1394,6 +1402,14 @@ export class GameApp {
         weapon: attacker.weaponLookup(weaponId)
       });
       if (armoredTarget) return armoredTarget;
+      const nonNeutralizedTargets = visibleTargets.filter(target =>
+        !isArmoredCannonThreat(target)
+        || isOperationalArmoredCannonThreat(target)
+      );
+      if (nonNeutralizedTargets.length === 0) return null;
+      return nonNeutralizedTargets[
+        Math.floor(this.random() * nonNeutralizedTargets.length)
+      ];
     }
     return visibleTargets[Math.floor(this.random() * visibleTargets.length)];
   }

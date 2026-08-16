@@ -682,6 +682,15 @@ export class Unit {
     return true;
   }
 
+  isDestroyed() {
+    if (this.type === 'infantry_squad') {
+      return (this.soldierAI?.getLivingAgents?.().length ?? 0) === 0;
+    }
+    if (this.structureSpec) return Boolean(this.structureState?.destroyed);
+    if (this.vehicleSpec) return Boolean(this.vehicleDamageState?.destroyed);
+    return false;
+  }
+
   getReadyShooters() {
     return this.soldierAI?.getReadyShooters() ?? [];
   }

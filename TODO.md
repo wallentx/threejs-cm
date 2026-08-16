@@ -376,6 +376,17 @@ even when a matching broader parent exists elsewhere in this file.
     five Panzer II crews abandoned poor frontal targets for adjacent AMC 35s;
     169 rounds produced 90 vehicle impacts over 10 seconds. The run averaged
     48.88 FPS and 8.11 ms per fixed step with shadows disabled.
+  - [x] Fire-control ownership and neutral-target follow-up: prevent idle
+    threat-facing AI from counter-rotating a turret that active fire control is
+    traversing; remove a neutralized tank from the replacement score baseline;
+    do not reacquire it through the generic visible-target fallback; and keep a
+    no-alternative result null instead of dereferencing it and stopping the
+    animation loop. Add raw per-tank blocker, candidate, authoritative/rendered
+    yaw, and fixed-step traverse output to the stress profiler. A 30-second
+    60-tank WebGPU run remained ready after 408 rounds, retained zero
+    neutralized targets, and recorded zero stalled traversal steps; a live
+    two-second damaged-state sample attributed every non-shot to reload, active
+    aim, or lack of a precision contact.
 - [ ] Add morale routing: sufficiently broken enemy or friendly units flee
   without accepting player commands until their individual/unit state recovers.
 - [ ] Add conditional individual vehicle-crew bailout. Crew may remain at a

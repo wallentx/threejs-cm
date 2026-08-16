@@ -72,15 +72,29 @@ export class VehicleAI {
 
     const mayApplyFacing = !damageDecision?.isBurning
       && !damageDecision?.isDestroyed;
+    const fireControlOwnsTurret = Boolean(
+      this.unit.targetUnit
+      || this.unit.targetPos
+      || this.unit.vehicleWeapon?.targetUnitId
+      || this.unit.vehicleWeapon?.targetPos
+    );
     if (mayApplyFacing && Number.isFinite(facingDecision?.nextHullYaw)) {
       this.unit.rotation = facingDecision.nextHullYaw;
     }
-    if (mayApplyFacing && Number.isFinite(facingDecision?.nextTurretYaw)) {
+    if (
+      mayApplyFacing
+      && !fireControlOwnsTurret
+      && Number.isFinite(facingDecision?.nextTurretYaw)
+    ) {
       if (this.unit.vehicleWeapon) {
         this.unit.vehicleWeapon.turretYaw = facingDecision.nextTurretYaw;
       }
       this.unit.turretRotation = facingDecision.nextTurretYaw;
     }
+
+    decision.turretFacingOwner = fireControlOwnsTurret
+      ? 'fire-control'
+      : 'threat-facing';
 
     this.threatFacingActive = decision.threatFacingActive ?? false;
     this.targetThreatPosition = decision.threatPosition ? [...decision.threatPosition] : null;

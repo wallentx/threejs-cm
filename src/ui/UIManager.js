@@ -1408,6 +1408,7 @@ export class UIManager {
     const activeIds = new Set();
 
     units.forEach(u => {
+      if (u.isDestroyed?.()) return;
       if (u.mesh && !u.mesh.visible) return;
 
       projectUnitBadgeAnchor(
