@@ -452,11 +452,15 @@ intact-penetrator path. Direct vehicle HE uses the catalog's coarse
 burst on enclosed armor may damage only the struck exterior plate or named
 track/mantlet component. An open, unarmored, or armor-penetrated compartment
 queries nearby authored internal volumes and applies bounded distance falloff.
-Crew and component selection is stable; only existing fire/ammunition
-secondary-effect checks consume the injected deterministic RNG. The result,
-including every intent and its approximation provenance, is deep-copied into
-telemetry and capture/restore. VFX and the shot inspector consume those records
-without changing flight or damage. Projectiles retain a bounded, sampled
+The first overpressure pass infers `fighting`, `turret`, and `powerpack`
+compartments from stable internal-volume semantics, applies explicit
+cross-compartment transmission, and attenuates each candidate through at most
+two intervening component OBBs. Crew and component selection is stable; only
+existing fire/ammunition secondary-effect checks consume the injected
+deterministic RNG. The result, including every pressure intent and its
+approximation provenance, is deep-copied into telemetry and capture/restore.
+VFX and the shot inspector consume those records without changing flight or
+damage. Projectiles retain a bounded, sampled
 world-space trajectory in capture/restore state. Each impact snapshots the path
 up to that event; `ShotTrajectoryOverlay` projects a selected snapshot through
 reusable line buffers and clears on rewind.
@@ -478,21 +482,25 @@ their far geometric boundary adds no duplicate armor demand. A penetrator that
 falls below its continuation threshold deposits the remaining terminal energy
 at its stopping point and exposes zero residual energy.
 `Unit` and `VehicleSystems` damage only reached crewmen and installed
-components, aggregating duplicate component volumes before mutation. Vehicles
-without an internal layout retain the labeled zone-weighted fallback.
+components, aggregating duplicate component volumes before mutation. Successful
+kinetic penetrations also emit exactly 24 deterministic weighted representative
+spall rays in a bounded cone. Those rays share a fixed fraction of plate energy,
+stop at their first internal OBB, and aggregate to at most one damage mutation
+per stable crewman or component; no persistent fragment entities are created.
+Vehicles without an internal layout retain the labeled zone-weighted fallback.
 For direct HE, `VehicleInternalCollision` also measures point-to-oriented-box
-surface distance and returns stable radial candidates. This first blast model
-is deliberately unoccluded: compartment partitions, local shielding, fragment
-cones, pressure, explosive filler, and fuze behavior remain explicit future
-work rather than hidden precision.
+surface distance, returns stable radial candidates, inferred compartments, and
+bounded component shielding. Exact bulkheads, hatch state, internal ricochets,
+projectile breakup, HE fragments, explosive filler, and fuze behavior remain
+explicit future work rather than hidden precision.
 Per-vehicle records live under
 `content/france1940/vehicleData/internalLayouts/` so one vehicle can be refined without
 editing generic collision or damage code. All 14 current catalog vehicles own
 separate layouts: SOMUA, Renault R35, Hotchkiss H39, AMC 35, Panhard 178,
 Laffly S20TL, Char B1 bis, Panzer II, Panzer III, Panzer 35(t), Panzer 38(t),
 Sd.Kfz. 231, Opel Blitz, and Panzer IV. Compartment bounds remain explicit
-gameplay approximations; this slice does not claim projectile breakup or
-behind-armor spall. A layout may reference only
+gameplay approximations; this slice does not claim projectile breakup, internal
+ricochet, or historically exact fragment and pressure behavior. A layout may reference only
 components installed by `VehicleSystems`; visible but not yet simulated
 armament, such as the Char B1 bis hull 75 mm, must not gain a nonfunctional
 damage component through geometry data alone.

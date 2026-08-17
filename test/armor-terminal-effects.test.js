@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  createBehindArmorSpallEvent,
   resolveArmorPerforationEnergy,
+  resolveBehindArmorSpallHits,
   resolveInternalPenetrationEnergy
 } from '../src/simulation/ballistics/ArmorTerminalEffects.js';
 
@@ -217,4 +219,78 @@ test('crossing the continuation threshold stops inside the hit and conserves ene
     result.internalInitialEnergyJ,
     result.internalEnergySpentJ + result.residualEnergyJ
   );
+});
+
+test('behind-armor spall uses a bounded deterministic cone and conserves its plate-energy share', () => {
+  const input = {
+    weapon: WEAPON,
+    direction: [0, 0, -1],
+    armorEnergySpentJ: 100_000,
+    nominalArmorMm: 40
+  };
+  const event = createBehindArmorSpallEvent(input);
+  const replay = createBehindArmorSpallEvent(input);
+
+  assert.deepEqual(replay, event);
+  assert.equal(event.modelVersion, 'behind-armor-spall-v1');
+  assert.equal(event.rayCount, 24);
+  assert.equal(event.rays.length, 24);
+  assert.ok(event.representedFragmentCount > event.rayCount);
+  approximately(
+    event.rays.reduce((sum, ray) => sum + ray.energyJ, 0),
+    event.totalSpallEnergyJ,
+    1e-7
+  );
+  assert.ok(event.totalSpallEnergyJ <= input.armorEnergySpentJ);
+  for (const ray of event.rays) {
+    approximately(Math.hypot(...ray.direction), 1, 1e-9);
+    assert.ok(ray.direction[2] < 0, 'every spall ray must remain behind the defeated plate');
+  }
+
+  const intersections = [
+    {
+      fragmentIndex: 2,
+      id: 'module-engine',
+      kind: 'component',
+      componentId: 'engine',
+      crewRoles: [],
+      entryPoint: [0, 1, -1],
+      entryDistanceMeters: 1.5,
+      layoutVersion: 'test-layout',
+      dataQuality: 'test approximation'
+    },
+    {
+      fragmentIndex: 1,
+      id: 'crew-driver',
+      kind: 'crew',
+      componentId: null,
+      crewRoles: ['DRIVER'],
+      entryPoint: [0, 1, 0],
+      entryDistanceMeters: 0.5,
+      layoutVersion: 'test-layout',
+      dataQuality: 'test approximation'
+    },
+    {
+      fragmentIndex: 0,
+      id: 'crew-driver',
+      kind: 'crew',
+      componentId: null,
+      crewRoles: ['DRIVER'],
+      entryPoint: [0, 1, 0.1],
+      entryDistanceMeters: 0.4,
+      layoutVersion: 'test-layout',
+      dataQuality: 'test approximation'
+    }
+  ];
+  const resolved = resolveBehindArmorSpallHits({ event, intersections });
+  const reordered = resolveBehindArmorSpallHits({
+    event,
+    intersections: [...intersections].reverse()
+  });
+
+  assert.deepEqual(reordered, resolved, 'input traversal order must not alter damage');
+  assert.deepEqual(resolved.hits.map(hit => hit.id), ['crew-driver', 'module-engine']);
+  assert.equal(resolved.hits[0].fragmentRayCount, 2);
+  assert.ok(resolved.hits.every(hit => hit.damageSeverity > 0));
+  assert.ok(resolved.energyDepositedJ <= event.totalSpallEnergyJ);
 });

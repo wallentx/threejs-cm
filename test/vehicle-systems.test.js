@@ -738,3 +738,81 @@ test('legacy five-string rollback state migrates into authoritative components',
   assert.equal(source.hasOperationalGunner(), false);
   assert.equal(source.getVehicleMovementFactor(), 0);
 });
+
+test('penetrator and spall damage aggregate by stable crew and component ownership', () => {
+  const somua = makeVehicle('SOMUA_S35', 'spall_damage');
+  const driver = somua.roster.find(crewman => crewman.role === 'DRIVER');
+  const result = somua.applyArmorHit({
+    penetrated: true,
+    zone: 'hull_front',
+    residualRatio: 1,
+    weapon: getWeapon('KWK36_AP'),
+    internalPathHits: [],
+    spallHits: [
+      {
+        id: 'crew-driver',
+        kind: 'crew',
+        componentId: null,
+        crewRoles: ['DRIVER'],
+        entryPoint: [0, 1, 1],
+        exitPoint: [0, 1, 1],
+        entryDistanceMeters: 0.4,
+        exitDistanceMeters: 0.4,
+        pathLengthMeters: 0,
+        damageSeverity: 0.25,
+        energyDepositedJ: 400,
+        terminalEffectKind: 'behind_armor_spall',
+        fragmentRayCount: 1,
+        representedFragmentCount: 4,
+        layoutVersion: 'model-local-obb-path-v1',
+        dataQuality: 'bounded gameplay approximation'
+      },
+      {
+        id: 'crew-driver-secondary',
+        kind: 'crew',
+        componentId: null,
+        crewRoles: ['DRIVER'],
+        entryPoint: [0.1, 1, 1],
+        exitPoint: [0.1, 1, 1],
+        entryDistanceMeters: 0.45,
+        exitDistanceMeters: 0.45,
+        pathLengthMeters: 0,
+        damageSeverity: 0.35,
+        energyDepositedJ: 600,
+        terminalEffectKind: 'behind_armor_spall',
+        fragmentRayCount: 2,
+        representedFragmentCount: 8,
+        layoutVersion: 'model-local-obb-path-v1',
+        dataQuality: 'bounded gameplay approximation'
+      },
+      {
+        id: 'module-engine',
+        kind: 'component',
+        componentId: 'engine',
+        crewRoles: [],
+        entryPoint: [0, 1, -1],
+        exitPoint: [0, 1, -1],
+        entryDistanceMeters: 2,
+        exitDistanceMeters: 2,
+        pathLengthMeters: 0,
+        damageSeverity: 0.5,
+        energyDepositedJ: 4_000,
+        terminalEffectKind: 'behind_armor_spall',
+        fragmentRayCount: 3,
+        representedFragmentCount: 12,
+        layoutVersion: 'model-local-obb-path-v1',
+        dataQuality: 'bounded gameplay approximation'
+      }
+    ],
+    random: sequenceRandom([0.9, 0.9])
+  });
+
+  assert.equal(driver.health, 40);
+  assert.equal(result.casualties.length, 1);
+  assert.equal(somua.vehicleComponents.engine.health, 50);
+  assert.equal(result.spallHits.length, 3);
+  assert.ok(somua.vehicleDamageState.events.some(event =>
+    event.type === 'crew_hit' && event.cause === 'behind_armor_spall'));
+  assert.ok(somua.vehicleDamageState.events.some(event =>
+    event.type === 'component_damage' && event.cause === 'behind_armor_spall'));
+});

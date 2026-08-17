@@ -245,9 +245,19 @@ function snapshotInternalPathHit(hit) {
     crewRoles: [...(hit.crewRoles ?? [])],
     entryPoint: [...hit.entryPoint],
     exitPoint: [...hit.exitPoint],
+    direction: hit.direction ? [...hit.direction] : null,
+    fragmentIndices: [...(hit.fragmentIndices ?? [])],
     energyAbsorption: hit.energyAbsorption
       ? { ...hit.energyAbsorption }
       : null
+  };
+}
+
+function snapshotSpallEffect(effect) {
+  if (!effect) return null;
+  return {
+    ...effect,
+    hitVolumeIds: [...(effect.hitVolumeIds ?? [])]
   };
 }
 
@@ -261,11 +271,13 @@ function snapshotExplosiveEffect(effect) {
     crewIntents: effect.crewIntents?.map(intent => ({
       ...intent,
       crewRoles: [...(intent.crewRoles ?? [])],
-      volumeIds: [...(intent.volumeIds ?? [])]
+      volumeIds: [...(intent.volumeIds ?? [])],
+      shieldingVolumeIds: [...(intent.shieldingVolumeIds ?? [])]
     })) ?? [],
     componentIntents: effect.componentIntents?.map(intent => ({
       ...intent,
-      volumeIds: [...(intent.volumeIds ?? [])]
+      volumeIds: [...(intent.volumeIds ?? [])],
+      shieldingVolumeIds: [...(intent.shieldingVolumeIds ?? [])]
     })) ?? []
   };
 }
@@ -289,6 +301,8 @@ function snapshotCrewResult(crewResult) {
     damage: crewResult.damage ? { ...crewResult.damage } : null,
     components: crewResult.components?.map(component => ({ ...component })) ?? [],
     internalPathHits: crewResult.internalPathHits?.map(snapshotInternalPathHit) ?? null,
+    spallHits: crewResult.spallHits?.map(snapshotInternalPathHit) ?? null,
+    spallEffect: snapshotSpallEffect(crewResult.spallEffect),
     explosiveEffect: snapshotExplosiveEffect(crewResult.explosiveEffect),
     burning: Boolean(crewResult.burning),
     destroyed: Boolean(crewResult.destroyed),
@@ -324,6 +338,8 @@ function snapshotImpact(record) {
     trajectoryPoints: record.trajectoryPoints?.map(point => [...point]) ?? [],
     localImpactPoint: record.localImpactPoint ? [...record.localImpactPoint] : null,
     internalPathHits: record.internalPathHits?.map(snapshotInternalPathHit) ?? null,
+    spallHits: record.spallHits?.map(snapshotInternalPathHit) ?? null,
+    spallEffect: snapshotSpallEffect(record.spallEffect),
     explosiveEffect: snapshotExplosiveEffect(record.explosiveEffect),
     crewResult: snapshotCrewResult(record.crewResult),
     buildingResult: record.buildingResult
@@ -790,6 +806,8 @@ export class CombatSystem {
       penetrationMm: result?.penetrationMm ?? null,
       penetrated: result?.penetrated ?? null,
       internalPathHits: result?.internalPathHits?.map(snapshotInternalPathHit) ?? null,
+      spallHits: result?.spallHits?.map(snapshotInternalPathHit) ?? null,
+      spallEffect: snapshotSpallEffect(result?.spallEffect),
       explosiveEffect: snapshotExplosiveEffect(result?.explosiveEffect),
       crewResult: snapshotCrewResult(result?.crewResult),
       buildingId: impact.buildingId ?? null,

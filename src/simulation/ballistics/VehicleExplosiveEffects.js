@@ -1,19 +1,26 @@
 const EPSILON = 1e-9;
 
 export const VEHICLE_EXPLOSIVE_EFFECT_MODEL = Object.freeze({
-  version: 'vehicle-explosive-direct-v1',
+  version: 'vehicle-explosive-direct-v2',
+  pressureModelVersion: 'bounded-compartment-overpressure-v1',
   internalRadiusFromExplosiveRadius: 0.35,
   openCoupling: 1,
   unarmoredEnclosedCoupling: 0.75,
   penetratedArmoredCoupling: 1,
+  unarmoredCrossCompartmentTransmission: 0.8,
+  armoredTurretRingTransmission: 0.45,
+  armoredPowerpackBulkheadTransmission: 0.3,
+  armoredRemoteCompartmentTransmission: 0.15,
   crewDamageFromWoundDamage: 1,
   componentDamageFromWoundDamage: 0.35,
   externalDamageFromWoundDamage: 0.12,
   maximumExternalDamage: 35,
   dataQuality: [
-    'bounded unoccluded radial gameplay approximation using catalog wound-damage and explosive-radius values',
+    'bounded compartment-overpressure gameplay approximation using catalog wound-damage and explosive-radius values',
     'crew and module positions come from immutable vehicle internal-layout volumes',
-    'explosive filler, fuze action, fragment cones, pressure, shielding, and compartment partitions are not yet resolved'
+    'fighting, turret, and powerpack compartments are inferred from stable volume semantics',
+    'at most two intervening component volumes attenuate pressure without creating fragment entities',
+    'exact bulkheads, hatch state, explosive filler, fuze action, and HE fragment cones remain future data'
   ].join('; ')
 });
 
@@ -101,13 +108,72 @@ function resolveInternalCoupling({
   return { allowed: false, mode: 'external_armor', coupling: 0 };
 }
 
-function aggregateCrewIntents(candidates, radiusMeters, baseDamage) {
+function compartmentTransmission({
+  className,
+  sourceCompartmentId,
+  targetCompartmentId
+}) {
+  if (sourceCompartmentId === targetCompartmentId) return 1;
+  if (className === 'open') return 1;
+  if (className === 'unarmored_enclosed') {
+    return VEHICLE_EXPLOSIVE_EFFECT_MODEL.unarmoredCrossCompartmentTransmission;
+  }
+  const pair = new Set([sourceCompartmentId, targetCompartmentId]);
+  if (pair.has('turret') && pair.has('fighting')) {
+    return VEHICLE_EXPLOSIVE_EFFECT_MODEL.armoredTurretRingTransmission;
+  }
+  if (pair.has('powerpack') && pair.has('fighting')) {
+    return VEHICLE_EXPLOSIVE_EFFECT_MODEL.armoredPowerpackBulkheadTransmission;
+  }
+  return VEHICLE_EXPLOSIVE_EFFECT_MODEL.armoredRemoteCompartmentTransmission;
+}
+
+function candidatePressure(candidate, className, sourceCompartmentId) {
+  const compartmentId = candidate.compartmentId ?? 'fighting';
+  const compartmentTransmissionFactor = compartmentTransmission({
+    className,
+    sourceCompartmentId,
+    targetCompartmentId: compartmentId
+  });
+  const shieldingFactor = bounded(finite(candidate.shieldingFactor, 1), 0, 1);
+  return {
+    sourceCompartmentId,
+    compartmentId,
+    compartmentTransmission: compartmentTransmissionFactor,
+    shieldingFactor,
+    pressureFactor: compartmentTransmissionFactor * shieldingFactor,
+    shieldingVolumeIds: [...(candidate.shieldingVolumeIds ?? [])].sort(compareText),
+    pressureDataQuality: [
+      candidate.compartmentDataQuality
+        ?? 'compartment inferred from stable internal-volume semantics',
+      candidate.shieldingDataQuality
+        ?? 'no modeled intervening component shielding'
+    ].join('; ')
+  };
+}
+
+function aggregateCrewIntents(
+  candidates,
+  radiusMeters,
+  baseDamage,
+  className,
+  sourceCompartmentId
+) {
   const byRole = new Map();
   for (const candidate of candidates) {
     if (candidate.kind !== 'crew') continue;
     const falloff = bounded(1 - candidate.distanceMeters / radiusMeters, 0, 1);
     if (falloff <= EPSILON) continue;
-    const damageAmount = bounded(baseDamage * falloff, 0, 100);
+    const pressure = candidatePressure(
+      candidate,
+      className,
+      sourceCompartmentId
+    );
+    const damageAmount = bounded(
+      baseDamage * falloff * pressure.pressureFactor,
+      0,
+      100
+    );
     for (const role of candidate.crewRoles ?? []) {
       const existing = byRole.get(role);
       if (!existing) {
@@ -116,6 +182,7 @@ function aggregateCrewIntents(candidates, radiusMeters, baseDamage) {
           damageAmount,
           distanceMeters: candidate.distanceMeters,
           falloff,
+          ...pressure,
           volumeIds: [candidate.id],
           layoutVersion: candidate.layoutVersion,
           dataQuality: candidate.dataQuality,
@@ -130,6 +197,7 @@ function aggregateCrewIntents(candidates, radiusMeters, baseDamage) {
         existing.damageAmount = damageAmount;
         existing.distanceMeters = candidate.distanceMeters;
         existing.falloff = falloff;
+        Object.assign(existing, pressure);
         existing.layoutVersion = candidate.layoutVersion;
         existing.dataQuality = candidate.dataQuality;
         existing.referenceUrl = candidate.referenceUrl ?? null;
@@ -139,6 +207,7 @@ function aggregateCrewIntents(candidates, radiusMeters, baseDamage) {
   return [...byRole.values()]
     .map(intent => ({
       ...intent,
+      shieldingVolumeIds: [...intent.shieldingVolumeIds],
       volumeIds: [...new Set(intent.volumeIds)].sort(compareText)
     }))
     .sort((a, b) =>
@@ -146,13 +215,28 @@ function aggregateCrewIntents(candidates, radiusMeters, baseDamage) {
         || compareText(a.crewRoles[0], b.crewRoles[0]));
 }
 
-function aggregateComponentIntents(candidates, radiusMeters, baseDamage) {
+function aggregateComponentIntents(
+  candidates,
+  radiusMeters,
+  baseDamage,
+  className,
+  sourceCompartmentId
+) {
   const byComponent = new Map();
   for (const candidate of candidates) {
     if (candidate.kind !== 'component' || !candidate.componentId) continue;
     const falloff = bounded(1 - candidate.distanceMeters / radiusMeters, 0, 1);
     if (falloff <= EPSILON) continue;
-    const damageAmount = bounded(baseDamage * falloff, 0, 100);
+    const pressure = candidatePressure(
+      candidate,
+      className,
+      sourceCompartmentId
+    );
+    const damageAmount = bounded(
+      baseDamage * falloff * pressure.pressureFactor,
+      0,
+      100
+    );
     const existing = byComponent.get(candidate.componentId);
     if (!existing) {
       byComponent.set(candidate.componentId, {
@@ -160,6 +244,7 @@ function aggregateComponentIntents(candidates, radiusMeters, baseDamage) {
         damageAmount,
         distanceMeters: candidate.distanceMeters,
         falloff,
+        ...pressure,
         volumeIds: [candidate.id],
         layoutVersion: candidate.layoutVersion,
         dataQuality: candidate.dataQuality,
@@ -174,6 +259,7 @@ function aggregateComponentIntents(candidates, radiusMeters, baseDamage) {
       existing.damageAmount = damageAmount;
       existing.distanceMeters = candidate.distanceMeters;
       existing.falloff = falloff;
+      Object.assign(existing, pressure);
       existing.layoutVersion = candidate.layoutVersion;
       existing.dataQuality = candidate.dataQuality;
       existing.referenceUrl = candidate.referenceUrl ?? null;
@@ -182,6 +268,7 @@ function aggregateComponentIntents(candidates, radiusMeters, baseDamage) {
   return [...byComponent.values()]
     .map(intent => ({
       ...intent,
+      shieldingVolumeIds: [...intent.shieldingVolumeIds],
       volumeIds: [...new Set(intent.volumeIds)].sort(compareText)
     }))
     .sort((a, b) =>
@@ -220,7 +307,12 @@ export function resolveVehicleExplosiveEffect({
   const componentBaseDamage = woundDamage
     * internal.coupling
     * VEHICLE_EXPLOSIVE_EFFECT_MODEL.componentDamageFromWoundDamage;
-  const candidates = internal.allowed ? internalCandidates : [];
+  const candidates = internal.allowed
+    ? [...internalCandidates].sort((left, right) =>
+        finite(left.distanceMeters) - finite(right.distanceMeters)
+          || compareText(left.id, right.id))
+    : [];
+  const sourceCompartmentId = candidates[0]?.compartmentId ?? 'fighting';
 
   return {
     kind: 'vehicle_explosive_direct',
@@ -237,6 +329,9 @@ export function resolveVehicleExplosiveEffect({
     protectionResult: internal.mode,
     interiorExposed: internal.allowed,
     coupling: internal.coupling,
+    pressureModelVersion: VEHICLE_EXPLOSIVE_EFFECT_MODEL.pressureModelVersion,
+    sourceCompartmentId,
+    pressureDataQuality: VEHICLE_EXPLOSIVE_EFFECT_MODEL.dataQuality,
     internalRadiusMeters: radiusMeters,
     impactArmorMm: Math.max(0, finite(nominalArmorMm)),
     effectiveArmorMm: Math.max(0, finite(effectiveArmorMm)),
@@ -251,10 +346,22 @@ export function resolveVehicleExplosiveEffect({
       dataQuality: 'bounded surface-damage gameplay approximation'
     },
     crewIntents: internal.allowed && radiusMeters > EPSILON
-      ? aggregateCrewIntents(candidates, radiusMeters, crewBaseDamage)
+      ? aggregateCrewIntents(
+          candidates,
+          radiusMeters,
+          crewBaseDamage,
+          className,
+          sourceCompartmentId
+        )
       : [],
     componentIntents: internal.allowed && radiusMeters > EPSILON
-      ? aggregateComponentIntents(candidates, radiusMeters, componentBaseDamage)
+      ? aggregateComponentIntents(
+          candidates,
+          radiusMeters,
+          componentBaseDamage,
+          className,
+          sourceCompartmentId
+        )
       : []
   };
 }

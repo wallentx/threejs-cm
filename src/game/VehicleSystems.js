@@ -515,6 +515,13 @@ export function applyExplosiveComponentDamage({
       armorPart: external?.armorPart ?? null,
       distanceMeters: intent.distanceMeters,
       falloff: intent.falloff,
+      sourceCompartmentId: intent.sourceCompartmentId,
+      compartmentId: intent.compartmentId,
+      compartmentTransmission: intent.compartmentTransmission,
+      shieldingFactor: intent.shieldingFactor,
+      pressureFactor: intent.pressureFactor,
+      shieldingVolumeIds: [...(intent.shieldingVolumeIds ?? [])],
+      pressureDataQuality: intent.pressureDataQuality,
       internalVolumeIds: [...(intent.volumeIds ?? [])],
       layoutVersion: intent.layoutVersion,
       dataQuality: intent.dataQuality,
@@ -540,6 +547,13 @@ export function applyExplosiveComponentDamage({
         armorPart: aggregate.detail.armorPart,
         distanceMeters: aggregate.detail.distanceMeters,
         falloff: aggregate.detail.falloff ?? null,
+        sourceCompartmentId: aggregate.detail.sourceCompartmentId ?? null,
+        compartmentId: aggregate.detail.compartmentId ?? null,
+        compartmentTransmission: aggregate.detail.compartmentTransmission ?? null,
+        shieldingFactor: aggregate.detail.shieldingFactor ?? null,
+        pressureFactor: aggregate.detail.pressureFactor ?? null,
+        shieldingVolumeIds: (aggregate.detail.shieldingVolumeIds ?? []).join(','),
+        pressureDataQuality: aggregate.detail.pressureDataQuality ?? null,
         internalVolumeId: volumeIds[0] ?? null,
         internalVolumeIds: volumeIds.join(','),
         layoutVersion: aggregate.detail.layoutVersion ?? null,
@@ -568,6 +582,7 @@ export function applyPathComponentDamage({
   for (const hit of pathHits ?? []) {
     const componentId = hit.componentId;
     if (hit.kind !== 'component' || !componentId) continue;
+    const effectKind = hit.terminalEffectKind ?? 'penetrator';
     const existing = grouped.get(componentId);
     if (existing) {
       if (Number.isFinite(hit.damageSeverity)) {
@@ -581,6 +596,9 @@ export function applyPathComponentDamage({
         ) + hit.energyDepositedJ;
       }
       existing.volumeIds.push(hit.id);
+      existing.effectKinds.add(effectKind);
+      existing.fragmentRayCount += hit.fragmentRayCount ?? 0;
+      existing.representedFragmentCount += hit.representedFragmentCount ?? 0;
       continue;
     }
     grouped.set(componentId, {
@@ -589,11 +607,22 @@ export function applyPathComponentDamage({
         ? hit.damageSeverity * 100
         : null,
       energyDepositedJ: hit.energyDepositedJ ?? null,
-      volumeIds: [hit.id]
+      volumeIds: [hit.id],
+      effectKinds: new Set([effectKind]),
+      fragmentRayCount: hit.fragmentRayCount ?? 0,
+      representedFragmentCount: hit.representedFragmentCount ?? 0
     });
   }
   for (const [componentId, aggregate] of grouped) {
     const hit = aggregate.hit;
+    const includesSpall = aggregate.effectKinds.has('behind_armor_spall');
+    const includesPenetrator = [...aggregate.effectKinds]
+      .some(kind => kind !== 'behind_armor_spall');
+    const cause = includesSpall
+      ? (includesPenetrator
+          ? 'model_local_penetration_and_spall'
+          : 'behind_armor_spall')
+      : 'model_local_penetration_path';
     const result = applyDirectComponentDamage({
       components,
       damageState,
@@ -604,14 +633,16 @@ export function applyPathComponentDamage({
         : Math.min(100, aggregate.damageAmount),
       random,
       detail: {
-        cause: 'model_local_penetration_path',
+        cause,
         internalVolumeId: hit.id,
-        internalVolumeIds: aggregate.volumeIds.join(','),
+        internalVolumeIds: [...aggregate.volumeIds].sort().join(','),
         pathDistanceMeters: hit.entryDistanceMeters,
         pathLengthMeters: hit.pathLengthMeters,
         entryEnergyJ: hit.entryEnergyJ ?? null,
         energyDepositedJ: aggregate.energyDepositedJ,
         exitEnergyJ: hit.exitEnergyJ ?? null,
+        fragmentRayCount: aggregate.fragmentRayCount,
+        representedFragmentCount: aggregate.representedFragmentCount,
         layoutVersion: hit.layoutVersion,
         dataQuality: hit.dataQuality
       },

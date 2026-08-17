@@ -1328,7 +1328,9 @@ export class UIManager {
             : '--';
           const affectedCrewRoles = explosive.crewIntents?.length ?? 0;
           const affectedModules = explosive.componentIntents?.length ?? 0;
-          blast.textContent = `blast ${explosive.protectionResult} | internal radius ${radius} m | coupling ${(100 * (explosive.coupling ?? 0)).toFixed(0)}% | crew roles ${affectedCrewRoles} | modules ${affectedModules} | ${explosive.modelVersion}`;
+          const sourceCompartment = explosive.sourceCompartmentId ?? '--';
+          const pressureModel = explosive.pressureModelVersion ?? 'radial-unoccluded';
+          blast.textContent = `blast ${explosive.protectionResult} | source ${sourceCompartment} | internal radius ${radius} m | coupling ${(100 * (explosive.coupling ?? 0)).toFixed(0)}% | crew roles ${affectedCrewRoles} | modules ${affectedModules} | ${pressureModel} | ${explosive.modelVersion}`;
           entry.appendChild(blast);
         } else if (record.penetrated) {
           const energy = document.createElement('div');
@@ -1377,6 +1379,15 @@ export class UIManager {
             return `${hit.id}@${distance}m`;
           }).join(' -> ')}`;
           entry.appendChild(path);
+        }
+
+        if (record.spallEffect) {
+          const spall = document.createElement('div');
+          spall.className = 'shot-record-internal-path';
+          const rays = record.spallEffect.hitRayCount ?? 0;
+          const represented = record.spallEffect.representedFragmentCount ?? 0;
+          spall.textContent = `spall ${rays}/${record.spallEffect.rayCount ?? 0} rays hit | ${represented} represented fragments | ${record.spallEffect.hitVolumeIds?.join(', ') || 'no internal hits'} | ${record.spallEffect.modelVersion}`;
+          entry.appendChild(spall);
         }
       }
 

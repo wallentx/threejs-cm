@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { VEHICLES } from '../src/game/VehicleCatalog.js';
 import {
   queryVehicleInternalBlastCandidates,
+  traceVehicleInternalFragmentBatch,
   traceVehicleInternalPath
 } from '../src/simulation/vehicles/VehicleInternalCollision.js';
 
@@ -842,4 +843,90 @@ test('internal blast query follows rotated hull and turret OBBs, includes the ra
   assert.equal(candidates[1].followsTurret, false);
   assert.ok(candidates[0].distanceMeters <= candidates[1].distanceMeters);
   assert.ok(candidates[1].distanceMeters <= 1.3);
+});
+
+test('fragment batches are bounded, stable, and stop each representative ray at the first internal volume', () => {
+  const target = unit({
+    internalLayout: {
+      version: 'fragment-test-v1',
+      maxPathMeters: 4,
+      entryOffsetMeters: 0.01,
+      dataQuality: 'test approximation',
+      referenceUrl: 'https://example.test/fragment-layout',
+      volumes: [
+        {
+          id: 'crew-near',
+          kind: 'crew',
+          crewRoles: ['DRIVER'],
+          center: [0, 1, 0.5],
+          halfExtents: [0.5, 0.5, 0.3],
+          dataQuality: 'test approximation'
+        },
+        {
+          id: 'module-far',
+          kind: 'component',
+          componentId: 'engine',
+          center: [0, 1, -0.5],
+          halfExtents: [0.5, 0.5, 0.3],
+          dataQuality: 'test approximation'
+        }
+      ]
+    }
+  });
+  const fragments = [
+    { index: 1, direction: [0.05, 0, -1], energyJ: 400, representedFragments: 4 },
+    { index: 0, direction: [0, 0, -1], energyJ: 400, representedFragments: 4 }
+  ];
+  const hits = traceVehicleInternalFragmentBatch({
+    unit: target,
+    impactPoint: [0, 1, 1.2],
+    fragments,
+    maxDistanceMeters: 3
+  });
+
+  assert.deepEqual(hits.map(hit => hit.fragmentIndex), [0, 1]);
+  assert.deepEqual(hits.map(hit => hit.id), ['crew-near', 'crew-near']);
+  assert.ok(!hits.some(hit => hit.id === 'module-far'));
+});
+
+test('blast candidates expose inferred compartments and bounded component shielding', () => {
+  const target = unit({
+    internalLayout: {
+      version: 'pressure-test-v1',
+      maxPathMeters: 4,
+      entryOffsetMeters: 0.01,
+      dataQuality: 'test approximation',
+      referenceUrl: 'https://example.test/pressure-layout',
+      volumes: [
+        {
+          id: 'module-engine-shield',
+          kind: 'component',
+          componentId: 'engine',
+          center: [0, 1, 0.8],
+          halfExtents: [0.5, 0.5, 0.3],
+          dataQuality: 'test approximation'
+        },
+        {
+          id: 'crew-behind-shield',
+          kind: 'crew',
+          crewRoles: ['DRIVER'],
+          center: [0, 1, 0],
+          halfExtents: [0.3, 0.4, 0.25],
+          dataQuality: 'test approximation'
+        }
+      ]
+    }
+  });
+  const candidates = queryVehicleInternalBlastCandidates({
+    unit: target,
+    impactPoint: [0, 1, 1.5],
+    radiusMeters: 3
+  });
+  const engine = candidates.find(candidate => candidate.id === 'module-engine-shield');
+  const crew = candidates.find(candidate => candidate.id === 'crew-behind-shield');
+
+  assert.equal(engine.compartmentId, 'powerpack');
+  assert.equal(crew.compartmentId, 'fighting');
+  assert.deepEqual(crew.shieldingVolumeIds, ['module-engine-shield']);
+  assert.ok(crew.shieldingFactor > 0 && crew.shieldingFactor < 1);
 });

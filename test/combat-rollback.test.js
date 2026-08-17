@@ -243,6 +243,23 @@ test('internal penetration paths and multiple crew results deep-copy through tel
     layoutVersion: 'model-local-obb-path-v1',
     dataQuality: 'gameplay approximation'
   };
+  const spallHit = {
+    ...pathHit,
+    id: 'crew-driver',
+    kind: 'crew',
+    componentId: null,
+    crewRoles: ['DRIVER'],
+    direction: [0.1, 0, -0.995],
+    fragmentIndices: [1, 3],
+    terminalEffectKind: 'behind_armor_spall'
+  };
+  const spallEffect = {
+    modelVersion: 'behind-armor-spall-v1',
+    rayCount: 24,
+    representedFragmentCount: 96,
+    hitRayCount: 2,
+    hitVolumeIds: ['crew-driver']
+  };
   const casualty = {
     id: 'crew-driver',
     name: 'Driver',
@@ -266,12 +283,16 @@ test('internal penetration paths and multiple crew results deep-copy through tel
       normal: [0, 0, 1]
     },
     internalPathHits: [pathHit],
+    spallHits: [spallHit],
+    spallEffect,
     crewResult: {
       penetrated: true,
       casualty,
       casualties: [casualty],
       components: [{ id: 'engine', health: 68 }],
-      internalPathHits: [pathHit]
+      internalPathHits: [pathHit],
+      spallHits: [spallHit],
+      spallEffect
     }
   });
 
@@ -279,6 +300,9 @@ test('internal penetration paths and multiple crew results deep-copy through tel
   const capturedImpact = captured.telemetry.impacts[0];
   combat.telemetry.impacts[0].internalPathHits[0].entryPoint[0] = 999;
   combat.telemetry.impacts[0].crewResult.internalPathHits[0].exitPoint[2] = 999;
+  combat.telemetry.impacts[0].spallHits[0].direction[0] = 999;
+  combat.telemetry.impacts[0].spallEffect.hitVolumeIds[0] = 'mutated';
+  combat.telemetry.impacts[0].crewResult.spallHits[0].fragmentIndices[0] = 999;
   combat.telemetry.impacts[0].crewResult.casualties[0].health = 999;
   combat.telemetry.impacts[0].penetrationReferenceUrls[0] = 'mutated';
   combat.telemetry.impacts[0].plateResidualVelocity[2] = 999;
@@ -288,6 +312,9 @@ test('internal penetration paths and multiple crew results deep-copy through tel
   combat.telemetry.impacts[0].exitResult.normal[2] = 999;
   assert.deepEqual(capturedImpact.internalPathHits[0].entryPoint, [1, 2, 3]);
   assert.deepEqual(capturedImpact.crewResult.internalPathHits[0].exitPoint, [1, 2, 2]);
+  assert.deepEqual(capturedImpact.spallHits[0].direction, [0.1, 0, -0.995]);
+  assert.deepEqual(capturedImpact.spallEffect.hitVolumeIds, ['crew-driver']);
+  assert.deepEqual(capturedImpact.crewResult.spallHits[0].fragmentIndices, [1, 3]);
   assert.equal(capturedImpact.crewResult.casualties[0].health, 35);
   assert.deepEqual(
     capturedImpact.penetrationReferenceUrls,
@@ -302,6 +329,9 @@ test('internal penetration paths and multiple crew results deep-copy through tel
   combat.restoreState(captured, unitMap);
   capturedImpact.internalPathHits[0].entryPoint[0] = -999;
   capturedImpact.crewResult.internalPathHits[0].exitPoint[2] = -999;
+  capturedImpact.spallHits[0].direction[0] = -999;
+  capturedImpact.spallEffect.hitVolumeIds[0] = 'mutated-after-restore';
+  capturedImpact.crewResult.spallHits[0].fragmentIndices[0] = -999;
   capturedImpact.crewResult.casualties[0].health = -999;
   capturedImpact.penetrationReferenceUrls[0] = 'mutated-after-restore';
   capturedImpact.plateResidualVelocity[2] = -999;
@@ -313,6 +343,12 @@ test('internal penetration paths and multiple crew results deep-copy through tel
   assert.deepEqual(
     combat.telemetry.impacts[0].crewResult.internalPathHits[0].exitPoint,
     [1, 2, 2]
+  );
+  assert.deepEqual(combat.telemetry.impacts[0].spallHits[0].direction, [0.1, 0, -0.995]);
+  assert.deepEqual(combat.telemetry.impacts[0].spallEffect.hitVolumeIds, ['crew-driver']);
+  assert.deepEqual(
+    combat.telemetry.impacts[0].crewResult.spallHits[0].fragmentIndices,
+    [1, 3]
   );
   assert.equal(combat.telemetry.impacts[0].crewResult.casualties[0].health, 35);
   assert.deepEqual(

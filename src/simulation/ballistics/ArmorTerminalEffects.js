@@ -315,3 +315,193 @@ export function resolveInternalPenetrationEnergy({
     stoppedInside: remainingEnergyJ <= EPSILON
   };
 }
+
+
+export const BEHIND_ARMOR_SPALL_MODEL = Object.freeze({
+  version: 'behind-armor-spall-v1',
+  rayCount: 24,
+  representedFragmentsPerRay: 4,
+  coneHalfAngleDegrees: 45,
+  spallEnergyFraction: 0.12,
+  minimumArmorEnergySpentJ: 500,
+  dataQuality: [
+    'bounded deterministic weighted-ray gameplay approximation',
+    'spall energy is a conserved subset of energy deposited in the defeated plate',
+    'fixed ray count represents a larger fragment population without persistent fragment entities',
+    'projectile breakup, plate metallurgy, fragment mass distribution, and internal ricochet remain separate models'
+  ].join('; ')
+});
+
+function cross(left, right) {
+  return [
+    left[1] * right[2] - left[2] * right[1],
+    left[2] * right[0] - left[0] * right[2],
+    left[0] * right[1] - left[1] * right[0]
+  ];
+}
+
+function scaledSum(axis, tangent, bitangent, axialScale, tangentScale, bitangentScale) {
+  return [
+    axis[0] * axialScale + tangent[0] * tangentScale + bitangent[0] * bitangentScale,
+    axis[1] * axialScale + tangent[1] * tangentScale + bitangent[1] * bitangentScale,
+    axis[2] * axialScale + tangent[2] * tangentScale + bitangent[2] * bitangentScale
+  ];
+}
+
+export function createBehindArmorSpallEvent({
+  weapon,
+  direction,
+  armorEnergySpentJ,
+  nominalArmorMm
+}) {
+  const axis = normalized(direction);
+  const plateEnergyJ = Math.max(0, finite(armorEnergySpentJ));
+  if (
+    !axis
+    || Math.max(0, finite(nominalArmorMm)) <= EPSILON
+    || plateEnergyJ < BEHIND_ARMOR_SPALL_MODEL.minimumArmorEnergySpentJ
+    || weapon?.kind === 'cannon_he'
+    || finite(weapon?.explosiveRadius) > 0
+  ) {
+    return null;
+  }
+
+  const helper = Math.abs(axis[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+  const tangent = normalized(cross(axis, helper));
+  const bitangent = normalized(cross(axis, tangent));
+  if (!tangent || !bitangent) return null;
+
+  const rayCount = BEHIND_ARMOR_SPALL_MODEL.rayCount;
+  const totalSpallEnergyJ = Math.min(
+    plateEnergyJ,
+    plateEnergyJ * BEHIND_ARMOR_SPALL_MODEL.spallEnergyFraction
+  );
+  const equalRayEnergyJ = totalSpallEnergyJ / rayCount;
+  const radialMaximum = Math.sin(
+    BEHIND_ARMOR_SPALL_MODEL.coneHalfAngleDegrees * Math.PI / 180
+  );
+  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+  const rays = [];
+  for (let index = 0; index < rayCount; index++) {
+    const radialScale = radialMaximum * Math.sqrt((index + 0.5) / rayCount);
+    const axialScale = Math.sqrt(Math.max(0, 1 - radialScale * radialScale));
+    const azimuth = index * goldenAngle;
+    const rayDirection = normalized(scaledSum(
+      axis,
+      tangent,
+      bitangent,
+      axialScale,
+      radialScale * Math.cos(azimuth),
+      radialScale * Math.sin(azimuth)
+    ));
+    const energyJ = index === rayCount - 1
+      ? Math.max(0, totalSpallEnergyJ - equalRayEnergyJ * (rayCount - 1))
+      : equalRayEnergyJ;
+    rays.push({
+      index,
+      direction: rayDirection,
+      energyJ,
+      representedFragments: BEHIND_ARMOR_SPALL_MODEL.representedFragmentsPerRay
+    });
+  }
+
+  return {
+    kind: 'behind_armor_spall',
+    modelVersion: BEHIND_ARMOR_SPALL_MODEL.version,
+    dataQuality: BEHIND_ARMOR_SPALL_MODEL.dataQuality,
+    rayCount,
+    representedFragmentCount:
+      rayCount * BEHIND_ARMOR_SPALL_MODEL.representedFragmentsPerRay,
+    coneHalfAngleDegrees: BEHIND_ARMOR_SPALL_MODEL.coneHalfAngleDegrees,
+    plateEnergyJ,
+    energyFraction: BEHIND_ARMOR_SPALL_MODEL.spallEnergyFraction,
+    totalSpallEnergyJ,
+    rays
+  };
+}
+
+export function resolveBehindArmorSpallHits({ event, intersections = [] }) {
+  if (!event?.rays?.length) {
+    return {
+      hits: [],
+      hitRayCount: 0,
+      hitVolumeIds: [],
+      energyDepositedJ: 0
+    };
+  }
+  const raysByIndex = new Map(event.rays.map(ray => [ray.index, ray]));
+  const ordered = [...intersections].sort((left, right) =>
+    finite(left.fragmentIndex) - finite(right.fragmentIndex)
+      || finite(left.entryDistanceMeters) - finite(right.entryDistanceMeters)
+      || String(left.id).localeCompare(String(right.id))
+  );
+  const grouped = new Map();
+  for (const intersection of ordered) {
+    const ray = raysByIndex.get(intersection.fragmentIndex);
+    if (!ray || !(ray.energyJ > EPSILON) || !intersection.id) continue;
+    const existing = grouped.get(intersection.id);
+    if (existing) {
+      existing.energyDepositedJ += ray.energyJ;
+      existing.fragmentRayCount++;
+      existing.representedFragmentCount += ray.representedFragments;
+      existing.fragmentIndices.push(ray.index);
+      if (finite(intersection.entryDistanceMeters) < existing.entryDistanceMeters) {
+        existing.nearest = intersection;
+        existing.entryDistanceMeters = finite(intersection.entryDistanceMeters);
+      }
+      continue;
+    }
+    grouped.set(intersection.id, {
+      nearest: intersection,
+      entryDistanceMeters: finite(intersection.entryDistanceMeters),
+      energyDepositedJ: ray.energyJ,
+      fragmentRayCount: 1,
+      representedFragmentCount: ray.representedFragments,
+      fragmentIndices: [ray.index]
+    });
+  }
+
+  const hits = [...grouped.values()]
+    .sort((left, right) =>
+      left.entryDistanceMeters - right.entryDistanceMeters
+        || String(left.nearest.id).localeCompare(String(right.nearest.id)))
+    .map(aggregate => {
+      const hit = aggregate.nearest;
+      const profile = energyProfileForHit(hit);
+      const energyDepositedJ = Math.min(
+        event.totalSpallEnergyJ,
+        aggregate.energyDepositedJ
+      );
+      return {
+        ...hit,
+        crewRoles: [...(hit.crewRoles ?? [])],
+        entryPoint: [...(hit.entryPoint ?? [0, 0, 0])],
+        exitPoint: [...(hit.entryPoint ?? [0, 0, 0])],
+        exitDistanceMeters: finite(hit.entryDistanceMeters),
+        pathLengthMeters: 0,
+        terminalEffectKind: 'behind_armor_spall',
+        spallModelVersion: event.modelVersion,
+        spallDataQuality: event.dataQuality,
+        fragmentIndices: [...aggregate.fragmentIndices].sort((a, b) => a - b),
+        fragmentRayCount: aggregate.fragmentRayCount,
+        representedFragmentCount: aggregate.representedFragmentCount,
+        entryEnergyJ: energyDepositedJ,
+        resistanceEnergyDepositedJ: energyDepositedJ,
+        terminalEnergyDepositedJ: 0,
+        energyDepositedJ,
+        exitEnergyJ: 0,
+        damageSeverity: 1 - Math.exp(
+          -energyDepositedJ / Math.max(1, profile.damageScaleJ)
+        ),
+        projectileStopped: true,
+        energyModelDataQuality: profile.dataQuality
+      };
+    });
+
+  return {
+    hits,
+    hitRayCount: hits.reduce((sum, hit) => sum + hit.fragmentRayCount, 0),
+    hitVolumeIds: hits.map(hit => hit.id),
+    energyDepositedJ: hits.reduce((sum, hit) => sum + hit.energyDepositedJ, 0)
+  };
+}

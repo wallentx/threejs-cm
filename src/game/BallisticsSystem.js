@@ -17,6 +17,7 @@ import {
 } from '../simulation/infantry/InfantryHitVolumes.js';
 import {
   queryVehicleInternalBlastCandidates,
+  traceVehicleInternalFragmentBatch,
   traceVehicleInternalPath
 } from '../simulation/vehicles/VehicleInternalCollision.js';
 import {
@@ -24,7 +25,9 @@ import {
 } from '../simulation/vehicles/VehicleCrewExposure.js';
 import { resolveArmorRicochet } from '../simulation/ballistics/ProjectileImpactPhysics.js';
 import {
+  createBehindArmorSpallEvent,
   resolveArmorPerforationEnergy,
+  resolveBehindArmorSpallHits,
   resolveInternalPenetrationEnergy
 } from '../simulation/ballistics/ArmorTerminalEffects.js';
 import {
@@ -753,6 +756,41 @@ export class BallisticsSystem {
       initialEnergyJ: penetrationEnergy.plateResidualEnergyJ,
       impactEnergyJ: penetrationEnergy.impactEnergyJ
     });
+    const spallEvent = result.penetrated
+        && supportsIntactPenetration
+        && unit.vehicleSpec?.internalLayout
+      ? createBehindArmorSpallEvent({
+          weapon: projectile.weapon,
+          direction: scratchIncoming,
+          armorEnergySpentJ: penetrationEnergy.armorEnergySpentJ,
+          nominalArmorMm
+        })
+      : null;
+    const spallIntersections = spallEvent
+      ? traceVehicleInternalFragmentBatch({
+          unit,
+          impactPoint: hit.point,
+          fragments: spallEvent.rays,
+          maxDistanceMeters: exitHit?.distanceMeters
+            ?? unit.vehicleSpec.internalLayout.maxPathMeters
+        })
+      : [];
+    const spallResolution = resolveBehindArmorSpallHits({
+      event: spallEvent,
+      intersections: spallIntersections
+    });
+    const spallHits = spallResolution.hits;
+    let spallEffect = null;
+    if (spallEvent) {
+      const { rays: _boundedRays, ...summary } = spallEvent;
+      spallEffect = {
+        ...summary,
+        hitRayCount: spallResolution.hitRayCount,
+        hitVolumeIds: [...spallResolution.hitVolumeIds],
+        energyDepositedJ: spallResolution.energyDepositedJ
+      };
+    }
+
     const exitReached = Boolean(exitHit) && !internalEnergy.stoppedInside;
     const exitArmorMm = unit.vehicleSpec?.armorMm ?? {};
     const exitThicknessZone = exitHit?.exitArmorPolicy === 'none'
@@ -878,6 +916,7 @@ export class BallisticsSystem {
           damageZone: fallbackZone,
           componentZone: zone,
           internalPathHits,
+          spallHits,
           impactEnergyJ: penetrationEnergy.impactEnergyJ,
           residualEnergyJ: internalEnergy.residualEnergyJ,
           weapon: projectile.weapon,
@@ -912,6 +951,8 @@ export class BallisticsSystem {
       continuationReason,
       terminalEffect,
       explosiveEffect,
+      spallEffect,
+      spallHits,
       continuationStartOffsetMeters,
       unitClearanceDistanceMeters,
       exitPosition,
@@ -966,6 +1007,7 @@ export class BallisticsSystem {
       thicknessReferenceUrl: hit.thicknessReferenceUrl ?? null,
       impactAngleDegrees,
       internalPathHits,
+      spallHits,
       crewResult
     };
   }

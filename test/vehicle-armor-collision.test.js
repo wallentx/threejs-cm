@@ -387,7 +387,8 @@ test('resolved SOMUA track hits use authored track thickness and localized compo
 test('resolved SOMUA penetration traces ordered internal model-local volumes', () => {
   const unit = vehicleUnit(VEHICLES.SOMUA_S35);
   unit.applyArmorHit = result => ({
-    internalPathHits: result.internalPathHits
+    internalPathHits: result.internalPathHits,
+    spallHits: result.spallHits
   });
   const hit = segment([0, 1.16, 10], [0, 1.16, -10], unit);
   const weapon = {
@@ -427,6 +428,12 @@ test('resolved SOMUA penetration traces ordered internal model-local volumes', (
     ]
   );
   assert.deepEqual(result.crewResult.internalPathHits, result.internalPathHits);
+  assert.equal(result.spallEffect.modelVersion, 'behind-armor-spall-v1');
+  assert.equal(result.spallEffect.rayCount, 24);
+  assert.ok(result.spallEffect.hitRayCount <= 24);
+  assert.deepEqual(result.crewResult.spallHits, result.spallHits);
+  assert.ok(result.spallHits.length > 0);
+  assert.ok(result.spallHits.every(hit => hit.terminalEffectKind === 'behind_armor_spall'));
   assert.match(result.internalPathHits[0].layoutDataQuality, /gameplay approximations/);
 });
 

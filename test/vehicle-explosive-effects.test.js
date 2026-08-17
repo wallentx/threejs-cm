@@ -5,6 +5,7 @@ import { CombatSystem } from '../src/game/CombatSystem.js';
 import { Unit } from './helpers/France1940TestUnit.js';
 import { getWeapon } from '../src/game/WeaponCatalog.js';
 import { TEST_VFX_PROVIDER } from './helpers/TestVfxProvider.js';
+import { resolveVehicleExplosiveEffect } from '../src/simulation/ballistics/VehicleExplosiveEffects.js';
 
 function createBattle({
   attackerVehicleId,
@@ -207,7 +208,9 @@ test('stopped HE on an S35 track damages the exposed track only', () => {
     targetVehicleId: 'SOMUA_S35',
     targetFaction: 'french'
   });
-  launchStraightProjectile(combat, attacker, target, 'KWK36_HE', [5, 0.55, 60], [-1, 0, 0]);
+  // Aim through the GLB-derived left track mesh below and behind the hull shell.
+  launchStraightProjectile(combat, attacker, target, 'KWK36_HE',
+    [5, 0.05, 58.05], [-1, 0, 0]);
   const before = vehicleDamageSnapshot(target);
 
   combat.update(1 / 60);
@@ -234,7 +237,9 @@ test('stopped HE on an S35 mantlet damages the exposed main gun only', () => {
     targetVehicleId: 'SOMUA_S35',
     targetFaction: 'french'
   });
-  launchStraightProjectile(combat, attacker, target, 'KWK36_HE', [0.04, 2.03, 70], [0, 0, -1]);
+  // Aim through the current SA35 mantlet face, not the surrounding APX turret.
+  launchStraightProjectile(combat, attacker, target, 'KWK36_HE',
+    [-0.325, 1.90, 65], [0, 0, -1]);
   const before = vehicleDamageSnapshot(target);
 
   combat.update(1 / 60);
@@ -317,4 +322,50 @@ test('an explosive vehicle terminal effect replays exactly from a pre-impact cap
   assert.deepEqual(target.captureState(), firstOutcome.target);
   assert.deepEqual(combat.captureState(), firstOutcome.combat);
   combat.reset();
+});
+
+test('armored direct HE uses stable compartment transmission and bounded shielding', () => {
+  const candidate = (id, kind, compartmentId, distanceMeters, extra = {}) => ({
+    id,
+    kind,
+    compartmentId,
+    distanceMeters,
+    shieldingFactor: 1,
+    shieldingVolumeIds: [],
+    ...extra
+  });
+  const effect = resolveVehicleExplosiveEffect({
+    weapon: { kind: 'cannon_he', caliberMm: 47, explosiveRadius: 10, woundDamage: 100 },
+    protection: { class: 'armored_enclosed' },
+    penetrated: true,
+    nominalArmorMm: 40,
+    effectiveArmorMm: 40,
+    armorPart: 'hull',
+    detonationPoint: [0, 0, 0],
+    internalCandidates: [
+      candidate('module-engine', 'component', 'powerpack', 0.1, { componentId: 'engine' }),
+      candidate('crew-power', 'crew', 'powerpack', 0.5, { crewRoles: ['POWER'] }),
+      candidate('crew-fighting', 'crew', 'fighting', 0.5, {
+        crewRoles: ['FIGHTING'],
+        shieldingFactor: 0.82,
+        shieldingVolumeIds: ['module-shield']
+      }),
+      candidate('crew-turret', 'crew', 'turret', 0.5, { crewRoles: ['TURRET'] })
+    ]
+  });
+
+  assert.equal(effect.modelVersion, 'vehicle-explosive-direct-v2');
+  assert.equal(effect.pressureModelVersion, 'bounded-compartment-overpressure-v1');
+  assert.equal(effect.sourceCompartmentId, 'powerpack');
+  const byRole = Object.fromEntries(effect.crewIntents.map(intent => [
+    intent.crewRoles[0],
+    intent
+  ]));
+  assert.ok(byRole.POWER.damageAmount > byRole.FIGHTING.damageAmount);
+  assert.ok(byRole.FIGHTING.damageAmount > byRole.TURRET.damageAmount);
+  assert.equal(byRole.POWER.compartmentTransmission, 1);
+  assert.equal(byRole.FIGHTING.compartmentTransmission, 0.3);
+  assert.equal(byRole.FIGHTING.shieldingFactor, 0.82);
+  assert.deepEqual(byRole.FIGHTING.shieldingVolumeIds, ['module-shield']);
+  assert.equal(byRole.TURRET.compartmentTransmission, 0.15);
 });

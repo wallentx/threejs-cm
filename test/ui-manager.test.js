@@ -849,6 +849,13 @@ test('shot inspector exposes ordered internal penetration path and all crew casu
         { id: 'crew-driver', entryDistanceMeters: 0.78 },
         { id: 'module-engine', entryDistanceMeters: 3.4 }
       ],
+      spallEffect: {
+        modelVersion: 'behind-armor-spall-v1',
+        rayCount: 24,
+        representedFragmentCount: 96,
+        hitRayCount: 4,
+        hitVolumeIds: ['crew-driver', 'module-engine']
+      },
       crewResult: {
         casualties: [
           { role: 'DRIVER', status: 'WOUNDED', health: 35 },
@@ -864,6 +871,9 @@ test('shot inspector exposes ordered internal penetration path and all crew casu
     assert.match(text, /RADIO_OPERATOR: KIA/);
     assert.match(text, /modules engine:DAMAGED/);
     assert.match(text, /inside crew-driver@0\.78m -> module-engine@3\.40m/);
+    assert.match(text, /spall 4\/24 rays hit/);
+    assert.match(text, /96 represented fragments/);
+    assert.match(text, /crew-driver, module-engine/);
   } finally {
     if (previousDocument === undefined) delete globalThis.document;
     else globalThis.document = previousDocument;
@@ -993,7 +1003,9 @@ test('shot inspector identifies a vehicle detonation without showing an intact p
         coupling: 0.75,
         crewIntents: [{ crewRoles: ['DRIVER'] }],
         componentIntents: [{ componentId: 'engine' }],
-        modelVersion: 'vehicle-explosive-direct-v1'
+        sourceCompartmentId: 'powerpack',
+        pressureModelVersion: 'bounded-compartment-overpressure-v1',
+        modelVersion: 'vehicle-explosive-direct-v2'
       },
       crewResult: {
         casualties: [{ role: 'DRIVER', status: 'WOUNDED', health: 55 }],
@@ -1004,6 +1016,8 @@ test('shot inspector identifies a vehicle detonation without showing an intact p
     const text = collectText(list.children[0]);
     assert.match(text, /DETONATED/);
     assert.match(text, /blast unarmored_compartment/);
+    assert.match(text, /source powerpack/);
+    assert.match(text, /bounded-compartment-overpressure-v1/);
     assert.match(text, /internal radius 1\.93 m/);
     assert.match(text, /coupling 75%/);
     assert.match(text, /crew roles 1/);

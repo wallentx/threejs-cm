@@ -3037,6 +3037,9 @@ export class Unit {
     recordVehicleEvent(this.vehicleDamageState, 'explosive_detonation', {
       cause: explosiveEffect.cause,
       modelVersion: explosiveEffect.modelVersion,
+      pressureModelVersion: explosiveEffect.pressureModelVersion,
+      sourceCompartmentId: explosiveEffect.sourceCompartmentId,
+      pressureDataQuality: explosiveEffect.pressureDataQuality,
       protectionResult: explosiveEffect.protectionResult,
       interiorExposed: explosiveEffect.interiorExposed,
       armorPart: explosiveEffect.externalIntent?.armorPart ?? null,
@@ -3066,6 +3069,13 @@ export class Unit {
         internalVolumeIds: intent.volumeIds.join(','),
         distanceMeters: intent.distanceMeters,
         falloff: intent.falloff,
+        sourceCompartmentId: intent.sourceCompartmentId,
+        compartmentId: intent.compartmentId,
+        compartmentTransmission: intent.compartmentTransmission,
+        shieldingFactor: intent.shieldingFactor,
+        pressureFactor: intent.pressureFactor,
+        shieldingVolumeIds: intent.shieldingVolumeIds.join(','),
+        pressureDataQuality: intent.pressureDataQuality,
         layoutVersion: intent.layoutVersion,
         dataQuality: intent.dataQuality,
         referenceUrl: intent.referenceUrl ?? null
@@ -3126,36 +3136,91 @@ export class Unit {
 
     const damageZone = result.damageZone ?? result.zone;
     const componentZone = result.componentZone ?? damageZone;
-    const usesInternalPath = Array.isArray(result.internalPathHits);
+    const penetrationPathHits = Array.isArray(result.internalPathHits)
+      ? result.internalPathHits
+      : [];
+    const spallHits = Array.isArray(result.spallHits) ? result.spallHits : [];
+    const usesInternalPath = Array.isArray(result.internalPathHits)
+      || Array.isArray(result.spallHits);
+    const damageHits = [...penetrationPathHits, ...spallHits];
     const casualties = [];
     if (usesInternalPath) {
-      const affectedCrew = new Set();
-      for (const hit of result.internalPathHits) {
+      const mountedCrew = this.getMountedCrew();
+      const crewDamageById = new Map();
+      for (const hit of damageHits) {
         if (hit.kind !== 'crew') continue;
-        const crewman = this.getMountedCrew().find(candidate =>
-          hit.crewRoles.includes(candidate.role) && !affectedCrew.has(candidate));
+        const crewman = mountedCrew.find(candidate =>
+          hit.crewRoles.includes(candidate.role));
         if (!crewman) continue;
-        affectedCrew.add(crewman);
         const damage = Number.isFinite(hit.damageSeverity)
           ? hit.damageSeverity * 100
           : (65 + result.random() * 75)
             * Math.min(1.5, result.residualRatio);
+        const aggregate = crewDamageById.get(crewman.id) ?? {
+          crewman,
+          damage: 0,
+          hits: [],
+          includesPenetrator: false,
+          includesSpall: false
+        };
+        aggregate.damage += damage;
+        aggregate.hits.push(hit);
+        aggregate.includesSpall ||= hit.terminalEffectKind === 'behind_armor_spall';
+        aggregate.includesPenetrator ||= hit.terminalEffectKind !== 'behind_armor_spall';
+        crewDamageById.set(crewman.id, aggregate);
+      }
+      const orderedCrewDamage = [...crewDamageById.values()].sort((left, right) => {
+        const leftDistance = Math.min(
+          ...left.hits.map(hit => hit.entryDistanceMeters ?? Infinity)
+        );
+        const rightDistance = Math.min(
+          ...right.hits.map(hit => hit.entryDistanceMeters ?? Infinity)
+        );
+        return leftDistance - rightDistance
+          || String(left.crewman.id).localeCompare(String(right.crewman.id));
+      });
+      for (const aggregate of orderedCrewDamage) {
+        const { crewman, hits } = aggregate;
+        const damage = Math.min(100, aggregate.damage);
         crewman.health = Math.max(0, crewman.health - damage);
         crewman.status = crewman.health <= 0 ? 'KIA' : 'WOUNDED';
         casualties.push(crewman);
+        const cause = aggregate.includesSpall
+          ? (aggregate.includesPenetrator
+              ? 'model_local_penetration_and_spall'
+              : 'behind_armor_spall')
+          : 'model_local_penetration_path';
+        const energyValues = hits
+          .map(hit => hit.energyDepositedJ)
+          .filter(Number.isFinite);
+        const firstHit = [...hits].sort((left, right) =>
+          (left.entryDistanceMeters ?? Infinity)
+            - (right.entryDistanceMeters ?? Infinity)
+            || String(left.id).localeCompare(String(right.id)))[0];
         recordVehicleEvent(this.vehicleDamageState, 'crew_hit', {
           crewmanId: crewman.id,
           role: crewman.role,
           status: crewman.status,
           health: crewman.health,
-          cause: 'model_local_penetration_path',
-          internalVolumeId: hit.id,
-          pathDistanceMeters: hit.entryDistanceMeters,
-          entryEnergyJ: hit.entryEnergyJ ?? null,
-          energyDepositedJ: hit.energyDepositedJ ?? null,
-          exitEnergyJ: hit.exitEnergyJ ?? null,
-          layoutVersion: hit.layoutVersion,
-          dataQuality: hit.dataQuality
+          cause,
+          internalVolumeId: firstHit.id,
+          internalVolumeIds: hits.map(hit => hit.id).sort().join(','),
+          pathDistanceMeters: firstHit.entryDistanceMeters,
+          entryEnergyJ: firstHit.entryEnergyJ ?? null,
+          energyDepositedJ: energyValues.length > 0
+            ? energyValues.reduce((sum, value) => sum + value, 0)
+            : null,
+          exitEnergyJ: firstHit.exitEnergyJ ?? null,
+          fragmentRayCount: hits.reduce(
+            (sum, hit) => sum + (hit.fragmentRayCount ?? 0),
+            0
+          ),
+          representedFragmentCount: hits.reduce(
+            (sum, hit) => sum + (hit.representedFragmentCount ?? 0),
+            0
+          ),
+          layoutVersion: firstHit.layoutVersion,
+          dataQuality: firstHit.dataQuality
         });
       }
     } else {
@@ -3179,7 +3244,7 @@ export class Unit {
       ? applyPathComponentDamage({
           components: this.vehicleComponents,
           damageState: this.vehicleDamageState,
-          pathHits: result.internalPathHits,
+          pathHits: damageHits,
           residualRatio: result.residualRatio,
           random: result.random
         })
@@ -3203,12 +3268,21 @@ export class Unit {
       penetrated: true,
       casualty: casualties[0] ?? null,
       casualties,
-      internalPathHits: usesInternalPath
+      internalPathHits: Array.isArray(result.internalPathHits)
         ? result.internalPathHits.map(hit => ({
             ...hit,
-            crewRoles: [...hit.crewRoles],
+            crewRoles: [...(hit.crewRoles ?? [])],
             entryPoint: [...hit.entryPoint],
             exitPoint: [...hit.exitPoint]
+          }))
+        : null,
+      spallHits: Array.isArray(result.spallHits)
+        ? result.spallHits.map(hit => ({
+            ...hit,
+            crewRoles: [...(hit.crewRoles ?? [])],
+            entryPoint: [...hit.entryPoint],
+            exitPoint: [...hit.exitPoint],
+            fragmentIndices: [...(hit.fragmentIndices ?? [])]
           }))
         : null,
       damage: this.vehicleDamage,
