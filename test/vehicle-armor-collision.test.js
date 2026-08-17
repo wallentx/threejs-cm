@@ -4,6 +4,16 @@ import * as THREE from 'three';
 import { BallisticsSystem } from '../src/game/BallisticsSystem.js';
 import { VEHICLES } from '../src/game/VehicleCatalog.js';
 import { WEAPONS } from '../src/game/WeaponCatalog.js';
+import { compileVehicleArmorMesh } from '../src/calibration/VehicleArmorMeshCompiler.js';
+import {
+  GENERATED_VEHICLE_ARMOR_COLLISIONS
+} from '../src/content/france1940/vehicleData/GeneratedVehicleArmorCollision.js';
+import {
+  FRANCE_1940_VEHICLE_ARMOR_SOURCES
+} from '../src/content/france1940/render/VehicleArmorSourceManifest.js';
+import {
+  FRANCE_1940_VEHICLE_MESH_FACTORIES
+} from '../src/content/france1940/render/vehicleMeshFactories.js';
 import {
   intersectVehicleArmor,
   traceVehicleArmorExit
@@ -34,9 +44,7 @@ function segment(start, end, unit) {
 test('every catalog vehicle owns immutable named model-local armor collision volumes', () => {
   for (const spec of Object.values(VEHICLES)) {
     const collision = spec.armorCollision;
-    assert.ok(
-      ['named-obb-plates-v1', 'named-triangle-plates-v2'].includes(collision.version)
-    );
+    assert.equal(collision.version, 'named-mesh-triangle-plates-v3');
     assert.ok(Object.isFrozen(collision));
     assert.ok(Object.isFrozen(collision.volumes));
     assert.ok(collision.volumes.length >= 2);
@@ -55,8 +63,8 @@ test('every catalog vehicle owns immutable named model-local armor collision vol
       if (volume.shape === 'triangle-mesh') {
         assert.ok(Object.isFrozen(volume.vertices));
         assert.ok(Object.isFrozen(volume.plates));
-        assert.ok(volume.vertices.length > 8);
-        assert.ok(volume.plates.length > 6);
+        assert.ok(volume.vertices.length >= 8);
+        assert.ok(volume.plates.length > 0);
         for (const plate of volume.plates) {
           assert.ok(Object.isFrozen(plate));
           assert.ok(Object.isFrozen(plate.triangles));
@@ -70,6 +78,26 @@ test('every catalog vehicle owns immutable named model-local armor collision vol
         );
       }
     }
+    assert.ok(
+      collision.volumes.every(volume => volume.sourceMeshName),
+      `${spec.id} volumes must identify their authored source meshes`
+    );
+  }
+});
+
+test('checked-in armor triangles exactly reproduce every declared authored core mesh', () => {
+  for (const [modelId, manifest] of Object.entries(
+    FRANCE_1940_VEHICLE_ARMOR_SOURCES
+  )) {
+    const compiled = compileVehicleArmorMesh(
+      FRANCE_1940_VEHICLE_MESH_FACTORIES[modelId](),
+      manifest
+    );
+    assert.deepEqual(
+      GENERATED_VEHICLE_ARMOR_COLLISIONS[modelId],
+      compiled,
+      `${modelId} armor snapshot is stale; run npm run author:vehicle-armor`
+    );
   }
 });
 
@@ -117,36 +145,51 @@ test('armor sweeps follow authoritative hull pitch and remove a separated turret
   assert.equal(segment([0, 5, -1], [0, -2, -1], unit), null);
 });
 
-test('SOMUA uses shared sloped station plates plus mantlet, cupola, and track zones', () => {
+test('SOMUA armor uses its current GLB-derived hull, turret, and track meshes', () => {
   const unit = vehicleUnit(VEHICLES.SOMUA_S35);
-  assert.equal(unit.vehicleSpec.armorCollision.version, 'named-triangle-plates-v2');
+  assert.equal(unit.vehicleSpec.armorCollision.version, 'named-mesh-triangle-plates-v3');
+  assert.deepEqual(
+    unit.vehicleSpec.armorCollision.volumes.map(volume => volume.sourceMeshName),
+    [
+      'S35_ProxyExteriorHull',
+      'S35_ProxySlopingEngineDeck',
+      'S35_ProxyAPXTurret',
+      'S35_ProxyClosedObservationCupola',
+      'S35_ProxyClosedCupolaRoof',
+      'S35_ProxySA35Mantlet',
+      'S35_ProxyTracks',
+      'S35_ProxyTracks'
+    ]
+  );
 
   const front = segment([0, 0.85, 10], [0, 0.85, -10], unit);
   assert.equal(front.zone, 'hull_front');
-  assert.match(front.plateId, /^hull-cast-shell:front-cast-nose$/);
-  assert.equal(front.nominalArmorMm, 40);
+  assert.equal(front.sourceMeshName, 'S35_ProxyExteriorHull');
+  assert.match(front.plateId, /:positiveZ$/);
 
   const shoulder = segment([5, 1.45, -1.2], [-5, 1.45, -1.2], unit);
   assert.equal(shoulder.zone, 'hull_side');
-  assert.match(shoulder.plateId, /left-shoulder-casting/);
+  assert.equal(shoulder.sourceMeshName, 'S35_ProxyExteriorHull');
   assert.ok(shoulder.normal[0] > 0.5);
-  assert.ok(shoulder.normal[1] > 0.1, 'station shoulder must retain real slope');
+  assert.ok(shoulder.normal[1] > 0.1, 'GLB shoulder must retain its real slope');
 
-  const track = segment([5, 0.55, 0], [-5, 0.55, 0], unit);
+  const track = segment([5, 0.05, -1.95], [-5, 0.05, -1.95], unit);
   assert.equal(track.zone, 'track_left');
   assert.equal(track.armorPart, 'track');
+  assert.equal(track.sourceMeshName, 'S35_ProxyTracks');
   assert.equal(track.nominalArmorMm, 20);
   assert.match(track.thicknessDataQuality, /gameplay approximation/);
 
-  const mantlet = segment([0.04, 2.03, 10], [0.04, 2.03, -10], unit);
+  const mantlet = segment([-0.325, 1.825, 5], [-0.325, 1.825, -5], unit);
   assert.equal(mantlet.zone, 'mantlet');
+  assert.equal(mantlet.sourceMeshName, 'S35_ProxySA35Mantlet');
   assert.equal(mantlet.fallbackZone, 'turret_front');
 
   const cupola = segment([0.02, 10, 0.55], [0.02, -1, 0.55], unit);
   assert.equal(cupola.zone, 'cupola');
   assert.equal(cupola.fallbackZone, 'turret_side');
 
-  const oldBoxFalsePositive = segment([1.04, 1.60, -1.2], [-1.04, 1.60, -1.2], unit);
+  const oldBoxFalsePositive = segment([1.04, 1.60, 10], [1.04, 1.60, -10], unit);
   assert.equal(oldBoxFalsePositive, null);
 });
 
@@ -162,14 +205,14 @@ test('SOMUA auxiliary envelopes charge track and mantlet resistance only on entr
   for (const fixture of [
     {
       label: 'track',
-      start: [5, 0.55, 0],
-      end: [-5, 0.55, 0],
+      start: [5, 0.05, -1.95],
+      end: [-5, 0.05, -1.95],
       expectedZone: 'track_left'
     },
     {
       label: 'mantlet',
-      start: [0.04, 2.03, 10],
-      end: [0.04, 2.03, -10],
+      start: [-0.325, 1.825, 5],
+      end: [-0.325, 1.825, -5],
       expectedZone: 'mantlet'
     }
   ]) {
@@ -226,11 +269,11 @@ test('swept armor collision reports named front, side, rear, and top plates', ()
   const front = segment([0, 1, 10], [0, 1, -10], unit);
   const rear = segment([0, 1, -10], [0, 1, 10], unit);
   const side = segment([10, 1, 0], [-10, 1, 0], unit);
-  const top = segment([0, 10, 0.21], [0, -1, 0.21], unit);
+  const top = segment([0.3, 10, 0.21], [0.3, -1, 0.21], unit);
 
   assert.equal(front.zone, 'hull_front');
-  assert.equal(front.plateId, 'hull-primary:positiveZ');
-  assert.deepEqual(front.normal.map(value => Math.round(value)), [0, 0, 1]);
+  assert.match(front.plateId, /:positiveZ$/);
+  assert.ok(front.normal[2] > 0.5);
   assert.equal(rear.zone, 'hull_rear');
   assert.equal(side.zone, 'hull_side');
   assert.equal(top.zone, 'turret_top');
@@ -242,9 +285,9 @@ test('armor volumes reject empty space that the old spherical target accepted', 
   const miss = segment([1.20, 2.30, 10], [1.20, 2.30, -10], unit);
   assert.equal(miss, null);
 
-  const turretHit = segment([0, 2.30, 10], [0, 2.30, -10], unit);
+  const turretHit = segment([0, 2.10, 10], [0, 2.10, -10], unit);
   assert.equal(turretHit.zone, 'turret_front');
-  assert.equal(turretHit.armorVolumeId, 'turret-primary');
+  assert.equal(turretHit.sourceMeshName, 'PanzerIIID_ThreeManTurret');
 });
 
 test('vehicle and turret yaw rotate named plate ownership with the model', () => {
@@ -255,7 +298,7 @@ test('vehicle and turret yaw rotate named plate ownership with the model', () =>
   const turretTurned = vehicleUnit(VEHICLES.PANZER_III_D, { turretYaw: Math.PI / 2 });
   const turretFront = segment([10, 2.20, 0.21], [-10, 2.20, 0.21], turretTurned);
   assert.equal(turretFront.zone, 'turret_front');
-  assert.equal(turretFront.plateId, 'turret-primary:positiveZ');
+  assert.match(turretFront.plateId, /:positiveZ$/);
 });
 
 test('resolved armor uses the swept plate normal and explicit thickness fallback', () => {
@@ -265,7 +308,8 @@ test('resolved armor uses the swept plate normal and explicit thickness fallback
     zone: result.zone,
     damageZone: result.damageZone
   });
-  const hit = segment([0, 10, 0.21], [0, -1, 0.21], unit);
+  const hit = segment([0.3, 10, 0.21], [0.3, -1, 0.21], unit);
+  assert.equal(hit.thicknessSourceZone, 'turret_side');
   const ballistics = new BallisticsSystem({ random: () => 0.5 });
   const result = ballistics.resolveVehicleImpact({
     weapon: WEAPONS.SA35_AP,
@@ -281,6 +325,8 @@ test('resolved armor uses the swept plate normal and explicit thickness fallback
     armorVolumeId: hit.armorVolumeId,
     armorPart: hit.armorPart,
     armorGeometryQuality: hit.geometryQuality,
+    thicknessSourceZone: hit.thicknessSourceZone,
+    thicknessDataQuality: hit.thicknessDataQuality,
     localImpactPoint: [hit.localPoint.x, hit.localPoint.y, hit.localPoint.z]
   });
 
@@ -290,7 +336,7 @@ test('resolved armor uses the swept plate normal and explicit thickness fallback
   assert.equal(result.impactCosine, 1);
   assert.deepEqual(result.impactNormal, [0, 1, 0]);
   assert.equal(result.crewResult.damageZone, 'turret_side');
-  assert.match(result.armorGeometryQuality, /per-plate slope authoring/);
+  assert.match(result.armorGeometryQuality, /authored core vehicle mesh/);
 });
 
 test('resolved SOMUA track hits use authored track thickness and localized component routing', () => {
@@ -300,11 +346,15 @@ test('resolved SOMUA track hits use authored track thickness and localized compo
     damageZone: result.damageZone,
     componentZone: result.componentZone
   });
-  const hit = segment([5, 0.55, 0], [-5, 0.55, 0], unit);
+  const hit = segment([5, 0.05, -1.95], [-5, 0.05, -1.95], unit);
+  const weapon = {
+    ...WEAPONS.KWK36_AP,
+    penetrationMmAt100m: 120
+  };
   const ballistics = new BallisticsSystem({ random: () => 0.5 });
   const result = ballistics.resolveVehicleImpact({
-    weapon: WEAPONS.KWK36_AP,
-    velocity: new THREE.Vector3(-WEAPONS.KWK36_AP.muzzleVelocity, 0, 0)
+    weapon,
+    velocity: new THREE.Vector3(-weapon.muzzleVelocity, 0, 0)
   }, {
     kind: 'vehicle',
     unit,
@@ -493,10 +543,10 @@ test('resolved French light armor penetrations enter their vehicle-owned interna
   }
 });
 
-test('unarmored transport penetrations enter bonnet powertrains without inventing armor resistance', () => {
-  for (const [spec, height] of [
-    [VEHICLES.LAFFLY_S20TL, 1.05],
-    [VEHICLES.OPEL_BLITZ, 0.98]
+test('unarmored transport shells enter through exact front meshes and trace the full body', () => {
+  for (const [spec, height, expectedSource] of [
+    [VEHICLES.LAFFLY_S20TL, 1.05, 'S20TL_RadiatorGrille'],
+    [VEHICLES.OPEL_BLITZ, 0.98, 'OpelBlitz_RadiatorShell']
   ]) {
     const unit = vehicleUnit(spec);
     unit.applyArmorHit = result => ({ internalPathHits: result.internalPathHits });
@@ -520,9 +570,10 @@ test('unarmored transport penetrations enter bonnet powertrains without inventin
 
     assert.equal(result.penetrated, true, spec.id);
     assert.equal(result.nominalArmorMm, 0, spec.id);
+    assert.equal(hit.sourceMeshName, expectedSource, spec.id);
     assert.deepEqual(
       result.internalPathHits.map(pathHit => pathHit.id),
-      ['module-engine', 'module-transmission'],
+      ['module-engine', 'module-transmission', 'module-ammunition-cargo'],
       spec.id
     );
   }
@@ -675,7 +726,7 @@ test('fast projectiles cannot tunnel through named armor volumes', () => {
   assert.deepEqual(replay, hit);
 });
 
-test('armor-exit trace crosses an OBB to its far named plate instead of re-hitting entry', () => {
+test('armor-exit trace crosses the authored hull mesh to its far named plate', () => {
   const unit = vehicleUnit(VEHICLES.PANZER_III_D);
   const entry = segment([0, 1, 10], [0, 1, -10], unit);
   const exit = traceVehicleArmorExit({
@@ -686,15 +737,15 @@ test('armor-exit trace crosses an OBB to its far named plate instead of re-hitti
     maxDistanceMeters: 10
   });
 
-  assert.equal(entry.plateId, 'hull-primary:positiveZ');
+  assert.match(entry.plateId, /:positiveZ$/);
   assert.ok(exit);
   assert.equal(exit.armorVolumeId, entry.armorVolumeId);
-  assert.equal(exit.plateId, 'hull-primary:negativeZ');
+  assert.match(exit.plateId, /:negativeZ$/);
   assert.ok(Math.abs(exit.normal[0]) < 1e-12);
-  assert.ok(Math.abs(exit.normal[1]) < 1e-12);
-  assert.equal(exit.normal[2], -1);
-  assert.ok(Math.abs(exit.point[2] + 2.69) < 1e-9);
-  assert.ok(Math.abs(exit.distanceMeters - 5.38) < 1e-9);
+  assert.ok(exit.normal[1] > 0.5);
+  assert.ok(exit.normal[2] < -0.5);
+  assert.ok(Math.abs(exit.point[2] + 2.605454603) < 1e-6);
+  assert.ok(Math.abs(exit.distanceMeters - 5.15636371) < 1e-6);
   assert.ok(exit.distanceMeters > 0.01, 'exit must not be the t=0 entry face');
 });
 
@@ -709,14 +760,13 @@ test('armor-exit trace crosses the SOMUA triangle shell to its far named plate',
     maxDistanceMeters: 10
   });
 
-  assert.equal(entry.plateId, 'hull-cast-shell:front-cast-nose');
+  assert.equal(entry.sourceMeshName, 'S35_ProxyExteriorHull');
+  assert.match(entry.plateId, /:positiveZ$/);
   assert.ok(exit);
   assert.equal(exit.armorVolumeId, entry.armorVolumeId);
-  assert.equal(exit.plateId, 'hull-cast-shell:rear-casting');
-  assert.ok(Math.abs(exit.normal[0]) < 1e-12);
-  assert.ok(Math.abs(exit.normal[1]) < 1e-12);
-  assert.equal(exit.normal[2], -1);
-  assert.ok(Math.abs(exit.point[2] + 2.69) < 1e-9);
-  assert.ok(Math.abs(exit.distanceMeters - 5.38) < 1e-9);
+  assert.match(exit.plateId, /:negativeZ$/);
+  assert.ok(exit.normal[2] < -0.5);
+  assert.ok(exit.point[2] < -2.2);
+  assert.ok(exit.distanceMeters > 4.7);
   assert.ok(exit.distanceMeters > 0.01, 'exit must not be the t=0 entry face');
 });

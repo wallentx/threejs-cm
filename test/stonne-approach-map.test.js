@@ -16,6 +16,7 @@ import {
 import {
   createConfiguredBattleScenario
 } from '../src/scenario/BattleSetup.js';
+import { EnemyObjectivePlanner } from '../src/simulation/ai/EnemyObjectivePlanner.js';
 import { BuildingSystem } from '../src/simulation/buildings/index.js';
 import { TerrainBuilder } from './helpers/France1940TestTerrain.js';
 import {
@@ -218,4 +219,37 @@ test('configured forces fit Stonne deployment bands and face the crossroads', ()
     && unit.position[2] <= 140
     && Math.abs(unit.rotation - Math.PI) < 1e-12
   )));
+  assert.equal(scenario.objective, null);
+  assert.equal(scenario.enemyPlanSet.id, 'stonne-german-maneuver-plans-v1');
+  assert.equal(scenario.enemyPlanSet.plans.length, 3);
+
+  const planner = new EnemyObjectivePlanner({
+    planSet: scenario.enemyPlanSet,
+    difficultyId: 'regular',
+    random: () => 0
+  });
+  const setupCommands = planner.prepare(german);
+  const routeCommands = planner.beginBattle(german);
+  assert.equal(setupCommands.length, german.length);
+  assert.equal(routeCommands.length, german.length);
+  assert.ok(routeCommands.every(command => command.waypoints.length >= 1));
+  assert.ok(routeCommands.every(
+    command => command.waypoints.at(-1).position[1] < 0
+  ));
+
+  const frenchEnemyScenario = createConfiguredBattleScenario({
+    mapDescriptor: STONNE_APPROACH_1940_MAP,
+    family,
+    catalog: FRANCE_1940_BATTLE_SETUP,
+    playerFactionId: 'german',
+    enemyFactionId: 'french',
+    playerForceSelection: defaultForce('german'),
+    enemyForceSelection: defaultForce('french'),
+    enemyAiDifficulty: 'regular'
+  });
+  assert.equal(frenchEnemyScenario.objective, null);
+  assert.equal(
+    frenchEnemyScenario.enemyPlanSet.id,
+    'stonne-french-counterattack-plans-v1'
+  );
 });

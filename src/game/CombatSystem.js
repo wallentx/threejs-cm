@@ -777,6 +777,7 @@ export class CombatSystem {
       plateId: result?.plateId ?? impact.plateId ?? null,
       armorVolumeId: result?.armorVolumeId ?? impact.armorVolumeId ?? null,
       armorPart: result?.armorPart ?? impact.armorPart ?? null,
+      sourceMeshName: result?.sourceMeshName ?? impact.sourceMeshName ?? null,
       armorGeometryQuality: result?.armorGeometryQuality ?? impact.armorGeometryQuality ?? null,
       impactNormal: result?.impactNormal ? [...result.impactNormal] : null,
       localImpactPoint: result?.localImpactPoint ? [...result.localImpactPoint] : null,

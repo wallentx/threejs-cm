@@ -11,6 +11,7 @@
     "build": "vite build",
     "audit:silhouettes": "node scripts/audit-vehicle-silhouettes.mjs",
     "author:renault-d2": "node scripts/build-renault-d2-authoring.mjs",
+    "author:vehicle-armor": "node scripts/generate-vehicle-armor-collision.mjs",
     "update:silhouette-baseline": "node scripts/audit-vehicle-silhouettes.mjs --update-baseline",
     "test": "node scripts/run-tests.mjs core",
     "test:core": "node scripts/run-tests.mjs core",

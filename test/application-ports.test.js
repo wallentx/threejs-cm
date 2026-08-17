@@ -16,8 +16,18 @@ function runtimeHarness() {
     stance: 'STANDING',
     targetUnit: { id: 'red-1' },
     targetPos: { x: 1, z: 2 },
+    targetAimIntent: { point: [1, 0, 2] },
+    targetMode: 'TARGET',
     addPause: seconds => calls.push(['pause', seconds]),
     clearWaypoints: () => calls.push(['clear-paths']),
+    clearTargetOrder() {
+      this.targetUnit = null;
+      this.targetPos = null;
+      this.targetAimIntent = null;
+      this.targetMode = null;
+      calls.push(['clear-target']);
+      return true;
+    },
     updateStanceVisuals: () => calls.push(['stance']),
     toggleCrewServedDeployment() {
       this.isDeployed = true;
@@ -252,6 +262,8 @@ test('UI runtime port owns direct selected-unit mutations and building event bin
 
   assert.equal(unit.targetUnit, null);
   assert.equal(unit.targetPos, null);
+  assert.equal(unit.targetAimIntent, null);
+  assert.equal(unit.targetMode, null);
   assert.equal(unit.isHiding, true);
   assert.equal(unit.holdFire, true);
   assert.equal(unit.isDeployed, true);

@@ -1,4 +1,7 @@
 import { defineMapDescriptor } from '../MapDescriptor.js';
+import {
+  STONNE_APPROACH_ENEMY_STRATEGIES
+} from './StonneApproachEnemyStrategy.js';
 
 const REFERENCE_QUALITY =
   'scenario-authored approximation composed from the user-supplied Stonne aerial reference; not georeferenced or surveyed historical terrain';
@@ -530,5 +533,6 @@ export const STONNE_APPROACH_1940_MAP = defineMapDescriptor({
       maxZ: 140,
       color: 0xef4444
     }
-  }
+  },
+  configuredEnemyStrategies: STONNE_APPROACH_ENEMY_STRATEGIES
 });

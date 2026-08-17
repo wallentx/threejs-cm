@@ -202,6 +202,15 @@ even when a matching broader parent exists elsewhere in this file.
     center, keep stopped/ricochet marks pale like exposed steel, give
     penetrations a dark hole with a metal rim, and render HE as diffuse brown
     burn scoring rather than a large black dot.
+  - [x] Replace oversized generic hull/turret boxes on all 14 remaining
+    vehicles with deterministic triangle collision snapshots extracted from
+    each vehicle's declared core hull, turret, mantlet, cupola, track, and
+    wheel meshes; retain the SOMUA's existing shared source shell, publish the
+    exact source mesh on impact telemetry, and broadphase every triangle volume
+    through its own authored bounds.
+  - [ ] Live-accept the mesh-shaped armor overlay on a working WebGPU or WebGL2
+    device; Termux headless Chromium lost/failed its graphics device before the
+    sandbox could reach `data-game-status="ready"`.
 - [ ] Replace the blue map-edge void with a map-family horizon treatment:
   preferably cheap continuation terrain/vegetation and atmospheric blending
   beyond playable bounds, with no collision or simulation authority outside
@@ -340,14 +349,25 @@ even when a matching broader parent exists elsewhere in this file.
     the selected plan and assignments. Cover selection, building assault,
     transport loading, mortar missions, reserve commitment, withdrawal, and a
     defending-AI planner remain.
+  - [x] Objective-independent Stonne attacker slice: keep the map's victory
+    objective unset while independently attaching three deterministic
+    combined-arms maneuver plans for either playable enemy faction for center pressure, an eastern road hook, or
+    a western orchard envelopment; preserve difficulty timing and the existing
+    planner's capture/restore state.
 - [ ] Validate and live-tune deterministic sustained armored-vehicle engagement
   learning: after repeated resolved cannon impacts with no useful effect, shift
   among points derived from the target's authored armor volumes; in Auto mode,
   try an available alternate main-gun round; then reconsider only automatic
   targets using current precision-visible armor threat, aspect, penetration
   margin, and range. Preserve explicit player surface aim and AP/HE orders.
-  Implementation and rollback wiring are present; deferred behavioral coverage
-  and live acceptance remain.
+  Implementation and rollback wiring are present; broader WEGO replay and
+  frame-partition threshold coverage remain.
+  - [x] Focused behavioral regression slice: cover exact escalation thresholds,
+    hidden partial damage, observable reset, bounded authored aim selection,
+    useful available Auto ammunition trials, explicit-mode preservation,
+    operational-threat classification, stable scored retargeting, neutralized
+    target rejection, exact active/history capture and restore, and late-impact
+    isolation.
   - [x] Native-WebGPU tank stress acceptance: in a legal 56-unit / 252-soldier
     forced-contact battle with 12 main-gun tanks staged 28 m apart, all 12 tanks
     acquired targets and fired 60 rounds, producing 36 resolved vehicle
@@ -405,8 +425,13 @@ even when a matching broader parent exists elsewhere in this file.
     roof-exit approximation until their hatch records are authored. Direct AI
     acquisition of separated survivors, dynamic-obstacle avoidance, distinct
     running/casualty LODs, surrender, personal weapons, and remanning remain.
-    Implementation is present; behavioral validation is deferred in `TEST.md`
-    at the user's request.
+    Implementation is present; direct AI survivor acquisition and the remaining
+    visual/runtime acceptance are still incomplete.
+    - [x] Focused behavioral regression slice: cover stable living-crew order,
+      stagger/exposure timing, whole-step/partition/capture/restore parity,
+      waiting and exposed casualties, command abandonment, commander buttoning,
+      lazy figure allocation without restore duplication, automatic fire/rout
+      triggers, truck mount-control lockout, swept body hits, and HE falloff.
   - [ ] Correct 18 measured positive breech/crew OBB overlaps across 14 armored
     vehicles from each vehicle's authored station evidence; separately conserve
     residual energy across coincident internal-path intervals instead of charging
@@ -1001,7 +1026,8 @@ authorized.
 - [ ] Replace spherical vehicle hit volumes with mesh-accurate armor plates and named collision zones.
   - [x] First deterministic slice: replace vehicle spheres with swept, model-local named hull/turret/cab/cargo volumes; rotate turret plates with turret yaw; expose stable plate/volume IDs, exact impact normals, local impact points, top/bottom zones, and explicit thickness fallbacks across all 15 vehicles.
   - [x] SOMUA vertical slice: share renderer/collision hull and turret station contours; resolve swept triangle plates with exact slopes; add mantlet, cupola, and left/right track zones; route track penetrations to the track component; label each thickness source and approximation.
-  - [ ] Replace approximate OBB faces for the remaining 13 vehicles with vehicle-specific sloped convex plates derived from their authored hull/turret station tables; add missing wheel, deck, roof, belly, and internal zones with historical thickness provenance.
+  - [x] Replace approximate OBB faces across all 15 vehicles with deterministic checked-in triangles compiled from each declared authored collision-source mesh; migrate the SOMUA from its retired station loft to its current lower-detail GLB-derived hull, engine deck, APX turret, cupola, mantlet, and partitioned left/right track geometry.
+  - [ ] Add missing wheel, deck, roof, belly, and internal zones with historical thickness provenance where the current authored source manifests do not yet expose them.
 - [x] Replace stance-blind infantry torso spheres with named stance- and facing-aware compound swept hit volumes; aim at the same torso authority and expose resolved hit-volume telemetry.
 - [ ] Add a shot-inspection debug view: trajectory, impact angle, velocity, armor thickness, penetration, and damage result.
   - [x] Rough pass: detailed inspectable impact telemetry fields (shooter, target, range, speed, angle, armor, penetration, crew result) and data-ballistics-stats DOM dataset.

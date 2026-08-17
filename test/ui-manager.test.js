@@ -469,6 +469,99 @@ test('floating badges select or inspect units and preserve intentional focus', (
   }
 });
 
+test('destroyed vehicles, structures, and wiped infantry remove badges while disabled living units retain them', () => {
+  const previousDocument = globalThis.document;
+  const previousWindow = globalThis.window;
+  const createdIcons = [];
+  globalThis.document = {
+    getElementById: id => id === 'icon-overlay'
+      ? { appendChild() {} }
+      : null,
+    createElement() {
+      const badge = {
+        style: { setProperty() {} },
+        addEventListener() {}
+      };
+      const icon = {
+        dataset: {},
+        style: {},
+        innerHTML: '',
+        querySelector: () => badge
+      };
+      createdIcons.push(icon);
+      return icon;
+    }
+  };
+  globalThis.window = { innerWidth: 1280, innerHeight: 720 };
+
+  try {
+    const camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.1, 100);
+    camera.position.set(0, 2, 12);
+    camera.lookAt(0, 1, 0);
+    camera.updateMatrixWorld(true);
+    camera.updateProjectionMatrix();
+    const destroyed = new Set();
+    const unit = (id, faction, kind) => ({
+      id,
+      name: id,
+      faction,
+      position: new THREE.Vector3(),
+      mesh: { visible: true },
+      ...(kind === 'vehicle' ? { vehicleSpec: { dimensionsMeters: { height: 2 } } } : {}),
+      ...(kind === 'structure' ? { structureSpec: { height: 3 } } : {}),
+      ...(kind === 'infantry' ? {
+        type: 'infantry_squad',
+        soldierAI: { getLivingAgents: () => destroyed.has(id) ? [] : [{}] }
+      } : {}),
+      isDestroyed: () => destroyed.has(id),
+      getVehicleDamageReport: () => ({
+        burning: false,
+        destroyed: destroyed.has(id),
+        components: {}
+      })
+    });
+    const units = [
+      unit('french-wreck', 'french', 'vehicle'),
+      unit('german-ruin', 'german', 'structure'),
+      unit('wiped-squad', 'french', 'infantry'),
+      unit('disabled-living', 'german', 'vehicle')
+    ];
+    const ui = Object.create(UIManager.prototype);
+    ui.showIcons = true;
+    ui.iconPool = new Map();
+    ui.isBadgeOccluded = () => false;
+    ui.runtime = {
+      selectedUnit: null,
+      commandMode: null,
+      hoveredUnitId: null,
+      isPlayerFaction: faction => faction === 'french',
+      getFactionPresentation: faction => ({
+        selectionColor: faction === 'french' ? '#3366ff' : '#ff3333'
+      }),
+      selectUnit() {},
+      inspectUnit() {}
+    };
+
+    ui.updateFloatingIcons(units, { camera });
+    assert.equal(createdIcons.length, 4);
+    assert.equal([...ui.iconPool.values()].every(icon => icon.style.display === 'block'), true);
+
+    destroyed.add('french-wreck');
+    destroyed.add('german-ruin');
+    destroyed.add('wiped-squad');
+    ui.updateFloatingIcons(units, { camera });
+    for (const id of ['french-wreck', 'german-ruin', 'wiped-squad']) {
+      assert.equal(ui.iconPool.get(id).style.display, 'none');
+    }
+    assert.equal(ui.iconPool.get('disabled-living').style.display, 'block');
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
+});
+
 test('unit badge anchors retain fixed screen clearance at long camera range', () => {
   const camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.1, 500);
   camera.position.set(0, 4, 120);

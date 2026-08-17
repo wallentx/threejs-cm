@@ -33,7 +33,7 @@ test('browser build uses Three r185 WebGPURenderer with explicit initialization 
   assert.match(rendererSource, /await this\.graphicsRenderer\.compileAsync\(/);
   assert.match(rendererSource, /'webgl2-fallback'/);
   assert.match(rendererSource, /graphicsRenderer\.onDeviceLost = info =>/);
-  assert.match(rendererSource, /graphicsRenderer\.shadowMap\.enabled = this\.renderProfile\.shadowMapSize > 0/);
+  assert.match(rendererSource, /graphicsRenderer\.shadowMap\.enabled = this\.shadowsEnabled/);
   assert.match(rendererSource, /this\.graphicsRenderer\.backend\?\.isWebGLBackend\) throw err/);
   assert.match(appSource, /await this\.renderer\.initialize\(\)/);
   assert.match(appSource, /dataset\.rendererBackend = this\.renderer\.backendName/);
@@ -62,15 +62,18 @@ test('render profiles bound pixel and shadow cost with explicit ultra opt-in', (
   assert.equal(normalizeRenderQualityTier('missing'), 'high');
   assert.deepEqual(getRenderProfile('low'), {
     maxPixelRatio: 1,
-    shadowMapSize: 0
+    shadowMapSize: 0,
+    shadowHalfExtent: 0
   });
   assert.deepEqual(getRenderProfile('high'), {
     maxPixelRatio: 1.5,
-    shadowMapSize: 1024
+    shadowMapSize: 1024,
+    shadowHalfExtent: 48
   });
   assert.deepEqual(getRenderProfile('ultra'), {
     maxPixelRatio: 2,
-    shadowMapSize: 2048
+    shadowMapSize: 2048,
+    shadowHalfExtent: 78
   });
 });
 
@@ -155,6 +158,66 @@ test('scene shadow configuration restores authored policy after no-shadows mode'
   renderer.configureSceneShadows();
   assert.equal(core.castShadow, true);
   assert.equal(core.receiveShadow, true);
+});
+
+test('SHADOWS control rejects low tier and diagnostics separate active state from capability', () => {
+  const makeHarness = qualityTier => {
+    const core = new THREE.Mesh(
+      new THREE.BoxGeometry(),
+      new THREE.MeshStandardMaterial()
+    );
+    core.userData.lodBand = 'core';
+    core.castShadow = true;
+    core.receiveShadow = true;
+    const renderer = Object.create(Renderer.prototype);
+    renderer.qualityTier = qualityTier;
+    renderer.renderProfile = getRenderProfile(qualityTier);
+    renderer.scene = new THREE.Scene();
+    renderer.scene.add(core);
+    renderer.graphicsRenderer = {
+      shadowMap: { enabled: false },
+      getPixelRatio: () => renderer.renderProfile.maxPixelRatio,
+      info: {
+        render: { calls: 0, triangles: 0 },
+        memory: { geometries: 1, textures: 0 }
+      },
+      toneMappingExposure: 1
+    };
+    renderer.sunLight = { castShadow: false };
+    renderer.backendName = 'webgl2';
+    renderer.deviceLost = false;
+    renderer.debugMode = 'final';
+    renderer.shadowStats = { casters: 0, receivers: 0 };
+    renderer.renderPipeline = null;
+    return { renderer, core };
+  };
+
+  const low = makeHarness('low');
+  assert.equal(low.renderer.setShadowsEnabled(true), false);
+  assert.equal(low.renderer.graphicsRenderer.shadowMap.enabled, false);
+  assert.equal(low.core.castShadow, false);
+  assert.deepEqual(
+    [low.renderer.getDiagnostics().shadows,
+      low.renderer.getDiagnostics().shadowMapSize,
+      low.renderer.getDiagnostics().shadowMapCapability],
+    [false, 0, 0]
+  );
+
+  for (const [tier, capability] of [['high', 1024], ['ultra', 2048]]) {
+    const harness = makeHarness(tier);
+    assert.equal(harness.renderer.setShadowsEnabled(true), true);
+    assert.equal(harness.renderer.graphicsRenderer.shadowMap.enabled, true);
+    assert.equal(harness.core.castShadow, true);
+    const active = harness.renderer.getDiagnostics();
+    assert.equal(active.shadows, true);
+    assert.equal(active.shadowMapSize, capability);
+    assert.equal(active.shadowMapCapability, capability);
+    assert.equal(harness.renderer.setShadowsEnabled(false), false);
+    const disabled = harness.renderer.getDiagnostics();
+    assert.equal(disabled.shadows, false);
+    assert.equal(disabled.shadowMapSize, 0);
+    assert.equal(disabled.shadowMapCapability, capability);
+  }
 });
 
 test('directional shadows use facade-safe depth bias', () => {

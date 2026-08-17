@@ -258,13 +258,17 @@ export class DebugOverlaySystem {
     const cached = this.triangleGeometryCache.get(volume);
     if (cached) return cached;
     const geometry = new THREE.BufferGeometry();
+    const positions = volume.vertexStride === 3
+      ? volume.vertices
+      : volume.vertices.flat();
     geometry.setAttribute(
       'position',
-      new THREE.Float32BufferAttribute(volume.vertices.flat(), 3)
+      new THREE.Float32BufferAttribute(positions, 3)
     );
     const triangles = [];
     for (const plate of volume.plates ?? []) {
-      for (const triangle of plate.triangles ?? []) triangles.push(...triangle);
+      if (plate.triangleStride === 3) triangles.push(...plate.triangles);
+      else for (const triangle of plate.triangles ?? []) triangles.push(...triangle);
     }
     geometry.setIndex(triangles);
     this.triangleGeometryCache.set(volume, geometry);

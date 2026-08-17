@@ -10,6 +10,12 @@
   disables commander unbuttoning and truck remount controls, does not recreate
   duplicate commander exposure, and lazily allocates figures only for bailout
   actors.
+  - [x] Covered stable order, stagger/exposure timing, whole-step/partition/
+    capture/restore parity, waiting and exposed casualties, command
+    abandonment, commander buttoning, lazy figures without restore duplication,
+    fire/rout triggers, truck remount lockout, swept body collision, and HE
+    distance falloff. Source-cookoff integration, collision-arrival obstruction,
+    and visible casualty presentation remain.
 
 - [ ] Add a generic internal-layout overlap audit and energy-conservation
   regression. Report coincident crew/module OBB volume and shared path-length
@@ -23,13 +29,19 @@
   remove its existing floating badge on the next bounded UI update while its
   wreck/casualty presentation remains in the world. Disabled-but-living
   vehicles and transported infantry must retain their appropriate badge state.
+  - [x] Covered next-update badge removal for friendly vehicle wrecks, hostile
+    structures, and wiped infantry, plus badge retention for a disabled living
+    vehicle.
 
-- [ ] Cover atomic direct vehicle target orders through the public command and
+- [x] Cover atomic direct vehicle target orders through the public command and
   clear ports: retarget must immediately clear old main/auxiliary target IDs,
   fire-control keys, and engagement evidence; the resolved model-local aim
   point must remain finite; a precision-contact dropout must retain the ordered
   spatial aim without selecting a stale automatic target; Clear Target must
   clear every owner before ordinary automatic acquisition may run again.
+  - [x] Covered atomic retarget and Clear Target across main/auxiliary channels,
+    fire-control keys and ranges, engagement evidence, finite model-local aim,
+    precision-dropout spatial retention, and post-clear automatic acquisition.
 
 - [ ] Cover automatic tank threat replacement after target destruction,
   burning, main-gun/breech/gunner loss, and ammunition exhaustion, including
@@ -40,6 +52,11 @@
   the generic visible-target fallback. Return no target without throwing when
   no operational armored threat or valid non-armored fallback remains, and
   prove capture/restore plus frame-partition equivalence.
+  - [x] Covered burning/destroyed/gunner/ammunition neutralization, immobilized
+    cannon retention, secondary cannon retention, stable candidate order,
+    neutralized baseline/fallback rejection, explicit-order release, null-safe
+    exhaustion, and exact engagement-history capture/restore. Full GameApp
+    frame-partition replay remains.
 
 - [ ] Cover vehicle alignment status projection: ordinary turret main guns and
   turret mounts report `TRAVERSING`, the Char B1 bis 75 mm whole-hull laying
@@ -52,6 +69,10 @@
   unowned turret, but cannot write turret yaw once explicit or automatic fire
   control owns a target; authoritative and rendered yaw must accumulate at the
   authored traverse rate rather than being counter-rotated each fixed step.
+  - [x] Covered turret `TRAVERSING`, Char B1 bis hull-cannon `SLEWING`, fixed
+    `OUT OF ARC`, hull-yaw ownership, authored turret accumulation and rendered
+    yaw, plus gun, traverse, gunner, movement, and crew-busy blockers. Crew
+    transfer resumption and idle-threat ownership replay remain.
 
 - [ ] Cover sustained vehicle-engagement learning with stable target IDs:
   harmless stops, ricochets, and penetrations must advance authored armor aim
@@ -64,6 +85,11 @@
   penetration/aspect/threat/range tie order. Prove exact capture/restore of both
   active evidence and retarget history, WEGO replay, and frame-partition
   equivalence across every threshold.
+  - [x] Covered exact stop/ricochet/penetration thresholds, partial-damage
+    escalation, observable reset, useful available Auto alternatives, explicit
+    mode preservation, stable scored retargeting, exact active/history restore,
+    and late prior-target impact isolation. Full WEGO replay and timed
+    frame-partition coverage remain.
 
 - [ ] Add a browser visual regression for the material-specific weathered
   plaster, vertical timber, irregular cobblestone, and stitched burlap
@@ -98,11 +124,11 @@
   exposing the interior void at oblique angles. Assert plinth facade strips
   share mitered corner edges and contain only outward vertical and top faces,
   with no inner, bottom, or hidden end triangles at any LOD.
-- [ ] Extend infantry separation and individual-fire coverage to prove axis-
+- [x] Extend infantry separation and individual-fire coverage to prove axis-
   rejected distant pairs produce byte-equivalent correction/telemetry output,
   near diagonal pairs still resolve, exact-range targets still perform LOS,
   and only strictly horizontally out-of-range targets skip LOS.
-- [ ] Cover the presentation-only simulation phase profiler's enable/reset,
+- [x] Cover the presentation-only simulation phase profiler's enable/reset,
   bounded rolling averages, phase accounting, and steps-per-frame projection;
   prove its samples never enter simulation capture/restore state.
 - [ ] Add deferred performance-slice regressions: byte-equivalent static
@@ -145,7 +171,7 @@
   exposed commander plus open/unarmored vehicles, and allow a future anti-armor
   weapon only when cataloged 100 m penetration reaches the weakest listed
   positive armor aspect.
-- [ ] Update renderer-profile coverage for every quality tier starting with
+- [x] Update renderer-profile coverage for every quality tier starting with
   dynamic shadows disabled while high/ultra retain 1024/2048 capabilities;
   cover the debug SHADOWS toggle, low-tier rejection, active versus capability
   diagnostics, and mesh-policy application.

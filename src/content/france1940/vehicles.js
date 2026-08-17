@@ -1,4 +1,6 @@
-import { createSomuaS35ArmorCollision } from './vehicleData/SomuaS35Shape.js';
+import {
+  getGeneratedVehicleArmorCollision
+} from './vehicleData/GeneratedVehicleArmorCollision.js';
 import {
   createSomuaS35InternalLayout
 } from './vehicleData/internalLayouts/SomuaS35InternalLayout.js';
@@ -121,15 +123,23 @@ function freezeArmorVolume(volume) {
     interiorPoint: volume.interiorPoint
       ? Object.freeze([...volume.interiorPoint])
       : undefined,
+    bounds: volume.bounds
+      ? Object.freeze({
+          center: Object.freeze([...volume.bounds.center]),
+          halfExtents: Object.freeze([...volume.bounds.halfExtents])
+        })
+      : undefined,
     vertices: volume.vertices
-      ? Object.freeze(volume.vertices.map(vertex => Object.freeze([...vertex])))
+      ? Object.freeze(volume.vertexStride === 3
+        ? [...volume.vertices]
+        : volume.vertices.map(vertex => Object.freeze([...vertex])))
       : undefined,
     plates: volume.plates
       ? Object.freeze(volume.plates.map(plate => Object.freeze({
           ...plate,
-          triangles: Object.freeze(
-            plate.triangles.map(triangle => Object.freeze([...triangle]))
-          )
+          triangles: Object.freeze(plate.triangleStride === 3
+            ? [...plate.triangles]
+            : plate.triangles.map(triangle => Object.freeze([...triangle])))
         })))
       : undefined,
     faceZones: volume.faceZones
@@ -205,7 +215,9 @@ function defaultArmorCollision(vehicle) {
 }
 
 function freezeArmorCollision(vehicle) {
-  const source = vehicle.armorCollision ?? defaultArmorCollision(vehicle);
+  const source = vehicle.armorCollision
+    ?? getGeneratedVehicleArmorCollision(vehicle.modelId)
+    ?? defaultArmorCollision(vehicle);
   return Object.freeze({
     ...source,
     volumes: Object.freeze(source.volumes.map(freezeArmorVolume))
@@ -740,10 +752,6 @@ export const FRANCE_1940_VEHICLES = Object.freeze({
     turretTraverseRadPerSecond: 0.18,
     hitRadius: 2.35,
     armorMm: SOMUA_S35_ARMOR,
-    armorCollision: createSomuaS35ArmorCollision(
-      SOMUA_S35_ARMOR,
-      SOMUA_REFERENCE
-    ),
     internalLayout: createSomuaS35InternalLayout(SOMUA_REFERENCE),
     zoneCrew: {
       hull_front: ['DRIVER', 'RADIO_OPERATOR'],

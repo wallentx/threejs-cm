@@ -267,7 +267,7 @@ export function selectAdaptiveVehicleTarget({
   const stableCandidates = [...(candidates ?? [])]
     .filter(isOperationalArmoredCannonThreat)
     .sort((left, right) => String(left.id).localeCompare(String(right.id)));
-  if (stableCandidates.length === 0) return currentTarget ?? null;
+  if (stableCandidates.length === 0) return null;
   const scored = stableCandidates
     .map(target => ({
       target,

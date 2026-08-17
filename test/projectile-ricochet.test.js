@@ -161,7 +161,7 @@ test('square impacts, penetrating shots, and exhausted rounds stop instead of ri
 test('square stopped AP terminates and is counted separately from a real ricochet', () => {
   const { combat } = createRicochetBattle();
   const projectile = combat.projectiles[0];
-  projectile.position.set(0, 1.25, 5);
+  projectile.position.set(0, 0.85, 5);
   projectile.previousPosition.copy(projectile.position);
   projectile.muzzlePosition.copy(projectile.position);
   projectile.velocity.set(0, 0, -projectile.weapon.muzzleVelocity);
@@ -238,7 +238,7 @@ test('vehicle-impact HE detonates once and never enters the intact-penetrator pa
   );
   for (const componentId of [
     'engine', 'transmission', 'tracks', 'fuel', 'optics', 'radio',
-    'main_gun', 'breech', 'turret_traverse', 'coax', 'hull_mg', 'ammunition'
+    'main_gun', 'breech', 'turret_traverse', 'coax', 'hull_mg'
   ]) {
     assert.equal(
       firstAfterHealth[componentId],
@@ -246,6 +246,10 @@ test('vehicle-impact HE detonates once and never enters the intact-penetrator pa
       `surface detonation must not invent protected ${componentId} damage`
     );
   }
+  assert.ok(
+    firstAfterHealth.ammunition < firstHealth.ammunition,
+    'direct HE on an unarmored transport must reach nearby ammunition cargo'
+  );
   assert.deepEqual(componentHealth(secondTarget), secondHealth);
   combat.reset();
 });
@@ -412,13 +416,10 @@ test('SOMUA sloped plate continues a swept projectile and replay restores reboun
   );
   assert.ok(combat.projectiles[0].velocity.x > 0);
   assert.equal(combat.projectiles[0].ricochetCount, 1);
-  assert.deepEqual(
+  assert.equal(
     combat.projectiles[0].armorIgnore,
-    {
-      unitId: 'ricochet_target',
-      plateId: impact.plateId,
-      untilDistance: combat.projectiles[0].armorIgnore.untilDistance
-    }
+    null,
+    'the one-step sweep already carried the rebound beyond its temporary plate clearance'
   );
 
   const rebound = combat.captureState();

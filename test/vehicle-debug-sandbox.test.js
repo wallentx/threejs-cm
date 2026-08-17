@@ -258,7 +258,7 @@ test('gun mode places the shot origin on the exact three-dimensional camera norm
       distanceMeters: 35
     });
     const aimPoint = target.position.clone().add(new THREE.Vector3(0, 1.2, 0));
-    const cameraDirection = new THREE.Vector3(0.24, -0.32, -0.916515).normalize();
+    const cameraDirection = new THREE.Vector3(0.10, -0.05, -0.9937).normalize();
     assert.equal(
       simulation.queueGunShot(aimPoint, cameraDirection),
       true

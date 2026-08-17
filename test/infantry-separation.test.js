@@ -49,6 +49,9 @@ function makeSquad(id, agents, overrides = {}) {
     currentWaypointIndex: 0,
     soldierAI: {
       agents,
+      getLivingAgents() {
+        return this.agents.filter(agent => agent.isAlive && agent.health !== 0);
+      },
       syncMeshes() {},
       advanceSupportAmmunitionTransfers() {}
     },
@@ -172,6 +175,38 @@ test('coincident same-squad and cross-squad soldiers separate by stable identity
   assert.equal(sameResult.converged, true);
   assert.ok(
     planarDistance(sameFirst, sameSecond)
+      >= INFANTRY_COLLISION_RADIUS * 2 - INFANTRY_SEPARATION_TOLERANCE
+  );
+});
+
+test('axis-rejected distant pairs are byte-stable while near diagonal pairs still resolve', () => {
+  const runDistant = reverse => {
+    const first = makeAgent('first', 0, 0);
+    const second = makeAgent('second', INFANTRY_COLLISION_RADIUS * 2 + 0.01, 0);
+    const units = [makeSquad('axis-reject', reverse ? [second, first] : [first, second])];
+    const before = sortedPositions(units);
+    const result = new InfantrySeparationSystem().resolve(units, makeTerrain());
+    return { before, after: sortedPositions(units), result };
+  };
+  const forward = runDistant(false);
+  const reversed = runDistant(true);
+  assert.deepEqual(forward.after, forward.before);
+  assert.deepEqual(reversed, forward);
+  assert.equal(forward.result.correctionCount, 0);
+  assert.deepEqual(forward.result.correctedSoldierKeys, []);
+  assert.deepEqual(forward.result.unresolvedPairs, []);
+
+  const diagonalOffset = INFANTRY_COLLISION_RADIUS * 0.6;
+  const first = makeAgent('diagonal-a', 0, 0);
+  const second = makeAgent('diagonal-b', diagonalOffset, diagonalOffset);
+  const result = new InfantrySeparationSystem().resolve(
+    [makeSquad('diagonal', [second, first])],
+    makeTerrain()
+  );
+  assert.ok(result.correctionCount > 0);
+  assert.equal(result.converged, true);
+  assert.ok(
+    planarDistance(first, second)
       >= INFANTRY_COLLISION_RADIUS * 2 - INFANTRY_SEPARATION_TOLERANCE
   );
 });
@@ -525,6 +560,11 @@ test('GameApp simulateStep resolves after all units and before building transit'
   const system = new InfantrySeparationSystem();
   const terrain = makeTerrain();
   const simulation = {
+    simulationPhaseProfiler: {
+      begin() {},
+      mark() {},
+      finish() {}
+    },
     movedUnitIds: new Set(),
     units: [stringCollisionUnit, secondUnit, firstUnit],
     terrain,
@@ -550,6 +590,9 @@ test('GameApp simulateStep resolves after all units and before building transit'
     hasContact() {
       return false;
     },
+    advanceVehicleTransports() {},
+    advanceMission() {},
+    pruneUncontrollableSelections() {},
     buildingInteraction: {
       advance() {
         assert.ok(
@@ -566,6 +609,9 @@ test('GameApp simulateStep resolves after all units and before building transit'
       events.push('interior-sync');
     },
     spotting: {
+      canPrecisionTarget() {
+        return false;
+      },
       advance() {
         assert.equal(first.position.x, 4);
         events.push('spotting');

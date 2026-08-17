@@ -43,12 +43,57 @@ function worldCollider(unit, volume) {
   };
 }
 
+function triangleBoundsCollider(unit, volume) {
+  if (!volume.bounds) return null;
+  const transform = worldTransform(unit, volume);
+  const centerOffset = transformDirection(
+    transform.orientation,
+    volume.bounds.center
+  );
+  return {
+    ...transform,
+    centerX: transform.centerX + centerOffset[0],
+    centerY: transform.centerY + centerOffset[1],
+    centerZ: transform.centerZ + centerOffset[2],
+    halfWidth: finite(volume.bounds.halfExtents[0]),
+    halfHeight: finite(volume.bounds.halfExtents[1]),
+    halfDepth: finite(volume.bounds.halfExtents[2])
+  };
+}
+
 function vector(value) {
   return [
     finite(value[0] ?? value.x),
     finite(value[1] ?? value.y),
     finite(value[2] ?? value.z)
   ];
+}
+
+function readMeshVertex(vertices, index, target) {
+  if (typeof vertices[0] === 'number') {
+    const offset = index * 3;
+    target[0] = vertices[offset];
+    target[1] = vertices[offset + 1];
+    target[2] = vertices[offset + 2];
+  } else {
+    const source = vertices[index];
+    if (!source) return null;
+    target[0] = source[0];
+    target[1] = source[1];
+    target[2] = source[2];
+  }
+  return target.every(Number.isFinite) ? target : null;
+}
+
+function triangleCount(plate) {
+  const triangles = plate.triangles ?? [];
+  return plate.triangleStride === 3 ? triangles.length / 3 : triangles.length;
+}
+
+function triangleVertexIndex(plate, triangleIndex, corner) {
+  return plate.triangleStride === 3
+    ? plate.triangles[triangleIndex * 3 + corner]
+    : plate.triangles[triangleIndex]?.[corner];
 }
 
 function subtract(a, b) {
@@ -81,26 +126,44 @@ function localPoint(point, transform) {
   ], transform.orientation);
 }
 
-function segmentTriangle(start, end, a, b, c) {
-  const direction = subtract(end, start);
-  const edge1 = subtract(b, a);
-  const edge2 = subtract(c, a);
-  const p = cross(direction, edge2);
-  const determinant = dot(edge1, p);
+function segmentTriangle(start, end, a, b, c, result) {
+  const directionX = end[0] - start[0];
+  const directionY = end[1] - start[1];
+  const directionZ = end[2] - start[2];
+  const edge1X = b[0] - a[0];
+  const edge1Y = b[1] - a[1];
+  const edge1Z = b[2] - a[2];
+  const edge2X = c[0] - a[0];
+  const edge2Y = c[1] - a[1];
+  const edge2Z = c[2] - a[2];
+  const pX = directionY * edge2Z - directionZ * edge2Y;
+  const pY = directionZ * edge2X - directionX * edge2Z;
+  const pZ = directionX * edge2Y - directionY * edge2X;
+  const determinant = edge1X * pX + edge1Y * pY + edge1Z * pZ;
   if (Math.abs(determinant) <= EPSILON) return null;
   const inverse = 1 / determinant;
-  const translated = subtract(start, a);
-  const u = dot(translated, p) * inverse;
+  const translatedX = start[0] - a[0];
+  const translatedY = start[1] - a[1];
+  const translatedZ = start[2] - a[2];
+  const u = (translatedX * pX + translatedY * pY + translatedZ * pZ) * inverse;
   if (u < -EPSILON || u > 1 + EPSILON) return null;
-  const q = cross(translated, edge1);
-  const v = dot(direction, q) * inverse;
+  const qX = translatedY * edge1Z - translatedZ * edge1Y;
+  const qY = translatedZ * edge1X - translatedX * edge1Z;
+  const qZ = translatedX * edge1Y - translatedY * edge1X;
+  const v = (directionX * qX + directionY * qY + directionZ * qZ) * inverse;
   if (v < -EPSILON || u + v > 1 + EPSILON) return null;
-  const t = dot(edge2, q) * inverse;
+  const t = (edge2X * qX + edge2Y * qY + edge2Z * qZ) * inverse;
   if (t < -EPSILON || t > 1 + EPSILON) return null;
-  return {
-    t: Math.max(0, Math.min(1, t)),
-    normal: normalized(cross(edge1, edge2))
-  };
+  const normalX = edge1Y * edge2Z - edge1Z * edge2Y;
+  const normalY = edge1Z * edge2X - edge1X * edge2Z;
+  const normalZ = edge1X * edge2Y - edge1Y * edge2X;
+  const normalLength = Math.hypot(normalX, normalY, normalZ);
+  if (normalLength <= EPSILON) return null;
+  result.t = Math.max(0, Math.min(1, t));
+  result.normal[0] = normalX / normalLength;
+  result.normal[1] = normalY / normalLength;
+  result.normal[2] = normalZ / normalLength;
+  return result;
 }
 
 function orientOutward(normal, a, b, c, interiorPoint) {
@@ -143,6 +206,10 @@ function exitArmorMetadata(volume, surface) {
 }
 
 function triangleMeshIntersection(startInput, endInput, unit, volume) {
+  const bounds = triangleBoundsCollider(unit, volume);
+  if (bounds && !intersectSegmentOrientedBox3D(startInput, endInput, bounds)) {
+    return null;
+  }
   const transform = worldTransform(unit, volume);
   const startWorld = vector(startInput);
   const endWorld = vector(endInput);
@@ -150,14 +217,19 @@ function triangleMeshIntersection(startInput, endInput, unit, volume) {
   const end = vector(localPoint(endWorld, transform));
   const vertices = volume.vertices ?? [];
   const interior = vector(volume.interiorPoint ?? [0, 0, 0]);
+  const a = [0, 0, 0];
+  const b = [0, 0, 0];
+  const c = [0, 0, 0];
+  const intersectionScratch = { t: 0, normal: [0, 0, 0] };
   let closest = null;
   for (const plate of volume.plates ?? []) {
-    for (const triangle of plate.triangles ?? []) {
-      const a = vertices[triangle[0]];
-      const b = vertices[triangle[1]];
-      const c = vertices[triangle[2]];
-      if (!a || !b || !c) continue;
-      const intersection = segmentTriangle(start, end, a, b, c);
+    for (let triangle = 0; triangle < triangleCount(plate); triangle += 1) {
+      if (
+        !readMeshVertex(vertices, triangleVertexIndex(plate, triangle, 0), a)
+        || !readMeshVertex(vertices, triangleVertexIndex(plate, triangle, 1), b)
+        || !readMeshVertex(vertices, triangleVertexIndex(plate, triangle, 2), c)
+      ) continue;
+      const intersection = segmentTriangle(start, end, a, b, c, intersectionScratch);
       if (!intersection) continue;
       const outward = orientOutward(intersection.normal, a, b, c, interior);
       if (!outward) continue;
@@ -176,6 +248,7 @@ function triangleMeshIntersection(startInput, endInput, unit, volume) {
         plateId: `${volume.id}:${plate.id}`,
         armorVolumeId: volume.id,
         armorPart: volume.part,
+        sourceMeshName: volume.sourceMeshName ?? null,
         geometryQuality: volume.geometryQuality,
         localPoint: localPoint(point, transform),
         nominalArmorMm: plate.thicknessMm,
@@ -195,6 +268,10 @@ function triangleMeshIntersection(startInput, endInput, unit, volume) {
 }
 
 function triangleMeshExit(startInput, endInput, unit, volume) {
+  const bounds = triangleBoundsCollider(unit, volume);
+  if (bounds && !intersectSegmentOrientedBox3D(startInput, endInput, bounds)) {
+    return null;
+  }
   const transform = worldTransform(unit, volume);
   const startWorld = vector(startInput);
   const endWorld = vector(endInput);
@@ -203,17 +280,25 @@ function triangleMeshExit(startInput, endInput, unit, volume) {
   const direction = subtract(end, start);
   const vertices = volume.vertices ?? [];
   const interior = vector(volume.interiorPoint ?? [0, 0, 0]);
+  const requiresOutwardExit = (volume.exitArmorPolicy ?? 'opposite_face') !== 'none';
+  const a = [0, 0, 0];
+  const b = [0, 0, 0];
+  const c = [0, 0, 0];
+  const intersectionScratch = { t: 0, normal: [0, 0, 0] };
   let closest = null;
   for (const plate of volume.plates ?? []) {
-    for (const triangle of plate.triangles ?? []) {
-      const a = vertices[triangle[0]];
-      const b = vertices[triangle[1]];
-      const c = vertices[triangle[2]];
-      if (!a || !b || !c) continue;
-      const intersection = segmentTriangle(start, end, a, b, c);
+    for (let triangle = 0; triangle < triangleCount(plate); triangle += 1) {
+      if (
+        !readMeshVertex(vertices, triangleVertexIndex(plate, triangle, 0), a)
+        || !readMeshVertex(vertices, triangleVertexIndex(plate, triangle, 1), b)
+        || !readMeshVertex(vertices, triangleVertexIndex(plate, triangle, 2), c)
+      ) continue;
+      const intersection = segmentTriangle(start, end, a, b, c, intersectionScratch);
       if (!intersection || intersection.t <= EPSILON) continue;
       const outward = orientOutward(intersection.normal, a, b, c, interior);
-      if (!outward || dot(outward, direction) <= EPSILON) continue;
+      if (!outward || (requiresOutwardExit && dot(outward, direction) <= EPSILON)) {
+        continue;
+      }
       const point = [
         startWorld[0] + (endWorld[0] - startWorld[0]) * intersection.t,
         startWorld[1] + (endWorld[1] - startWorld[1]) * intersection.t,
@@ -237,6 +322,7 @@ function triangleMeshExit(startInput, endInput, unit, volume) {
         plateId: `${volume.id}:${plate.id}`,
         armorVolumeId: volume.id,
         armorPart: volume.part,
+        sourceMeshName: volume.sourceMeshName ?? null,
         geometryQuality: volume.geometryQuality,
         localPoint: localPoint(point, transform),
         ...armorMetadata
@@ -280,6 +366,7 @@ function orientedBoxExit(startInput, endInput, unit, volume) {
     plateId: `${volume.id}:${face}`,
     armorVolumeId: volume.id,
     armorPart: volume.part,
+    sourceMeshName: volume.sourceMeshName ?? null,
     geometryQuality: volume.geometryQuality
       ?? unit.vehicleSpec.armorCollision.quality
       ?? 'unspecified',
@@ -329,6 +416,7 @@ export function intersectVehicleArmor(start, end, unit) {
       plateId: `${volume.id}:${face}`,
       armorVolumeId: volume.id,
       armorPart: volume.part,
+      sourceMeshName: volume.sourceMeshName ?? null,
       geometryQuality: volume.geometryQuality
         ?? unit.vehicleSpec.armorCollision.quality
         ?? 'unspecified',
@@ -378,7 +466,10 @@ function volumeAimBounds(volume) {
   }
   const minimum = [Infinity, Infinity, Infinity];
   const maximum = [-Infinity, -Infinity, -Infinity];
-  for (const vertex of vertices) {
+  const count = volume.vertexStride === 3 ? vertices.length / 3 : vertices.length;
+  const vertex = [0, 0, 0];
+  for (let index = 0; index < count; index += 1) {
+    if (!readMeshVertex(vertices, index, vertex)) continue;
     for (let axis = 0; axis < 3; axis++) {
       const value = finite(vertex[axis]);
       minimum[axis] = Math.min(minimum[axis], value);
@@ -546,8 +637,8 @@ export function traceVehicleArmorExit({
   direction,
   maxDistanceMeters = null
 }) {
-  const volume = unit?.vehicleSpec?.armorCollision?.volumes
-    ?.find(candidate => candidate.id === armorVolumeId);
+  const volumes = unit?.vehicleSpec?.armorCollision?.volumes ?? [];
+  const volume = volumes.find(candidate => candidate.id === armorVolumeId);
   if (!volume) return null;
   const origin = vector(entryPoint);
   const incoming = vector(direction);
@@ -573,19 +664,35 @@ export function traceVehicleArmorExit({
   const end = origin.map(
     (component, axis) => component + normalizedDirection[axis] * maximum
   );
-  const exit = volume.shape === 'triangle-mesh'
-    ? triangleMeshExit(start, end, unit, volume)
-    : orientedBoxExit(start, end, unit, volume);
+  const exitVolumes = volume.shellGroup
+    ? volumes.filter(candidate => candidate.shellGroup === volume.shellGroup)
+    : [volume];
+  let exit = null;
+  let exitDistance = -Infinity;
+  for (const candidateVolume of exitVolumes) {
+    const candidate = candidateVolume.shape === 'triangle-mesh'
+      ? triangleMeshExit(start, end, unit, candidateVolume)
+      : orientedBoxExit(start, end, unit, candidateVolume);
+    if (!candidate) continue;
+    const candidatePoint = vector(candidate.point);
+    const distance = Math.hypot(
+      candidatePoint[0] - origin[0],
+      candidatePoint[1] - origin[1],
+      candidatePoint[2] - origin[2]
+    );
+    if (distance > exitDistance + EPSILON
+        || (Math.abs(distance - exitDistance) <= EPSILON
+          && candidate.plateId.localeCompare(exit?.plateId ?? '') < 0)) {
+      exit = candidate;
+      exitDistance = distance;
+    }
+  }
   if (!exit) return null;
   const point = vector(exit.point);
   return {
     ...exit,
     point,
     normal: vector(exit.normal),
-    distanceMeters: Math.hypot(
-      point[0] - origin[0],
-      point[1] - origin[1],
-      point[2] - origin[2]
-    )
+    distanceMeters: exitDistance
   };
 }

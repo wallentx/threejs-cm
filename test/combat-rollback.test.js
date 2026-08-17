@@ -59,9 +59,8 @@ function createBattle({
 }
 
 function advanceUntilResolved(combat) {
-  // A perforating round remains authoritative after exiting the first vehicle.
-  // Allow enough simulated time for that residual projectile to reach its
-  // catalog max lifetime when no second collider or terrain is present.
+  // Ricochets and perforators remain authoritative after the first surface.
+  // Allow enough time for a second mesh surface or eventual lifetime expiry.
   for (let step = 0; step < 1200 && combat.projectiles.length > 0; step++) {
     combat.update(1 / 240);
   }
@@ -90,17 +89,21 @@ test('in-flight projectile, sequence, references, and telemetry replay determini
     combat: combat.captureState(),
     randomState: random.capture()
   };
-  assert.equal(firstOutcome.combat.telemetry.impacts.length, 1);
-  const terminalImpact = firstOutcome.combat.telemetry.impacts[0];
+  assert.equal(firstOutcome.combat.telemetry.impacts.length, 2);
+  const ricochetImpact = firstOutcome.combat.telemetry.impacts[0];
+  const terminalImpact = firstOutcome.combat.telemetry.impacts[1];
   assert.equal(terminalImpact.impactNormal.length, 3);
   assert.equal(terminalImpact.localImpactPoint.length, 3);
-  assert.equal(terminalImpact.continuationKind, 'penetrator');
-  assert.equal(terminalImpact.penetrationCount, 1);
+  assert.equal(ricochetImpact.continuationKind, 'ricochet');
+  assert.equal(ricochetImpact.sourceMeshName, 'PzIII_EngineDeck');
+  assert.equal(ricochetImpact.postImpactVelocity.length, 3);
+  assert.equal(terminalImpact.continuationKind, 'none');
+  assert.equal(terminalImpact.terminalEffect, 'perforated_stopped');
+  assert.equal(terminalImpact.sourceMeshName, 'PanzerIIID_TurretBustle');
   assert.equal(terminalImpact.exitPosition.length, 3);
   assert.equal(terminalImpact.exitResult.point.length, 3);
-  assert.equal(terminalImpact.residualVelocity.length, 3);
-  assert.ok(terminalImpact.residualEnergyJ > 0);
-  assert.ok(terminalImpact.residualEnergyJ < terminalImpact.impactEnergyJ);
+  assert.equal(terminalImpact.residualVelocity, null);
+  assert.equal(terminalImpact.residualEnergyJ, 0);
   assert.notEqual(
     firstOutcome.combat.telemetry.impacts[0].impactNormal,
     combat.telemetry.impacts[0].impactNormal
@@ -187,7 +190,7 @@ test('restore before and after impact removes future scorch then rehydrates rest
 
   advanceUntilResolved(combat);
   effects.update(0, [target], combat.telemetry.impacts);
-  assert.equal(record.scorch.count, 1);
+  assert.equal(record.scorch.count, 2);
   const afterImpact = combat.captureState();
   const afterUnits = [attacker.captureState(), target.captureState()];
   const afterRandom = random.capture();
@@ -202,8 +205,8 @@ test('restore before and after impact removes future scorch then rehydrates rest
 
   advanceUntilResolved(combat);
   effects.update(0, [target], combat.telemetry.impacts);
-  assert.equal(record.scorch.count, 1);
-  assert.equal(effects.processedImpacts.size, 1);
+  assert.equal(record.scorch.count, 2);
+  assert.equal(effects.processedImpacts.size, 2);
 
   for (const saved of afterUnits) unitMap.get(saved.id).restoreState(saved, unitMap);
   random.restore(afterRandom);
@@ -212,8 +215,8 @@ test('restore before and after impact removes future scorch then rehydrates rest
   effects.update(0, [target], combat.telemetry.impacts);
   assert.equal(combat.projectiles.length, 0);
   assert.deepEqual(combat.captureState(), afterImpact);
-  assert.equal(record.scorch.count, 1, 'restored past impact must produce one scorch');
-  assert.equal(effects.processedImpacts.size, 1);
+  assert.equal(record.scorch.count, 2, 'restored mesh impacts must each produce one mark');
+  assert.equal(effects.processedImpacts.size, 2);
 
   effects.dispose();
   combat.reset();

@@ -673,10 +673,21 @@ export function createConfiguredBattleScenario({
   const defaultSeed = (battleSeed ?? hashString(seedSource)) || 1;
   const mapName = mapDescriptor.title ?? mapDescriptor.id;
   const configuredMission = mapDescriptor.configuredMission;
+  const configuredEnemyStrategy = mapDescriptor.configuredEnemyStrategies?.find(
+    strategy => (
+      strategy.appliesTo.playerFactionId === playerFactionId
+      && strategy.appliesTo.enemyFactionId === enemyFactionId
+    )
+  ) ?? mapDescriptor.configuredEnemyStrategy ?? configuredMission;
   const missionApplies = Boolean(
     configuredMission
     && configuredMission.appliesTo.playerFactionId === playerFactionId
     && configuredMission.appliesTo.enemyFactionId === enemyFactionId
+  );
+  const enemyStrategyApplies = Boolean(
+    configuredEnemyStrategy
+    && configuredEnemyStrategy.appliesTo.playerFactionId === playerFactionId
+    && configuredEnemyStrategy.appliesTo.enemyFactionId === enemyFactionId
   );
   return freezeScenario({
     id: `configured-${mapDescriptor.id}-${playerFactionId}-vs-${enemyFactionId}`,
@@ -695,7 +706,9 @@ export function createConfiguredBattleScenario({
       dataQuality: difficulty.dataQuality
     },
     objective: missionApplies ? configuredMission.objective : null,
-    enemyPlanSet: missionApplies ? configuredMission.enemyPlanSet : null,
+    enemyPlanSet: enemyStrategyApplies
+      ? configuredEnemyStrategy.enemyPlanSet
+      : null,
     communicationNets: [
       {
         id: playerNetId,

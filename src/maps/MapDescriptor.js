@@ -234,7 +234,12 @@ function validateDeploymentZones(zones, dimensions) {
   }
 }
 
-function validateConfiguredMission(mission, dimensions, deploymentZones) {
+function validateConfiguredPlanOwner(
+  mission,
+  dimensions,
+  deploymentZones,
+  { objectiveRequired = false } = {}
+) {
   if (mission == null) return;
   requireRecord(mission, 'map.configuredMission');
   requireId(mission.id, 'map.configuredMission.id');
@@ -250,48 +255,60 @@ function validateConfiguredMission(mission, dimensions, deploymentZones) {
     appliesTo.enemyFactionId,
     'map.configuredMission.appliesTo.enemyFactionId'
   );
-  const objective = requireRecord(
-    mission.objective,
-    'map.configuredMission.objective'
-  );
-  requireId(objective.id, 'map.configuredMission.objective.id');
-  if (objective.type !== 'BREAKTHROUGH') {
-    throw new Error('map.configuredMission.objective.type must be BREAKTHROUGH');
+  if (objectiveRequired && mission.objective == null) {
+    throw new Error('map.configuredMission.objective is required');
   }
-  requireId(
-    objective.attackerFactionId,
-    'map.configuredMission.objective.attackerFactionId'
-  );
-  requireId(
-    objective.defenderFactionId,
-    'map.configuredMission.objective.defenderFactionId'
-  );
-  requireFinite(
-    objective.timeLimitSeconds,
-    'map.configuredMission.objective.timeLimitSeconds',
-    { positive: true }
-  );
-  requireId(objective.dataQuality, 'map.configuredMission.objective.dataQuality');
-  const exitZone = requireRecord(
-    objective.exitZone,
-    'map.configuredMission.objective.exitZone'
-  );
-  for (const key of ['minX', 'maxX', 'minZ', 'maxZ']) {
-    requireFinite(exitZone[key], `map.configuredMission.objective.exitZone.${key}`);
+  const objective = mission.objective == null
+    ? null
+    : requireRecord(
+        mission.objective,
+        'map.configuredMission.objective'
+      );
+  if (objective) {
+    requireId(objective.id, 'map.configuredMission.objective.id');
+    if (objective.type !== 'BREAKTHROUGH') {
+      throw new Error('map.configuredMission.objective.type must be BREAKTHROUGH');
+    }
+    requireId(
+      objective.attackerFactionId,
+      'map.configuredMission.objective.attackerFactionId'
+    );
+    requireId(
+      objective.defenderFactionId,
+      'map.configuredMission.objective.defenderFactionId'
+    );
+    requireFinite(
+      objective.timeLimitSeconds,
+      'map.configuredMission.objective.timeLimitSeconds',
+      { positive: true }
+    );
+    requireId(objective.dataQuality, 'map.configuredMission.objective.dataQuality');
+    const exitZone = requireRecord(
+      objective.exitZone,
+      'map.configuredMission.objective.exitZone'
+    );
+    for (const key of ['minX', 'maxX', 'minZ', 'maxZ']) {
+      requireFinite(
+        exitZone[key],
+        'map.configuredMission.objective.exitZone.' + key
+      );
+    }
+    if (exitZone.minX >= exitZone.maxX || exitZone.minZ >= exitZone.maxZ) {
+      throw new Error(
+        'map.configuredMission.objective.exitZone requires increasing bounds'
+      );
+    }
+    requireInsideMap(
+      [exitZone.minX, exitZone.minZ],
+      dimensions,
+      'map.configuredMission.objective.exitZone minimum'
+    );
+    requireInsideMap(
+      [exitZone.maxX, exitZone.maxZ],
+      dimensions,
+      'map.configuredMission.objective.exitZone maximum'
+    );
   }
-  if (exitZone.minX >= exitZone.maxX || exitZone.minZ >= exitZone.maxZ) {
-    throw new Error('map.configuredMission.objective.exitZone requires increasing bounds');
-  }
-  requireInsideMap(
-    [exitZone.minX, exitZone.minZ],
-    dimensions,
-    'map.configuredMission.objective.exitZone minimum'
-  );
-  requireInsideMap(
-    [exitZone.maxX, exitZone.maxZ],
-    dimensions,
-    'map.configuredMission.objective.exitZone maximum'
-  );
 
   const planSet = requireRecord(
     mission.enemyPlanSet,
@@ -302,7 +319,10 @@ function validateConfiguredMission(mission, dimensions, deploymentZones) {
     planSet.factionId,
     'map.configuredMission.enemyPlanSet.factionId'
   );
-  if (factionId !== objective.attackerFactionId) {
+  if (factionId !== appliesTo.enemyFactionId) {
+    throw new Error('map configured AI faction must match appliesTo enemy faction');
+  }
+  if (objective && factionId !== objective.attackerFactionId) {
     throw new Error('map configured mission AI faction must match objective attacker');
   }
   requireId(planSet.dataQuality, 'map.configuredMission.enemyPlanSet.dataQuality');
@@ -767,11 +787,24 @@ export function validateMapDescriptor(map) {
   }
 
   validateDeploymentZones(map.deploymentZones, dimensions);
-  validateConfiguredMission(
+  validateConfiguredPlanOwner(
     map.configuredMission,
     dimensions,
-    map.deploymentZones
+    map.deploymentZones,
+    { objectiveRequired: true }
   );
+  if (map.configuredEnemyStrategies != null) {
+    if (!Array.isArray(map.configuredEnemyStrategies)) {
+      throw new TypeError('map.configuredEnemyStrategies must be an array');
+    }
+    map.configuredEnemyStrategies.forEach(strategy => {
+      validateConfiguredPlanOwner(
+        strategy,
+        dimensions,
+        map.deploymentZones
+      );
+    });
+  }
   return map;
 }
 
