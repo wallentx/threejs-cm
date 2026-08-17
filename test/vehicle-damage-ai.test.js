@@ -18,6 +18,32 @@ function createRealVehicleUnit(vehicleId = 'SOMUA_S35', overrides = {}) {
   return unit;
 }
 
+const FLAT_TERRAIN = Object.freeze({
+  getHeightAt() { return 0; },
+  getMovementHeightAt() { return 0; }
+});
+
+function recordIncomingCannonFire(unit, overrides = {}) {
+  return unit.recordIncomingVehicleFire({
+    sourceUnitId: overrides.sourceUnitId ?? 'enemy-armor',
+    sourcePosition: overrides.sourcePosition ?? [0, 0, 30],
+    impactPosition: overrides.impactPosition ?? [0, 1.2, 1.8],
+    weaponId: overrides.weaponId ?? 'KWK30_AP',
+    threatKind: overrides.threatKind ?? 'cannon_ap',
+    penetrated: overrides.penetrated ?? false
+  });
+}
+
+function armoredContact(overrides = {}) {
+  return {
+    id: overrides.id ?? 'enemy-armor',
+    type: 'vehicle',
+    threatClass: 'armor',
+    protectionClass: 'armored_enclosed',
+    position: overrides.position ?? [0, 0, 30]
+  };
+}
+
 test('evaluateVehicleDamageBehavior reads authoritative vehicle components and crew role status', () => {
   const unit = createRealVehicleUnit('SOMUA_S35');
   const behavior = evaluateVehicleDamageBehavior(unit);
@@ -147,4 +173,151 @@ test('VehicleAI capture and restore preserve damage behavior decision fields', (
 
   assert.equal(restoredUnit.tacticalDecision.isPillbox, true);
   assert.equal(restoredUnit.tacticalDecision.reason, 'pillbox-mode');
+});
+
+test('a player advance remains authoritative after unidentified incoming fire', () => {
+  const unit = createRealVehicleUnit('SOMUA_S35');
+  const before = unit.position.clone();
+  const playerDestination = new THREE.Vector3(0, 0, 40);
+  unit.addWaypoint(playerDestination, 'MOVE');
+  recordIncomingCannonFire(unit);
+
+  unit.update(1, FLAT_TERRAIN, { contacts: [] });
+
+  assert.equal(unit.tacticalDecision.responsePhase, 'ENGAGE');
+  assert.equal(unit.tacticalDecision.responseReason, 'player-movement-order');
+  assert.match(unit.tacticalDecision.decisionCrewRole, /COMMANDER/);
+  assert.equal(unit.vehicleCrewBailout.triggered, false);
+  assert.ok(unit.position.z > before.z, 'the player waypoint must keep moving forward');
+  assert.equal(unit.vehicleAI.isReversing, false);
+  assert.equal(unit.waypoints.length, 1);
+  assert.deepEqual(unit.waypoints[0].position.toArray(), playerDestination.toArray());
+  assert.equal(unit.currentWaypointIndex, 0);
+
+  const captured = unit.captureState();
+  const restored = createRealVehicleUnit('SOMUA_S35');
+  restored.restoreState(captured, new Map([[restored.id, restored]]));
+  assert.deepEqual(
+    restored.vehicleAI.captureState().threatResponse,
+    unit.vehicleAI.captureState().threatResponse
+  );
+});
+
+test('unidentified fire escalates to reverse only after a repeated impact', () => {
+  const unit = createRealVehicleUnit('SOMUA_S35');
+  recordIncomingCannonFire(unit);
+
+  unit.update(1, FLAT_TERRAIN, { contacts: [] });
+
+  assert.equal(unit.tacticalDecision.responsePhase, 'ENGAGE');
+  assert.equal(unit.tacticalDecision.responseReason, 'unidentified-fire-observed');
+  assert.deepEqual(unit.position.toArray(), [0, 0, 0]);
+
+  recordIncomingCannonFire(unit, { impactPosition: [0.2, 1.3, 1.6] });
+  unit.update(1, FLAT_TERRAIN, { contacts: [] });
+
+  assert.equal(unit.tacticalDecision.responsePhase, 'REVERSE');
+  assert.equal(unit.tacticalDecision.responseReason, 'source-unidentified');
+  assert.ok(unit.position.z < 0, 'repeated unresolved fire must create a reverse intent');
+});
+
+test('an identified armored threat forces disengagement when the main gun cannot answer', () => {
+  for (const failure of ['main-gun-disabled', 'main-ammunition-exhausted']) {
+    const unit = createRealVehicleUnit('SOMUA_S35', { id: failure });
+    if (failure === 'main-gun-disabled') {
+      unit.vehicleComponents.main_gun.health = 0;
+      unit.vehicleComponents.main_gun.operational = false;
+    } else {
+      unit.vehicleWeapon.feedAmmo = 0;
+      unit.vehicleWeapon.ammunition = { ap: 0, he: 0 };
+    }
+    recordIncomingCannonFire(unit);
+
+    unit.update(1, FLAT_TERRAIN, { contacts: [armoredContact()] });
+
+    assert.equal(unit.tacticalDecision.responsePhase, 'DISENGAGE', failure);
+    assert.equal(unit.tacticalDecision.responseReason, failure, failure);
+    assert.equal(unit.vehicleCrewBailout.triggered, false, failure);
+    assert.ok(unit.position.z < 0, `${failure} must produce real reverse movement`);
+  }
+});
+
+test('repeated identified fire creates pressure reverse without treating it as fear', () => {
+  const unit = createRealVehicleUnit('SOMUA_S35');
+  recordIncomingCannonFire(unit);
+  recordIncomingCannonFire(unit, { impactPosition: [0.2, 1.3, 1.6] });
+
+  unit.update(1, FLAT_TERRAIN, { contacts: [armoredContact()] });
+
+  assert.equal(unit.tacticalDecision.responsePhase, 'REVERSE');
+  assert.equal(unit.tacticalDecision.responseReason, 'sustained-fire-pressure');
+  assert.equal(unit.vehicleCrewBailout.triggered, false);
+});
+
+test('a surviving coax keeps an identified infantry threat answerable', () => {
+  const unit = createRealVehicleUnit('SOMUA_S35');
+  unit.vehicleComponents.main_gun.health = 0;
+  unit.vehicleComponents.main_gun.operational = false;
+  recordIncomingCannonFire(unit, { sourceUnitId: 'enemy-infantry' });
+
+  unit.vehicleAI.update(1 / 30, FLAT_TERRAIN, {
+    contacts: [{
+      id: 'enemy-infantry',
+      type: 'infantry_squad',
+      threatClass: 'infantry',
+      protectionClass: null,
+      position: [0, 0, 30]
+    }]
+  });
+
+  assert.equal(unit.tacticalDecision.responsePhase, 'ENGAGE');
+  assert.equal(unit.tacticalDecision.responseReason, 'threat-answerable');
+  assert.equal(unit.vehicleCrewBailout.triggered, false);
+});
+
+test('immobilization under effective fire triggers bailout but safe immobilization does not', () => {
+  const threatened = createRealVehicleUnit('SOMUA_S35', { id: 'threatened' });
+  threatened.vehicleComponents.tracks.health = 0;
+  threatened.vehicleComponents.tracks.operational = false;
+  recordIncomingCannonFire(threatened);
+  threatened.update(1 / 30, FLAT_TERRAIN, {
+    contacts: [armoredContact()]
+  });
+
+  assert.equal(threatened.tacticalDecision.responsePhase, 'BAILOUT');
+  assert.equal(threatened.tacticalDecision.responseReason, 'mobility-disabled-under-fire');
+  assert.equal(threatened.vehicleCrewBailout.triggered, true);
+  assert.equal(threatened.vehicleCrewBailout.reason, 'TACTICAL_IMMOBILIZATION');
+
+  const safe = createRealVehicleUnit('SOMUA_S35', { id: 'safe' });
+  safe.vehicleComponents.engine.health = 0;
+  safe.vehicleComponents.engine.operational = false;
+  safe.update(10, FLAT_TERRAIN, { contacts: [] });
+
+  assert.equal(safe.vehicleCrewBailout.triggered, false);
+  assert.equal(safe.getMountedCrew().length, safe.getLivingCrew().length);
+});
+
+test('vehicle threat-response time is frame-partition invariant and deeply restored', () => {
+  const whole = createRealVehicleUnit('SOMUA_S35', { id: 'whole' });
+  const partitioned = createRealVehicleUnit('SOMUA_S35', { id: 'partitioned' });
+  recordIncomingCannonFire(whole);
+  recordIncomingCannonFire(partitioned);
+
+  whole.vehicleAI.update(2, FLAT_TERRAIN, { contacts: [] });
+  for (let step = 0; step < 20; step++) {
+    partitioned.vehicleAI.update(0.1, FLAT_TERRAIN, { contacts: [] });
+  }
+
+  const wholeResponse = whole.vehicleAI.captureState().threatResponse;
+  const partitionedResponse = partitioned.vehicleAI.captureState().threatResponse;
+  assert.deepEqual(partitionedResponse, wholeResponse);
+
+  const saved = whole.captureState();
+  saved.vehicleAI.threatResponse.sourcePosition[0] = 999;
+  assert.notEqual(
+    whole.vehicleAI.captureState().threatResponse.sourcePosition[0],
+    999,
+    'captured response positions must not alias authoritative state'
+  );
 });

@@ -260,6 +260,21 @@ test('internal penetration paths and multiple crew results deep-copy through tel
     hitRayCount: 2,
     hitVolumeIds: ['crew-driver']
   };
+  const breakupHit = {
+    ...pathHit,
+    id: 'module-breech',
+    componentId: 'breech',
+    direction: [-0.1, 0.05, -0.994],
+    fragmentIndices: [2, 4],
+    terminalEffectKind: 'projectile_breakup'
+  };
+  const breakupEffect = {
+    modelVersion: 'projectile-breakup-v1',
+    rayCount: 12,
+    representedFragmentCount: 36,
+    hitRayCount: 2,
+    hitVolumeIds: ['module-breech']
+  };
   const casualty = {
     id: 'crew-driver',
     name: 'Driver',
@@ -285,6 +300,8 @@ test('internal penetration paths and multiple crew results deep-copy through tel
     internalPathHits: [pathHit],
     spallHits: [spallHit],
     spallEffect,
+    breakupHits: [breakupHit],
+    breakupEffect,
     crewResult: {
       penetrated: true,
       casualty,
@@ -292,7 +309,9 @@ test('internal penetration paths and multiple crew results deep-copy through tel
       components: [{ id: 'engine', health: 68 }],
       internalPathHits: [pathHit],
       spallHits: [spallHit],
-      spallEffect
+      spallEffect,
+      breakupHits: [breakupHit],
+      breakupEffect
     }
   });
 
@@ -303,6 +322,9 @@ test('internal penetration paths and multiple crew results deep-copy through tel
   combat.telemetry.impacts[0].spallHits[0].direction[0] = 999;
   combat.telemetry.impacts[0].spallEffect.hitVolumeIds[0] = 'mutated';
   combat.telemetry.impacts[0].crewResult.spallHits[0].fragmentIndices[0] = 999;
+  combat.telemetry.impacts[0].breakupHits[0].direction[0] = 999;
+  combat.telemetry.impacts[0].breakupEffect.hitVolumeIds[0] = 'mutated';
+  combat.telemetry.impacts[0].crewResult.breakupHits[0].fragmentIndices[0] = 999;
   combat.telemetry.impacts[0].crewResult.casualties[0].health = 999;
   combat.telemetry.impacts[0].penetrationReferenceUrls[0] = 'mutated';
   combat.telemetry.impacts[0].plateResidualVelocity[2] = 999;
@@ -315,6 +337,9 @@ test('internal penetration paths and multiple crew results deep-copy through tel
   assert.deepEqual(capturedImpact.spallHits[0].direction, [0.1, 0, -0.995]);
   assert.deepEqual(capturedImpact.spallEffect.hitVolumeIds, ['crew-driver']);
   assert.deepEqual(capturedImpact.crewResult.spallHits[0].fragmentIndices, [1, 3]);
+  assert.deepEqual(capturedImpact.breakupHits[0].direction, [-0.1, 0.05, -0.994]);
+  assert.deepEqual(capturedImpact.breakupEffect.hitVolumeIds, ['module-breech']);
+  assert.deepEqual(capturedImpact.crewResult.breakupHits[0].fragmentIndices, [2, 4]);
   assert.equal(capturedImpact.crewResult.casualties[0].health, 35);
   assert.deepEqual(
     capturedImpact.penetrationReferenceUrls,
@@ -332,6 +357,9 @@ test('internal penetration paths and multiple crew results deep-copy through tel
   capturedImpact.spallHits[0].direction[0] = -999;
   capturedImpact.spallEffect.hitVolumeIds[0] = 'mutated-after-restore';
   capturedImpact.crewResult.spallHits[0].fragmentIndices[0] = -999;
+  capturedImpact.breakupHits[0].direction[0] = -999;
+  capturedImpact.breakupEffect.hitVolumeIds[0] = 'mutated-after-restore';
+  capturedImpact.crewResult.breakupHits[0].fragmentIndices[0] = -999;
   capturedImpact.crewResult.casualties[0].health = -999;
   capturedImpact.penetrationReferenceUrls[0] = 'mutated-after-restore';
   capturedImpact.plateResidualVelocity[2] = -999;
@@ -350,6 +378,18 @@ test('internal penetration paths and multiple crew results deep-copy through tel
     combat.telemetry.impacts[0].crewResult.spallHits[0].fragmentIndices,
     [1, 3]
   );
+  assert.deepEqual(
+    combat.telemetry.impacts[0].breakupHits[0].direction,
+    [-0.1, 0.05, -0.994]
+  );
+  assert.deepEqual(
+    combat.telemetry.impacts[0].breakupEffect.hitVolumeIds,
+    ['module-breech']
+  );
+  assert.deepEqual(
+    combat.telemetry.impacts[0].crewResult.breakupHits[0].fragmentIndices,
+    [2, 4]
+  );
   assert.equal(combat.telemetry.impacts[0].crewResult.casualties[0].health, 35);
   assert.deepEqual(
     combat.telemetry.impacts[0].penetrationReferenceUrls,
@@ -365,9 +405,11 @@ test('internal penetration paths and multiple crew results deep-copy through tel
 
 test('weapon-report events replay from shot sequence and ignore presentation-audio failure', () => {
   const events = [];
+  const audioEvents = [];
   const battle = createBattle({
     sound: {
-      playWeapon() {
+      playWeapon(weapon, context) {
+        audioEvents.push({ weaponId: weapon.id, context });
         throw new Error('presentation audio unavailable');
       }
     },
@@ -394,6 +436,15 @@ test('weapon-report events replay from shot sequence and ignore presentation-aud
   assert.equal(firstEvent.sourceUnitId, attacker.id);
   assert.equal(firstEvent.sourceFaction, attacker.faction);
   assert.deepEqual(firstEvent.origin, options.muzzlePosition.toArray());
+  assert.deepEqual(audioEvents[0], {
+    weaponId: 'SA35_AP',
+    context: {
+      position: options.muzzlePosition.toArray(),
+      sourceId: attacker.id,
+      shooterId: attacker.id,
+      gameplayImportance: 1.2
+    }
+  });
   const afterShot = combat.captureState();
 
   combat.restoreState(beforeShot, unitMap);
@@ -412,5 +463,37 @@ test('weapon-report events replay from shot sequence and ignore presentation-aud
   const eventCount = events.length;
   assert.equal(combat.fireWeapon(null, target, target.position, options), false);
   assert.equal(events.length, eventCount, 'rejected fire must emit no weapon report');
+  combat.reset();
+});
+
+test('resolved impacts emit semantic positional audio without owning outcome state', () => {
+  const audioEvents = [];
+  const { attacker, target, combat } = createBattle({
+    sound: {
+      playWeapon() {},
+      playImpact(context) { audioEvents.push(context); }
+    }
+  });
+  assert.equal(combat.fireWeapon(attacker, target, target.position, {
+    weapon: getWeapon('SA35_AP'),
+    muzzlePosition: attacker.getMuzzleWorldPosition(),
+    dispersionScale: 0
+  }), true);
+  const projectile = combat.projectiles[0];
+  const point = new THREE.Vector3(3, 1.5, -4);
+  combat.recordImpact(projectile, { kind: 'vehicle', unit: target, point }, {
+    ricocheted: true,
+    penetrated: false
+  });
+  assert.deepEqual(audioEvents, [{
+    position: [3, 1.5, -4],
+    sourceId: projectile.id,
+    impactKind: 'vehicle',
+    ricocheted: true,
+    penetrated: false,
+    caliberMm: 47,
+    gameplayImportance: 1.12
+  }]);
+  assert.equal(combat.telemetry.impacts[0].ricocheted, true);
   combat.reset();
 });

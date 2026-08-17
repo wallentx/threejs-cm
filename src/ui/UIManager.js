@@ -374,6 +374,7 @@ export class UIManager {
     const renderer = diagnostics.renderer ?? {};
     const simulation = diagnostics.simulation ?? {};
     const lod = diagnostics.lod ?? {};
+    const audio = diagnostics.audio ?? {};
     setText('debug-fps', Number.isFinite(frame.fps) ? frame.fps.toFixed(0) : '--');
     setText(
       'debug-frame-average',
@@ -408,6 +409,10 @@ export class UIManager {
     setText(
       'debug-simulation-detail',
       `Simulation avg/step · units ${Number(phases.units ?? 0).toFixed(1)} · separation ${Number(phases.separation ?? 0).toFixed(1)} · buildings ${Number(phases.buildings ?? 0).toFixed(1)} · spotting ${Number(phases.spotting ?? 0).toFixed(1)} · targeting ${Number(phases.targeting ?? 0).toFixed(1)} · systems ${Number(phases.systems ?? 0).toFixed(1)} ms`
+    );
+    setText(
+      'debug-audio-detail',
+      `Audio ${audio.activeVoiceCount ?? 0}/${audio.maxActiveVoices ?? 0} active · ${audio.virtualizedCount ?? 0} virtualized · ${audio.aggregatedCount ?? 0} aggregated · ${audio.environment ?? 'unknown'}`
     );
     return true;
   }
@@ -1388,6 +1393,15 @@ export class UIManager {
           const represented = record.spallEffect.representedFragmentCount ?? 0;
           spall.textContent = `spall ${rays}/${record.spallEffect.rayCount ?? 0} rays hit | ${represented} represented fragments | ${record.spallEffect.hitVolumeIds?.join(', ') || 'no internal hits'} | ${record.spallEffect.modelVersion}`;
           entry.appendChild(spall);
+        }
+
+        if (record.breakupEffect) {
+          const breakup = document.createElement('div');
+          breakup.className = 'shot-record-internal-path';
+          const rays = record.breakupEffect.hitRayCount ?? 0;
+          const represented = record.breakupEffect.representedFragmentCount ?? 0;
+          breakup.textContent = `projectile breakup ${rays}/${record.breakupEffect.rayCount ?? 0} rays hit | ${represented} represented fragments | ${record.breakupEffect.hitVolumeIds?.join(', ') || 'no internal hits'} | ${record.breakupEffect.modelVersion}`;
+          entry.appendChild(breakup);
         }
       }
 

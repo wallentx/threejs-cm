@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Renderer } from '../engine/Renderer.js';
+import { SoundEngine } from '../engine/SoundEngine.js';
 import { DebugOverlaySystem } from '../world/debug/DebugOverlaySystem.js';
 import { ShotTrajectoryOverlay } from '../world/debug/ShotTrajectoryOverlay.js';
 import {
@@ -104,6 +105,7 @@ export class VehicleDebugSandboxApp {
     this.onPointerUp = this.onPointerUp.bind(this);
     this.onPointerCancel = this.onPointerCancel.bind(this);
     this.onDoubleClick = this.onDoubleClick.bind(this);
+    this.unlockAudio = this.unlockAudio.bind(this);
     this.buildShell();
     this.ready = this.init().catch(error => {
       this.handleInitializationError(error);
@@ -177,6 +179,20 @@ export class VehicleDebugSandboxApp {
     this.visualFactories = createFrance1940VisualFactories({
       assetResolver: FRANCE_1940_ASSET_RESOLVER
     });
+    this.sound = new SoundEngine({
+      audioProvider: this.visualFactories.audioProvider
+    });
+    this.audioListenerForward = new THREE.Vector3(0, 0, -1);
+    // A duel can fire before the browser receives a user gesture. Keep audio
+    // disabled until a sandbox pointer gesture can synchronously unlock WebAudio
+    // instead of queuing stale shots into a suspended context.
+    this.sound.enabled = false;
+    document.body.dataset.audioStatus = 'awaiting-gesture';
+    const audioBinding = this.sound.assetBinding;
+    document.body.dataset.audioProvider = audioBinding
+      ? `${audioBinding.logicalId}:${audioBinding.sourcePackId}:${audioBinding.implementationId}`
+      : this.sound.audioProvider.id;
+    this.container.addEventListener('pointerdown', this.unlockAudio, true);
     this.vfxRuntime = null;
     if (typeof this.visualFactories.vfxProvider.createRuntime === 'function') {
       try {
@@ -195,7 +211,8 @@ export class VehicleDebugSandboxApp {
     this.simulation = new VehicleDebugSandboxSimulation({
       scene: this.scene,
       visualFactories: this.visualFactories,
-      vfxRuntime: this.vfxRuntime
+      vfxRuntime: this.vfxRuntime,
+      soundEngine: this.sound
     });
     this.debugOverlays = new DebugOverlaySystem(this.scene);
     this.trajectoryOverlay = new ShotTrajectoryOverlay(this.scene);
@@ -359,6 +376,13 @@ export class VehicleDebugSandboxApp {
     this.camera.position.set(34, 18, 34);
     this.controls.target.set(0, 1.5, 0);
     this.controls.update();
+    this.camera.getWorldDirection(this.audioListenerForward);
+    this.sound.setListenerPose(
+      this.camera.position,
+      this.audioListenerForward,
+      this.camera.up
+    );
+    this.sound.update();
     this.lastImpactId = null;
     this.trajectoryOverlay.clear();
     this.aimMarker.visible = false;
@@ -398,6 +422,22 @@ export class VehicleDebugSandboxApp {
       return;
     }
     this.pointerStart = { id: event.pointerId, x: event.clientX, y: event.clientY };
+  }
+
+  unlockAudio() {
+    if (!this.sound) return false;
+    try {
+      this.sound.enabled = true;
+      const initialized = this.sound.init();
+      if (!initialized) this.sound.enabled = false;
+      document.body.dataset.audioStatus = initialized ? 'enabled' : 'unavailable';
+      return initialized;
+    } catch (error) {
+      this.sound.enabled = false;
+      document.body.dataset.audioStatus = 'error';
+      console.warn('[VehicleDebugSandbox] Audio unavailable:', error);
+      return false;
+    }
   }
 
   onPointerUp(event) {
@@ -588,11 +628,13 @@ export class VehicleDebugSandboxApp {
     this.viewport?.removeEventListener('pointerup', this.onPointerUp);
     this.viewport?.removeEventListener('pointercancel', this.onPointerCancel);
     this.viewport?.removeEventListener('dblclick', this.onDoubleClick);
+    this.container?.removeEventListener('pointerdown', this.unlockAudio, true);
     this.clearPendingTap();
     this.controls?.dispose();
     this.trajectoryOverlay?.dispose();
     this.debugOverlays?.dispose();
     this.simulation?.dispose();
+    this.sound?.dispose();
     this.vfxRuntime?.dispose();
     this.aimMarker?.geometry.dispose();
     this.aimMarker?.material.dispose();

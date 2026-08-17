@@ -26,9 +26,11 @@ import {
 import { resolveArmorRicochet } from '../simulation/ballistics/ProjectileImpactPhysics.js';
 import {
   createBehindArmorSpallEvent,
+  createProjectileBreakupEvent,
   resolveArmorPerforationEnergy,
   resolveBehindArmorSpallHits,
-  resolveInternalPenetrationEnergy
+  resolveInternalPenetrationEnergy,
+  resolveProjectileBreakupHits
 } from '../simulation/ballistics/ArmorTerminalEffects.js';
 import {
   resolveVehicleExplosiveEffect,
@@ -731,6 +733,18 @@ export class BallisticsSystem {
       effectiveArmorMm: result.effectiveArmorMm,
       penetrated: result.penetrated && supportsIntactPenetration
     });
+    const breakupEvent = result.penetrated
+        && supportsIntactPenetration
+        && unit.vehicleSpec?.internalLayout
+      ? createProjectileBreakupEvent({
+          weapon: projectile.weapon,
+          direction: scratchIncoming,
+          penetrated: result.penetrated,
+          penetrationRatio: result.residualRatio,
+          impactEnergyJ: penetrationEnergy.impactEnergyJ,
+          plateResidualEnergyJ: penetrationEnergy.plateResidualEnergyJ
+        })
+      : null;
     const exitHit = result.penetrated && supportsIntactPenetration
       ? traceVehicleArmorExit({
           unit,
@@ -741,6 +755,7 @@ export class BallisticsSystem {
       : null;
     const tracedInternalPath = result.penetrated
         && supportsIntactPenetration
+        && !breakupEvent
         && exitHit
         && unit.vehicleSpec?.internalLayout
       ? traceVehicleInternalPath({
@@ -753,9 +768,33 @@ export class BallisticsSystem {
     const internalEnergy = resolveInternalPenetrationEnergy({
       weapon: projectile.weapon,
       pathHits: tracedInternalPath,
-      initialEnergyJ: penetrationEnergy.plateResidualEnergyJ,
+      initialEnergyJ: breakupEvent ? 0 : penetrationEnergy.plateResidualEnergyJ,
       impactEnergyJ: penetrationEnergy.impactEnergyJ
     });
+    const breakupIntersections = breakupEvent
+      ? traceVehicleInternalFragmentBatch({
+          unit,
+          impactPoint: hit.point,
+          fragments: breakupEvent.rays,
+          maxDistanceMeters: exitHit?.distanceMeters
+            ?? unit.vehicleSpec.internalLayout.maxPathMeters
+        })
+      : [];
+    const breakupResolution = resolveProjectileBreakupHits({
+      event: breakupEvent,
+      intersections: breakupIntersections
+    });
+    const breakupHits = breakupResolution.hits;
+    let breakupEffect = null;
+    if (breakupEvent) {
+      const { rays: _boundedRays, ...summary } = breakupEvent;
+      breakupEffect = {
+        ...summary,
+        hitRayCount: breakupResolution.hitRayCount,
+        hitVolumeIds: [...breakupResolution.hitVolumeIds],
+        energyDepositedJ: breakupResolution.energyDepositedJ
+      };
+    }
     const spallEvent = result.penetrated
         && supportsIntactPenetration
         && unit.vehicleSpec?.internalLayout
@@ -882,13 +921,17 @@ export class BallisticsSystem {
       : (ricochet.ricocheted
       ? 'ricochet'
       : (result.penetrated
-          ? (penetratorContinues ? 'perforated_intact' : 'perforated_stopped')
+          ? (breakupEvent
+              ? 'perforated_breakup'
+              : (penetratorContinues ? 'perforated_intact' : 'perforated_stopped'))
           : 'stopped'));
     let continuationReason = explosiveProjectile
       ? 'explosive_detonation'
       : penetrationEnergy.continuationReason;
     if (!explosiveProjectile && ricochet.ricocheted) {
       continuationReason = ricochet.ricochetReason;
+    } else if (!explosiveProjectile && breakupEvent) {
+      continuationReason = breakupEvent.continuationReason;
     } else if (!explosiveProjectile
         && result.penetrated
         && penetrationEnergy.continuationKind === 'penetrator') {
@@ -917,6 +960,7 @@ export class BallisticsSystem {
           componentZone: zone,
           internalPathHits,
           spallHits,
+          breakupHits,
           impactEnergyJ: penetrationEnergy.impactEnergyJ,
           residualEnergyJ: internalEnergy.residualEnergyJ,
           weapon: projectile.weapon,
@@ -953,6 +997,8 @@ export class BallisticsSystem {
       explosiveEffect,
       spallEffect,
       spallHits,
+      breakupEffect,
+      breakupHits,
       continuationStartOffsetMeters,
       unitClearanceDistanceMeters,
       exitPosition,
@@ -1008,6 +1054,7 @@ export class BallisticsSystem {
       impactAngleDegrees,
       internalPathHits,
       spallHits,
+      breakupHits,
       crewResult
     };
   }

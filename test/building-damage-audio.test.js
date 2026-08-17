@@ -147,10 +147,10 @@ test('public building damage, breach, and collapse transactions route their seve
     return { events, routed };
   };
   const damaged = run(buildings => buildings.applyProjectileDamage('audio-house', {
-    sectionId: 'ground-shell', colliderPartId: 'ground-back', amount: 4, penetrationMm: 400
+    sectionId: 'ground-shell', colliderPartId: 'ground-rear-left-end', amount: 4, penetrationMm: 400
   }));
   const breached = run(buildings => buildings.applyProjectileDamage('audio-house', {
-    sectionId: 'ground-shell', colliderPartId: 'ground-back', amount: 500, penetrationMm: 400
+    sectionId: 'ground-shell', colliderPartId: 'ground-rear-left-end', amount: 500, penetrationMm: 400
   }));
   const collapsed = run(buildings => buildings.applyBlastDamage('audio-house', {
     sectionDamages: [{ sectionId: 'roof', amount: 1000 }]

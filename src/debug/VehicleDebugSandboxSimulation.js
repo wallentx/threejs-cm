@@ -275,6 +275,7 @@ export class VehicleDebugSandboxSimulation {
     catalogPorts = FRANCE_1940_CATALOG_PORTS,
     vfxProvider = visualFactories?.vfxProvider,
     vfxRuntime = null,
+    soundEngine = null,
     random = createDeterministicDebugRandom()
   } = {}) {
     if (!scene?.isScene) throw new TypeError('Vehicle debug simulation requires a Three.js scene');
@@ -283,6 +284,7 @@ export class VehicleDebugSandboxSimulation {
     this.catalogPorts = catalogPorts;
     this.vfxProvider = vfxProvider;
     this.vfxRuntime = vfxRuntime;
+    this.soundEngine = soundEngine;
     this.random = random;
     this.mode = null;
     this.units = [];
@@ -311,7 +313,7 @@ export class VehicleDebugSandboxSimulation {
   createCombat() {
     this.combat = new CombatSystem(
       this.scene,
-      null,
+      this.soundEngine,
       this.random,
       {
         terrain: FLAT_TERRAIN,

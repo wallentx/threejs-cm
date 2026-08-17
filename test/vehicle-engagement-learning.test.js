@@ -237,8 +237,12 @@ test('neutralized current armor is never retained as a score baseline or fallbac
   }), null);
 });
 
-test('automatic targeting releases a neutralized explicit order and deterministically replaces it', () => {
-  const neutralized = threat('neutralized', { burning: true, z: 10 });
+test('explicit fire retains neutralized armor while automatic targeting replaces it', () => {
+  const neutralized = threat('neutralized', {
+    combatEffective: false,
+    mainAmmo: 0,
+    z: 10
+  });
   const alpha = threat('alpha', { x: -2, z: 20, armor: 30 });
   const bravo = threat('bravo', { x: 2, z: 20, armor: 30 });
   const clearReasons = [];
@@ -265,13 +269,15 @@ test('automatic targeting releases a neutralized explicit order and deterministi
     }
   });
   const selected = game.chooseTarget(attacker, [bravo, neutralized, alpha]);
-  assert.equal(selected?.id, 'alpha');
-  assert.deepEqual(clearReasons, ['TARGET_NEUTRALIZED']);
-  assert.equal(attacker.targetUnit, null);
-  assert.equal(attacker.targetPos, null);
+  assert.equal(selected, neutralized);
+  assert.deepEqual(clearReasons, []);
+  assert.equal(attacker.targetUnit, neutralized);
+  assert.deepEqual(attacker.targetPos.toArray(), neutralized.position.toArray());
 
-  const none = game.chooseTarget(attacker, [neutralized]);
-  assert.equal(none, null);
+  attacker.targetUnit = null;
+  attacker.targetPos = null;
+  const automatic = game.chooseTarget(attacker, [bravo, neutralized, alpha]);
+  assert.equal(automatic?.id, 'alpha');
 });
 
 test('late impacts from a previous stable target cannot mutate current learning evidence', () => {

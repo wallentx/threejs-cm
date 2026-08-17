@@ -262,7 +262,14 @@ test('debug panel controls real overlays and renders bounded profiler metrics', 
           geometries: 42,
           textures: 7
         },
-        lod: { high: 2, medium: 3, core: 1, low: 4 }
+        lod: { high: 2, medium: 3, core: 1, low: 4 },
+        audio: {
+          activeVoiceCount: 12,
+          maxActiveVoices: 64,
+          virtualizedCount: 7,
+          aggregatedCount: 4,
+          environment: 'village'
+        }
       }),
       setDebugOverlayEnabled: (...args) => overlayCalls.push(args)
     };
@@ -276,6 +283,10 @@ test('debug panel controls real overlays and renders bounded profiler metrics', 
     assert.equal(element('debug-frame-average').textContent, '16.8 ms');
     assert.equal(element('debug-lod-counts').textContent, '2/3/1/4');
     assert.match(element('debug-renderer-detail').textContent, /webgl2/);
+    assert.equal(
+      element('debug-audio-detail').textContent,
+      'Audio 12/64 active · 7 virtualized · 4 aggregated · village'
+    );
 
     ui.setDebugToggle('hitboxes', true, element('debug-toggle-hitboxes'));
     assert.deepEqual(overlayCalls, [['hitboxes', true]]);
@@ -856,6 +867,13 @@ test('shot inspector exposes ordered internal penetration path and all crew casu
         hitRayCount: 4,
         hitVolumeIds: ['crew-driver', 'module-engine']
       },
+      breakupEffect: {
+        modelVersion: 'projectile-breakup-v1',
+        rayCount: 12,
+        representedFragmentCount: 36,
+        hitRayCount: 3,
+        hitVolumeIds: ['crew-driver']
+      },
       crewResult: {
         casualties: [
           { role: 'DRIVER', status: 'WOUNDED', health: 35 },
@@ -874,6 +892,9 @@ test('shot inspector exposes ordered internal penetration path and all crew casu
     assert.match(text, /spall 4\/24 rays hit/);
     assert.match(text, /96 represented fragments/);
     assert.match(text, /crew-driver, module-engine/);
+    assert.match(text, /projectile breakup 3\/12 rays hit/);
+    assert.match(text, /36 represented fragments/);
+    assert.match(text, /projectile-breakup-v1/);
   } finally {
     if (previousDocument === undefined) delete globalThis.document;
     else globalThis.document = previousDocument;

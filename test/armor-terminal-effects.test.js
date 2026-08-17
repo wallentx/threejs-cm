@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   createBehindArmorSpallEvent,
+  createProjectileBreakupEvent,
   resolveArmorPerforationEnergy,
   resolveBehindArmorSpallHits,
-  resolveInternalPenetrationEnergy
+  resolveInternalPenetrationEnergy,
+  resolveProjectileBreakupHits
 } from '../src/simulation/ballistics/ArmorTerminalEffects.js';
 
 const WEAPON = Object.freeze({
@@ -293,4 +295,75 @@ test('behind-armor spall uses a bounded deterministic cone and conserves its pla
   assert.equal(resolved.hits[0].fragmentRayCount, 2);
   assert.ok(resolved.hits.every(hit => hit.damageSeverity > 0));
   assert.ok(resolved.energyDepositedJ <= event.totalSpallEnergyJ);
+});
+
+test('marginal AP perforation breaks into a bounded deterministic cone and conserves residual energy', () => {
+  const input = {
+    weapon: { ...WEAPON, kind: 'cannon_ap' },
+    direction: [0, 0, -1],
+    penetrated: true,
+    penetrationRatio: 1.12,
+    impactEnergyJ: 100_000,
+    plateResidualEnergyJ: 20_000
+  };
+  const event = createProjectileBreakupEvent(input);
+  const replay = createProjectileBreakupEvent(input);
+
+  assert.deepEqual(replay, event);
+  assert.equal(event.modelVersion, 'projectile-breakup-v1');
+  assert.equal(event.rayCount, 12);
+  assert.equal(event.rays.length, 12);
+  assert.equal(event.continuationKind, 'none');
+  approximately(
+    event.rays.reduce((sum, ray) => sum + ray.energyJ, 0),
+    event.totalFragmentEnergyJ,
+    1e-7
+  );
+  approximately(
+    event.totalFragmentEnergyJ + event.deformationEnergyJ,
+    input.plateResidualEnergyJ,
+    1e-7
+  );
+  for (const ray of event.rays) {
+    approximately(Math.hypot(...ray.direction), 1, 1e-9);
+    assert.ok(ray.direction[2] < 0, 'every projectile fragment must continue behind the plate');
+  }
+
+  const intersections = [
+    {
+      fragmentIndex: 3,
+      id: 'module-breech',
+      kind: 'component',
+      componentId: 'breech',
+      crewRoles: [],
+      entryPoint: [0, 1, -0.8],
+      entryDistanceMeters: 0.8
+    },
+    {
+      fragmentIndex: 1,
+      id: 'crew-gunner',
+      kind: 'crew',
+      componentId: null,
+      crewRoles: ['GUNNER'],
+      entryPoint: [0, 1, -0.4],
+      entryDistanceMeters: 0.4
+    }
+  ];
+  const resolved = resolveProjectileBreakupHits({ event, intersections });
+  const reordered = resolveProjectileBreakupHits({
+    event,
+    intersections: [...intersections].reverse()
+  });
+
+  assert.deepEqual(reordered, resolved);
+  assert.deepEqual(resolved.hits.map(hit => hit.id), ['crew-gunner', 'module-breech']);
+  assert.ok(resolved.hits.every(hit => hit.terminalEffectKind === 'projectile_breakup'));
+  assert.ok(resolved.energyDepositedJ <= event.totalFragmentEnergyJ);
+
+  assert.equal(createProjectileBreakupEvent({ ...input, penetrationRatio: 1.5 }), null);
+  assert.equal(createProjectileBreakupEvent({ ...input, penetrated: false }), null);
+  assert.equal(createProjectileBreakupEvent({
+    ...input,
+    weapon: { ...input.weapon, kind: 'cannon_he', explosiveRadius: 4 }
+  }), null);
 });

@@ -261,6 +261,14 @@ function snapshotSpallEffect(effect) {
   };
 }
 
+function snapshotBreakupEffect(effect) {
+  if (!effect) return null;
+  return {
+    ...effect,
+    hitVolumeIds: [...(effect.hitVolumeIds ?? [])]
+  };
+}
+
 function snapshotExplosiveEffect(effect) {
   if (!effect) return null;
   return {
@@ -303,6 +311,8 @@ function snapshotCrewResult(crewResult) {
     internalPathHits: crewResult.internalPathHits?.map(snapshotInternalPathHit) ?? null,
     spallHits: crewResult.spallHits?.map(snapshotInternalPathHit) ?? null,
     spallEffect: snapshotSpallEffect(crewResult.spallEffect),
+    breakupHits: crewResult.breakupHits?.map(snapshotInternalPathHit) ?? null,
+    breakupEffect: snapshotBreakupEffect(crewResult.breakupEffect),
     explosiveEffect: snapshotExplosiveEffect(crewResult.explosiveEffect),
     burning: Boolean(crewResult.burning),
     destroyed: Boolean(crewResult.destroyed),
@@ -340,6 +350,8 @@ function snapshotImpact(record) {
     internalPathHits: record.internalPathHits?.map(snapshotInternalPathHit) ?? null,
     spallHits: record.spallHits?.map(snapshotInternalPathHit) ?? null,
     spallEffect: snapshotSpallEffect(record.spallEffect),
+    breakupHits: record.breakupHits?.map(snapshotInternalPathHit) ?? null,
+    breakupEffect: snapshotBreakupEffect(record.breakupEffect),
     explosiveEffect: snapshotExplosiveEffect(record.explosiveEffect),
     crewResult: snapshotCrewResult(record.crewResult),
     buildingResult: record.buildingResult
@@ -585,7 +597,12 @@ export class CombatSystem {
       }));
     }
     try {
-      this.sound?.playWeapon?.(weapon);
+      this.sound?.playWeapon?.(weapon, {
+        position: fromPos.toArray(),
+        sourceId: attacker.id,
+        shooterId: projectile.shooterId,
+        gameplayImportance: weapon.kind?.startsWith('cannon') ? 1.2 : 1
+      });
     } catch {
       // Presentation failure must not invalidate an already accepted shot.
     }
@@ -808,6 +825,8 @@ export class CombatSystem {
       internalPathHits: result?.internalPathHits?.map(snapshotInternalPathHit) ?? null,
       spallHits: result?.spallHits?.map(snapshotInternalPathHit) ?? null,
       spallEffect: snapshotSpallEffect(result?.spallEffect),
+      breakupHits: result?.breakupHits?.map(snapshotInternalPathHit) ?? null,
+      breakupEffect: snapshotBreakupEffect(result?.breakupEffect),
       explosiveEffect: snapshotExplosiveEffect(result?.explosiveEffect),
       crewResult: snapshotCrewResult(result?.crewResult),
       buildingId: impact.buildingId ?? null,
@@ -826,6 +845,19 @@ export class CombatSystem {
 
     this.telemetry.impacts.push(record);
     if (this.telemetry.impacts.length > 100) this.telemetry.impacts.shift();
+    try {
+      this.sound?.playImpact?.({
+        position: record.impactPosition,
+        sourceId: record.id,
+        impactKind: record.kind,
+        ricocheted: record.ricocheted,
+        penetrated: record.penetrated,
+        caliberMm: projectile.weapon.caliberMm ?? null,
+        gameplayImportance: record.kind === 'vehicle' ? 1.12 : 1
+      });
+    } catch {
+      // Presentation failure must not alter resolved impact state or telemetry.
+    }
 
     if (typeof document !== 'undefined') {
       const dbgEl = document.getElementById('debug-log');
@@ -1004,6 +1036,17 @@ export class CombatSystem {
         penetrated: result.penetrated
       });
       if (suppression > 0) impact.unit.applySuppression(suppression);
+      if (suppression > 0 || result.penetrated) {
+        impact.unit.recordIncomingVehicleFire?.({
+          sourceUnitId: projectile.attacker.id,
+          sourcePosition: projectile.attacker.position?.toArray?.()
+            ?? projectile.muzzlePosition.toArray(),
+          impactPosition: impact.point.toArray(),
+          weaponId: weapon.id,
+          threatKind: weapon.kind,
+          penetrated: result.penetrated
+        });
+      }
       this.telemetry.vehicleHits++;
       if (result.penetrated) this.telemetry.penetrations++;
       else if (result.ricocheted) this.telemetry.ricochets++;
@@ -1407,7 +1450,12 @@ export class CombatSystem {
 
   createExplosionEffect(pos, scale = 1, weapon = null) {
     const roundScale = calculateExplosionVisualScale(weapon, scale);
-    this.sound?.playExplosion?.({ scale: roundScale });
+    this.sound?.playExplosion?.({
+      position: pos.toArray?.() ?? pos,
+      scale: roundScale,
+      caliberMm: weapon?.caliberMm ?? null,
+      gameplayImportance: 1.15
+    });
     if (this.vfxRuntime?.emitExplosion({ position: pos, scale: roundScale })) return null;
     const style = this.vfxResources.styles.explosion;
     const visualScale = roundScale * style.initialScale;

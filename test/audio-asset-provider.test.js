@@ -236,7 +236,36 @@ test('France audio provider resolves actual weapon records by class and caliber'
     FRANCE_1940_AUDIO_EVENT_IDS.buildingCollapsed
   );
   assert.ok(resources.voiceLimits.buildingDamage > 0);
+  assert.deepEqual(
+    resources.events[FRANCE_1940_AUDIO_EVENT_IDS.rifle].layers.map(layer => layer.role),
+    ['ballistic-crack', 'muzzle-report', 'low-body', 'mechanism']
+  );
   resources.dispose();
+});
+
+test('battlefield audio contract rejects malformed procedural timbre controls', () => {
+  const base = FRANCE_1940_PROCEDURAL_AUDIO_PROVIDER.createResources();
+  const event = base.events[FRANCE_1940_AUDIO_EVENT_IDS.rifle];
+  const malformedProvider = Object.freeze({
+    id: 'malformed-timbre-provider',
+    kind: 'battlefield-audio-provider',
+    createResources() {
+      return Object.freeze({
+        ...base,
+        events: Object.freeze({
+          bad: Object.freeze({
+            ...event,
+            layers: Object.freeze([{ ...event.layers[0], noiseColor: 'blue' }])
+          })
+        })
+      });
+    }
+  });
+  assert.throws(
+    () => new SoundEngine({ audioProvider: malformedProvider }),
+    /unsupported noiseColor blue/
+  );
+  base.dispose();
 });
 
 test('audio resources reject a missing building-damage resolver', () => {
@@ -295,6 +324,7 @@ test('generic sound and combat systems contain no France audio labels or imports
     assert.doesNotMatch(source, /content\/france1940|FRANCE_1940/);
     assert.doesNotMatch(source, /\b(?:garand|mg42)\b/i);
   }
-  assert.match(combatSource, /playWeapon\?\.\(weapon\)/);
+  assert.match(combatSource, /playWeapon\?\.\(weapon, \{/);
+  assert.match(combatSource, /playImpact\?\.\(\{/);
   assert.doesNotMatch(combatSource, /playGunshot|playCannon/);
 });

@@ -388,7 +388,8 @@ test('resolved SOMUA penetration traces ordered internal model-local volumes', (
   const unit = vehicleUnit(VEHICLES.SOMUA_S35);
   unit.applyArmorHit = result => ({
     internalPathHits: result.internalPathHits,
-    spallHits: result.spallHits
+    spallHits: result.spallHits,
+    breakupHits: result.breakupHits
   });
   const hit = segment([0, 1.16, 10], [0, 1.16, -10], unit);
   const weapon = {
@@ -435,6 +436,44 @@ test('resolved SOMUA penetration traces ordered internal model-local volumes', (
   assert.ok(result.spallHits.length > 0);
   assert.ok(result.spallHits.every(hit => hit.terminalEffectKind === 'behind_armor_spall'));
   assert.match(result.internalPathHits[0].layoutDataQuality, /gameplay approximations/);
+
+  const marginalWeapon = {
+    ...WEAPONS.KWK36_AP,
+    penetrationMmAt100m: result.effectiveArmorMm * 1.1
+  };
+  const marginal = ballistics.resolveVehicleImpact({
+    weapon: marginalWeapon,
+    velocity: new THREE.Vector3(0, 0, -marginalWeapon.muzzleVelocity)
+  }, {
+    kind: 'vehicle',
+    unit,
+    point: new THREE.Vector3(...hit.point),
+    normal: new THREE.Vector3(...hit.normal),
+    zone: hit.zone,
+    fallbackZone: hit.fallbackZone,
+    plateId: hit.plateId,
+    armorVolumeId: hit.armorVolumeId,
+    armorPart: hit.armorPart,
+    armorGeometryQuality: hit.geometryQuality,
+    nominalArmorMm: hit.nominalArmorMm,
+    thicknessSourceZone: hit.thicknessSourceZone,
+    thicknessDataQuality: hit.thicknessDataQuality,
+    thicknessReferenceUrl: hit.thicknessReferenceUrl,
+    localImpactPoint: [hit.localPoint.x, hit.localPoint.y, hit.localPoint.z]
+  });
+
+  assert.equal(marginal.penetrated, true);
+  assert.equal(marginal.terminalEffect, 'perforated_breakup');
+  assert.equal(marginal.continuationReason, 'projectile_breakup');
+  assert.equal(marginal.continuationKind, 'none');
+  assert.equal(marginal.internalPathHits.length, 0);
+  assert.equal(marginal.breakupEffect.modelVersion, 'projectile-breakup-v1');
+  assert.equal(marginal.breakupEffect.rayCount, 12);
+  assert.ok(marginal.breakupEffect.hitRayCount <= 12);
+  assert.deepEqual(marginal.crewResult.breakupHits, marginal.breakupHits);
+  assert.ok(marginal.breakupHits.length > 0);
+  assert.ok(marginal.breakupHits.every(hit =>
+    hit.terminalEffectKind === 'projectile_breakup'));
 });
 
 test('resolved Panzer III front penetration routes through transmission and rear engine', () => {

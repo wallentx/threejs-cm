@@ -18,6 +18,7 @@ import {
   destroyVehicleComponentsFromCookoff,
   recordVehicleEvent,
   setVehicleComponentHealth,
+  terminalHitCause,
   vehicleDamageReport
 } from './VehicleSystems.js';
 import { createCapsuleOffsets } from '../simulation/collision/StaticCollisionWorld.js';
@@ -681,6 +682,10 @@ export class Unit {
     } else {
       this.morale = 'OK';
     }
+  }
+
+  recordIncomingVehicleFire(report) {
+    return this.vehicleAI?.recordIncomingFire(report) ?? null;
   }
 
   getLivingSoldiers() {
@@ -2274,9 +2279,7 @@ export class Unit {
         ? (this.vehicleDamageState.fire?.phase === 'AMMUNITION_VENTING'
             ? 'AMMUNITION_FIRE'
             : 'VEHICLE_FIRE')
-        : (this.morale === 'Broken'
-            ? 'ROUTED'
-            : (this.vehicleDamageState.destroyed ? 'VEHICLE_DESTROYED' : null));
+        : (this.vehicleDamageState.destroyed ? 'VEHICLE_DESTROYED' : null);
       if (reason) this.triggerVehicleCrewBailout(reason, terrain);
     }
     const fireStep = advanceVehicleFireState({
@@ -2430,6 +2433,38 @@ export class Unit {
         position: soldier.position,
         explicitAimPoint: null
       };
+    }
+    if (
+      target?.vehicleSpec
+      && this.targetMode === 'TARGET_MG'
+      && typeof target.getDismountedVehicleCrewTargets === 'function'
+    ) {
+      const exposedCrew = target.getDismountedVehicleCrewTargets()
+        .slice()
+        .sort((left, right) => String(left.id).localeCompare(String(right.id)));
+      const preferred = exposedCrew.find(actor =>
+        String(actor.id) === String(state?.targetSoldierId ?? '')
+      );
+      const orderedPoint = this.targetPos;
+      const selected = preferred ?? exposedCrew
+        .map(actor => ({
+          actor,
+          distanceSq: orderedPoint
+            ? actor.position.distanceToSquared(orderedPoint)
+            : 0
+        }))
+        .sort((left, right) =>
+          left.distanceSq - right.distanceSq
+          || String(left.actor.id).localeCompare(String(right.actor.id))
+        )[0]?.actor;
+      if (selected) {
+        if (state) state.targetSoldierId = selected.id;
+        return {
+          soldier: selected,
+          position: selected.position,
+          explicitAimPoint: null
+        };
+      }
     }
     if (state) state.targetSoldierId = null;
     if (target?.vehicleSpec && target === this.targetUnit && this.targetAimIntent) {
@@ -2611,13 +2646,11 @@ export class Unit {
     const target = context.target;
     const targetReference = target ?? this.targetUnit;
     const targetReferenceId = targetReference?.id ?? null;
-    const targetStillPlausible = !this.targetUnit
-      || this.targetUnit.isCombatEffective?.() !== false;
     // A manually ordered vehicle target retains the last precise world point
-    // when its direct-contact projection briefly drops. The projectile is
-    // still fired spatially with no preselected target, so a moved enemy is
-    // missed and ordinary swept collision remains authoritative.
-    const allowPointTarget = Boolean(this.targetPos && targetStillPlausible);
+    // when its direct-contact projection briefly drops or the target becomes
+    // disabled. The projectile is still fired spatially with no preselected
+    // target, so a moved enemy is missed and swept collision remains authoritative.
+    const allowPointTarget = Boolean(this.targetPos);
     const mainTarget = this.resolveVehicleChannelTarget(
       target,
       this.vehicleWeapon,
@@ -3117,7 +3150,13 @@ export class Unit {
 
   applyArmorHit(result) {
     if (!result.penetrated) {
-      if (result.weapon?.kind?.startsWith('cannon') && result.random() < 0.08) {
+      const impactZone = result.componentZone ?? result.damageZone ?? result.zone;
+      const struckTrack = impactZone === 'track_left' || impactZone === 'track_right';
+      if (
+        struckTrack
+        && result.weapon?.kind?.startsWith('cannon')
+        && result.random() < 0.08
+      ) {
         setVehicleComponentHealth(
           this.vehicleComponents,
           'tracks',
@@ -3127,7 +3166,8 @@ export class Unit {
           id: 'tracks',
           status: this.vehicleComponents.tracks.status,
           health: this.vehicleComponents.tracks.health,
-          cause: 'non_penetrating_impact'
+          cause: 'non_penetrating_impact',
+          impactZone
         });
         this.syncLegacyVehicleDamage();
       }
@@ -3140,9 +3180,11 @@ export class Unit {
       ? result.internalPathHits
       : [];
     const spallHits = Array.isArray(result.spallHits) ? result.spallHits : [];
+    const breakupHits = Array.isArray(result.breakupHits) ? result.breakupHits : [];
     const usesInternalPath = Array.isArray(result.internalPathHits)
-      || Array.isArray(result.spallHits);
-    const damageHits = [...penetrationPathHits, ...spallHits];
+      || Array.isArray(result.spallHits)
+      || Array.isArray(result.breakupHits);
+    const damageHits = [...penetrationPathHits, ...spallHits, ...breakupHits];
     const casualties = [];
     if (usesInternalPath) {
       const mountedCrew = this.getMountedCrew();
@@ -3160,13 +3202,11 @@ export class Unit {
           crewman,
           damage: 0,
           hits: [],
-          includesPenetrator: false,
-          includesSpall: false
+          effectKinds: new Set()
         };
         aggregate.damage += damage;
         aggregate.hits.push(hit);
-        aggregate.includesSpall ||= hit.terminalEffectKind === 'behind_armor_spall';
-        aggregate.includesPenetrator ||= hit.terminalEffectKind !== 'behind_armor_spall';
+        aggregate.effectKinds.add(hit.terminalEffectKind ?? 'penetrator');
         crewDamageById.set(crewman.id, aggregate);
       }
       const orderedCrewDamage = [...crewDamageById.values()].sort((left, right) => {
@@ -3185,11 +3225,7 @@ export class Unit {
         crewman.health = Math.max(0, crewman.health - damage);
         crewman.status = crewman.health <= 0 ? 'KIA' : 'WOUNDED';
         casualties.push(crewman);
-        const cause = aggregate.includesSpall
-          ? (aggregate.includesPenetrator
-              ? 'model_local_penetration_and_spall'
-              : 'behind_armor_spall')
-          : 'model_local_penetration_path';
+        const cause = terminalHitCause(aggregate.effectKinds);
         const energyValues = hits
           .map(hit => hit.energyDepositedJ)
           .filter(Number.isFinite);
@@ -3278,6 +3314,15 @@ export class Unit {
         : null,
       spallHits: Array.isArray(result.spallHits)
         ? result.spallHits.map(hit => ({
+            ...hit,
+            crewRoles: [...(hit.crewRoles ?? [])],
+            entryPoint: [...hit.entryPoint],
+            exitPoint: [...hit.exitPoint],
+            fragmentIndices: [...(hit.fragmentIndices ?? [])]
+        }))
+        : null,
+      breakupHits: Array.isArray(result.breakupHits)
+        ? result.breakupHits.map(hit => ({
             ...hit,
             crewRoles: [...(hit.crewRoles ?? [])],
             entryPoint: [...hit.entryPoint],
@@ -3717,11 +3762,25 @@ export class Unit {
     const vehicleSystemStep = this.updateVehicleSystems(delta, terrain);
     if (this.structureSpec) this.syncStructureCollision();
 
+    const commandedVehicleWaypoint =
+      this.waypoints[this.currentWaypointIndex] ?? null;
+    if (!this.vehicleCrewBailout?.triggered) {
+      this.vehicleAI?.update(delta, terrain, {
+        ...options,
+        orderType: commandedVehicleWaypoint?.orderType ?? null,
+        targetPosition: commandedVehicleWaypoint?.position ?? null
+      });
+    }
+    const tacticalVehicleWaypoint = this.vehicleAI?.getMovementIntent() ?? null;
+    const movementWaypoint = tacticalVehicleWaypoint
+      ?? commandedVehicleWaypoint;
+    const tacticalVehicleMovement = Boolean(tacticalVehicleWaypoint);
+
     let anchorMoving = false;
     let activeOrderType = 'QUICK';
     let infantryAwaitingArrival = null;
-    if (this.waypoints.length > 0 && this.currentWaypointIndex < this.waypoints.length) {
-      const targetWp = this.waypoints[this.currentWaypointIndex];
+    if (movementWaypoint) {
+      const targetWp = movementWaypoint;
       activeOrderType = targetWp.orderType;
 
       const movementFactor = this.getVehicleMovementFactor();
@@ -3792,7 +3851,9 @@ export class Unit {
         );
 
         if (waypointDistance < 0.8) {
-          if (this.soldierAI) {
+          if (tacticalVehicleMovement) {
+            this.vehicleAI.completeMovementIntent();
+          } else if (this.soldierAI) {
             const nextWaypoint = this.waypoints[this.currentWaypointIndex + 1];
             if (nextWaypoint) {
               const nextX = nextWaypoint.position.x - this.position.x;
@@ -3938,14 +3999,6 @@ export class Unit {
       }
     }
 
-    const activeVehicleWaypoint = this.waypoints[this.currentWaypointIndex] ?? null;
-    if (!this.vehicleCrewBailout?.triggered) {
-      this.vehicleAI?.update(delta, terrain, {
-        ...options,
-        orderType: activeVehicleWaypoint?.orderType ?? null,
-        targetPosition: activeVehicleWaypoint?.position ?? null
-      });
-    }
     this.syncVehicleWeaponPresentation();
     this.updateVehiclePhysics(delta, terrain);
     this.syncVehicleCommanderPresentation();

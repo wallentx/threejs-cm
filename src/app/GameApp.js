@@ -5,6 +5,9 @@ import {
 } from '../engine/Renderer.js';
 import { CameraManager } from '../engine/CameraManager.js';
 import { SoundEngine } from '../engine/SoundEngine.js';
+import {
+  createMapAcousticEnvironmentResolver
+} from '../engine/audio/MapAcousticEnvironment.js';
 import { FrameProfiler } from '../engine/FrameProfiler.js';
 import { SimulationPhaseProfiler } from '../engine/SimulationPhaseProfiler.js';
 import { TerrainBuilder } from '../world/TerrainBuilder.js';
@@ -279,6 +282,7 @@ export class GameApp {
       this.sound = new SoundEngine({
         audioProvider: this.visualFactories.audioProvider
       });
+      this.audioListenerForward = new THREE.Vector3(0, 0, -1);
       window.addEventListener('pagehide', () => this.sound?.dispose(), {
         once: true
       });
@@ -350,6 +354,24 @@ export class GameApp {
       this.spotting = new SpottingSystem(this.scene, this.terrain, {
         unitProfiles: this.scenario.units,
         buildingSystem: this.buildingSystem
+      });
+      const resolveAcousticEnvironment = createMapAcousticEnvironmentResolver({
+        mapDescriptor: this.mapDescriptor,
+        buildingDescriptors: this.buildingDescriptors
+      });
+      const acousticSource = new THREE.Vector3();
+      const acousticListener = new THREE.Vector3();
+      this.sound.configureSpatialModel({
+        occlusionQuery: (source, listener) => this.spotting.checkLOS(
+          acousticSource.fromArray(source),
+          acousticListener.fromArray(listener),
+          {
+            fromEyeHeight: 0,
+            toAimHeight: 0,
+            cacheStableRay: true
+          }
+        ),
+        environmentQuery: source => resolveAcousticEnvironment(source)
       });
       this.combat = new CombatSystem(this.scene, this.sound, () => this.random(), {
         terrain: this.terrain,
@@ -1320,8 +1342,8 @@ export class GameApp {
   }
 
   chooseTarget(attacker, opposingUnits) {
-    const isTargetable = target => {
-      if (!target?.isCombatEffective()) return false;
+    const hasPrecisionShot = target => {
+      if (!target) return false;
       if (!this.spotting.canPrecisionTarget(attacker, target)) return false;
       const los = this.spotting.checkLOS(
         attacker.position,
@@ -1330,22 +1352,18 @@ export class GameApp {
       );
       return los.clear && los.dist <= (attacker.vehicleSpec ? 220 : 150);
     };
+    const isTargetable = target => Boolean(
+      target?.isCombatEffective?.() && hasPrecisionShot(target)
+    );
     if (attacker.targetUnit) {
-      const orderedVehicleThreatNeutralized = Boolean(
-        attacker.vehicleSpec?.mainGun
-        && attacker.targetUnit.vehicleSpec
-        && !isOperationalArmoredCannonThreat(attacker.targetUnit)
-      );
-      if (orderedVehicleThreatNeutralized) {
-        attacker.clearTargetOrder?.('TARGET_NEUTRALIZED');
-      } else if (isTargetable(attacker.targetUnit)) {
+      // Direct player orders remain authoritative against disabled vehicles
+      // and the exposed bailout actors owned by an abandoned hull.
+      if (hasPrecisionShot(attacker.targetUnit)) {
         return attacker.targetUnit;
       }
-      // A direct player order owns targeting until cleared or its target is no
-      // longer combat-effective. During a precision-contact dropout, fire only
-      // at the retained spatial point instead of substituting a stale automatic
-      // weapon-channel target.
-      if (attacker.targetUnit?.isCombatEffective() && attacker.targetPos) {
+      // During a precision-contact dropout, fire only at the retained spatial
+      // point instead of substituting a stale automatic weapon-channel target.
+      if (attacker.targetPos) {
         return null;
       }
     }
@@ -1434,6 +1452,8 @@ export class GameApp {
             : (target.mortarTeamConfig || target.type === 'gun'
                 ? 'crew-served'
                 : (target.type === 'infantry_squad' ? 'infantry' : 'generic')),
+          protectionClass:
+            target.vehicleSpec?.explosiveProtection?.class ?? null,
           // Vehicle tactics consume the frozen observation coordinate,
           // never the live target transform.
           position: contact.position
@@ -1946,6 +1966,13 @@ export class GameApp {
       this.refreshVisibilityProjection();
       this.advanceBuildingPresentation(delta);
       this.cameraManager.update(delta);
+      this.camera.getWorldDirection(this.audioListenerForward);
+      this.sound.setListenerPose(
+        this.camera.position,
+        this.audioListenerForward,
+        this.camera.up
+      );
+      this.sound.update();
       const lodCounts = { high: 0, medium: 0, core: 0, low: 0 };
       for (const unit of this.units) {
         const lod = unit.updateLOD(this.camera.position, this.qualityTier);
@@ -1989,7 +2016,8 @@ export class GameApp {
           renderer: this.renderer.getDiagnostics(),
           overlays: debugOverlayStats,
           lod: { ...lodCounts },
-          vfx: this.vfxRuntime?.getDiagnostics() ?? null
+          vfx: this.vfxRuntime?.getDiagnostics() ?? null,
+          audio: this.sound.getDiagnostics()
         };
         this.lastDebugMetricsUpdate = now;
       }
@@ -2002,6 +2030,8 @@ export class GameApp {
         document.body.dataset.renderQuality = `${diagnostics.qualityTier}:${diagnostics.pixelRatio}`;
         document.body.dataset.lodStats = `${lodCounts.high}:${lodCounts.medium}:${lodCounts.core}:${lodCounts.low}`;
         document.body.dataset.ballisticsStats = `${this.combat.telemetry.shotsFired}:${this.combat.telemetry.infantryHits}:${this.combat.telemetry.vehicleHits}:${this.combat.telemetry.buildingHits}:${this.combat.telemetry.penetrations}:${this.combat.telemetry.ricochets}:${this.combat.telemetry.stops}`;
+        const audio = this.sound.getDiagnostics();
+        document.body.dataset.audioStats = `${audio.activeVoiceCount}:${audio.virtualizedCount}:${audio.aggregatedCount}:${audio.environment}`;
         this.lastDiagnosticsUpdate = now;
       }
       requestAnimationFrame(nextTimestamp => this.animate(nextTimestamp));

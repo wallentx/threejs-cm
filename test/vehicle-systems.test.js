@@ -383,6 +383,46 @@ test('authored track-zone penetrations damage tracks instead of arbitrary hull-s
   assert.equal(somua.vehicleComponents.fuel.status, 'OK');
 });
 
+test('stopped cannon impacts damage tracks only through resolved track zones', () => {
+  const hullHit = makeVehicle('SOMUA_S35', 'stopped_hull_hit');
+  hullHit.applyArmorHit({
+    penetrated: false,
+    zone: 'hull_front',
+    componentZone: 'hull_front',
+    weapon: getWeapon('KWK30_AP'),
+    random: () => 0
+  });
+
+  assert.equal(hullHit.vehicleComponents.tracks.health, 100);
+  assert.equal(
+    hullHit.vehicleDamageState.events.some(event => event.id === 'tracks'),
+    false
+  );
+
+  const trackHit = makeVehicle('SOMUA_S35', 'stopped_track_hit');
+  trackHit.applyArmorHit({
+    penetrated: false,
+    zone: 'hull_side',
+    componentZone: 'track_left',
+    weapon: getWeapon('KWK30_AP'),
+    random: () => 0
+  });
+
+  assert.equal(trackHit.vehicleComponents.tracks.health, 62);
+  assert.deepEqual(
+    trackHit.vehicleDamageState.events.find(event => event.id === 'tracks'),
+    {
+      version: 1,
+      type: 'component_damage',
+      id: 'tracks',
+      status: 'DAMAGED',
+      health: 62,
+      cause: 'non_penetrating_impact',
+      impactZone: 'track_left'
+    }
+  );
+});
+
 test('model-local penetration paths damage only intersected SOMUA crew and modules', () => {
   const somua = makeVehicle('SOMUA_S35', 'internal_path_damage');
   const driver = somua.roster.find(crewman => crewman.role === 'DRIVER');
@@ -482,6 +522,7 @@ test('damaged mobility and traverse components degrade their authoritative mecha
 
 test('fuel fire spreads, vents live ammunition, and deterministically cooks off', () => {
   const panzer = makeVehicle('PANZER_III_D');
+  const originalCrewIds = panzer.getLivingCrew().map(crewman => crewman.id);
   applyDirectComponentDamage({
     components: panzer.vehicleComponents,
     damageState: panzer.vehicleDamageState,
@@ -518,8 +559,12 @@ test('fuel fire spreads, vents live ammunition, and deterministically cooks off'
   assert.ok(report.events.some(event => event.type === 'ammunition_venting'));
   assert.equal(report.version, report.eventVersion);
   assert.ok(report.eventVersion > 0);
-  assert.equal(panzer.getLivingCrew().length, 0);
-  assert.ok(panzer.roster.every(crewman => crewman.status === 'KIA'));
+  assert.deepEqual(
+    panzer.getLivingCrew().map(crewman => crewman.id),
+    originalCrewIds,
+    'crew who complete bailout before cookoff remain outside mounted consequences'
+  );
+  assert.equal(panzer.vehicleCrewBailout.completed, true);
   assert.deepEqual(panzer.vehicleWeapon.ammunition, { ap: 0, he: 0 });
   assert.equal(panzer.vehicleWeapon.feedAmmo, 0);
   assert.equal(panzer.vehicleWeapon.loadedType, null);
@@ -739,7 +784,7 @@ test('legacy five-string rollback state migrates into authoritative components',
   assert.equal(source.getVehicleMovementFactor(), 0);
 });
 
-test('penetrator and spall damage aggregate by stable crew and component ownership', () => {
+test('penetrator, spall, and breakup damage aggregate by stable crew and component ownership', () => {
   const somua = makeVehicle('SOMUA_S35', 'spall_damage');
   const driver = somua.roster.find(crewman => crewman.role === 'DRIVER');
   const result = somua.applyArmorHit({
@@ -815,4 +860,64 @@ test('penetrator and spall damage aggregate by stable crew and component ownersh
     event.type === 'crew_hit' && event.cause === 'behind_armor_spall'));
   assert.ok(somua.vehicleDamageState.events.some(event =>
     event.type === 'component_damage' && event.cause === 'behind_armor_spall'));
+
+  const breakupVehicle = makeVehicle('SOMUA_S35', 'breakup_damage');
+  const breakupDriver = breakupVehicle.roster.find(
+    crewman => crewman.role === 'DRIVER'
+  );
+  const breakupResult = breakupVehicle.applyArmorHit({
+    penetrated: true,
+    zone: 'hull_front',
+    residualRatio: 1.1,
+    weapon: getWeapon('KWK36_AP'),
+    internalPathHits: [],
+    spallHits: [],
+    breakupHits: [
+      {
+        id: 'crew-driver',
+        kind: 'crew',
+        componentId: null,
+        crewRoles: ['DRIVER'],
+        entryPoint: [0, 1, 1],
+        exitPoint: [0, 1, 1],
+        entryDistanceMeters: 0.4,
+        exitDistanceMeters: 0.4,
+        pathLengthMeters: 0,
+        damageSeverity: 0.3,
+        energyDepositedJ: 800,
+        terminalEffectKind: 'projectile_breakup',
+        fragmentRayCount: 2,
+        representedFragmentCount: 6,
+        layoutVersion: 'model-local-obb-path-v1',
+        dataQuality: 'bounded gameplay approximation'
+      },
+      {
+        id: 'module-engine',
+        kind: 'component',
+        componentId: 'engine',
+        crewRoles: [],
+        entryPoint: [0, 1, -1],
+        exitPoint: [0, 1, -1],
+        entryDistanceMeters: 2,
+        exitDistanceMeters: 2,
+        pathLengthMeters: 0,
+        damageSeverity: 0.4,
+        energyDepositedJ: 3_000,
+        terminalEffectKind: 'projectile_breakup',
+        fragmentRayCount: 1,
+        representedFragmentCount: 3,
+        layoutVersion: 'model-local-obb-path-v1',
+        dataQuality: 'bounded gameplay approximation'
+      }
+    ],
+    random: sequenceRandom([0.9, 0.9])
+  });
+
+  assert.equal(breakupDriver.health, 70);
+  assert.equal(breakupVehicle.vehicleComponents.engine.health, 60);
+  assert.equal(breakupResult.breakupHits.length, 2);
+  assert.ok(breakupVehicle.vehicleDamageState.events.some(event =>
+    event.type === 'crew_hit' && event.cause === 'projectile_breakup'));
+  assert.ok(breakupVehicle.vehicleDamageState.events.some(event =>
+    event.type === 'component_damage' && event.cause === 'projectile_breakup'));
 });

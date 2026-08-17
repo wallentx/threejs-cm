@@ -187,7 +187,7 @@ test('unit bailout abandons commands, buttons the commander, and lazily creates 
   );
 });
 
-test('fire and routed morale trigger the same authoritative bailout path and block truck remount', () => {
+test('fire triggers bailout, while broken morale alone does not, and truck remount stays blocked', () => {
   const burning = makeVehicle('HOTCHKISS_H39', 'burning');
   burning.vehicleDamageState.burning = true;
   burning.updateVehicleSystems(0, FLAT_TERRAIN);
@@ -196,9 +196,10 @@ test('fire and routed morale trigger the same authoritative bailout path and blo
 
   const routed = makeVehicle('SOMUA_S35', 'routed');
   routed.morale = 'Broken';
+  routed.suppression = 90;
   routed.updateVehicleSystems(0, FLAT_TERRAIN);
-  assert.equal(routed.vehicleCrewBailout.triggered, true);
-  assert.equal(routed.vehicleCrewBailout.reason, 'ROUTED');
+  assert.equal(routed.vehicleCrewBailout.triggered, false);
+  assert.equal(routed.getMountedCrew().length, routed.getLivingCrew().length);
 
   const truck = makeVehicle('LAFFLY_S20TL', 'truck');
   assert.equal(truck.triggerVehicleCrewBailout('VEHICLE_FIRE', FLAT_TERRAIN), true);

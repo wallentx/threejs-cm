@@ -15,11 +15,12 @@ import {
 import { FRANCE_1940_VISUAL_FACTORIES } from '../src/content/france1940/render/index.js';
 import { TEST_VFX_PROVIDER } from './helpers/TestVfxProvider.js';
 
-function createSimulation() {
+function createSimulation({ soundEngine = null } = {}) {
   return new VehicleDebugSandboxSimulation({
     scene: new THREE.Scene(),
     visualFactories: FRANCE_1940_VISUAL_FACTORIES,
-    vfxProvider: TEST_VFX_PROVIDER
+    vfxProvider: TEST_VFX_PROVIDER,
+    soundEngine
   });
 }
 
@@ -249,6 +250,55 @@ test('duel mode produces shots and impacts through normal vehicle combat', () =>
   }
 });
 
+test('stopped 20 mm fire cannot route healthy S35 crew or invent off-track damage', () => {
+  for (const attackerId of ['PANZER_II_C', 'SDKFZ_231']) {
+    const simulation = createSimulation();
+    try {
+      const { left: somua } = simulation.setupDuel({
+        leftVehicleId: 'SOMUA_S35',
+        rightVehicleId: attackerId,
+        separationMeters: 35
+      });
+      const crewIds = somua.getLivingCrew().map(crewman => crewman.id);
+      advance(simulation, 10);
+
+      const impacts = simulation.combat.telemetry.impacts.filter(impact =>
+        impact.targetId === somua.id && impact.weaponId === 'KWK30_AP'
+      );
+      assert.ok(impacts.length > 0, `${attackerId} must hit the S35`);
+      assert.equal(
+        impacts.some(impact => impact.penetrated),
+        false,
+        `${attackerId} 20 mm AP must remain stopped at 35 m in this deterministic duel`
+      );
+      assert.equal(somua.vehicleDamageState.destroyed, false);
+      assert.equal(somua.vehicleCrewBailout.triggered, false);
+      assert.deepEqual(somua.getMountedCrew().map(crewman => crewman.id), crewIds);
+      assert.equal(somua.isCombatEffective(), true);
+      assert.ok(
+        somua.vehicleAI.captureState().threatResponse.impactVersion > 0,
+        `${attackerId} impacts must reach authoritative threat-response state`
+      );
+      assert.notEqual(somua.tacticalDecision.responsePhase, 'BAILOUT');
+      assert.equal(
+        somua.vehicleDamageState.events.some(event =>
+          event.type === 'crew_bailout_started' && event.reason === 'ROUTED'
+        ),
+        false
+      );
+      for (const event of somua.vehicleDamageState.events.filter(event =>
+        event.type === 'component_damage'
+        && event.id === 'tracks'
+        && event.cause === 'non_penetrating_impact'
+      )) {
+        assert.match(event.impactZone, /^track_(left|right)$/);
+      }
+    } finally {
+      simulation.dispose();
+    }
+  }
+});
+
 test('gun mode places the shot origin on the exact three-dimensional camera normal', () => {
   const simulation = createSimulation();
   try {
@@ -279,6 +329,70 @@ test('gun mode places the shot origin on the exact three-dimensional camera norm
     assert.ok(target.vehicleDamageState.events.length > 0);
   } finally {
     simulation.dispose();
+  }
+});
+
+test('sandbox combat routes weapon reports and explosions through its injected sound engine', () => {
+  const weaponEvents = [];
+  const explosionEvents = [];
+  let disposed = 0;
+  const soundEngine = {
+    playWeapon(weapon) {
+      weaponEvents.push(weapon.id);
+      return true;
+    },
+    playExplosion(context) {
+      explosionEvents.push(context.scale);
+      return true;
+    },
+    dispose() {
+      disposed++;
+    }
+  };
+  const simulation = createSimulation({ soundEngine });
+  try {
+    const { target } = simulation.setupGun({
+      targetVehicleId: 'PANZER_III_D',
+      gunOptionId: 'DEBUG_FLAK_88_HE',
+      distanceMeters: 100
+    });
+    const aimPoint = target.position.clone().add(new THREE.Vector3(0, 1.2, 0));
+
+    assert.equal(
+      simulation.queueGunShot(aimPoint, new THREE.Vector3(0, 0, -1)),
+      true
+    );
+    assert.deepEqual(weaponEvents, ['DEBUG_FLAK_88_HE']);
+    advance(simulation, 20);
+    assert.ok(explosionEvents.length > 0);
+    assert.equal(simulation.combat.sound, soundEngine);
+  } finally {
+    simulation.dispose();
+  }
+  assert.equal(disposed, 0, 'the browser app, not scenario recreation, owns audio disposal');
+});
+
+test('sandbox audio unlock enables and initializes its browser-owned sound engine', () => {
+  const previousDocument = globalThis.document;
+  globalThis.document = { body: { dataset: {} } };
+  try {
+    const app = Object.create(VehicleDebugSandboxApp.prototype);
+    let initialized = 0;
+    app.sound = {
+      enabled: false,
+      init() {
+        initialized++;
+        return true;
+      }
+    };
+
+    assert.equal(app.unlockAudio(), true);
+    assert.equal(app.sound.enabled, true);
+    assert.equal(initialized, 1);
+    assert.equal(document.body.dataset.audioStatus, 'enabled');
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
   }
 });
 

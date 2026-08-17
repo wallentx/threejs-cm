@@ -570,6 +570,19 @@ export function applyExplosiveComponentDamage({
   return results;
 }
 
+export function terminalHitCause(effectKinds) {
+  const kinds = effectKinds instanceof Set ? effectKinds : new Set(effectKinds ?? []);
+  const includesPenetrator = kinds.has('penetrator');
+  const includesSpall = kinds.has('behind_armor_spall');
+  const includesBreakup = kinds.has('projectile_breakup');
+  if (includesBreakup && includesSpall) return 'projectile_breakup_and_spall';
+  if (includesBreakup && includesPenetrator) return 'penetration_and_projectile_breakup';
+  if (includesBreakup) return 'projectile_breakup';
+  if (includesSpall && includesPenetrator) return 'model_local_penetration_and_spall';
+  if (includesSpall) return 'behind_armor_spall';
+  return 'model_local_penetration_path';
+}
+
 export function applyPathComponentDamage({
   components,
   damageState,
@@ -615,14 +628,7 @@ export function applyPathComponentDamage({
   }
   for (const [componentId, aggregate] of grouped) {
     const hit = aggregate.hit;
-    const includesSpall = aggregate.effectKinds.has('behind_armor_spall');
-    const includesPenetrator = [...aggregate.effectKinds]
-      .some(kind => kind !== 'behind_armor_spall');
-    const cause = includesSpall
-      ? (includesPenetrator
-          ? 'model_local_penetration_and_spall'
-          : 'behind_armor_spall')
-      : 'model_local_penetration_path';
+    const cause = terminalHitCause(aggregate.effectKinds);
     const result = applyDirectComponentDamage({
       components,
       damageState,

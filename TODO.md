@@ -412,8 +412,22 @@ even when a matching broader parent exists elsewhere in this file.
 - [ ] Add conditional individual vehicle-crew bailout. Crew may remain at a
   viable post; combat-ineffective, burning, routed, or commander-abandoned
   vehicles prompt appropriate hatch egress and survival movement.
-  - [ ] First authoritative visible slice: burning, ammunition-venting,
-    destroyed-with-survivors, or routed vehicles abandon their commands and
+  - [x] Regression fix: stopped cannon hits can damage tracks only after a
+    resolved left/right track impact, and transient Broken morale alone cannot
+    eject healthy crew or falsely neutralize an otherwise intact vehicle.
+  - [x] Commander threat-response slice: record bounded resolved incoming-fire
+    pressure; reverse away from an unidentified source or repeated effective
+    fire; disengage from an identified armored threat when the main gun is
+    disabled or out of ammunition and the coax cannot answer it; and bail out
+    only when effective fire catches the vehicle immobilized. Preserve the
+    decision crew, response target, episode state, and timing through deep
+    capture/restore and partitioned advancement.
+  - [ ] Extend commander threat response with near misses, cover-aware reverse
+    destinations, confidence in inferred fire direction, driver replacement,
+    explicit weapon-versus-target capability beyond the current armor/coax
+    classification, and experience/leadership-dependent decision delay.
+  - [ ] First authoritative visible slice: burning, ammunition-venting, or
+    destroyed-with-survivors vehicles abandon their commands and
     stagger each living mounted crewman through a simulation-timed egress onto
     a deterministic static-collision route to nearby cover. Drive lazily
     allocated full-body figures from rollback-owned world positions; keep
@@ -430,8 +444,9 @@ even when a matching broader parent exists elsewhere in this file.
     - [x] Focused behavioral regression slice: cover stable living-crew order,
       stagger/exposure timing, whole-step/partition/capture/restore parity,
       waiting and exposed casualties, command abandonment, commander buttoning,
-      lazy figure allocation without restore duplication, automatic fire/rout
-      triggers, truck mount-control lockout, swept body hits, and HE falloff.
+      lazy figure allocation without restore duplication, automatic fire and
+      destruction triggers, truck mount-control lockout, swept body hits, and
+      HE falloff. Conditional routed-crew decisions remain explicit follow-up.
   - [ ] Correct 18 measured positive breech/crew OBB overlaps across 14 armored
     vehicles from each vehicle's authored station evidence; separately conserve
     residual energy across coincident internal-path intervals instead of charging
@@ -1006,6 +1021,10 @@ authorized.
       - [x] Add bounded TSL/node-material sprite fire, smoke, impact, explosion, and modeled-muzzle flash presentation with stepped high-frame-rate animation and no `ShaderMaterial`, `RawShaderMaterial`, or `onBeforeCompile` fallback.
       - [ ] Add audio providers plus external model/texture loading, disposal, and missing-asset fallback policy.
         - [x] Battlefield-audio slice: replace generic `garand`/`mg42` labels and hardcoded synthesis with a logical France 1940 audio provider; resolve rifle, machine-gun, submachine-gun, light-cannon, medium-cannon, explosion, and UI events from actual weapon class/caliber; inject the provider into `SoundEngine`; preserve bounded voices and cached deterministic noise; bind source-pack identity; and dispose provider, WebAudio graph, buffers, and context on page exit.
+        - [x] Vehicle-debug audio parity: inject the same family-owned `SoundEngine` into sandbox combat, route weapon and explosion presentation through it, defer audio until the first browser pointer gesture instead of queuing shots in a suspended context, retain audio across duel resets, and dispose it once with the sandbox app.
+        - [x] Positional battlefield-acoustics slice: emit weapon, impact, ricochet, explosion, and building-damage context at real world positions; track the camera listener; render one HRTF panner per layered event; add category-specific gain and high-frequency distance loss, configurable speed-of-sound scheduling, subtle seed/rate/gain variation, mixer buses, shared synthetic environmental convolution, map-derived acoustic profiles, throttled smooth occlusion through the existing spotting LOS query, global/category voice priority and virtualization, distant small-arms aggregation, bounded diagnostics, and focused browser-free policy/WebAudio-graph tests.
+        - [x] Procedural-timbre v2: replace single white-noise gunshots with reusable click-free white/pink/brown noise layers, high/low/band-pass resonance, bounded saturation, and role-labeled crack, report, pressure, mechanism, metal, ricochet, and debris components; re-author all current small-arms, cannon, explosion, impact, and building profiles while retaining one HRTF voice per event and cached deterministic buffers.
+        - [ ] Bind recorded family sample pools and measured impulse responses through the external-audio service; add semantic continuous engine, infantry-voice, and environmental start/update/stop lifecycles; profile live 150-infantry/20-vehicle loads; improve distant battle-bed synthesis and portal-aware interiors; and add optional zero-cost-when-disabled Three.js emitter/ray/radius visualization.
         - [x] External-image lifecycle slice: route logical calibration-reference URLs through a generic deduplicating image service; retain logical/source-pack identity; reject unsafe URL schemes; support explicit throw, unavailable, and fallback-URL policies; permit retry after failure; cancel pending loads; release cached images; revoke owned blob URLs; and dispose the calibration runtime on page exit.
         - [ ] Add external model/texture/audio loading, ownership-aware disposal, and equivalent explicit missing-asset fallback policies.
           - [x] External-texture service foundation: wrap each deduplicated image resource in one injected disposable texture; retain URL, fallback, logical, and source-pack identity; bound cached ownership; release image handles; and cancel pending work on shutdown. Live family texture/model/audio binding remains.
@@ -1040,7 +1059,8 @@ authorized.
   - [x] Intact-perforator residual-energy slice: infer a labeled ballistic limit from the current penetration curve; conserve entry-plate energy; deplete finite energy through ordered crew/module volumes; require defeat of the true exit plate; continue the same projectile from the far armor face; preserve distance, identity, telemetry, and WEGO rollback; and permit deterministic follow-on hits.
   - [x] Harden residual continuation: consume rollback-safe in-vehicle transit time; conserve sub-threshold terminal energy; distinguish closed-shell exit armor from single-resistance track/mantlet envelopes; and terminate explosive ammunition before the intact-perforator path.
   - [x] Bounded terminal-effects slice: generate 24 deterministic weighted behind-armor spall rays from plate energy, stop each representative ray at its first internal volume, aggregate crew/module damage by stable ownership, expose terminal evidence in telemetry/UI, and preserve deep rollback state.
-  - [ ] Replace the labeled generic ricochet approximation with projectile-and-plate-specific critical-angle and retained-energy data; add projectile breakup and internal ricochet.
+  - [x] Bounded projectile-breakup slice: convert marginal non-explosive AP perforations into 12 deterministic forward representative rays, conserve post-plate residual energy between fragments and deformation, stop each ray at its first internal volume, keep breakup distinct from plate spall, and preserve damage evidence through telemetry, UI, and rollback.
+  - [ ] Replace the labeled generic ricochet and breakup approximations with projectile-and-plate-specific critical-angle, retained-energy, construction, and failure data; add internal ricochet.
 - [ ] Model internal vehicle modules: engine, transmission, fuel, ammunition racks, optics, radio, turret traverse, gun breech, and tracks.
   - [x] First authoritative pass: named component health, installed/operational state, deterministic zone-weighted damage, fire and ammunition-explosion events, degraded mobility/traverse/reload/fire behavior, and WEGO capture/restore.
   - [x] SOMUA vertical slice: add immutable model-local crew and module volumes; trace successful penetrations inward from the exact armor impact; order intersections by distance and stable ID; damage only intersected crew/components; expose the path in telemetry and the shot inspector; preserve deep WEGO capture/restore; and label compartment bounds as gameplay approximations.
@@ -1054,7 +1074,7 @@ authorized.
   - [x] Apply deterministic residual-energy depletion to ordered internal crew/module paths, aggregate duplicate component volumes, stop downstream damage after exhaustion, and expose the complete entry-to-exit energy chain.
   - [x] Add a bounded direct-hit HE vehicle terminal slice: explicit armored-enclosed, unarmored-enclosed, and open protection classes; exterior plate/component damage; model-local radial crew/module candidates; distance falloff; stable deterministic intents; injected-RNG secondary effects; telemetry, HUD inspection, and rollback replay.
   - [x] Add a bounded terminal-effects pass: deterministic behind-armor spall plus inferred fighting/turret/powerpack pressure transmission and at most two intervening component blockers, without persistent fragment entities.
-  - [ ] Add projectile breakup, internal ricochet, explicit compartment partitions/bulkheads and hatch state, HE fragment/fuze/filler models, and component repair/abandonment rules.
+  - [ ] Add projectile-and-plate-specific breakup data, internal ricochet, explicit compartment partitions/bulkheads and hatch state, HE fragment/fuze/filler models, and component repair/abandonment rules.
 - [ ] Add crew task reassignment, replacement-gunner delays, bailout decisions, and abandoned vehicles.
   - [x] Gameplay-approximation slice: add a catalog-driven Panzer III commander-to-main-gunner task transfer with a deterministic 12-second delay, main-gun lockout, stable crew-ID selection, and deep rollback coverage.
   - [x] First unbuttoned-commander slice: add a rollback-owned BUTTONED/UNBUTTONED posture and command action; expose the living role-owning commander through a swept model-local hit volume; let small arms wound or kill that crewman; auto-button after casualty, vehicle burning, destruction, or role loss; and render a family-owned commander torso, headgear approximation, and binocular pose above the hatch.
@@ -1118,6 +1138,7 @@ authorized.
   - [x] First functional pass across all 15 vehicles: cataloged mount identity, crew dependency, feed/reserve state, reload and cyclic cadence, exact rendered muzzle ownership, independent projectiles, component failure, telemetry, and WEGO capture/restore.
   - [x] Correct verified right-side coax placement on H39, Panzer III/IV, Panzer 35(t)/38(t), and Sd.Kfz. 231; place the Char B1 hull MG right of its 75 mm gun; align visible barrels with muzzle markers; explicitly mark unresolved mount sides provisional.
   - [x] Add explicit MG-only targeting and an automatic weapon policy that withholds vehicle MGs from armored and area targets while retaining them against infantry.
+    - [x] Keep explicit target ownership distinct from automatic threat selection: automatic fire continues to reject combat-ineffective armor, while player orders remain on disabled vehicles and `TARGET MG` resolves the clicked exposed bailout actor instead of discarding the abandoned parent hull.
   - [ ] Model the Char B1 bis as two distinct cannon groups: retain normal `TARGET AP` / `TARGET HE` for the turret 47 mm SA 35; add `TARGET HULL APHE` / `TARGET HULL HE` for the hull 75 mm ABS gun; and add `TARGET HULL AUTO` to coordinate that 75 mm gun with the hull MAC 31 according to target suitability, crew availability, mount limits, loaded round, and conserved ammunition. Give both cannons and the hull MG separate stable mount IDs, targets, aim/fire/reload state, crew dependencies, magazines/reserves, telemetry, UI summaries, and deep WEGO capture/restore. Verify from primary sources before canonicalizing the reported 74-round 75 mm load with only 7 APHE rounds, and keep any interim split explicitly provisional.
     - [x] Separate-hull-cannon slice: add named `hull_main` muzzle/component/state; driver-gunner and loader dependencies; 67 HE plus 7 APHE typed ammunition; exact documented shell masses, explosive fills, muzzle velocities, L.710 11.5-degree FOV/range ladders, 15-rpm theoretical rate, 6-rpm APHE/first-six-HE rate, a labeled 3-rpm midpoint for later fused HE, and recorded -15/+25-degree elevation limits; expose `TARGET HULL HE` and `TARGET HULL APHE`; pivot the stopped hull toward the target through a bounded Naeder gameplay approximation; and preserve typed state through capture/restore. `TARGET HULL AUTO`, runtime enforcement of vertical elevation limits, primary-source verification, sight-direction spotting integration, and full UI telemetry remain.
   - [ ] Replace explicitly labeled mount-ammunition and reload approximations with vehicle-specific archival values; add mount traverse/elevation limits, aim delay, and target-sharing rules.
@@ -1152,6 +1173,7 @@ authorized.
     - [ ] Finish the reviewed inspectable field contract and broader tactical behavior.
   - [ ] Add tactical reverse movement under explicit reverse orders or a validated heavy-threat withdrawal plan.
     - [x] First live slice: explicit reverse waypoints use signed rearward kinematics, collision resolution, and track travel while preserving the forward hull orientation.
+    - [x] Preserve deliberate player movement under fire: commanded forward waypoints outrank automatic threat-response movement, one unidentified impact records pressure without reversing, and repeated unresolved fire may still escalate to a commander-owned reverse while the vehicle is idle.
     - [ ] Add an authoritative heavy-threat retreat destination and the remaining reverse decision telemetry.
   - [ ] Add vehicle damage AI adaptation for mobility, optics, crew roles, and combat abandonment.
     - [x] First live slice: component/crew state produces inspectable damage decisions, disabled mobility remains authoritative, and burning or secondary-exploding vehicles abandon all weapon combat intent.

@@ -360,7 +360,10 @@ These seams are usable now, before the staged directory migration is complete:
 | External decoded-audio loading and lifecycle | `assets/ExternalAudioAssetService.js`: validated fetch/decode; identity-safe deduplication and fallback; bounded true-LRU decoded resources, abort, release, and aggregate cleanup failures | Future family playback adapters and live sound consumers |
 | External model loading and lifecycle | `assets/ExternalModelAssetService.js`: injected fetch, source release, parse, clone, and instance/template disposal; identity-safe fallback; bounded template ownership with clone leases, deferred eviction, cancellation, and aggregate cleanup failures | Future family format adapters and live scene-instance consumers |
 | Projectile, impact, explosion, and vehicle-damage VFX resources | `world/vfx/ProceduralBattlefieldVfxProvider.js`, family VFX asset binding | `CombatSystem`, `VehicleDamageEffects`; presentation only |
-| Weapon, explosion, and UI audio event profiles | `content/france1940/audio/*`, family audio asset binding | Injected generic `SoundEngine`; presentation only |
+| Semantic battlefield audio event profiles | `content/france1940/audio/*`, family audio asset binding | Injected generic `SoundEngine`; presentation only |
+| Distance, propagation, priority, occlusion response, buses, and environment profiles | `engine/audio/BattlefieldAcoustics.js` | `SoundEngine`; browser-free policy tests |
+| Map acoustic classification | `engine/audio/MapAcousticEnvironment.js` consuming injected map/building data | `GameApp` audio environment port |
+| HRTF voices, layered playback, filters, reverb, virtualization, and diagnostics | `engine/SoundEngine.js` | Web Audio API; camera listener and injected LOS/environment ports |
 | Browser lifecycle and faction scheduling | `app/GameApp.js`, `app/FactionRosterIndex.js` | Composition, scenario runtime, UI/editor clients |
 | UI/editor application boundary | `app/ApplicationPorts.js` | `UIManager`, `Minimap`, `MapEditor` |
 | Vehicle meshes, articulated markers, LOD | `world/vehicles/*` during staged source migration | Family visual registry, Unit animation, damage VFX |
@@ -400,7 +403,9 @@ another current precision-visible armored threat offers a materially better
 penetration, aspect, threat, and range score. Stops, ricochets, penetrations,
 and partial internal damage continue that escalation while the target remains
 visibly combat-effective; destruction, burning, or a secondary explosion reset
-it. Explicit player targets are never replaced by this automatic policy.
+it. Explicit player targets are never replaced or cleared by this automatic
+policy, including after a vehicle becomes combat-ineffective; the player must
+clear or replace that order.
 Issuing or clearing a direct target atomically resets every main/auxiliary
 weapon channel, fire-control target key, aim intent, and engagement-evidence
 target. A temporarily unobservable explicit target retains only its ordered
@@ -409,7 +414,7 @@ Automatic armored-threat selection reads current cannon capability: destruction,
 burning, loss of the gun/breech/gunner, or ammunition exhaustion immediately
 permits another precision-visible operational cannon threat to replace the
 target. Mobility loss alone does not neutralize a tank whose cannon can still
-fight. This replacement also ends an explicit order against a neutralized tank.
+fight. This replacement applies only to automatic target ownership.
 Idle vehicle threat-facing may orient an uncommitted turret toward a current
 direct contact. Once explicit or automatic fire control owns a weapon target,
 that fire-control path is the sole writer of authoritative turret yaw;
@@ -434,7 +439,12 @@ state. `BallisticsSystem` supplies resolved plate geometry and penetration.
 first-order ballistic-limit energy budget, then depletes that finite energy
 through ordered internal intersections. It is pure, renderer-neutral, and does
 not mutate units. This model covers intact rigid-projectile residual velocity;
-projectile breakup, plug mass, and armor debris remain separate future work.
+its separate bounded breakup model converts marginal non-explosive AP
+perforations into a deterministic forward fragment cone and consumes the
+would-be intact continuation. The breakup threshold and energy partition are
+explicit gameplay approximations until the weapon catalog owns projectile
+construction and plate-specific failure evidence. Plug mass remains future
+work.
 `VehicleExplosiveEffects` separately converts a direct HE detonation into
 plain exterior, crew, and component damage intents. It never feeds HE into the
 intact-projectile energy path.
@@ -487,20 +497,26 @@ kinetic penetrations also emit exactly 24 deterministic weighted representative
 spall rays in a bounded cone. Those rays share a fixed fraction of plate energy,
 stop at their first internal OBB, and aggregate to at most one damage mutation
 per stable crewman or component; no persistent fragment entities are created.
+Marginal AP perforations at or below the labeled 1.25 penetration-ratio
+threshold additionally replace the intact penetrator with exactly 12 bounded
+representative projectile-fragment rays. Their motion and deformation shares
+conserve the post-plate residual-energy budget, and their damage remains
+distinct from plate spall in telemetry and vehicle events.
 Vehicles without an internal layout retain the labeled zone-weighted fallback.
 For direct HE, `VehicleInternalCollision` also measures point-to-oriented-box
 surface distance, returns stable radial candidates, inferred compartments, and
 bounded component shielding. Exact bulkheads, hatch state, internal ricochets,
-projectile breakup, HE fragments, explosive filler, and fuze behavior remain
-explicit future work rather than hidden precision.
+projectile-and-plate-specific breakup thresholds, HE fragments, explosive
+filler, and fuze behavior remain explicit future work rather than hidden
+precision.
 Per-vehicle records live under
 `content/france1940/vehicleData/internalLayouts/` so one vehicle can be refined without
 editing generic collision or damage code. All 14 current catalog vehicles own
 separate layouts: SOMUA, Renault R35, Hotchkiss H39, AMC 35, Panhard 178,
 Laffly S20TL, Char B1 bis, Panzer II, Panzer III, Panzer 35(t), Panzer 38(t),
 Sd.Kfz. 231, Opel Blitz, and Panzer IV. Compartment bounds remain explicit
-gameplay approximations; this slice does not claim projectile breakup, internal
-ricochet, or historically exact fragment and pressure behavior. A layout may reference only
+gameplay approximations; the bounded breakup slice does not claim historically
+exact projectile failure, fragment, internal-ricochet, or pressure behavior. A layout may reference only
 components installed by `VehicleSystems`; visible but not yet simulated
 armament, such as the Char B1 bis hull 75 mm, must not gain a nonfunctional
 damage component through geometry data alone.

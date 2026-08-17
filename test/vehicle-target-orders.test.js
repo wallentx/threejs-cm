@@ -168,3 +168,70 @@ test('precision dropout retains only the ordered spatial aim until Clear Target 
   }
   assert.equal(game.chooseTarget(attacker, [automatic]), automatic);
 });
+
+test('TARGET MG follows an explicit order onto exposed crew of an abandoned vehicle', () => {
+  const attacker = makeVehicle(
+    'attacker',
+    'french',
+    'SOMUA_S35',
+    new THREE.Vector3()
+  );
+  const abandoned = makeVehicle(
+    'abandoned',
+    'german',
+    'PANZER_III_D',
+    new THREE.Vector3(0, 0, 35)
+  );
+  const exposedCrew = [
+    { id: 'loader', position: new THREE.Vector3(1.4, 0, 34) },
+    { id: 'commander', position: new THREE.Vector3(-1.2, 0, 36) }
+  ];
+  abandoned.isCombatEffective = () => false;
+  abandoned.getDismountedVehicleCrewTargets = () => exposedCrew;
+  const clickedCrew = exposedCrew[1];
+  attacker.setTargetOrder({
+    targetUnit: abandoned,
+    targetPos: clickedCrew.position,
+    targetMode: 'TARGET_MG'
+  });
+  const game = Object.assign(Object.create(GameApp.prototype), {
+    random: () => 0,
+    spotting: {
+      canPrecisionTarget: () => true,
+      checkLOS: () => ({ clear: true, dist: 35 })
+    }
+  });
+
+  const target = game.chooseTarget(attacker, [abandoned]);
+  assert.equal(target, abandoned);
+  const machineGunMount = attacker.vehicleSpec.weaponMounts.find(
+    mount => mount.kind !== 'cannon'
+  );
+  const resolved = attacker.resolveVehicleChannelTarget(
+    target,
+    attacker.vehicleMounts[machineGunMount.id],
+    machineGunMount.id
+  );
+  assert.equal(resolved.soldier.id, clickedCrew.id);
+  assert.deepEqual(resolved.position.toArray(), clickedCrew.position.toArray());
+
+  const shots = [];
+  const combat = {
+    fireWeapon(_shooter, shotTarget, _position, options) {
+      shots.push({ shotTarget, ...options });
+      return true;
+    }
+  };
+  for (let step = 0; step < 300 && shots.length === 0; step++) {
+    attacker.updateVehicleCombat(1 / 30, {
+      target,
+      combat,
+      shooterMoving: false,
+      targetMoving: false
+    });
+  }
+  assert.ok(shots.length > 0, 'the ordered machine gun must eventually fire');
+  assert.equal(shots[0].shotTarget, abandoned);
+  assert.equal(shots[0].mountId, machineGunMount.id);
+  assert.equal(shots[0].targetSoldier.id, clickedCrew.id);
+});

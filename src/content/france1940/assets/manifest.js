@@ -124,7 +124,7 @@ export const FRANCE_1940_ASSET_MANIFEST = defineAssetManifest({
       kind: 'battlefield-audio-provider',
       source: {
         type: 'procedural',
-        generatorId: 'france-1940-procedural-battlefield-audio-v1'
+        generatorId: 'france-1940-procedural-battlefield-audio-v2'
       },
       provenance: 'procedural presentation approximation derived from weapon class and caliber',
       metadata: {

@@ -117,7 +117,7 @@ test('small-arms armor impacts emit sparks without an explosion or morale loss',
   combat.dispose();
 });
 
-test('vehicle crew morale labels do not magically disable intact movement', () => {
+test('vehicle suppression alone cannot bail out healthy crew or disable intact movement', () => {
   const unit = new Unit({
     id: 'morale-mobile-char',
     faction: 'french',
@@ -125,12 +125,21 @@ test('vehicle crew morale labels do not magically disable intact movement', () =
     vehicleId: 'CHAR_B1_BIS',
     position: new THREE.Vector3()
   });
-  unit.applySuppression(100);
+  const crewIds = unit.getLivingCrew().map(crewman => crewman.id);
+  unit.applySuppression(130);
   unit.addWaypoint(new THREE.Vector3(0, 0, 20), 'MOVE');
   unit.update(1 / 30, {
     getHeightAt: () => 0,
     getMovementHeightAt: () => 0
   });
   assert.equal(unit.morale, 'Broken');
+  assert.equal(unit.vehicleDamageState.destroyed, false);
+  assert.equal(unit.vehicleDamageState.burning, false);
+  assert.equal(unit.vehicleCrewBailout.triggered, false);
+  assert.deepEqual(unit.getMountedCrew().map(crewman => crewman.id), crewIds);
+  assert.equal(
+    unit.vehicleDamageState.events.some(event => event.type === 'crew_bailout_started'),
+    false
+  );
   assert.ok(unit.position.z > 0);
 });

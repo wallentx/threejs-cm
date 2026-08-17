@@ -332,6 +332,24 @@ export const BEHIND_ARMOR_SPALL_MODEL = Object.freeze({
   ].join('; ')
 });
 
+export const PROJECTILE_BREAKUP_MODEL = Object.freeze({
+  version: 'projectile-breakup-v1',
+  rayCount: 12,
+  representedFragmentsPerRay: 3,
+  coneHalfAngleDegrees: 18,
+  maximumPenetrationRatio: 1.25,
+  minimumCaliberMm: 20,
+  minimumResidualEnergyJ: 250,
+  fragmentEnergyFraction: 0.8,
+  dataQuality: [
+    'bounded deterministic gameplay approximation for marginal AP perforations',
+    'the current weapon catalog does not yet describe projectile metallurgy or failure thresholds',
+    'fragment energy is conserved from the post-plate residual-energy budget',
+    'fixed representative rays terminate at the first modeled internal volume',
+    'projectile-and-plate-specific breakup, fragment mass distribution, and internal ricochet remain future data work'
+  ].join('; ')
+});
+
 function cross(left, right) {
   return [
     left[1] * right[2] - left[2] * right[1],
@@ -346,6 +364,47 @@ function scaledSum(axis, tangent, bitangent, axialScale, tangentScale, bitangent
     axis[1] * axialScale + tangent[1] * tangentScale + bitangent[1] * bitangentScale,
     axis[2] * axialScale + tangent[2] * tangentScale + bitangent[2] * bitangentScale
   ];
+}
+
+function createDeterministicConeRays({
+  axis,
+  rayCount,
+  coneHalfAngleDegrees,
+  totalEnergyJ,
+  representedFragmentsPerRay
+}) {
+  const helper = Math.abs(axis[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+  const tangent = normalized(cross(axis, helper));
+  const bitangent = normalized(cross(axis, tangent));
+  if (!tangent || !bitangent) return null;
+
+  const equalRayEnergyJ = totalEnergyJ / rayCount;
+  const radialMaximum = Math.sin(coneHalfAngleDegrees * Math.PI / 180);
+  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+  const rays = [];
+  for (let index = 0; index < rayCount; index++) {
+    const radialScale = radialMaximum * Math.sqrt((index + 0.5) / rayCount);
+    const axialScale = Math.sqrt(Math.max(0, 1 - radialScale * radialScale));
+    const azimuth = index * goldenAngle;
+    const rayDirection = normalized(scaledSum(
+      axis,
+      tangent,
+      bitangent,
+      axialScale,
+      radialScale * Math.cos(azimuth),
+      radialScale * Math.sin(azimuth)
+    ));
+    const energyJ = index === rayCount - 1
+      ? Math.max(0, totalEnergyJ - equalRayEnergyJ * (rayCount - 1))
+      : equalRayEnergyJ;
+    rays.push({
+      index,
+      direction: rayDirection,
+      energyJ,
+      representedFragments: representedFragmentsPerRay
+    });
+  }
+  return rays;
 }
 
 export function createBehindArmorSpallEvent({
@@ -366,44 +425,20 @@ export function createBehindArmorSpallEvent({
     return null;
   }
 
-  const helper = Math.abs(axis[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
-  const tangent = normalized(cross(axis, helper));
-  const bitangent = normalized(cross(axis, tangent));
-  if (!tangent || !bitangent) return null;
-
   const rayCount = BEHIND_ARMOR_SPALL_MODEL.rayCount;
   const totalSpallEnergyJ = Math.min(
     plateEnergyJ,
     plateEnergyJ * BEHIND_ARMOR_SPALL_MODEL.spallEnergyFraction
   );
-  const equalRayEnergyJ = totalSpallEnergyJ / rayCount;
-  const radialMaximum = Math.sin(
-    BEHIND_ARMOR_SPALL_MODEL.coneHalfAngleDegrees * Math.PI / 180
-  );
-  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-  const rays = [];
-  for (let index = 0; index < rayCount; index++) {
-    const radialScale = radialMaximum * Math.sqrt((index + 0.5) / rayCount);
-    const axialScale = Math.sqrt(Math.max(0, 1 - radialScale * radialScale));
-    const azimuth = index * goldenAngle;
-    const rayDirection = normalized(scaledSum(
-      axis,
-      tangent,
-      bitangent,
-      axialScale,
-      radialScale * Math.cos(azimuth),
-      radialScale * Math.sin(azimuth)
-    ));
-    const energyJ = index === rayCount - 1
-      ? Math.max(0, totalSpallEnergyJ - equalRayEnergyJ * (rayCount - 1))
-      : equalRayEnergyJ;
-    rays.push({
-      index,
-      direction: rayDirection,
-      energyJ,
-      representedFragments: BEHIND_ARMOR_SPALL_MODEL.representedFragmentsPerRay
-    });
-  }
+  const rays = createDeterministicConeRays({
+    axis,
+    rayCount,
+    coneHalfAngleDegrees: BEHIND_ARMOR_SPALL_MODEL.coneHalfAngleDegrees,
+    totalEnergyJ: totalSpallEnergyJ,
+    representedFragmentsPerRay:
+      BEHIND_ARMOR_SPALL_MODEL.representedFragmentsPerRay
+  });
+  if (!rays) return null;
 
   return {
     kind: 'behind_armor_spall',
@@ -420,7 +455,84 @@ export function createBehindArmorSpallEvent({
   };
 }
 
-export function resolveBehindArmorSpallHits({ event, intersections = [] }) {
+/**
+ * Breaks a marginally perforating non-explosive AP projectile into a bounded
+ * forward cone. This is deliberately deterministic and data-labeled until
+ * projectile construction and plate metallurgy are available in the catalog.
+ */
+export function createProjectileBreakupEvent({
+  weapon,
+  direction,
+  penetrated,
+  penetrationRatio,
+  impactEnergyJ,
+  plateResidualEnergyJ
+}) {
+  const axis = normalized(direction);
+  const impactEnergy = Math.max(0, finite(impactEnergyJ));
+  const residualEnergy = Math.min(
+    impactEnergy,
+    Math.max(0, finite(plateResidualEnergyJ))
+  );
+  const ratio = Math.max(0, finite(penetrationRatio));
+  const explosiveProjectile = weapon?.kind === 'cannon_he'
+    || finite(weapon?.explosiveRadius) > 0;
+  if (
+    !penetrated
+    || !axis
+    || explosiveProjectile
+    || weapon?.kind !== 'cannon_ap'
+    || finite(weapon?.caliberMm) < PROJECTILE_BREAKUP_MODEL.minimumCaliberMm
+    || ratio < 1
+    || ratio > PROJECTILE_BREAKUP_MODEL.maximumPenetrationRatio
+    || residualEnergy < PROJECTILE_BREAKUP_MODEL.minimumResidualEnergyJ
+  ) {
+    return null;
+  }
+
+  const totalFragmentEnergyJ = Math.min(
+    residualEnergy,
+    residualEnergy * PROJECTILE_BREAKUP_MODEL.fragmentEnergyFraction
+  );
+  const deformationEnergyJ = Math.max(0, residualEnergy - totalFragmentEnergyJ);
+  const rayCount = PROJECTILE_BREAKUP_MODEL.rayCount;
+  const rays = createDeterministicConeRays({
+    axis,
+    rayCount,
+    coneHalfAngleDegrees: PROJECTILE_BREAKUP_MODEL.coneHalfAngleDegrees,
+    totalEnergyJ: totalFragmentEnergyJ,
+    representedFragmentsPerRay:
+      PROJECTILE_BREAKUP_MODEL.representedFragmentsPerRay
+  });
+  if (!rays) return null;
+
+  return {
+    kind: 'projectile_breakup',
+    modelVersion: PROJECTILE_BREAKUP_MODEL.version,
+    dataQuality: PROJECTILE_BREAKUP_MODEL.dataQuality,
+    continuationKind: 'none',
+    continuationReason: 'projectile_breakup',
+    rayCount,
+    representedFragmentCount:
+      rayCount * PROJECTILE_BREAKUP_MODEL.representedFragmentsPerRay,
+    coneHalfAngleDegrees: PROJECTILE_BREAKUP_MODEL.coneHalfAngleDegrees,
+    penetrationRatio: ratio,
+    residualEnergyJ: residualEnergy,
+    energyFraction: PROJECTILE_BREAKUP_MODEL.fragmentEnergyFraction,
+    totalFragmentEnergyJ,
+    deformationEnergyJ,
+    rays
+  };
+}
+
+function resolveFragmentHits({
+  event,
+  intersections,
+  energyBudgetJ,
+  terminalEffectKind,
+  modelField,
+  dataQualityField
+}) {
   if (!event?.rays?.length) {
     return {
       hits: [],
@@ -468,10 +580,7 @@ export function resolveBehindArmorSpallHits({ event, intersections = [] }) {
     .map(aggregate => {
       const hit = aggregate.nearest;
       const profile = energyProfileForHit(hit);
-      const energyDepositedJ = Math.min(
-        event.totalSpallEnergyJ,
-        aggregate.energyDepositedJ
-      );
+      const energyDepositedJ = Math.min(energyBudgetJ, aggregate.energyDepositedJ);
       return {
         ...hit,
         crewRoles: [...(hit.crewRoles ?? [])],
@@ -479,9 +588,9 @@ export function resolveBehindArmorSpallHits({ event, intersections = [] }) {
         exitPoint: [...(hit.entryPoint ?? [0, 0, 0])],
         exitDistanceMeters: finite(hit.entryDistanceMeters),
         pathLengthMeters: 0,
-        terminalEffectKind: 'behind_armor_spall',
-        spallModelVersion: event.modelVersion,
-        spallDataQuality: event.dataQuality,
+        terminalEffectKind,
+        [modelField]: event.modelVersion,
+        [dataQualityField]: event.dataQuality,
         fragmentIndices: [...aggregate.fragmentIndices].sort((a, b) => a - b),
         fragmentRayCount: aggregate.fragmentRayCount,
         representedFragmentCount: aggregate.representedFragmentCount,
@@ -504,4 +613,26 @@ export function resolveBehindArmorSpallHits({ event, intersections = [] }) {
     hitVolumeIds: hits.map(hit => hit.id),
     energyDepositedJ: hits.reduce((sum, hit) => sum + hit.energyDepositedJ, 0)
   };
+}
+
+export function resolveBehindArmorSpallHits({ event, intersections = [] }) {
+  return resolveFragmentHits({
+    event,
+    intersections,
+    energyBudgetJ: event?.totalSpallEnergyJ ?? 0,
+    terminalEffectKind: 'behind_armor_spall',
+    modelField: 'spallModelVersion',
+    dataQualityField: 'spallDataQuality'
+  });
+}
+
+export function resolveProjectileBreakupHits({ event, intersections = [] }) {
+  return resolveFragmentHits({
+    event,
+    intersections,
+    energyBudgetJ: event?.totalFragmentEnergyJ ?? 0,
+    terminalEffectKind: 'projectile_breakup',
+    modelField: 'breakupModelVersion',
+    dataQualityField: 'breakupDataQuality'
+  });
 }

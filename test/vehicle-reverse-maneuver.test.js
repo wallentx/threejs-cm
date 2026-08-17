@@ -28,6 +28,12 @@ test('shouldVehicleReverse identifies REVERSE order and heavy threat retreat whe
   assert.equal(shouldVehicleReverse({ unit, orderType: 'REVERSE' }), true);
   assert.equal(shouldVehicleReverse({ unit, heavyThreat: true }), true);
   assert.equal(shouldVehicleReverse({ unit, orderType: 'MOVE' }), false);
+  assert.equal(shouldVehicleReverse({
+    unit,
+    orderType: 'MOVE',
+    targetPosition: new THREE.Vector3(0, 0, 20),
+    heavyThreat: true
+  }), false, 'heavy fire must not reinterpret a deliberate forward waypoint');
 
   // Driver KIA inhibits reverse maneuver
   const driver = unit.roster.find(c => c.role === 'DRIVER');

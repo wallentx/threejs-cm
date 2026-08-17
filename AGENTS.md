@@ -51,9 +51,9 @@ Required work order:
    disposal or ownership paths for the selected seam.
 4. Make the smallest cohesive change inside the allowed files.
 5. Add behavioral tests that would have failed before the change.
-6. Run focused tests, `npm test`, `npm run build`, and
+6. Run focused tests, the applicable core gate, `npm run build`, and
    `git diff --check`. Perform the required browser check when runtime code was
-   touched.
+   touched, subject to the known Termux blocker policy below.
 7. Update `TODO.md` conservatively and fill in the packet results. Then stop
    for review.
 
@@ -147,6 +147,33 @@ Required handoff report:
 - When coverage overlaps, consolidate before adding. A smaller behavioral
   suite is preferred over many micro-tests that repeat constructors, renderer
   allocation, or browser/runtime setup.
+
+### Known Termux blocker retry policy
+
+Do not repeatedly execute a command solely to reproduce an unchanged,
+previously verified environment blocker. A known blocker is not a pass: report
+it with the bounded replacement checks, but spend routine validation time on
+tests that can produce new evidence.
+
+Known blockers verified on 2026-08-17:
+
+- The 384 MB core runner exhausts the Node heap in `test/realism.test.js`.
+  For routine changes that do not touch that test, the test runner, Node/package
+  configuration, or its major dependency graph, run the other five core files
+  with `npm run test:file -- ...` plus every focused affected test. Do not run
+  `npm test` merely to reproduce the same OOM.
+- Headless Chromium on this Termux device loses its WebGL rendering device and
+  exits the GPU process with code 11 before the game can reach
+  `data-game-status="ready"`. For routine changes that do not touch renderer
+  initialization, backend selection, Chromium launch/probe tooling, or graphics
+  dependencies, verify the server responds, run relevant renderer/resource/UI
+  tests, and do not relaunch headless Chromium merely to reproduce the same
+  device-loss failure.
+
+Retry a known blocked command when its implicated code or environment changed,
+the blocker signature changes, a release or milestone requires revalidation,
+or the user explicitly requests it. When retrying, record the exact command,
+date, error signature, and whether the blocker remains current.
 
 ## Core simulation invariants
 
@@ -394,10 +421,13 @@ An item is complete only when relevant parts below are satisfied:
 3. WEGO capture/restore includes new persistent state.
 4. Realtime and WEGO both still work.
 5. Focused automated tests cover the mechanic and its failure cases.
-6. `npm test` passes.
+6. `npm test` passes, or the exact known Termux OOM policy applies and all five
+   runnable core files plus focused affected tests pass.
 7. `npm run build` passes.
 8. `git diff --check` passes.
-9. Browser runtime reaches `data-game-status="ready"` for affected UI/runtime work.
+9. Browser runtime reaches `data-game-status="ready"` for affected UI/runtime
+   work, or the exact known Termux GPU blocker policy applies and its bounded
+   server, renderer/resource, and UI replacement checks pass.
 10. `TODO.md` accurately records completed, partial, remaining, or dropped scope.
 
 The current production bundle-size warning is known. Do not treat it as a build failure, but do not worsen it casually.

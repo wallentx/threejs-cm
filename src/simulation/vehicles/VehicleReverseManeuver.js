@@ -11,6 +11,11 @@ export function shouldVehicleReverse({ unit, orderType, targetPosition, threatPo
     return true;
   }
 
+  // A deliberate forward waypoint owns vehicle motion. Threat-response AI may
+  // create its own reverse intent while idle, but a generic heavy-fire flag
+  // must not silently reinterpret the player's route as a reverse order.
+  if (targetPosition) return false;
+
   if (heavyThreat || unit.vehicleDamageState?.heavyFire) {
     return true;
   }
